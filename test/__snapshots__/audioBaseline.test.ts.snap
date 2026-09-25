@@ -4,26 +4,26 @@ exports[`audio fingerprint per preset > 45° V-twin, 2-into-1 1`] = `"d15ffb0e  
 
 exports[`audio fingerprint per preset > 90° V-twin, 2-into-2 1`] = `"9fe94b17  rms 5.684255e-2 peak 0.197795 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > Boxer four 1`] = `"1273d1c1  rms 7.208972e-2 peak 0.312786 nonFinite 0"`;
+exports[`audio fingerprint per preset > Boxer four 1`] = `"6478f208  rms 1.060765e-1 peak 0.469072 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > Boxer six 1`] = `"9201c21a  rms 5.828859e-2 peak 0.201197 nonFinite 0"`;
+exports[`audio fingerprint per preset > Boxer six 1`] = `"5393b18b  rms 6.390410e-2 peak 0.223310 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > Inline five 1`] = `"af46224f  rms 1.641941e-2 peak 0.049948 nonFinite 0"`;
+exports[`audio fingerprint per preset > Inline five 1`] = `"87723569  rms 1.712465e-2 peak 0.056267 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > Inline four 1`] = `"9ffea8cd  rms 5.812069e-2 peak 0.162593 nonFinite 0"`;
+exports[`audio fingerprint per preset > Inline four 1`] = `"72a9df0a  rms 3.979001e-2 peak 0.120866 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > Inline six 1`] = `"86d2a94a  rms 1.948175e-2 peak 0.054366 nonFinite 0"`;
+exports[`audio fingerprint per preset > Inline six 1`] = `"9beebd25  rms 2.014688e-2 peak 0.066185 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > Inline three 1`] = `"ba312f67  rms 6.569194e-2 peak 0.270903 nonFinite 0"`;
+exports[`audio fingerprint per preset > Inline three 1`] = `"0e4b78cb  rms 6.236397e-2 peak 0.271215 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > Parallel twin, 360° 1`] = `"97bd61dd  rms 2.127071e-2 peak 0.070038 nonFinite 0"`;
+exports[`audio fingerprint per preset > Parallel twin, 360° 1`] = `"b7de3c2c  rms 2.056493e-2 peak 0.076485 nonFinite 0"`;
 
 exports[`audio fingerprint per preset > Single, megaphone 1`] = `"5f75ffe3  rms 4.065366e-2 peak 0.143921 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > V6, 60°, manifold per bank 1`] = `"82a89615  rms 6.289971e-2 peak 0.231215 nonFinite 0"`;
+exports[`audio fingerprint per preset > V6, 60°, manifold per bank 1`] = `"6e92884f  rms 6.675810e-2 peak 0.244794 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > V8, crossplane, manifold per bank 1`] = `"a32cf1a8  rms 6.052506e-2 peak 0.150662 nonFinite 0"`;
+exports[`audio fingerprint per preset > V8, crossplane, manifold per bank 1`] = `"28b5c872  rms 5.275594e-2 peak 0.188963 nonFinite 0"`;
 
 exports[`audio fingerprint per preset > V8, flatplane, manifold per bank 1`] = `"325b356c  rms 5.576638e-2 peak 0.151373 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > V8, overcammed 1`] = `"7d594447  rms 8.828119e-2 peak 0.270622 nonFinite 0"`;
+exports[`audio fingerprint per preset > V8, overcammed 1`] = `"4d6ff2a1  rms 8.737883e-2 peak 0.268874 nonFinite 0"`;

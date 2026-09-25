@@ -34,6 +34,13 @@ Where the model is simplified, and by how much.
   about 820 J/(kg K) cold to over 1200 hot, and dissociation absorbs energy above roughly
   2200 K. Peak *pressures* are in the right range (66-88 bar at full load) because the trapped
   mass is right. So the error shows in temperature, not in the sound.
+- **A chamber's cross-wise modes are linear and partly simplified.** They're added to the 1D
+  solver as linear oscillators, so a very loud pulse doesn't steepen across the can as it does
+  along it. The pipes can only be offset along the can's width, which is where they drive the
+  lowest modes, not along its height. Mode damping is one fixed ratio (ζ = 0.02, a Q of 25)
+  for wall and visco-thermal loss, chosen from the range measured muffler cavities show, not
+  derived. Loss into the pipes is not part of it; that comes out of the coupling itself. The
+  panels of a flat can are rigid, so it doesn't drone the way thin sheet metal does.
 - **Junctions are balanced approximately.** Each junction is balanced by two [Newton](glossary.md#newtons-method)
   corrections (refinement steps), not solved fully. Its mass flow balance is close but not
   exact, and the remaining imbalance is reported as a diagnostic.

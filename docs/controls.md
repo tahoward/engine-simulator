@@ -24,7 +24,11 @@ Each pipe is made of segments. There are three kinds:
 
 - `pipe`: the same diameter all the way along.
 - `cone`: a straight taper, as in headers, megaphones and reverse cones.
-- `chamber`: a sudden widening into a can, then back down, like a muffler.
+- `chamber`: a sudden widening into a can, then back down, like a muffler. Its **Shape** can
+  be round, oval or rectangular. A non-round can is sized by **Width** and **Height**.
+  **Inlet offset** and **Outlet offset** move its pipes off the centreline along the width.
+  Offset pipes into a wide can make it ring across its width, which a centred pipe can't do.
+  See [Chamber shapes](acoustics.md#chamber-shapes).
 
 How to edit:
 

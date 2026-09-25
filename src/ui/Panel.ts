@@ -32,8 +32,10 @@ import {
   type EngineConfig,
   type EngineSnapshot,
   type EngineSpec,
+  type ChamberSection,
   type PipeSegment,
   type SegmentKind,
+  CHAMBER_SECTIONS,
   makeSegment,
   segmentDiameter,
   speedOfSound,
@@ -75,6 +77,18 @@ interface SegmentRow {
   dIn: HTMLInputElement;
   dOut: HTMLInputElement;
   dOutWrap: HTMLElement;
+  /** A chamber's shape controls; absent for other segments. */
+  height?: HTMLInputElement;
+  offsetIn?: HTMLInputElement;
+  offsetOut?: HTMLInputElement;
+}
+
+const SECTION_LABELS: Record<ChamberSection, string> = { round: 'round', oval: 'oval', rect: 'rectangular' };
+
+/** What the body-size field is called: a diameter for a round can, a width otherwise. */
+function bodyLabel(seg: PipeSegment): string {
+  if (seg.kind !== 'chamber') return 'Outlet ⌀';
+  return (seg.section ?? 'round') === 'round' ? 'Body ⌀' : 'Width';
 }
 
 const MM = 1000;
@@ -1076,7 +1090,7 @@ export class Panel {
     const dOutWrap = el('div', 'field', grid);
     const dOut = numberInto(
       dOutWrap,
-      seg.kind === 'chamber' ? 'Body ⌀' : 'Outlet ⌀',
+      bodyLabel(seg),
       seg.dOut * MM,
       6,
       400,
@@ -1091,6 +1105,8 @@ export class Panel {
     );
     dOutWrap.classList.toggle('hidden', seg.kind === 'pipe');
 
+    const shape = seg.kind === 'chamber' ? this.chamberFields(wrap, seg) : {};
+
     const bends = el('div', 'segment-grid', wrap);
     numberField(bends, 'Yaw', deg(seg.yaw), -120, 120, 1, '°', (v) => {
       seg.yaw = rad(v);
@@ -1101,7 +1117,56 @@ export class Panel {
       this.commit();
     });
 
-    return { el: wrap, kind, length, dIn, dOut, dOutWrap };
+    return { el: wrap, kind, length, dIn, dOut, dOutWrap, ...shape };
+  }
+
+  /** Shape, height and pipe offsets, for a chamber's row. */
+  private chamberFields(
+    wrap: HTMLElement,
+    seg: PipeSegment,
+  ): Pick<SegmentRow, 'height' | 'offsetIn' | 'offsetOut'> {
+    const grid = el('div', 'segment-grid', wrap);
+    const field = el('div', 'field', grid);
+    el('label', '', field).textContent = 'Shape';
+    const select = el('select', '', field) as HTMLSelectElement;
+    for (const k of CHAMBER_SECTIONS) select.appendChild(option(k, SECTION_LABELS[k]));
+    select.value = seg.section ?? 'round';
+    select.addEventListener('pointerdown', (e) => e.stopPropagation());
+    select.addEventListener('change', () => {
+      const next = select.value as ChamberSection;
+      if (next === 'round') {
+        delete seg.section;
+        delete seg.height;
+      } else {
+        // A round can turned flat keeps its width and starts at half its height, which is a
+        // typical oval silencer's proportion.
+        if ((seg.section ?? 'round') === 'round') seg.height = seg.dOut / 2;
+        seg.section = next;
+      }
+      this.commit();
+      this.rebuildPipeList();
+    });
+
+    const heightWrap = el('div', 'field', grid);
+    const height = numberInto(heightWrap, 'Height', (seg.height ?? seg.dOut) * MM, 6, 400, 1, 'mm', (v) => {
+      seg.height = v / MM;
+      this.commit();
+      this.syncPipe();
+    });
+    heightWrap.classList.toggle('hidden', (seg.section ?? 'round') === 'round');
+
+    // Offsets along the width, which is where they move the pipe furthest from the modes' nodes.
+    const offsetIn = numberField(grid, 'Inlet offset', (seg.offsetIn ?? 0) * MM, -200, 200, 1, 'mm', (v) => {
+      seg.offsetIn = v / MM;
+      this.commit();
+      this.syncPipe();
+    });
+    const offsetOut = numberField(grid, 'Outlet offset', (seg.offsetOut ?? 0) * MM, -200, 200, 1, 'mm', (v) => {
+      seg.offsetOut = v / MM;
+      this.commit();
+      this.syncPipe();
+    });
+    return { height, offsetIn, offsetOut };
   }
 
   /** Keep the duct continuous after an inlet/outlet edit. */
@@ -1186,6 +1251,15 @@ export class Panel {
       if (document.activeElement !== row.length) row.length.value = round(seg.length * MM, 1);
       if (document.activeElement !== row.dIn) row.dIn.value = round(seg.dIn * MM, 1);
       if (document.activeElement !== row.dOut) row.dOut.value = round(seg.dOut * MM, 1);
+      if (row.height && document.activeElement !== row.height) {
+        row.height.value = round((seg.height ?? seg.dOut) * MM, 1);
+      }
+      if (row.offsetIn && document.activeElement !== row.offsetIn) {
+        row.offsetIn.value = round((seg.offsetIn ?? 0) * MM, 1);
+      }
+      if (row.offsetOut && document.activeElement !== row.offsetOut) {
+        row.offsetOut.value = round((seg.offsetOut ?? 0) * MM, 1);
+      }
       row.kind.value = seg.kind;
       row.dOutWrap.classList.toggle('hidden', seg.kind === 'pipe');
     });

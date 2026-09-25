@@ -8,16 +8,25 @@
  * changing the acoustics — the 1D model only cares about area versus *axial distance*, which
  * turning does not alter.
  *
- * Radius comes from `segmentDiameter`, the same function the waveguide discretiser
- * uses, so what you see is the duct the sound is actually travelling down.
+ * Cross-sections come from `segmentSection`, and areas from `segmentDiameter`, the same functions the
+ * duct solver discretises, so what you see is the duct the sound is actually travelling down. A
+ * chamber's body can be oval or rectangular, and its pipes can enter and leave off its centreline.
  */
 
 import * as THREE from 'three';
-import { type PipeSegment, segmentDiameter } from '../model/spec.js';
+import {
+  CHAMBER_THROAT,
+  type PipeSegment,
+  type Section,
+  chamberOffsets,
+  sectionBoundary,
+  segmentDiameter,
+  segmentSection,
+} from '../model/spec.js';
 import { turnBetweenDirs, turnDir } from '../model/geometry.js';
 
-/** Radial resolution of the tube. */
-const RADIAL = 18;
+/** Points round the tube. Enough to turn the corners of a rectangular can. */
+const RADIAL = 40;
 /** Centreline stations per metre of pipe. Enough to resolve a wave visually. */
 const STATIONS_PER_M = 190;
 /** Minimum stations in any one segment, so short segments still have a shape. */
@@ -28,7 +37,12 @@ export interface Station {
   x: number;
   position: THREE.Vector3;
   direction: THREE.Vector3;
+  /** Radius, m: of the tube where it is round, and of the smallest circle enclosing it where not. */
   radius: number;
+  /** Cross-section here. */
+  section: Section;
+  /** The section's width axis: horizontal and square to the tube, so a flat can lies flat. */
+  across: THREE.Vector3;
   /** Index of the authoring segment this station belongs to. */
   segment: number;
   /**
@@ -67,6 +81,19 @@ export function layoutPipe(
   let dir = heading.clone().normalize();
   let x = 0;
 
+  const station = (seg: PipeSegment, si: number, u: number, at: THREE.Vector3): Station => {
+    const section = segmentSection(seg, u);
+    return {
+      x,
+      position: at,
+      direction: dir.clone(),
+      radius: section.section === 'round' ? segmentDiameter(seg, u) / 2 : Math.max(section.width, section.height) / 2,
+      section,
+      across: acrossAxis(dir),
+      segment: si,
+    };
+  };
+
   for (let si = 0; si < pipe.length; si++) {
     const seg = pipe[si]!;
     const count = Math.max(MIN_STATIONS, Math.round(seg.length * STATIONS_PER_M));
@@ -78,29 +105,26 @@ export function layoutPipe(
 
     if (si === 0) {
       // The first segment's inlet; a turn here is the duct leaving its port or junction at an angle.
-      stations.push({
-        x,
-        position: pos.clone(),
-        direction: dir.clone(),
-        radius: segmentDiameter(seg, 0) / 2,
-        segment: si,
-      });
+      stations.push(station(seg, si, 0, pos.clone()));
     } else if (incoming.angleTo(dir) > 1e-6) {
       // The previous segment's outlet station is this corner: cut it on the bisector.
       stations[stations.length - 1]!.mitre = incoming.clone().add(dir).normalize();
     }
 
+    // An offset pipe enters the can off its centreline, so the body sits to one side of the pipe
+    // coming in, and the pipe going out leaves from wherever its own offset puts it.
+    const [offIn, offOut] = chamberOffsets(seg);
+    const across = acrossAxis(dir);
+    const lateral = (u: number) =>
+      u < CHAMBER_THROAT ? 0 : u <= 1 - CHAMBER_THROAT ? -offIn : offOut - offIn;
+
     for (let k = 1; k <= count; k++) {
       pos.addScaledVector(dir, step);
       x += step;
-      stations.push({
-        x,
-        position: pos.clone(),
-        direction: dir.clone(),
-        radius: segmentDiameter(seg, k / count) / 2,
-        segment: si,
-      });
+      const u = k / count;
+      stations.push(station(seg, si, u, pos.clone().addScaledVector(across, lateral(u))));
     }
+    pos.addScaledVector(across, offOut - offIn);
 
     joints.push(pos.clone());
     jointDirections.push(dir.clone());
@@ -118,6 +142,13 @@ export function layoutPipe(
  * segment's fit — so they all agree. Pitching about a *horizontal* axis changes elevation by exactly
  * `pitch` and leaves the horizontal heading alone, which is what makes `turnBetween` an exact inverse.
  */
+/** Horizontal and square to `dir`: the axis a chamber's width lies along. */
+export function acrossAxis(dir: THREE.Vector3): THREE.Vector3 {
+  const a = new THREE.Vector3(0, 1, 0).cross(dir);
+  if (a.lengthSq() < 1e-8) return new THREE.Vector3(1, 0, 0).projectOnPlane(dir).normalize();
+  return a.normalize();
+}
+
 export function turnHeading(dir: THREE.Vector3, yaw = 0, pitch = 0): THREE.Vector3 {
   return new THREE.Vector3(...turnDir([dir.x, dir.y, dir.z], yaw, pitch));
 }
@@ -270,24 +301,42 @@ export class PipeMesh {
        */
       const mitre = st.mitre;
       const along = mitre ? tangent.dot(mitre) : 1;
+      const shaped = st.section.section !== 'round';
+      // The section's own axes, for placing a shaped ring: width across, height square to it.
+      const height = shaped ? new THREE.Vector3().crossVectors(tangent, st.across) : null;
 
       for (let j = 0; j <= RADIAL; j++) {
         const a = (j / RADIAL) * Math.PI * 2;
         const cos = Math.cos(a);
         const sin = Math.sin(a);
-        const nx = normalRef.x * cos + binormal.x * sin;
-        const ny = normalRef.y * cos + binormal.y * sin;
-        const nz = normalRef.z * cos + binormal.z * sin;
+        // Ring points keep the transported frame's directions whatever the shape, so each one joins
+        // the same point on the next ring and a round throat meets its shaped body without a twist.
+        const dx = normalRef.x * cos + binormal.x * sin;
+        const dy = normalRef.y * cos + binormal.y * sin;
+        const dz = normalRef.z * cos + binormal.z * sin;
+        let r = st.radius;
+        let nx = dx;
+        let ny = dy;
+        let nz = dz;
+        if (height) {
+          const ay = dx * st.across.x + dy * st.across.y + dz * st.across.z;
+          const az = dx * height.x + dy * height.y + dz * height.z;
+          sectionBoundary(st.section, Math.atan2(az, ay), BOUNDARY);
+          r = BOUNDARY[0]!;
+          nx = st.across.x * BOUNDARY[1]! + height.x * BOUNDARY[2]!;
+          ny = st.across.y * BOUNDARY[1]! + height.y * BOUNDARY[2]!;
+          nz = st.across.z * BOUNDARY[1]! + height.z * BOUNDARY[2]!;
+        }
 
         let slide = 0;
         if (mitre && Math.abs(along) > 1e-3) {
-          slide = -((nx * mitre.x + ny * mitre.y + nz * mitre.z) * st.radius) / along;
+          slide = -((dx * mitre.x + dy * mitre.y + dz * mitre.z) * r) / along;
         }
 
         const vi = (i * (RADIAL + 1) + j) * 3;
-        positions[vi] = st.position.x + nx * st.radius + tangent.x * slide;
-        positions[vi + 1] = st.position.y + ny * st.radius + tangent.y * slide;
-        positions[vi + 2] = st.position.z + nz * st.radius + tangent.z * slide;
+        positions[vi] = st.position.x + dx * r + tangent.x * slide;
+        positions[vi + 1] = st.position.y + dy * r + tangent.y * slide;
+        positions[vi + 2] = st.position.z + dz * r + tangent.z * slide;
         normals[vi] = nx;
         normals[vi + 1] = ny;
         normals[vi + 2] = nz;
@@ -438,6 +487,8 @@ function pressureColor(t: number, out: THREE.Color): void {
     out.setRGB(base - 0.45 * m, base - 0.05 * m + 0.3 * m * m, base + (1 - base) * m);
   }
 }
+
+const BOUNDARY = new Float64Array(3);
 
 function pickInitialNormal(tangent: THREE.Vector3): THREE.Vector3 {
   const up = new THREE.Vector3(0, 1, 0);

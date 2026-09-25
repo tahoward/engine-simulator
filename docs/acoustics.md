@@ -68,6 +68,57 @@ the real flow is two-dimensional and a 1D model can't describe it. A chamber's s
 still behaves like a step: spread over four cells, it stays acoustically sharp well past a
 few kHz.
 
+The spreading keeps the duct's volume. The ramp straddles the drawn edge: the pipe next to
+the chamber widens a little and the body narrows a little, by amounts chosen so each
+stretch holds the volume that was drawn. This matters because a chamber's low-frequency
+attenuation depends on its volume. If the ramp came entirely out of the body, a 35 mm grid
+would leave the street muffler's can with 39% of its volume.
+
+### Chamber shapes
+
+A chamber's body can be round, oval or rectangular (with rounded corners), and its inlet and
+outlet pipes can sit off-centre along its width. Shape reaches the sound in two ways.
+
+**Area and wall.** The plane-wave solver sees the body's true area, so an oval can with the
+same area as a round one has the same volume and the same step reflections. A flat can has
+more wall for its area, though. Friction and heat transfer use the
+[hydraulic diameter](glossary.md#hydraulic-diameter) `4A/P`, and the wall's heat capacity and
+outer surface use the true perimeter. A flat can is therefore slightly lossier and runs
+slightly cooler than a round one.
+
+**Cross-wise modes.** A wide can also resonates *across* its width, which a 1D solver can't
+represent on its own. For a flat oval 300 mm wide the first such mode is near `c/2W`, about
+900-1000 Hz in hot gas. A round 130 mm can of similar volume has none below 5 kHz. These modes
+are added as a modal expansion of the body, coupled to the duct at its end plates:
+
+```
+p = p_plane + Σ a_N ψ_n(y, z) ε_m cos(mπx/L)
+a_N'' + 2ζω_N a_N' + ω_N² a_N = (ρc²/V) Σ_j Φ_N(r_j) Q_j'
+```
+
+`ψ_n` is a cross-wise mode of the section and `m` counts half-waves along the body. `Q_j` is
+the volume flow through pipe `j`. `Φ_N(r_j)` is the mode averaged over that pipe's opening. Each
+pipe feels the modes back as extra pressure at its opening, applied to the gas in the pipe cell
+next to the end plate. The energy a mode draws is exactly the work that pressure does, so the
+exchange conserves energy. The mode frequencies `ω_N = c k_N` follow the gas temperature in
+the can.
+
+The section modes come from a [Rayleigh–Ritz](glossary.md#rayleighritz-method) solution over
+the drawn shape, one code path for all three. It matches a circle's Bessel roots to 0.05%,
+and a rounded rectangle's first mode lies 0.7% above the sharp-cornered `π/W`.
+
+Where the pipes sit decides which modes ring. A pipe on the centreline of a symmetric can
+cannot drive the modes that are antisymmetric across it, and those include the lowest one. So
+offset pipes are what make a flat can sound different. Measured on a 300 × 120 mm oval can,
+the spectra with offset and with centred pipes differ by 3.2 dB on average in 25 Hz bands
+from the first mode up, with peaks and notches of 10-16 dB, and by 1.2 dB below it. The
+residual below comes from modes loading the pipe opening as extra mass under their own
+frequency.
+
+Only modes the pipe grid can carry are kept: below `2π/(5 dx)` in wavenumber, the same limit
+as the radiated band. A round can with centred pipes keeps none and is solved exactly as the
+plane-wave model alone.
+
 ### The open end
 
 At the open end, reflection weakens above the frequency `c/a` (speed of sound over pipe

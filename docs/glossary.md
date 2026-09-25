@@ -103,6 +103,13 @@ and energy flows across each cell boundary per step.
 [Wikipedia](https://en.wikipedia.org/wiki/Finite_volume_method) ·
 [Toro 2009](references.md#toro2009)
 
+### Rayleigh–Ritz method
+
+A way to find a shape's resonances by writing each one as a sum of simple functions and choosing
+the sum that best balances its stored energies. Used here for a chamber's cross-wise modes, with
+cosines over the section's bounding box.
+[Wikipedia](https://en.wikipedia.org/wiki/Rayleigh%E2%80%93Ritz_method)
+
 ### Order of accuracy
 
 How fast a method's error shrinks as the cells and steps get smaller. For a *second-order* method,
@@ -242,6 +249,13 @@ The lowest resonance of a pipe closed at one end and open at the other. Its wave
 the pipe's length, so its frequency is `c / 4L`.
 [Wikipedia](https://en.wikipedia.org/wiki/Acoustic_resonance#Closed_at_one_end)
 
+### Cross-wise mode
+
+A resonance across a duct or can rather than along it, where the pressure differs from one side
+of the section to the other. It can only exist above a cut-on frequency set by the section's
+width: about `c/2W` for a flat can, and `1.84 c/(π D)` for a round one.
+[Wikipedia](https://en.wikipedia.org/wiki/Waveguide_(acoustics)) · [Kinsler et al. 2000](references.md#kinsler2000)
+
 ### Monopole
 
 A point source of sound that pushes gas out and in equally in all directions. An exhaust mouth,
@@ -330,6 +344,12 @@ How long a smoothly settling quantity takes to cover about 63% of the way to its
 [Wikipedia](https://en.wikipedia.org/wiki/Time_constant)
 
 ## Heat and friction
+
+### Hydraulic diameter
+
+`4A/P`, four times a duct's area over its wetted perimeter. For a round pipe it is the diameter.
+It lets pipe-flow friction and heat-transfer correlations be used for ducts that aren't round.
+[Wikipedia](https://en.wikipedia.org/wiki/Hydraulic_diameter)
 
 ### Heat transfer coefficient
 
