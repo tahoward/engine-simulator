@@ -78,7 +78,7 @@ The burn is capped at 150°. A charge that slow is still burning when the exhaus
 
 ### The advance map
 
-Because the burn no longer takes a fixed number of degrees, a fixed spark would be wrong almost
+Because the burn does not take a fixed number of degrees, a fixed spark would be wrong almost
 everywhere. At low rpm the burn is quick, so the pressure would peak before top dead centre and
 push against the piston. A four stuck at 450 rpm under load would then make no power whatever the
 throttle did. At part throttle the burn is slow and would peak too late to do much work.
