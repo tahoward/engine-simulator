@@ -213,8 +213,8 @@ export interface EngineSpec {
    * 650 K with 4% residual, at 10 m/s mean piston speed. That is roughly any naturally aspirated
    * engine at full throttle.
    *
-   * The duration each cycle actually burns over is worked out from this at the spark, from the
-   * charge's own flame speed: longer at part throttle and with residual gas, longer lean, and
+   * The duration each cycle actually burns over is worked out from this for its own charge, from the
+   * flame speed it will have at the spark: longer at part throttle and with residual gas, longer lean, and
    * somewhat longer the faster the engine turns. See `burnAngle` in cylinder.ts.
    */
   burnDuration: number;
@@ -1716,17 +1716,27 @@ function fourValveHead(bore: number): Pick<EngineSpec, 'exValveDia' | 'exValveCo
   return { exValveDia: 0.34 * bore, exValveCount: 2, inValveDia: 0.4 * bore, inValveCount: 2 };
 }
 
+/** Speed every engine preset idles at, rev/min. */
+export const PRESET_IDLE_RPM = 800;
+
 /**
- * Engines sized from their real counterparts, with exhausts fitted by `fittedExhaust`.
+ * A preset's operating point: idling in neutral at `PRESET_IDLE_RPM`, on `throttle`.
  *
- * Idle-ish cruising rpm chosen so each fires near the others' firing frequencies: a three at 2800 fires
- * at 70 Hz, a five at 2400 at 100 Hz, a six and a V6 at 2200-2400 at 110-120 Hz.
+ * The throttle is each preset's own, found by running it free with no load and adjusting the opening
+ * until it settles at the idle speed. Most come out at 7-8%, because every throttle is sized to its
+ * engine's airflow (`throttleDiaOf`). The fixed-speed rpm is set to the same idle, so the engine
+ * starts in the same place whichever way the crank is run.
  */
+function idling(throttle: number): Pick<EngineSpec, 'rpm' | 'load' | 'throttle'> {
+  return { rpm: PRESET_IDLE_RPM, load: 0, throttle };
+}
+
+/** Engines sized from their real counterparts, with exhausts fitted by `fittedExhaust`. */
 const THREE_CYL: Partial<EngineSpec> = {
   cylinders: 3,
   vAngle: 0,
   exhaustLayout: 'merged',
-  rpm: 2800,
+  ...idling(0.075),
   // A Ford 1.0 EcoBoost's.
   revLimit: 6500,
   flywheelInertia: 0.2,
@@ -1746,7 +1756,7 @@ const FIVE_CYL: Partial<EngineSpec> = {
   cylinders: 5,
   vAngle: 0,
   exhaustLayout: 'merged',
-  rpm: 2400,
+  ...idling(0.075),
   // The Audi 2.5 TFSI's.
   revLimit: 7000,
   flywheelInertia: 0.3,
@@ -1766,7 +1776,7 @@ const SIX_CYL: Partial<EngineSpec> = {
   cylinders: 6,
   vAngle: 0,
   exhaustLayout: 'merged',
-  rpm: 2200,
+  ...idling(0.075),
   // A BMW 3.0 straight six's.
   revLimit: 7000,
   flywheelInertia: 0.35,
@@ -1786,11 +1796,10 @@ const V6_60: Partial<EngineSpec> = {
   cylinders: 6,
   vAngle: 60,
   exhaustLayout: 'perBank',
-  rpm: 2400,
+  ...idling(0.075),
   // The GM 3.6's.
   revLimit: 7000,
   flywheelInertia: 0.5,
-  load: 0.08,
   mouthSpacing: 1.0,
   pipeCellSize: 0.035,
   // A 3.6 litre 60-degree V6.
@@ -1815,7 +1824,7 @@ const BOXER_FOUR: Partial<EngineSpec> = {
   vAngle: 180,
   crankType: 'boxer',
   exhaustLayout: 'merged',
-  rpm: 2400,
+  ...idling(0.075),
   // A Subaru EJ25's.
   revLimit: 6500,
   flywheelInertia: 0.3,
@@ -1835,7 +1844,7 @@ const BOXER_SIX: Partial<EngineSpec> = {
   vAngle: 180,
   crankType: 'boxer',
   exhaustLayout: 'perBank',
-  rpm: 2400,
+  ...idling(0.076),
   // A 997 Carrera 3.6's.
   revLimit: 7300,
   flywheelInertia: 0.35,
@@ -1856,7 +1865,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     name: 'Single, megaphone',
     description: 'The 500 cc thumper this project started as.',
     // A big air-cooled single is out of breath well before 7000.
-    engine: { cylinders: 1, exhaustLayout: 'single', revLimit: 7000 },
+    engine: { cylinders: 1, exhaustLayout: 'single', revLimit: 7000, ...idling(0.072) },
     pipe: () => PIPE_PRESETS[1]!.build(),
   },
   {
@@ -1868,7 +1877,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 45,
       firingOffset: null,
       exhaustLayout: '2into1',
-      rpm: 2600,
+      ...idling(0.073),
       // Long-stroke and pushrod: a Harley stops pulling not far past 5500.
       revLimit: 5600,
       flywheelInertia: 0.4,
@@ -1893,7 +1902,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 90,
       firingOffset: null,
       exhaustLayout: '2into2',
-      rpm: 4200,
+      ...idling(0.075),
       // Desmodromic valves, so no float to guard against: a Ducati twin's 9000.
       revLimit: 9000,
       mouthSpacing: 0.45,
@@ -1913,10 +1922,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       cylinders: 4,
       vAngle: 0,
       exhaustLayout: 'merged',
-      // A cruise, not the rev limiter. Firing frequency is cylinders x rpm/120, so a four at
-      // 5200 fires at 173 Hz — a high buzz, and not what anyone pictures when they think of a
-      // four. At 2600 it is 87 Hz.
-      rpm: 2600,
+      ...idling(0.079),
       // A 60 mm stroke is a bike engine's, and revs like one.
       revLimit: 10500,
       flywheelInertia: 0.16,
@@ -1982,14 +1988,11 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 90,
       crankType: 'crossplane',
       exhaustLayout: 'perBank',
-      // Eight cylinders fire eight times per cycle, so a V8 reaches a given firing frequency at
-      // an eighth of a single's rpm. 2200 gives 147 Hz; 3200 would give 213, and sound like it.
-      rpm: 2200,
+      ...idling(0.075),
       // Pushrods and a heavy crank: a road V8's 6500.
       revLimit: 6500,
       mouthSpacing: 1.3,
       flywheelInertia: 0.9,
-      load: 0.06,
       // The same cells as everything else. At one step per sample, cost goes only as the cell
       // count, so 35 mm costs a V8 a couple of points of a core and gives it its top octave.
       pipeCellSize: 0.035,
@@ -2015,29 +2018,25 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'V8, overcammed',
     description:
-      'A small-block with far more cam than the street wants: 300\u00b0 of duration on a tight lobe separation, so both valves hang open together for 90\u00b0 around top dead centre. At idle, exhaust is pushed back up the intake and breathed in again, so the charge is mostly spent gas and the manifold has almost no vacuum. About one cycle in eight fails to light, and the rest burn late and unevenly: that is the lope.',
+      'A small-block with far more cam than the street wants: 300\u00b0 of duration on a tight lobe separation, so both valves hang open together for 90\u00b0 around top dead centre. At idle, exhaust is pushed back up the intake and breathed in again, so the charge is mostly spent gas and the manifold has almost no vacuum. About one cycle in four fails to light, and the rest burn late and unevenly: that is the lope.',
     engine: {
       cylinders: 8,
       vAngle: 90,
       crankType: 'crossplane',
       exhaustLayout: 'perBank',
-      // Idle, because that is where a big cam is heard. The overlap costs little at wide-open
-      // throttle; nearly shut, the manifold is the lowest pressure the exhaust can reach, so it
-      // back-flows into the intake. Measured here at 1000 rpm and 8% throttle, against the stock
-      // crossplane at the same: 0.66 bar in the manifold rather than 0.24, and 57% of the trapped
-      // charge spent gas rather than 22%. That is past the dilution limit (`DILUTION_ONSET` in
-      // cylinder.ts), and 13% of cycles misfire where the stock engine misfires none. At 6% it is
-      // 30%, an engine about to stall rather than one with a lope; at 12%, none. Free-running, this
-      // same throttle holds it near 1100 and hunting, where the stock one would idle at 900 on 7%:
-      // a big cam needs more air to idle, and idles higher.
-      rpm: 1000,
-      throttle: 0.08,
+      // Idle is where a big cam is heard. The overlap costs little at wide-open throttle; nearly
+      // shut, the manifold is the lowest pressure the exhaust can reach, so it back-flows into the
+      // intake. Measured at 800 rpm on this throttle, against the stock crossplane at the same: 0.80
+      // bar in the manifold rather than 0.31, and 64% of the trapped charge spent gas rather than
+      // 24%. That is past the dilution limit (`DILUTION_ONSET` in cylinder.ts), and a quarter of
+      // cycles misfire where the stock engine misfires none. On 6% it is half, an engine about to
+      // stall rather than one with a lope; on 12%, almost none. It needs more air to idle than the
+      // stock engine's 7.5%: on this throttle the stock one runs up to 950.
+      ...idling(0.083),
       // Built to rev, and needs to: a cam this size only starts to pull past 4000.
       revLimit: 7000,
       mouthSpacing: 1.3,
       flywheelInertia: 0.7,
-      // Idling in neutral.
-      load: 0,
       pipeCellSize: 0.035,
       // A 350: 4.030 x 3.48 in on a 5.7 in rod, with 2.02/1.60 in valves.
       bore: 0.1024,
@@ -2076,14 +2075,12 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 90,
       crankType: 'flatplane',
       exhaustLayout: 'perBank',
-      // Deliberately the loud one: a flat-crank V8 on short pipes. Still well below 5600, where it
-      // would fire at 373 Hz and scream.
-      rpm: 3000,
+      // Deliberately the loud one: a flat-crank V8 on short pipes.
+      ...idling(0.078),
       // Oversquare, light and flat-cranked, so it revs like the Ferrari it is.
       revLimit: 9000,
       mouthSpacing: 1.3,
       flywheelInertia: 0.5,
-      load: 0.07,
       pipeCellSize: 0.035,
       bore: 0.094,
       stroke: 0.067,
@@ -2126,7 +2123,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       firingOffset: 360,
       ...fourValveHead(DEFAULT_ENGINE.bore),
       exhaustLayout: '2into1',
-      rpm: 3600,
+      ...idling(0.074),
       // A modern 1200 cc parallel twin's.
       revLimit: 7500,
       outputGain: 0.64,

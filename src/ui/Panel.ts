@@ -213,39 +213,40 @@ export class Panel {
 
     // ---- Operating point -------------------------------------------------
     const op = section(root, 'Operating point', false);
-    const rpmSlider = slider(op, {
+    const rpmSlider = this.slider(op, {
       label: 'Engine speed',
       min: 600,
       max: 10000,
       step: 25,
       value: spec.rpm,
+      sync: () => this.config.engine.rpm,
       unit: 'rpm',
       onInput: (v) => this.cb.onEngine({ rpm: v }),
     });
     this.rpmSlider = rpmSlider.input;
     this.rpmRow = rpmSlider.row;
-    this.resyncers.push(() => rpmSlider.render(this.config.engine.rpm));
 
-    const revLimit = slider(op, {
+    const revLimit = this.slider(op, {
       label: 'Rev limiter',
       min: 2000,
       max: 12000,
       step: 100,
       value: spec.revLimit,
+      sync: () => this.config.engine.revLimit,
       unit: 'rpm',
       onInput: (v) => this.cb.onEngine({ revLimit: v }),
     });
     revLimit.row.title =
       'The spark is cut above this and returns once the crank has dropped back, so the engine ' +
       'bounces off it. An engine speed set at or past it revs freely into the limiter.';
-    this.resyncers.push(() => revLimit.render(this.config.engine.revLimit));
 
-    slider(op, {
+    this.slider(op, {
       label: 'Throttle',
       min: 0,
       max: 1,
       step: 0.01,
       value: spec.throttle,
+      sync: () => this.config.engine.throttle,
       format: (v) => `${Math.round(v * 100)}%`,
       onInput: (v) => this.cb.onEngine({ throttle: v }),
     });
@@ -263,13 +264,14 @@ export class Panel {
     const loadWrap = el('div', 'subgroup', op);
     this.loadRow = loadWrap;
     loadWrap.classList.toggle('hidden', !spec.freeRunning);
-    const load = slider(loadWrap, {
+    const load = this.slider(loadWrap, {
       label: 'Load',
       min: 0,
       // Past full throttle's worth, so the engine can be bogged down and stalled.
       max: 1.5,
       step: 0.01,
       value: spec.load,
+      sync: () => this.config.engine.load,
       format: (v) => `${Math.round(v * 100)}% · ${Math.round(v * fullLoadTorque(this.config.engine))} N·m`,
       onInput: (v) => this.cb.onEngine({ load: v }),
     });
@@ -277,19 +279,26 @@ export class Panel {
       'Braking torque at the crank, as a share of what this engine makes at full throttle, ' +
       'so the same setting loads a single and a V8 alike.';
     // Also redraws the N·m figure, which follows the engine's size.
-    this.resyncers.push(() => load.render(this.config.engine.load));
-    const flywheel = slider(loadWrap, {
+    this.slider(loadWrap, {
       label: 'Flywheel inertia',
       min: 0.02,
       max: 1.2,
       step: 0.01,
       value: spec.flywheelInertia,
+      sync: () => this.config.engine.flywheelInertia,
       unit: 'kg·m²',
       onInput: (v) => this.cb.onEngine({ flywheelInertia: v }),
     });
-    this.resyncers.push(() => flywheel.render(this.config.engine.flywheelInertia));
-    this.rpmRow.classList.toggle('disabled', spec.freeRunning);
-    this.rpmSlider.disabled = spec.freeRunning;
+    const showFree = (on: boolean) => {
+      this.rpmRow.classList.toggle('disabled', on);
+      this.rpmSlider.disabled = on;
+      this.loadRow.classList.toggle('hidden', !on);
+    };
+    showFree(spec.freeRunning);
+    this.resyncers.push(() => {
+      checkbox(free).checked = this.config.engine.freeRunning;
+      showFree(this.config.engine.freeRunning);
+    });
 
     // ---- Engine preset ---------------------------------------------------
     // Whole-engine presets, because a V-twin is a layout as well as a pipe.
@@ -399,12 +408,13 @@ export class Panel {
       'down each bank, a flatplane evenly every 180. Give each bank its own collector and that ' +
       'is the burble against the shriek.';
 
-    const vRow = slider(multiWrap, {
+    const vRow = this.slider(multiWrap, {
       label: 'V angle',
       min: 0,
       max: 120,
       step: 1,
       value: spec.vAngle,
+      sync: () => this.config.engine.vAngle,
       format: (v) => {
         const off = firingOffsetDeg({ ...this.config.engine, vAngle: v });
         const named = v === 0 ? ' parallel' : v === 45 ? ' Harley' : v === 90 ? ' Ducati' : '';
@@ -421,7 +431,6 @@ export class Panel {
         this.syncStats();
       },
     });
-    this.resyncers.push(() => vRow.render(this.config.engine.vAngle));
     this.vAngleRow = vRow.row;
     vRow.row.title =
       'The included angle between the cylinders. With a shared crankpin it also sets the firing ' +
@@ -438,15 +447,17 @@ export class Panel {
       'twin with both pistons together, 270 for a modern crossplane twin, or something small ' +
       'for a big-bang layout.';
     this.offsetToggleEl = offsetToggle;
+    this.resyncers.push(() => (checkbox(offsetToggle).checked = this.config.engine.firingOffset !== null));
     const offsetWrap = el('div', 'subgroup', multiWrap);
     this.offsetWrapEl = offsetWrap;
     offsetWrap.classList.toggle('hidden', spec.firingOffset === null);
-    slider(offsetWrap, {
+    this.slider(offsetWrap, {
       label: 'Firing offset',
       min: 0,
       max: 719,
       step: 1,
       value: spec.firingOffset ?? firingOffsetDeg(spec),
+      sync: () => this.config.engine.firingOffset ?? firingOffsetDeg(this.config.engine),
       format: (v) => `${v.toFixed(0)}\u00b0 / ${(720 - v).toFixed(0)}\u00b0`,
       onInput: (v) => {
         this.cb.onEngine({ firingOffset: v });
@@ -531,54 +542,59 @@ export class Panel {
 
     // ---- Engine geometry -------------------------------------------------
     const geo = section(root, 'Engine geometry', true);
-    slider(geo, {
+    this.slider(geo, {
       label: 'Bore',
       min: 0.05,
       max: 0.12,
       step: 0.001,
       value: spec.bore,
+      sync: () => this.config.engine.bore,
       scale: MM,
       unit: 'mm',
       onInput: (v) => this.cb.onEngine({ bore: v }),
     });
-    slider(geo, {
+    this.slider(geo, {
       label: 'Stroke',
       min: 0.04,
       max: 0.12,
       step: 0.001,
       value: spec.stroke,
+      sync: () => this.config.engine.stroke,
       scale: MM,
       unit: 'mm',
       onInput: (v) => this.cb.onEngine({ stroke: v }),
     });
-    slider(geo, {
+    this.slider(geo, {
       label: 'Rod length',
       min: 0.09,
       max: 0.24,
       step: 0.001,
       value: spec.rodLength,
+      sync: () => this.config.engine.rodLength,
       scale: MM,
       unit: 'mm',
       onInput: (v) => this.cb.onEngine({ rodLength: v }),
     });
-    slider(geo, {
+    this.slider(geo, {
       label: 'Reciprocating mass',
       min: 0.1,
       max: 2,
       step: 0.01,
       value: spec.recipMass,
+      sync: () => this.config.engine.recipMass,
       unit: 'kg',
       onInput: (v) => this.cb.onEngine({ recipMass: v }),
     }).row.title =
       'Piston, rings, pin and rod small end. Its inertia torque averages to zero over a ' +
       'cycle so it does not change the speed, but it is as large as the gas torque and ' +
       'sets how unevenly the crank turns.';
-    slider(geo, {
+    this.slider(geo, {
       label: 'Compression ratio',
       min: 6,
       max: 15,
       step: 0.1,
       value: spec.compressionRatio,
+      sync: () => this.config.engine.compressionRatio,
       format: (v) => `${v.toFixed(1)}:1`,
       onInput: (v) => this.cb.onEngine({ compressionRatio: v }),
     });
@@ -590,7 +606,9 @@ export class Panel {
     const headSel = el('select', '', headRow) as HTMLSelectElement;
     headSel.appendChild(option('2', '2 (one intake, one exhaust)'));
     headSel.appendChild(option('4', '4 (two of each)'));
-    headSel.value = spec.exValveCount === 2 && spec.inValveCount === 2 ? '4' : '2';
+    const headOf = (e: EngineSpec) => (e.exValveCount === 2 && e.inValveCount === 2 ? '4' : '2');
+    headSel.value = headOf(spec);
+    this.resyncers.push(() => (headSel.value = headOf(this.config.engine)));
     headSel.addEventListener('change', () => {
       const count = headSel.value === '4' ? 2 : 1;
       this.cb.onEngine({ exValveCount: count, inValveCount: count });
@@ -599,103 +617,113 @@ export class Panel {
       'Two small valves open more of the cylinder than one big one: at the same lift, √2 as much ' +
       'curtain for the same total area. That is what lets a four-valve engine breathe at high rpm. ' +
       'The diameters below are each valve\'s.';
-    slider(valves, {
+    this.slider(valves, {
       label: 'Exhaust valve',
       min: 0.018,
       max: 0.05,
       step: 0.0005,
       value: spec.exValveDia,
+      sync: () => this.config.engine.exValveDia,
       scale: MM,
       unit: 'mm',
       onInput: (v) => this.cb.onEngine({ exValveDia: v }),
     });
-    slider(valves, {
+    this.slider(valves, {
       label: 'Intake valve',
       min: 0.018,
       max: 0.056,
       step: 0.0005,
       value: spec.inValveDia,
+      sync: () => this.config.engine.inValveDia,
       scale: MM,
       unit: 'mm',
       onInput: (v) => this.cb.onEngine({ inValveDia: v }),
     });
-    slider(valves, {
+    this.slider(valves, {
       label: 'Port length',
       min: 0.01,
       max: 0.2,
       step: 0.001,
       value: spec.portLength,
+      sync: () => this.config.engine.portLength,
       scale: MM,
       unit: 'mm',
       onInput: (v) => this.cb.onEngine({ portLength: v }),
     }).row.title =
       'The duct from the valve seat to the header flange. It is part of the acoustic ' +
       'system, so the tuned length is measured from the valve, not the flange.';
-    slider(valves, {
+    this.slider(valves, {
       label: 'Max lift',
       min: 0.002,
       max: 0.016,
       step: 0.0001,
       value: spec.maxLift,
+      sync: () => this.config.engine.maxLift,
       scale: MM,
       unit: 'mm',
       onInput: (v) => this.cb.onEngine({ maxLift: v }),
     });
-    slider(valves, {
+    this.slider(valves, {
       label: 'Exhaust opens',
       min: 90,
       max: 180,
       step: 1,
       value: spec.evo,
+      sync: () => this.config.engine.evo,
       format: (v) => `${Math.round(180 - v)}° BBDC`,
       onInput: (v) => this.cb.onEngine({ evo: v }),
     });
-    slider(valves, {
+    this.slider(valves, {
       label: 'Exhaust closes',
       min: 340,
       max: 430,
       step: 1,
       value: spec.evc,
+      sync: () => this.config.engine.evc,
       format: (v) => `${Math.round(v - 360)}° ATDC`,
       onInput: (v) => this.cb.onEngine({ evc: v }),
     });
-    slider(valves, {
+    this.slider(valves, {
       label: 'Intake opens',
       min: 300,
       max: 380,
       step: 1,
       value: spec.ivo,
+      sync: () => this.config.engine.ivo,
       format: (v) => `${Math.round(360 - v)}° BTDC`,
       onInput: (v) => this.cb.onEngine({ ivo: v }),
     });
-    slider(valves, {
+    this.slider(valves, {
       label: 'Intake closes',
       min: 520,
       max: 630,
       step: 1,
       value: spec.ivc,
+      sync: () => this.config.engine.ivc,
       format: (v) => `${Math.round(v - 540)}° ABDC`,
       onInput: (v) => this.cb.onEngine({ ivc: v }),
     });
 
     // ---- Combustion ------------------------------------------------------
     const comb = section(root, 'Combustion', true);
-    slider(comb, {
+    this.slider(comb, {
       label: 'Ignition advance',
       min: 0,
       max: 50,
       step: 1,
       value: 720 - spec.ignition,
+      sync: () => 720 - this.config.engine.ignition,
       unit: '° BTDC',
       // Stored as deg ATDC; 25 deg BTDC is 695.
       onInput: (v) => this.cb.onEngine({ ignition: 720 - v }),
     });
-    slider(comb, {
+    this.slider(comb, {
       label: 'Burn duration',
       min: 15,
       max: 110,
       step: 1,
       value: spec.burnDuration,
+      sync: () => this.config.engine.burnDuration,
       unit: '°',
       onInput: (v) => this.cb.onEngine({ burnDuration: v }),
     }).row.title =
@@ -703,12 +731,13 @@ export class Panel {
       'piston speed. Each cycle burns faster or slower than this with its own flame speed: ' +
       'slower at part throttle, with residual gas and lean, and a little slower the faster ' +
       'the engine turns.';
-    slider(comb, {
+    this.slider(comb, {
       label: 'Mixture',
       min: 0.7,
       max: 1.6,
       step: 0.01,
       value: spec.lambda,
+      sync: () => this.config.engine.lambda,
       format: (v) =>
         `λ ${v.toFixed(2)}${Math.abs(v - 1) < 0.005 ? ' (stoichiometric)' : v < 1 ? ' (rich)' : ' (lean)'}`,
       onInput: (v) => this.cb.onEngine({ lambda: v }),
@@ -716,16 +745,19 @@ export class Panel {
       'Air-fuel ratio as a multiple of stoichiometric. Rich, the extra fuel has no oxygen to ' +
       'burn with; lean, each charge carries less fuel and burns slower, and past about 1.5 ' +
       'cycles start to misfire.';
-    toggle(comb, 'Overrun fuel cut', spec.fuelCut, (on) => this.cb.onEngine({ fuelCut: on })).title =
+    const fuelCut = toggle(comb, 'Overrun fuel cut', spec.fuelCut, (on) => this.cb.onEngine({ fuelCut: on }));
+    this.resyncers.push(() => (checkbox(fuelCut).checked = this.config.engine.fuelCut));
+    fuelCut.title =
       'With the throttle shut above 1500 rpm the fuel stops, as an injected engine does, until ' +
       'the speed falls below 1200 or the throttle opens. Off, the engine keeps firing weakly on ' +
       'the air leaking past the throttle, as a carburettor does.';
-    slider(comb, {
+    this.slider(comb, {
       label: 'Cycle-to-cycle scatter',
       min: 0,
       max: 2.5,
       step: 0.05,
       value: spec.combustionVariability,
+      sync: () => this.config.engine.combustionVariability,
       format: (v) => (v === 0 ? 'off (identical cycles)' : `${v.toFixed(2)}×`),
       onInput: (v) => this.cb.onEngine({ combustionVariability: v }),
     }).row.title =
@@ -733,12 +765,13 @@ export class Panel {
       'about 2% variation in indicated work under load, over 10% near idle. Set it to ' +
       'zero and every cycle becomes identical — which is what makes simulated engines ' +
       'sound like a looped sample.';
-    slider(comb, {
+    this.slider(comb, {
       label: 'Pipe wall thickness',
       min: 0.0004,
       max: 0.005,
       step: 0.0001,
       value: spec.pipeWallThickness,
+      sync: () => this.config.engine.pipeWallThickness,
       scale: MM,
       unit: 'mm',
       onInput: (v) => this.cb.onEngine({ pipeWallThickness: v }),
@@ -746,24 +779,26 @@ export class Panel {
       "The wall's thermal mass, so how long the system takes to come up to temperature — " +
       'tens of seconds for typical 1.2 mm tubing. Gas temperature sets the speed of sound, ' +
       'so the note genuinely shifts as the pipe warms.';
-    slider(comb, {
+    this.slider(comb, {
       label: 'Air speed past pipe',
       min: 0,
       max: 45,
       step: 0.5,
       value: spec.airSpeed,
+      sync: () => this.config.engine.airSpeed,
       format: (v) =>
         v < 0.5 ? 'still air' : `${v.toFixed(0)} m/s (${(v * 3.6).toFixed(0)} km/h)`,
       onInput: (v) => this.cb.onEngine({ airSpeed: v }),
     }).row.title =
       'Cools the pipe wall, which cools the gas, which slows the wave speed and drops the ' +
       'tuning. Radiation off oxidised steel matters as much as convection here.';
-    slider(comb, {
+    this.slider(comb, {
       label: 'Solver resolution',
       min: 0.035,
       max: 0.12,
       step: 0.001,
       value: spec.pipeCellSize,
+      sync: () => this.config.engine.pipeCellSize,
       format: (v) =>
         `${(v * 1000).toFixed(0)} mm cells · ~${(550 / (10 * v) / 1000).toFixed(1)} kHz`,
       onInput: (v) => this.cb.onEngine({ pipeCellSize: v }),
@@ -772,12 +807,13 @@ export class Panel {
       'frequencies and cost more. The solver takes one step per audio sample, so cells ' +
       'cannot be shorter than about 35 mm at 48 kHz (51 mm at 32 kHz, 69 mm at 24 kHz); a big engine may be given ' +
       'coarser cells than asked for, to keep it in real time.';
-    slider(comb, {
+    this.slider(comb, {
       label: 'Port gas temp',
       min: 350,
       max: 1250,
       step: 5,
       value: spec.portGasTemp,
+      sync: () => this.config.engine.portGasTemp,
       format: (v) => `${Math.round(v)} K · c=${Math.round(speedOfSound(v))} m/s`,
       onInput: (v) => {
         this.cb.onEngine({ portGasTemp: v });
@@ -788,75 +824,79 @@ export class Panel {
 
     // ---- Listener --------------------------------------------------------
     const mix = section(root, 'Listener', true);
-    slider(mix, {
+    this.slider(mix, {
       label: 'Mic distance',
       min: 0.3,
       max: 12,
       step: 0.1,
       value: spec.micDistance,
+      sync: () => this.config.engine.micDistance,
       unit: 'm',
       format: (v) => `${v.toFixed(1)} m`,
       onInput: (v) => this.cb.onEngine({ micDistance: v }),
     });
-    slider(mix, {
+    this.slider(mix, {
       label: 'Ear height',
       min: 0.05,
       max: 3,
       step: 0.05,
       value: spec.micHeight,
+      sync: () => this.config.engine.micHeight,
       unit: 'm',
       format: (v) => `${v.toFixed(2)} m`,
       onInput: (v) => this.cb.onEngine({ micHeight: v }),
     });
-    slider(mix, {
+    this.slider(mix, {
       label: 'Exhaust height',
       min: 0.05,
       max: 2,
       step: 0.05,
       value: spec.exhaustHeight,
+      sync: () => this.config.engine.exhaustHeight,
       unit: 'm',
       format: (v) => `${v.toFixed(2)} m`,
       onInput: (v) => this.cb.onEngine({ exhaustHeight: v }),
     });
-    const spacingRow = slider(mix, {
+    const spacingRow = this.slider(mix, {
       label: 'Mouth spacing',
       min: 0,
       max: 2.5,
       step: 0.05,
       value: spec.mouthSpacing,
+      sync: () => this.config.engine.mouthSpacing,
       unit: 'm',
       format: (v) => (v < 0.03 ? 'coincident' : `${v.toFixed(2)} m`),
       onInput: (v) => this.cb.onEngine({ mouthSpacing: v }),
     });
-    this.resyncers.push(() => spacingRow.render(this.config.engine.mouthSpacing));
     spacingRow.row.title =
       'How far apart the tailpipes are. Only does anything with more than one of them, and then ' +
       'it matters a great deal: set it to zero and the mouths sum at a single point, where the ' +
       'two banks of a flatplane V8 fire in antiphase and annihilate their own firing order — ' +
       '44 dB of it — jumping the engine an octave. Real pipes are a metre or so apart.';
 
-    const spreadRow = slider(mix, {
+    const spreadRow = this.slider(mix, {
       label: 'Cylinder spread',
       min: 0,
       max: 1,
       step: 0.01,
       value: spec.cylinderSpread,
+      sync: () => this.config.engine.cylinderSpread,
       format: (v) => (v < 0.01 ? 'perfectly matched' : `${(v * 4).toFixed(1)}%`),
       onInput: (v) => this.cb.onEngine({ cylinderSpread: v }),
     });
-    this.resyncers.push(() => spreadRow.render(this.config.engine.cylinderSpread));
     spreadRow.row.title =
       'How unequally the cylinders breathe, as a spread in runner pressure. No two cylinders of ' +
       'a real engine are matched, and that is what stops the firing orders cancelling perfectly. ' +
       'At zero an inline four is a pure tone on one frequency with no rumble under it; at 4% the ' +
       'low orders sit 35 dB down, where real engines measure 20 to 35.';
 
-    slider(mix, {
+    this.slider(mix, {
       label: 'Ground reflection',
       min: 0,
       max: 1,
       step: 0.01,
       value: spec.groundReflection,
+      sync: () => this.config.engine.groundReflection,
       format: (v) =>
         v < 0.15 ? 'anechoic' : v < 0.5 ? `${v.toFixed(2)} grass` : `${v.toFixed(2)} asphalt`,
       onInput: (v) => this.cb.onEngine({ groundReflection: v }),
@@ -864,30 +904,33 @@ export class Panel {
       'The ground sends a second, slightly later copy of everything to your ear, and the ' +
       'two comb-filter each other. Set it to zero to hear the engine in free space — ' +
       'which is how simulated engines usually sound, and why they sound wrong.';
-    slider(mix, {
+    this.slider(mix, {
       label: 'Output gain',
       min: 0,
       max: 1.5,
       step: 0.01,
       value: spec.outputGain,
+      sync: () => this.config.engine.outputGain,
       format: (v) => v.toFixed(2),
       onInput: (v) => this.cb.onEngine({ outputGain: v }),
     });
-    slider(mix, {
+    this.slider(mix, {
       label: 'Mechanical noise',
       min: 0,
       max: 1,
       step: 0.01,
       value: spec.mechNoise,
+      sync: () => this.config.engine.mechNoise,
       format: (v) => `${Math.round(v * 100)}%`,
       onInput: (v) => this.cb.onEngine({ mechNoise: v }),
     });
-    slider(mix, {
+    this.slider(mix, {
       label: 'Valve throat noise',
       min: 0,
       max: 1,
       step: 0.01,
       value: spec.throatNoise,
+      sync: () => this.config.engine.throatNoise,
       format: (v) => `${Math.round(v * 100)}%`,
       onInput: (v) => this.cb.onEngine({ throatNoise: v }),
     });
@@ -919,6 +962,14 @@ export class Panel {
    * Needed after an engine preset, which changes layout, V angle and firing all at once —
    * individual slider callbacks would each fire a rebuild and the selects would go stale.
    */
+  /** `slider`, kept in step with the config when it has a `sync`. */
+  private slider(parent: HTMLElement, o: SliderOpts): ReturnType<typeof slider> {
+    const s = slider(parent, o);
+    const read = o.sync;
+    if (read) this.resyncers.push(() => s.render(read()));
+    return s;
+  }
+
   rebuildAll(): void {
     this.cylSel.value = engineTypeOf(this.config.engine);
     this.crankSel.value =
@@ -1470,6 +1521,11 @@ interface SliderOpts {
   unit?: string;
   format?: (v: number) => string;
   onInput: (v: number) => void;
+  /**
+   * Where the value lives in the config, for a slider bound to it: read back whenever the config
+   * changes underneath the panel, as loading a preset does.
+   */
+  sync?: () => number;
 }
 
 function slider(
@@ -1564,6 +1620,11 @@ function numberInto(
   input.addEventListener('change', commit);
   input.addEventListener('pointerdown', (e) => e.stopPropagation());
   return input;
+}
+
+/** The checkbox in a `toggle` row. */
+function checkbox(row: HTMLElement): HTMLInputElement {
+  return row.querySelector('input')!;
 }
 
 function toggle(

@@ -6,6 +6,9 @@
   sound start after you click or press a key.
 - <kbd>Space</kbd> starts and stops the engine.
 - **Engine preset** loads a complete engine: its layout, firing order, sizes and a matching exhaust.
+  It starts idling at 800 rpm in neutral, on a throttle opening found for that engine, with the
+  engine speed set to 800 as well. Open the throttle, or turn on **Free-running crank** and add
+  load, to go from there.
 - **Layout → Cylinders** changes only the layout: single, twin, inline three to six, V6, V8, or a
   four- or six-cylinder boxer. It also builds an exhaust to suit. The **Exhaust** menu below it
   picks the pipe style: separate pipes, one collector per bank, or one collector for all cylinders.
