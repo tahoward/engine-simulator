@@ -21,15 +21,24 @@ const SEAT_ANGLE = Math.PI / 4;
  * Lift, m, at crank angle `deg`. Handles windows that wrap past 720 degrees, which
  * the exhaust valve always does on a four-stroke with overlap.
  *
- * The profile is `sin(pi*u)^1.25` — a smooth, symmetric cam with zero lift *and*
- * near-zero velocity at both ends, so opening and closing are ramped rather than
- * stepped. A discontinuous lift would inject a broadband click every cycle that
- * would be mistaken for a bug.
+ * The profile is `sin(pi*u)^2` — a smooth, symmetric cam with zero lift *and* zero
+ * velocity at both ends, so opening and closing are ramped rather than stepped. A
+ * discontinuous lift would inject a broadband click every cycle that would be mistaken
+ * for a bug.
+ *
+ * The exponent is set by real cams, through the gap between advertised duration (lift from
+ * zero) and duration at 0.050 in: a stock small-block's 256 and 195 degrees give 2.0, a
+ * street performance cam's 262 and 218 about 1.7. It was 1.25, fatter at the ends than any
+ * real profile, and the ends are what overlap is made of: at top dead centre the intake stood
+ * three times as far open as a real one, and at idle, against a near-vacuum manifold, that
+ * poured exhaust back up the intake until the trapped charge was half spent gas. With this
+ * shape a stock V8 idles on 25%, inside the 20-30% real engines show.
  */
 export function valveLift(deg: number, open: number, close: number, maxLift: number): number {
   const u = windowPhase(deg, open, close);
   if (u < 0) return 0;
-  return maxLift * Math.pow(Math.sin(Math.PI * u), 1.25);
+  const s = Math.sin(Math.PI * u);
+  return maxLift * s * s;
 }
 
 /**

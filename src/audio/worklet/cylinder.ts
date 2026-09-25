@@ -331,6 +331,25 @@ export class Cylinder {
       this.ignitionOffset = clamp(this.noise.gaussian() * scatter * 22, -14, 14);
 
       this.qCycle = fresh * GAS.chargeEnergy * COMBUSTION_EFFICIENCY * qScale;
+
+      // --- Dilution limit ---------------------------------------------------------
+      // Spent gas absorbs heat and carries no fuel, so the more of it the charge holds the slower the
+      // flame and the weaker the kernel — until, past some limit, the kernel does not survive at all.
+      // The burn stretches as the limit is approached and cycles start to misfire outright; that
+      // misfire, and the partial burns either side of it, are the lope of a big cam at idle. It
+      // regulates itself as a real one does: a misfired charge goes out unburned, so what the next
+      // cycle keeps of it is fuel rather than spent gas, and that cycle fires hard.
+      //
+      // Only past the onset, and only there does it draw a random number, so every engine below it
+      // is bit-identical to what it was.
+      const residual = 1 - fresh / Math.max(this.mass, MIN_MASS);
+      if (residual > DILUTION_ONSET) {
+        const x = Math.min((residual - DILUTION_ONSET) / (DILUTION_FULL - DILUTION_ONSET), 1);
+        this.burnScale *= 1 + DILUTION_BURN_STRETCH * x;
+        const u = (this.noise.next() + 1) / 2;
+        if (u < x * x) this.qCycle = 0;
+      }
+
       this.freshAtIvc = fresh;
       this.burned = 0;
       // The scatter is still drawn on a cut cycle, so the limiter does not shift the noise
@@ -434,6 +453,21 @@ const MIN_MASS = 2e-7;
 
 /** Ceiling on the per-cycle combustion scatter. See the note where it is applied. */
 const MAX_SCATTER = 0.16;
+
+/**
+ * Spent-gas fraction of the trapped charge, at intake valve closing, beyond which the flame starts to
+ * fail, and the fraction at which it always does. See where they are applied.
+ *
+ * A spark-ignition engine's combustion goes unstable somewhere past 25-30% total dilution and misfires
+ * regularly past about 40%. So the onset is at 0.4: a stock engine idles below it (the crossplane V8 on
+ * 25% at 900 rpm, the single on 30%), gets there only as it throttles down toward a stall, and an
+ * overcammed one, idling on 60-70%, sits well past it. At 90% nothing lights.
+ */
+const DILUTION_ONSET = 0.4;
+const DILUTION_FULL = 0.9;
+
+/** How much longer the burn takes at a fully diluted charge, as a multiple of the normal duration. */
+const DILUTION_BURN_STRETCH = 2;
 
 /**
  * Wiebe mass-fraction-burned. `a = 5` puts 99.3% of the burn inside the stated

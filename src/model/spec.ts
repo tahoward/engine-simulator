@@ -791,7 +791,8 @@ export const DEFAULT_ENGINE: EngineSpec = {
   mouthSpacing: 0.4,
   cylinderSpread: 1,
   groundReflection: 0.7,
-  outputGain: 0.7,
+  // Every preset gain was rescaled when the cam profile changed (see `valveLift`), to keep its level.
+  outputGain: 0.77,
   mechNoise: 0.45,
   throatNoise: 0.5,
 };
@@ -1324,6 +1325,34 @@ export interface EnginePreset {
   collector?: () => PipeSegment[];
 }
 
+/**
+ * Settings that belong to where the engine is being listened to, not to the engine, so loading a
+ * preset keeps them.
+ */
+const PRESET_KEEPS = [
+  'freeRunning',
+  'micDistance',
+  'micHeight',
+  'exhaustHeight',
+  'groundReflection',
+  'airSpeed',
+] as const satisfies readonly (keyof EngineSpec)[];
+
+/**
+ * The whole engine a preset loads: the preset over the defaults, with the listening setup carried
+ * across from `current`.
+ *
+ * Over the defaults rather than over the current engine, because a preset only states what it changes
+ * from them — which is also how its exhaust is sized, in `fullSpec`. Merged over the current engine,
+ * every field a preset left out came from whatever was loaded before it: a V-twin after a V8 got the
+ * V8's bore, and anything after the overcammed V8 got its cam.
+ */
+export function presetEngine(preset: EnginePreset, current: EngineSpec): EngineSpec {
+  const spec: EngineSpec = { ...DEFAULT_ENGINE, ...preset.engine };
+  for (const key of PRESET_KEEPS) (spec as unknown as Record<string, unknown>)[key] = current[key];
+  return spec;
+}
+
 /** A preset's engine filled out with the defaults, for sizing its exhaust. */
 function fullSpec(engine: Partial<EngineSpec>): EngineSpec {
   return { ...DEFAULT_ENGINE, ...engine };
@@ -1353,7 +1382,7 @@ const THREE_CYL: Partial<EngineSpec> = {
   inValveDia: 0.031,
   maxLift: 0.0085,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 3.89,
+  outputGain: 4.79,
 };
 
 const FIVE_CYL: Partial<EngineSpec> = {
@@ -1374,7 +1403,7 @@ const FIVE_CYL: Partial<EngineSpec> = {
   inValveDia: 0.036,
   maxLift: 0.0095,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.58,
+  outputGain: 1.85,
 };
 
 const SIX_CYL: Partial<EngineSpec> = {
@@ -1395,7 +1424,7 @@ const SIX_CYL: Partial<EngineSpec> = {
   inValveDia: 0.036,
   maxLift: 0.0095,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 2.08,
+  outputGain: 2.33,
 };
 
 const V6_60: Partial<EngineSpec> = {
@@ -1418,7 +1447,7 @@ const V6_60: Partial<EngineSpec> = {
   inValveDia: 0.041,
   maxLift: 0.01,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.82,
+  outputGain: 2.1,
 };
 
 /**
@@ -1445,7 +1474,7 @@ const BOXER_FOUR: Partial<EngineSpec> = {
   inValveDia: 0.036,
   maxLift: 0.0095,
   // Level-matched to the inline four, as the other presets are: RMS over two seconds, each at its own rpm.
-  outputGain: 2.8,
+  outputGain: 2.9,
 };
 
 const BOXER_SIX: Partial<EngineSpec> = {
@@ -1467,7 +1496,7 @@ const BOXER_SIX: Partial<EngineSpec> = {
   inValveDia: 0.0405,
   maxLift: 0.011,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.5,
+  outputGain: 1.68,
 };
 
 export const ENGINE_PRESETS: EnginePreset[] = [
@@ -1491,6 +1520,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       // Long-stroke and pushrod: a Harley stops pulling not far past 5500.
       revLimit: 5600,
       flywheelInertia: 0.4,
+      // Its own, now that the default's moved with the single's: the level it has always had.
+      outputGain: 0.72,
     },
     pipe: () => [
       makeSegment({ kind: 'pipe', length: 0.34, dIn: 0.042 }),
@@ -1515,6 +1546,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       revLimit: 9000,
       mouthSpacing: 0.45,
       flywheelInertia: 0.22,
+      outputGain: 0.89,
     },
     pipe: () => [
       makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.04 }),
@@ -1547,7 +1579,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       maxLift: 0.008,
       // A silenced system really is 10-15 dB quieter than an open pipe, which is correct and also
       // makes a preset sound thin next to one. Level-matched to the single instead.
-      outputGain: 3.4,
+      outputGain: 3.53,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.42, dIn: 0.034 })],
     // A real exhaust system, not an open header: something over two metres of it, with a
@@ -1621,7 +1653,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       exValveDia: 0.041,
       inValveDia: 0.048,
       maxLift: 0.011,
-      outputGain: 1.9,
+      outputGain: 2.05,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.044 })],
     // Bank pipe, silencer, tailpipe — the length is most of why a road V8 sounds deep.
@@ -1630,6 +1662,61 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       makeSegment({ kind: 'pipe', length: 1.15, dIn: 0.072, yaw: 0.18 }),
       makeSegment({ kind: 'chamber', length: 0.45, dIn: 0.072, dOut: 0.2 }),
       makeSegment({ kind: 'pipe', length: 0.55, dIn: 0.064 }),
+    ],
+  },
+  {
+    name: 'V8, overcammed',
+    description:
+      'A small-block with far more cam than the street wants: 300\u00b0 of duration on a tight lobe separation, so both valves hang open together for 90\u00b0 around top dead centre. At idle, exhaust is pushed back up the intake and breathed in again, so the charge is mostly spent gas and the manifold has almost no vacuum. About one cycle in eight fails to light, and the rest burn late and unevenly: that is the lope.',
+    engine: {
+      cylinders: 8,
+      vAngle: 90,
+      crankType: 'crossplane',
+      exhaustLayout: 'perBank',
+      // Idle, because that is where a big cam is heard. The overlap costs little at wide-open
+      // throttle; nearly shut, the manifold is the lowest pressure the exhaust can reach, so it
+      // back-flows into the intake. Measured here at 1000 rpm and 8% throttle, against the stock
+      // crossplane at the same: 0.66 bar in the manifold rather than 0.24, and 57% of the trapped
+      // charge spent gas rather than 22%. That is past the dilution limit (`DILUTION_ONSET` in
+      // cylinder.ts), and 13% of cycles misfire where the stock engine misfires none. At 6% it was
+      // 30%, an engine about to stall rather than one with a lope; at 12%, none. Free-running, this
+      // same throttle holds it near 1100 and hunting, where the stock one would idle at 900 on 7%:
+      // a big cam needs more air to idle, and idles higher.
+      rpm: 1000,
+      throttle: 0.08,
+      // Built to rev, and needs to: a cam this size only starts to pull past 4000.
+      revLimit: 7000,
+      mouthSpacing: 1.3,
+      flywheelInertia: 0.7,
+      // Idling in neutral.
+      load: 0,
+      pipeCellSize: 0.035,
+      // A 350: 4.030 x 3.48 in on a 5.7 in rod, with 2.02/1.60 in valves.
+      bore: 0.1024,
+      stroke: 0.0884,
+      rodLength: 0.1448,
+      compressionRatio: 11,
+      exValveDia: 0.0406,
+      inValveDia: 0.0513,
+      maxLift: 0.015,
+      // 305 and 295 degrees, 45 degrees either side of overlap, on a 105-degree lobe separation.
+      evo: 100,
+      evc: 405,
+      ivo: 315,
+      ivc: 610,
+      // An idle this dilute burns slowly and wants the spark early to make up for it.
+      ignition: 690,
+      // The crossplane's gain rather than level-matched at idle, so the two V8s compare directly and
+      // opening this one up does not clip.
+      outputGain: 2.05,
+    },
+    pipe: () => [makeSegment({ kind: 'pipe', length: 0.8, dIn: 0.044 })],
+    // Long-tube headers into short collectors and a glasspack-sized can: loud, not open.
+    collector: () => [
+      makeSegment({ kind: 'cone', length: 0.16, dIn: 0.062, dOut: 0.076 }),
+      makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.076, yaw: 0.18 }),
+      makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.076, dOut: 0.13 }),
+      makeSegment({ kind: 'pipe', length: 0.35, dIn: 0.07 }),
     ],
   },
   {
@@ -1657,7 +1744,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       exValveDia: 0.038,
       inValveDia: 0.044,
       maxLift: 0.0105,
-      outputGain: 1.0,
+      outputGain: 1.03,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.44, dIn: 0.042 })],
     collector: () => [
@@ -1694,6 +1781,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       rpm: 3600,
       // A modern 1200 cc parallel twin's.
       revLimit: 7500,
+      outputGain: 0.74,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.04 })],
     collector: () => [

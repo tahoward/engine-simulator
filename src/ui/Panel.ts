@@ -27,6 +27,7 @@ import {
   firingPlan,
   fullLoadTorque,
   isBoxer,
+  presetEngine,
   type ExhaustLayout,
   type EngineConfig,
   type EngineSnapshot,
@@ -276,7 +277,7 @@ export class Panel {
        * going crossplane to flatplane and back came out with a different exhaust each time. And the
        * collector is always replaced — emptied if the preset has none — so no preset inherits one.
        */
-      this.cb.onEngine(preset.engine);
+      this.cb.onEngine(presetEngine(preset, this.config.engine));
       this.config.pipe.length = 0;
       this.config.pipe.push(...preset.pipe());
       this.config.collector.length = 0;
