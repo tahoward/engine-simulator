@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { GAS, makeSegment, speedOfSound } from '../src/model/spec.js';
 import {
   EulerPipe,
+  launchRadius,
   limitAreaRatio,
   type EulerPipeOptions,
   type SlopeLimiter,
@@ -441,6 +442,27 @@ describe('the linear acoustics the waveguide gave for free', () => {
 });
 
 describe('geometry and robustness', () => {
+  it('takes the plane-wave limit from where higher modes are launched, not always the mouth', () => {
+    const header = makeSegment({ length: 0.5, dIn: 0.048 });
+    // Straight to the end: the mouth.
+    expect(launchRadius([header])).toBeCloseTo(0.024, 9);
+    // A gradual megaphone: its throat, however wide the mouth.
+    expect(launchRadius([header, makeSegment({ kind: 'cone', length: 1.2, dIn: 0.048, dOut: 0.2 })])).toBeCloseTo(0.024, 9);
+    // A step up to a wide tail: the tail, which the step launches modes into.
+    expect(launchRadius([header, makeSegment({ length: 0.6, dIn: 0.12 })])).toBeCloseTo(0.06, 9);
+    // A cone too steep to be a horn is a step.
+    expect(launchRadius([header, makeSegment({ kind: 'cone', length: 0.05, dIn: 0.048, dOut: 0.12 })])).toBeCloseTo(0.06, 9);
+    // After a muffler, only the run from the tailpipe on counts.
+    expect(
+      launchRadius([
+        header,
+        makeSegment({ kind: 'chamber', length: 0.34, dIn: 0.042, dOut: 0.13 }),
+        makeSegment({ length: 0.2, dIn: 0.04 }),
+        makeSegment({ kind: 'cone', length: 0.4, dIn: 0.04, dOut: 0.1 }),
+      ]),
+    ).toBeCloseTo(0.02, 9);
+  });
+
   it('fixes cell length, so a short pipe costs less than a long one', () => {
     const short = new EulerPipe([makeSegment({ length: 0.4, dIn: 0.04 })], FS, 900);
     const long = new EulerPipe([makeSegment({ length: 1.4, dIn: 0.04 })], FS, 900);

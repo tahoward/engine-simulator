@@ -159,6 +159,18 @@ Output is band-limited at whichever limit comes first:
 
 Above either limit, the output would be numerical noise, not real sound.
 
+The radius `a` in the cut-on is where higher modes are *launched*, which isn't always the
+mouth. They start where the duct widens abruptly: at a step, at a cone steeper than 15° half-angle,
+or at the inlet. A gradual flare doesn't launch them. A wave entering a megaphone stays in the
+cone's lowest mode, a spherical front, all the way out. So `a` is the largest radius at an
+abrupt widening in the final run that widens toward the mouth, or that run's throat if there
+is none. Anything upstream of the run's narrowest point can't pass it except as a plane wave.
+For a straight pipe, or one that steps up to a wide tail, `a` is the mouth as before. For a
+48 → 200 mm megaphone it's the 24 mm throat, and the band limit goes back from 1.3 kHz to the
+grid's 2.5 kHz. The 15° threshold is a judgement, not a derived figure; every drawn cone in the
+presets is under 5°. The mouth boundary's second pole uses the same cut-on, so the energy it
+lets out is the energy the far field radiates.
+
 ### The exhaust port
 
 The **exhaust port** is modelled as the first length of duct, not as a single lumped volume.

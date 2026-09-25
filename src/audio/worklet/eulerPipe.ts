@@ -678,8 +678,10 @@ export class EulerPipe {
     this.mouthCutoffRad = ambientSoundSpeed() / mouthRadius;
     // The plane-wave cut-on is the opposite case: it is about the wave *inside* the duct,
     // where the gas is hot, so it keeps the duct's own sound speed. First non-axisymmetric
-    // mode of a circular duct, at ka = 1.8412.
-    this.planeWaveCutoffRad = (1.8412 * speedOfSound(mouthT)) / mouthRadius;
+    // mode of a circular duct, at ka = 1.8412 — of the radius where higher modes are
+    // actually launched, which a gradual flare keeps below the mouth's. See `launchRadiusRatio`.
+    this.planeWaveCutoffRad =
+      (1.8412 * speedOfSound(mouthT)) / (mouthRadius * built.launchRadiusRatio);
     this.resolutionCutoffRad = (2 * Math.PI * speedOfSound(mouthT)) / (5 * this.dx);
     this.lastMaxSpeed = speedOfSound(initTemp) * 1.2;
 
@@ -2099,6 +2101,63 @@ interface BuiltGeometry {
    */
   shapeCell: Float64Array;
   chambers: ChamberPlacement[];
+  /** `launchRadius` of the drawn duct over its drawn mouth radius: 1 unless the mouth is a gradual flare. */
+  launchRadiusRatio: number;
+}
+
+/**
+ * Half-angle, radians, above which a widening cone launches higher modes as a step would.
+ *
+ * Below it the wall turns slowly enough that a wave entering the cone stays in its lowest mode, a
+ * spherical front, all the way to the mouth; above it the flare is short against the wavelengths
+ * near cut-on and behaves as an abrupt expansion. The value is a judgement, not a derived figure:
+ * every drawn megaphone and collector cone sits under 5 degrees, and a "cone" steeper than 15 is
+ * in effect a step in any case.
+ */
+const HORN_HALF_ANGLE = (15 * Math.PI) / 180;
+
+/**
+ * Radius, m, that sets where the wave reaching the mouth stops being plane.
+ *
+ * Higher modes are launched where the duct widens abruptly: a step, a steep cone, the inlet. A
+ * gradual flare does not launch them, so the plane-wave band a megaphone carries out of its mouth is
+ * that of its throat, not of its mouth. Only the final widening run matters. Upstream of its
+ * narrowest point, any higher mode is cut off by the constriction and only the plane wave gets
+ * through, as with the tailpipe after a muffler.
+ *
+ * Walks the drawn profile back from the mouth: through the run where the duct only widens toward the
+ * mouth, taking the largest radius at any abrupt widening, and the throat where the run begins. For
+ * a duct ending in straight pipe after a step, or in straight pipe throughout, that is the mouth.
+ */
+export function launchRadius(segments: PipeSegment[]): number {
+  // The profile as pieces from inlet to mouth: `[dA, dB, length]`, a zero length being a step.
+  const pieces: Array<[number, number, number]> = [];
+  let prev = -1;
+  for (const seg of segments) {
+    const dIn = segmentDiameter(seg, 0);
+    if (prev > 0 && Math.abs(prev - dIn) > 1e-9) pieces.push([prev, dIn, 0]);
+    if (seg.kind === 'chamber') {
+      const body = segmentDiameter(seg, 0.5);
+      const throat = CHAMBER_THROAT * seg.length;
+      pieces.push([seg.dIn, seg.dIn, throat], [seg.dIn, body, 0], [body, body, seg.length - 2 * throat]);
+      pieces.push([body, seg.dIn, 0], [seg.dIn, seg.dIn, throat]);
+    } else {
+      pieces.push([dIn, segmentDiameter(seg, 1), seg.length]);
+    }
+    prev = segmentDiameter(seg, 1);
+  }
+
+  let launch = 0;
+  let throat = Infinity;
+  for (let k = pieces.length - 1; k >= 0; k--) {
+    const [dA, dB, len] = pieces[k]!;
+    // Upstream is wider: this piece's outlet is the throat of the final run.
+    if (dA > dB + 1e-9) break;
+    throat = Math.min(throat, dA);
+    const abrupt = len <= 0 || Math.atan((dB - dA) / (2 * len)) > HORN_HALF_ANGLE;
+    if (dB > dA + 1e-9 && abrupt) launch = Math.max(launch, dB);
+  }
+  return Math.max(launch, Number.isFinite(throat) ? throat : 0) / 2;
 }
 
 /**
@@ -2291,7 +2350,12 @@ function buildGeometry(
 
   const portCells = hasPort ? Math.min(count - 1, Math.round(lengths[0]! / dx)) : 0;
 
-  return { count, dx, length: total, portCells, areaCell, areaFace, diaCell, shapeCell, chambers };
+  // Exactly 1 for any duct that does not end in a gradual flare, so those keep their limit bit for bit.
+  const drawnMouth = segmentDiameter(segments[lastIdx]!, 1) / 2;
+  const launch = launchRadius(segments);
+  const launchRadiusRatio = launch < drawnMouth ? launch / drawnMouth : 1;
+
+  return { count, dx, length: total, portCells, areaCell, areaFace, diaCell, shapeCell, chambers, launchRadiusRatio };
 }
 
 /**
