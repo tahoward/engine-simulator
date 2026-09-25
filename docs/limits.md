@@ -17,9 +17,8 @@ Where the model is simplified, and by how much.
   real casting. It also comes from the same point as the exhaust, not from its own position
   with its own direction pattern.
 - **Tailpipe positions are partly simplified.** Mouths are spaced along a line, each with its
-  own delay and distance loss. But they share one ground reflection and one air-absorption
-  path, and are assumed to be at the same height. That is exact for the differentiator (it is
-  linear, and the mouths are added together before it) and close for the rest, since tailpipes
+  own delay, distance loss and far-field radiation. But they share one ground reflection and one
+  air-absorption path, and are assumed to be at the same height. That is close, since tailpipes
   usually sit at about one height. The listener's angle is fixed at 45 degrees and is not a
   control.
 - **A few constants are tuned, not derived.** The linear acoustic damping coefficient is fitted
@@ -28,12 +27,11 @@ Where the model is simplified, and by how much.
   intensity. All are labelled as such in the source.
 - **Cylinder wall temperature is fixed at 450 K.** The *pipe* wall temperature is simulated, but
   the cylinder's is not. So a cold engine does not burn or lose heat differently.
-- **Peak flame temperature is too high.** [Specific heat](glossary.md#specific-heat) is constant and there is no
-  [dissociation](glossary.md#dissociation) (hot gas molecules splitting and absorbing energy). So peak flame temperature
-  comes out at about 3150-3260 K, where real engines measure 2500-2900 K. Real `cv` rises from
-  about 820 J/(kg K) cold to over 1200 hot, and dissociation absorbs energy above roughly
-  2200 K. Peak *pressures* are in the right range (66-88 bar at full load) because the trapped
-  mass is right. So the error shows in temperature, not in the sound.
+- **Gas properties are approximate.** [Specific heat](glossary.md#specific-heat) rises linearly with temperature, fitted
+  to gamma 1.35 at 500 K and 1.28 at 1800 K, and is the same for fresh charge and burned gas. There
+  is no [dissociation](glossary.md#dissociation) (hot gas molecules splitting and absorbing energy above roughly 2200 K).
+  Peak flame temperature comes out at about 2700 K at full throttle, inside the 2500-2900 K real
+  engines measure, but toward the top of it. The exhaust pipe keeps a single gamma of 1.33.
 - **A chamber's cross-wise modes are linear and partly simplified.** They're added to the 1D
   solver as linear oscillators, so a very loud pulse doesn't steepen across the can as it does
   along it. The pipes can only be offset along the can's width, which is where they drive the

@@ -147,7 +147,7 @@ export class PipeEditor {
     /**
      * The graph's ducts as they were before the route began, so abandoning it puts everything back.
      *
-     * A snapshot rather than a record of what to undo, because starting a route can now change the graph
+     * A snapshot rather than a record of what to undo, because starting a route can change the graph
      * three different ways — replacing a port's pipe, splitting a pipe for a branch, or extending one — and
      * a snapshot undoes all of them the same way. There is no undo in the app, so Escape has to be exact.
      */
@@ -767,8 +767,8 @@ export class PipeEditor {
     // A plane perpendicular to the pipe would be the obvious choice for a radius
     // handle, but the pipe is normally viewed side-on, which puts the pointer ray
     // almost parallel to that plane. The intersection then shoots off to infinity for
-    // a few pixels of movement — in testing one short drag took a 40 mm pipe to the
-    // 440 mm clamp. A camera-facing plane is always well conditioned; the radius is
+    // a few pixels of movement, enough to take a 40 mm pipe to the 440 mm clamp in one
+    // short drag. A camera-facing plane is always well conditioned; the radius is
     // recovered afterwards as the perpendicular distance from the pipe's axis.
     const normal = new THREE.Vector3();
     this.camera.getWorldDirection(normal);

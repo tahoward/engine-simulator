@@ -1,13 +1,13 @@
 /**
  * Quasi-one-dimensional Euler solver for the exhaust system.
  *
- * This replaces the linear Kelly-Lochbaum waveguide with the real gas dynamics. The
- * reason is that exhaust blowdown is not a small perturbation: pulses reach roughly a
- * bar in the header at Mach 0.3-0.8, where the high-pressure part of a wave genuinely
- * travels faster than the low-pressure part and the front steepens toward a shock. A
- * linear model cannot do that at any amplitude — measured on this code, a 1 bar wave
- * generates 63% second harmonic here and exactly 0% in the waveguide. That harmonic
- * generation is the brassy crackle of an open pipe.
+ * Real gas dynamics rather than a linear (Kelly-Lochbaum) waveguide, because exhaust
+ * blowdown is not a small perturbation: pulses reach roughly a bar in the header at
+ * Mach 0.3-0.8, where the high-pressure part of a wave genuinely travels faster than the
+ * low-pressure part and the front steepens toward a shock. A linear model cannot do that
+ * at any amplitude — measured on this code, a 1 bar wave generates 63% second harmonic
+ * here and exactly 0% in a linear waveguide. That harmonic generation is the brassy
+ * crackle of an open pipe.
  *
  * Scheme: MUSCL-Hancock, second order in space and time, with a TVD slope limiter on
  * the primitive variables and an HLLC approximate Riemann solver at each face. The
@@ -18,8 +18,8 @@
  *     d/dt (A W) + d/dx (A F) = A S + [0, p dA/dx, 0]
  *     W = [rho, rho u, rho E],  F = [rho u, rho u^2 + p, (rho E + p) u]
  *
- * Solving the full equations brings two things the waveguide could only fake. Gas
- * temperature is now a solved field rather than an imposed exponential decay, so the
+ * Solving the full equations brings two things a waveguide can only fake. Gas
+ * temperature is a solved field rather than an imposed exponential decay, so the
  * hot charge convects and cools as it travels. And mean flow is real, so the gas the
  * waves ride on is actually moving.
  *
@@ -74,12 +74,19 @@ const TWO_OVER_GM1 = 2 / (GAMMA - 1);
 
 /** Density of the air outside the pipe, kg/m^3. The reservoir an open end inhales from. */
 const AMBIENT_RHO = GAS.pAmb / (GAS.R * GAS.tAmb);
+
+/**
+ * Resistance of the mouth's radiation load, Pa s/m: `4 * 0.6133^2 * rho_amb c_amb`, set so the
+ * parallel R-L load has the unflanged mouth's radiation resistance `rho_amb c_amb (ka)^2 / 4` at
+ * low ka. See `mouthBoundary`.
+ */
+const MOUTH_RESISTANCE = 4 * 0.6133 * 0.6133 * AMBIENT_RHO * ambientSoundSpeed();
 /**
  * Default cell length, m, and cell cap.
  *
  * Chosen from measured real-time cost, not from accuracy alone. Cost scales roughly as the
  * inverse square — halving the cell both doubles the count and halves the stable timestep —
- * so at 10 mm the longer presets ran at 80-95% of one core, which is unusable on an audio
+ * so at 10 mm the longer presets run at 80-95% of one core, which is unusable on an audio
  * thread, where 20 mm puts the worst preset near half of one. The price is bandwidth: the
  * scheme stays faithful to about 3 kHz and is artificially dull above it. That ceiling lands
  * near where the plane-wave assumption fails for a wide mouth anyway, so for most
@@ -95,9 +102,9 @@ export const DEFAULT_MAX_CELLS = 128;
 /**
  * Courant number. MUSCL-Hancock is stable to 1.0 in theory; 0.85 keeps a margin while
  * staying above the threshold where a typical duct needs a second substep per audio
- * sample. At 0.80 the CFL limit fell a hair under the 20.8 microsecond sample period, so
- * every sample paid for two substeps — 0.85 brought the average to about 1.7 when substeps
- * were still chosen adaptively. They are now pinned from geometry; see `DESIGN_WAVE_SPEED`.
+ * sample. At 0.80 the CFL limit falls a hair under the 20.8 microsecond sample period, so
+ * every sample would pay for two substeps. The count itself is pinned from geometry; see
+ * `DESIGN_WAVE_SPEED`.
  */
 export const DEFAULT_CFL = 0.85;
 
@@ -106,14 +113,14 @@ export const DEFAULT_CFL = 0.85;
  *
  * The substep count must be *constant over time*. It sets the shape of the decimation from
  * solver rate to audio rate, and a count that falls to one on quiet samples and rises to two
- * on loud ones modulates broadband noise into the signal. It used to be held constant by a
- * floor of two, which worked only because the CFL condition happened never to ask for three at
- * the default cell size — a coincidence of that geometry, not a guarantee.
+ * on loud ones modulates broadband noise into the signal. A floor of two would hold it constant
+ * only because the CFL condition happens never to ask for three at the default cell size — a
+ * coincidence of that geometry, not a guarantee.
  *
- * Pinning it from the geometry instead makes the constancy explicit, and lets a coarse grid
+ * Pinning it from the geometry makes the constancy explicit, and lets a coarse grid
  * legitimately run at *one* substep rather than paying for two it does not need. What the pin
  * needs is the fastest `|u| + c` the duct will ever see. Measured across 1200-9000 rpm, 0.15 to
- * full throttle, on a megaphone, a long tuned pipe, a 2-into-1 and a 50 mm stub, the worst was
+ * full throttle, on a megaphone, a long tuned pipe, a 2-into-1 and a 50 mm stub, the worst is
  * 1192 m/s, in a stub at 9000 rpm. 1400 gives 17% over that.
  *
  * Exceeding it is not a stability failure — `substepsFor` still subdivides on the measured
@@ -179,8 +186,8 @@ const PULSATION_NUSSELT = 3;
  *
  * Gas that is momentarily at rest still conducts to the wall, and 3.66 is the closed-form
  * answer for that limit. Flooring the *Nusselt number* rather than the Reynolds number
- * states the intent directly — the previous `Re >= 600` floor happened to give about the
- * same thing, but only for one diameter.
+ * states the intent directly — a Reynolds floor such as `Re >= 600` gives about the same
+ * thing, but only for one diameter.
  */
 const NUSSELT_FLOOR = 3.66;
 
@@ -192,9 +199,9 @@ const NUSSELT_FLOOR = 3.66;
  * exhaust duct swings from nothing to several hundred metres per second within one cycle, so
  * an instantaneous sample is effectively a random draw — and because the gas-to-wall transfer
  * is exponential in the coefficient, the low-velocity draws dominate and the cycle-average
- * transfer collapses toward the stagnant value. Measured directly: the recovered coefficient
- * jumped between 2 and 80 W/(m^2 K) at one fixed operating point, and averaged near the
- * bottom of that range.
+ * transfer collapses toward the stagnant value. Measured on instantaneous samples, the
+ * recovered coefficient jumps between 2 and 80 W/(m^2 K) at one fixed operating point, and
+ * averages near the bottom of that range.
  *
  * 50 ms spans a firing period at any normal speed while still following the throttle.
  */
@@ -286,9 +293,9 @@ export interface EulerPipeOptions {
  *
  * Valid only between `beginStep` and `endStep`. `endState` fills one preallocated object per
  * end rather than returning a fresh one, so a returned state is overwritten by the next call
- * for the same end of the same duct; see `endState`. An earlier attempt at reuse measured no
- * difference in CPU (56.1/56.5% against 56.7/56.7% on interleaved runs) and was reverted; it
- * came back for the garbage, not the speed.
+ * for the same end of the same duct; see `endState`. The reuse makes no measurable difference
+ * to CPU (56.1/56.5% against 56.7/56.7% on interleaved runs); it is there for the garbage,
+ * not the speed.
  */
 export interface EndState {
   /** The wave travelling toward this end, Pa (gauge). */
@@ -311,6 +318,8 @@ export interface ValveState {
   cylPressure: number;
   /** Cylinder gas temperature, K. */
   cylTemp: number;
+  /** Ratio of specific heats of the cylinder gas. The exhaust gas's when not given. */
+  cylGamma?: number;
   /**
    * Extra mass flow into the port, kg/s, on top of the valve's own.
    *
@@ -367,15 +376,14 @@ export class EulerPipe {
   /** Slowly tracked mean velocity per cell, m/s, so acoustic damping can skip it. */
   private readonly uMean: Float64Array;
   /**
-   * Per-cell loss coefficient for flow separation at a contraction, 1/m.
+   * Per-cell loss coefficient for flow separation at a contraction, 1/m, signed by the
+   * direction of flow it applies to: positive for flow toward +x, negative toward -x.
    *
    * Sudden *expansion* loss needs no help — the 1D momentum equation reproduces the
    * Borda-Carnot result on its own. Contraction is different: the flow separates and
-   * forms a vena contracta, and quasi-1D theory has no way to see that, so a reverse
-   * cone comes out far less lossy than the real thing. Left out, the expansion chamber
-   * preset rang at 3 kHz loudly enough to dominate its own spectrum. Engine codes handle
+   * forms a vena contracta, and quasi-1D theory has no way to see that. Engine codes handle
    * this with discrete loss coefficients at area changes; this is the same idea spread
-   * over the cells the contraction occupies, with the standard K = 0.5(1 - A2/A1).
+   * over the cells the contraction occupies. See `contractionLoss` for the coefficient.
    */
   private readonly contractionK: Float64Array;
 
@@ -442,8 +450,7 @@ export class EulerPipe {
   readonly outletKind: 'mouth' | 'junction';
   readonly heatTransfer: boolean;
 
-  // Mouth radiation: the same one-pole reflection the waveguide used, applied to the
-  // acoustic part of the boundary state.
+  // Mouth radiation, applied to the acoustic part of the boundary state.
   /**
    * The substep, valve flow and mouth flow `applyValveSource` and `mouthBoundary` take and give, in
    * fields rather than as arguments and a return: both are too big to inline, and a float crossing
@@ -451,22 +458,34 @@ export class EulerPipe {
    */
   private boundaryDt = 0;
   private sourceFlow = 0;
+  /**
+   * Fraction of the last valve source actually applied to cell 0: 1 unless the per-substep cap
+   * engaged. The cylinder must be debited only what the duct received, so callers scale the
+   * valve flow they report by this.
+   */
+  sourceScale = 1;
+  /** Throat static over cylinder stagnation temperature at the last outflow solve, for the jet. */
+  private valveThroatT = 1;
   private mouthFlowOut = 0;
   /**
-   * One-pole coefficient for the open-end reflection, recomputed from the *substep*
-   * duration rather than the audio sample period.
-   *
-   * It has to be, because `mouthBoundary` runs once per CFL substep. Deriving it from the
-   * audio rate while applying it twice as often doubled the corner frequency, so high
-   * frequencies reflected far more strongly than they should and stood as waves in the pipe
-   * instead of radiating away.
+   * One-pole coefficient at the plane-wave cut-on, applied to the wave arriving at the mouth,
+   * recomputed from the *substep* duration rather than the audio sample period, because
+   * `mouthBoundary` runs once per CFL substep.
    */
-  private mouthRefC = 0;
   private mouthRefDt = -1;
-  private mouthRefState = 0;
-  /** Second reflection pole, at the plane-wave cut-on. */
   private mouthCutC = 0;
   private mouthCutState = 0;
+  /**
+   * Velocity through the radiation load's inertance, m/s: the state of the mouth's R-L load.
+   * See `mouthBoundary`.
+   */
+  private mouthPhi = 0;
+  /** Mouth radius, m, as discretised. */
+  private readonly mouthRadius: number;
+  /**
+   * Radiation corner, rad/s: `ka = 2`, where a monopole of the mouth's volume velocity would
+   * radiate as much power as a piston of its area does once its efficiency has saturated.
+   */
   readonly mouthCutoffRad: number;
   readonly planeWaveCutoffRad: number;
 
@@ -477,15 +496,14 @@ export class EulerPipe {
    * dB per metre, and by five it has nothing left. Radiating above it would be radiating
    * numerical debris.
    *
-   * There is a second reason this matters. Substeps used to be chosen adaptively, so one audio
-   * sample might average one substep and the next two — a decimation filter
-   * that changes from sample to sample, which modulates broadband noise into the output.
-   * That showed up as 16 kHz sitting only 18 dB below the peak on a narrow tailpipe,
-   * where the duct's own dissipation should have put it 60 dB down. Band-limiting the
+   * There is a second reason this matters. Whenever the substep count varies from one audio
+   * sample to the next — a burst above `DESIGN_WAVE_SPEED` — the decimation filter changes
+   * from sample to sample, which modulates broadband noise into the output. With substeps
+   * chosen adaptively throughout, that would put 16 kHz only 18 dB below the peak on a narrow
+   * tailpipe, where the duct's own dissipation should put it 60 dB down. Band-limiting the
    * radiated signal removes both problems at once.
    */
   readonly resolutionCutoffRad: number;
-  private static readonly DC_LEAK = 0.985;
 
   /** One-element scratch for `probeJunction`, so a trial solve touches no real state. */
   private readonly pf0 = new Float64Array(1);
@@ -545,10 +563,10 @@ export class EulerPipe {
      * The two hot loops run in wasm when a kernel is available — over *these very arrays*.
      *
      * Every field the kernel touches is a view into its linear memory rather than a copy, so
-     * the TypeScript boundary, junction and thermal code goes on indexing `this.rho[i]`
-     * exactly as before and nothing is marshalled per substep. That is what makes a 3x
+     * the TypeScript boundary, junction and thermal code indexes `this.rho[i]` exactly as it
+     * does without a kernel and nothing is marshalled per substep. That is what makes a 3x
      * speedup on the inner loops worth having: a copy in and out at 96,000 substeps a second
-     * would have eaten it.
+     * would eat it.
      *
      * `null` when the kernel cannot be built — no wasm, no SIMD, or a duct longer than the
      * capacity it was compiled for. The TypeScript loops below are then used unchanged, and
@@ -581,11 +599,8 @@ export class EulerPipe {
     for (let i = 0; i < this.n; i++) {
       this.invVol[i] = 1 / (this.areaCell[i]! * this.dx);
       this.invDia[i] = 1 / this.hydDia[i]!;
-      const aIn = this.areaFace[i]!;
-      const aOut = this.areaFace[i + 1]!;
-      const k = aOut < aIn ? 0.5 * (1 - aOut / aIn) : 0;
-      this.contractionK[i] = k / this.dx;
     }
+    this.contractionK.set(built.contractionK);
     this.pr = cell('pr');
     this.pu = cell('pu');
     this.sr = cell('sr');
@@ -646,9 +661,9 @@ export class EulerPipe {
     this.setAirSpeed(opts.airSpeed ?? 0);
 
 
-    // Initial condition: still gas at ambient pressure, on the temperature profile the
-    // old empirical model assumed. It is only a starting guess now — heat transfer and
-    // convection take it wherever the physics says within a few cycles.
+    // Initial condition: still gas at ambient pressure, on the empirical `pipeTemperature`
+    // profile. It is only a starting guess — heat transfer and convection take it wherever
+    // the physics says within a few cycles.
     const initTemp = opts.initialPortTemp ?? portGasTemp;
     for (let i = 0; i < this.n; i++) {
       const x = (i + 0.5) * this.dx;
@@ -669,13 +684,11 @@ export class EulerPipe {
     this.crossModes = cross.count > 0 ? cross : null;
 
     const mouthRadius = Math.max(this.diaCell[this.n - 1]! / 2, 5e-3);
+    this.mouthRadius = mouthRadius;
     const mouthT = pipeTemperature(initTemp, this.totalLength);
-    // ka = 1, where the mouth stops growing more efficient as a radiator and an open end
-    // stops reflecting almost perfectly. Both are properties of the radiation load, and the
-    // radiation load belongs to the medium the sound leaves *into* — the atmosphere. On the
-    // duct gas's sound speed this corner sat ~50% too high, so the monopole derivative in
-    // `FarField` went on tilting the spectrum half an octave further up than it should.
-    this.mouthCutoffRad = ambientSoundSpeed() / mouthRadius;
+    // The radiation load belongs to the medium the sound leaves *into* — the atmosphere — so
+    // the corner is on the ambient sound speed, not the duct gas's.
+    this.mouthCutoffRad = (2 * ambientSoundSpeed()) / mouthRadius;
     // The plane-wave cut-on is the opposite case: it is about the wave *inside* the duct,
     // where the gas is hot, so it keeps the duct's own sound speed. First non-axisymmetric
     // mode of a circular duct, at ka = 1.8412 — of the radius where higher modes are
@@ -764,6 +777,13 @@ export class EulerPipe {
     for (let i = 0; i < this.n; i++) {
       travel += this.dx / Math.sqrt(GAMMA * GAS.R * this.temperatureAt(i));
     }
+    if (this.outletKind === 'mouth' && this.radiate) {
+      // The end correction, as a length of the gas at the mouth: see `mouthBoundary`.
+      const last = this.n - 1;
+      const r = this.rho[last]!;
+      const delta = (OPEN_END_FACTOR * this.mouthRadius * AMBIENT_RHO) / r;
+      travel += delta / Math.sqrt(GAMMA * GAS.R * this.temperatureAt(last));
+    }
     return travel > 0 ? 1 / (4 * travel) : 0;
   }
 
@@ -821,7 +841,7 @@ export class EulerPipe {
       this.endStep(h, valveFlow + (valve.extraMassFlow ?? 0), valve);
       this.afterStep(h);
       mouthAcc += mouth;
-      valveAcc += valveFlow;
+      valveAcc += valveFlow * this.sourceScale;
     }
 
     const inv = 1 / substeps;
@@ -858,15 +878,18 @@ export class EulerPipe {
     const pPort = port[0]!;
     const io = ORIFICE_IO;
     io[1] = VALVE_CD;
-    io[5] = GAMMA;
     io[0] = area;
     if (valve.cylPressure > pPort) {
+      // The upstream gas's gamma: the cylinder's mixture going out, exhaust gas coming back.
+      io[5] = valve.cylGamma ?? GAMMA;
       io[2] = valve.cylPressure;
       io[3] = valve.cylTemp;
       io[4] = pPort;
       orificeSolve(io);
+      this.valveThroatT = io[6]! > 0 ? io[8]! : 1;
       return io[6]!;
     }
+    io[5] = GAMMA;
     io[2] = pPort;
     io[3] = port[1]!;
     io[4] = valve.cylPressure;
@@ -971,7 +994,7 @@ export class EulerPipe {
       this.setPrimitive(i, GAS.pAmb / (GAS.R * this.wallT[i]!), 0, GAS.pAmb);
       this.fluxAvg[i] = 0;
     }
-    this.mouthRefState = 0;
+    this.mouthPhi = 0;
     this.mouthCutState = 0;
     this.crossModes?.reset();
     this.lastMaxSpeed = speedOfSound(this.meanWallTemp()) * 1.5;
@@ -1015,13 +1038,24 @@ export class EulerPipe {
   }
 
   private inletWall(): void {
-    // A solid wall: no mass or energy crosses, and the pressure force is the cell's own.
-    // The valve enters as a source term in cell 0 rather than as a flux, which keeps mass
+    // A solid wall: no mass or energy crosses, and the pressure on it is the reflecting wall's
+    // Riemann pressure — the gas arriving at it is brought to rest, which raises its pressure,
+    // and gas leaving it is expanded. The mirrored state gives exactly that, with a zero contact
+    // speed. The valve enters as a source term in cell 0 rather than as a flux, which keeps mass
     // and energy conserved by construction and lets the orifice relation handle choking.
+    //
+    // HLLC on the mirrored pair, written out: its contact speed is exactly zero, so what remains
+    // is the star pressure `p + rho (s_L + u) u`, with `s_L = -(|u| + c)`.
+    const r = this.lr[0]!;
+    const u = this.lu[0]!;
+    const p = this.lp[0]!;
+    const c = Math.sqrt((GAMMA * p) / r);
+    const sL = Math.min(-u - c, u - c);
+    const pWall = Math.max(p + r * (sL + u) * u, 1e-3);
     this.f0[0] = 0;
-    this.f1[0] = this.lp[0]!;
+    this.f1[0] = pWall;
     this.f2[0] = 0;
-    this.fp[0] = this.lp[0]!;
+    this.fp[0] = pWall;
   }
 
   /**
@@ -1067,9 +1101,9 @@ export class EulerPipe {
     // --- limited slopes on primitives, then half-step evolution (Hancock) ---
     // Slopes first, into a scratch array, with the end cells peeled off.
     //
-    // Two things are being kept out of the hot body. The `i === 0 || i === n - 1` test was a
-    // branch per cell for a condition true exactly twice, and `slope` re-tested the limiter
-    // code on all three of its calls per cell for a value fixed for the life of the duct.
+    // Two things are being kept out of the hot body. An `i === 0 || i === n - 1` test would be
+    // a branch per cell for a condition true exactly twice, and a generic `slope` would re-test
+    // the limiter code on all three of its calls per cell for a value fixed for the life of the duct.
     // Hoisting the limiter to a switch around three tight loops lets each one inline a single
     // expression instead of calling through a three-way branch 21 million times a second.
     const { sr: srA, su: suA, sp: spA } = this;
@@ -1119,8 +1153,8 @@ export class EulerPipe {
       // weighted by their face areas, plus the p dA momentum source.
       //
       // Both halves of that matter and they must go together. With neither, a cavity
-      // between two area changes pumps itself (650x energy growth was measured in a
-      // muffler chamber). With the source but constant-area fluxes, the predictor stops
+      // between two area changes pumps itself (650x energy growth in a muffler
+      // chamber). With the source but constant-area fluxes, the predictor stops
       // being well balanced — at rest it invents momentum wherever the area varies, and
       // the transient that follows is tens of dB too loud. Area-weighting both terms
       // makes the predictor reduce to zero at rest, exactly as the corrector does.
@@ -1230,8 +1264,8 @@ export class EulerPipe {
       //
       // The linear boundary-layer term is *acoustic* damping: it must act on the
       // perturbation about the mean flow, not on the mean flow itself. Applied to the
-      // total velocity it also brakes the mean, which is wrong and was measurable —
-      // 120 m/s decayed to 1 m/s in 50 ms, and at low speed the linear term outweighed
+      // total velocity it also brakes the mean, which is wrong and measurably so —
+      // 120 m/s decays to 1 m/s in 50 ms, and at low speed the linear term outweighs
       // Darcy by roughly forty to one. Mean flow should feel only the quadratic terms.
       //
       //   du/dt = -k_lin (u - u_mean) - k_quad u
@@ -1242,8 +1276,10 @@ export class EulerPipe {
       const uOld = nm * invNr;
       const uMean = uMeanArr[i]!;
 
+      // The contraction loss is signed by the direction it acts in: `max(u * k, 0)` is `|u| |k|`
+      // when the flow runs into the narrowing and zero when it runs out of it.
       const kQuad =
-        Math.abs(uOld) * (darcy * 0.5 * invDia[i]! + contractionK[i]!);
+        Math.abs(uOld) * (darcy * 0.5 * invDia[i]!) + Math.max(uOld * contractionK[i]!, 0);
       const uNew = (uOld + kLin * uMean * dt) / (1 + (kLin + kQuad) * dt);
       nm = nr * uNew;
 
@@ -1266,6 +1302,7 @@ export class EulerPipe {
     const { dx, rho, mom, en, areaCell } = this;
     const dt = this.boundaryDt;
     const valveFlow = this.sourceFlow;
+    this.sourceScale = 1;
 
     if (valveFlow !== 0) {
       const vol = areaCell[0]! * dx;
@@ -1273,24 +1310,29 @@ export class EulerPipe {
       // A wide valve opening onto a very small first cell can ask to more than double
       // its mass in a single substep, which the explicit update cannot absorb. Capping
       // the change per substep keeps it admissible. What the cap cuts off is not carried
-      // over: the flow is recomputed from the pressures every substep, and the cylinder is
-      // still debited the uncapped flow, so while the cap is engaged that mass is lost.
+      // over: the flow is recomputed from the pressures every substep. `sourceScale`
+      // reports the cut, so the cylinder is debited only what arrived.
       const cap = 0.25 * rho[0]!;
+      const uncapped = dm;
       if (dm > cap) dm = cap;
       else if (dm < -cap) dm = -cap;
+      if (dm !== uncapped) this.sourceScale = dm / uncapped;
 
       if (valveFlow > 0) {
         // Gas arrives from the cylinder carrying its total enthalpy, and with the
-        // momentum of the jet leaving the valve throat.
-        const jetRho = Math.max(this.pressureAt(0) / (GAS.R * valve.cylTemp), 1e-7);
-        const jetU = clamp(
-          valveFlow / (jetRho * Math.max(valve.throatArea, 1e-9)),
-          0,
-          Math.sqrt(GAMMA * GAS.R * valve.cylTemp),
-        );
+        // momentum of the jet leaving the valve throat. The jet's speed is the isentropic
+        // expansion from the cylinder's stagnation state to the throat's static pressure,
+        // which is the port pressure, or the critical pressure once the throat chokes: the
+        // throat state of the orifice solve that set this flow.
+        const g = valve.cylGamma ?? GAMMA;
+        const t0 = valve.cylTemp;
+        const jetU = Math.sqrt(Math.max((2 * g * GAS.R * t0 * (1 - this.valveThroatT)) / (g - 1), 0));
         rho[0] = rho[0]! + dm;
-        // Only the fraction of the pipe cross-section the jet occupies carries that
-        // momentum into the cell; the rest of the face is a wall.
+        // Only part of the jet's momentum arrives along the port. A poppet valve discharges
+        // radially off its head and the flow turns into the port against its walls, which is why
+        // 1D valve models (Benson's) recover none of it and let it dissipate as heat at the
+        // throat pressure. The fraction of the pipe cross-section the jet occupies carries it
+        // here; the rest of the face is a wall.
         mom[0] = mom[0]! + dm * jetU * clamp(valve.throatArea / areaCell[0]!, 0, 1);
         en[0] = en[0]! + dm * CP * valve.cylTemp;
       } else {
@@ -1299,15 +1341,15 @@ export class EulerPipe {
          *
          * `CP`, not `CV`, and the difference is a rectifier. Gas crossing an orifice does flow
          * work on whatever it moves into, so a mass exchange has to trade `h + u^2/2` in both
-         * directions — which the inflow branch above already does. Taking only `e + u^2/2` back
-         * out left every in-and-out pair of a *zero-mean* mass source depositing `R T` per unit
-         * mass in the duct: about 430 kJ/kg at 1500 K, against the 45 kJ/kg of kinetic energy at
-         * 300 m/s that was being counted.
+         * directions — which the inflow branch above does. Taking only `e + u^2/2` back out
+         * would leave every in-and-out pair of a *zero-mean* mass source depositing `R T` per
+         * unit mass in the duct: about 430 kJ/kg at 1500 K, against the 45 kJ/kg of kinetic
+         * energy at 300 m/s that it would count.
          *
-         * Every oscillating source fed this: throat turbulence, valve-seat pulses, collector
-         * merge noise, and real flow reversal during overlap. Because the source is divided by
-         * the first cell's volume, the smaller the duct the faster it heated — which is why it
-         * surfaced as a short collector reaching 40,000 K while long ones looked fine.
+         * Every oscillating source would feed that: throat turbulence, valve-seat pulses,
+         * collector merge noise, and real flow reversal during overlap. Because the source is
+         * divided by the first cell's volume, the smaller the duct the faster it would heat — a
+         * short collector reaching 40,000 K while long ones looked fine.
          */
         const u0 = mom[0]! / rho[0]!;
         const t0 = this.temperatureAt(0);
@@ -1323,9 +1365,20 @@ export class EulerPipe {
    *
    * The outgoing wave stays fully nonlinear; only the small wave coming back from
    * outside is treated acoustically, which is well justified because radiation is weak.
-   * The characteristic split about the local mean gives p+ and p-, the same one-pole
-   * reflection the linear model used sets the returning p-, and a ghost state carrying
-   * that p- is handed to the Riemann solver.
+   * The characteristic split about the local mean gives p+ and p-, the mouth's radiation
+   * impedance sets the returning p-, and a ghost state carrying that p- is handed to the
+   * Riemann solver.
+   *
+   * The radiation load of an unflanged mouth is a mass and a resistance in parallel, per unit
+   * area:
+   *
+   *   L = rho_amb * 0.6133 a            the air outside moving with the air inside
+   *   R = 4 * 0.6133^2 * rho_amb c_amb  so that Re Z = rho_amb c_amb (ka)^2 / 4 at low ka
+   *
+   * both of the *ambient* air, against the duct gas's own `rho c`. That gives Levine and
+   * Schwinger's |R| = 1 - (ka)^2/2 for a cold duct, and for a hot one the right thing too: the
+   * end correction, seen as a length of duct gas, grows as `rho_amb / rho`, and more of the wave
+   * escapes because hot gas is a poorer impedance match to cold air.
    */
   private mouthBoundary(): void {
     const dt = this.boundaryDt;
@@ -1351,12 +1404,6 @@ export class EulerPipe {
     // into the duct. Once the last cell reaches Mach 1 it cannot: all three characteristics
     // leave the domain, and a reflected wave computed anyway is energy invented at the boundary.
     //
-    // This was added while chasing a runaway on a short, wide-mouthed collector and does not
-    // explain it: that duct reaches 40,000 K while remaining deeply *subsonic*, because it is the
-    // sound speed rather than the velocity that is enormous there, so this branch never fires and
-    // `supersonicFaces` stays at zero. It is kept because the condition it implements is right
-    // regardless, not because it fixed anything.
-    //
     // A ghost equal to the interior state is exactly the right thing to hand the Riemann
     // solver here: with both sides identical and `u >= c`, HLLC takes its `sL >= 0` branch and
     // returns the interior's own physical flux, which is the supersonic-outflow condition. The
@@ -1377,45 +1424,52 @@ export class EulerPipe {
     // Split into travelling components about the local state.
     const pPlus = 0.5 * (pPrime + zc * u);
 
-    // Coefficients follow the substep duration. Cached, because it only changes when the
+    // Coefficient follows the substep duration. Cached, because it only changes when the
     // substep count does.
     if (dt !== this.mouthRefDt) {
       this.mouthRefDt = dt;
-      this.mouthRefC = 1 - Math.exp(-this.mouthCutoffRad * dt);
-      // Second pole at the plane-wave cut-on. Above it a duct no longer carries plane
-      // waves at all, so a plane-wave reflection coefficient has no meaning there — that
-      // energy goes into higher modes and away. Without this it neither radiates (the
-      // output is band-limited) nor leaves, and simply rattles around inside.
       this.mouthCutC = 1 - Math.exp(-this.planeWaveCutoffRad * dt);
     }
-    this.mouthRefState += this.mouthRefC * (pPlus - this.mouthRefState);
-    this.mouthCutState += this.mouthCutC * (this.mouthRefState - this.mouthCutState);
-    const pMinus = -EulerPipe.DC_LEAK * this.mouthCutState;
+    // Only what lies below the plane-wave cut-on is reflected. Above it a duct no longer
+    // carries plane waves at all, so a plane-wave reflection coefficient has no meaning there
+    // — that energy goes into higher modes and away. Without this it neither radiates (the
+    // output is band-limited) nor leaves, and simply rattles around inside.
+    this.mouthCutState += this.mouthCutC * (pPlus - this.mouthCutState);
+    const pIn = this.mouthCutState;
+
+    // The radiation load, solved implicitly against the incoming wave:
+    //   u' = (2 p_in - p') / zc   (the duct side)
+    //   u' = p' / R + phi,  phi' = p' / L   (the load)
+    // The cut-on pole delays the reflection by 1/w_pw, which is itself an inertance of
+    // zc / (2 w_pw); it is taken out of the load's so the end correction is counted once.
+    const a = this.mouthRadius;
+    const inertance = Math.max(
+      AMBIENT_RHO * OPEN_END_FACTOR * a - (0.5 * zc) / this.planeWaveCutoffRad,
+      1e-3 * AMBIENT_RHO * a,
+    );
+    const pLoad =
+      ((2 * pIn) / zc - this.mouthPhi) / (1 / zc + 1 / MOUTH_RESISTANCE + dt / inertance);
+    this.mouthPhi += (dt * pLoad) / inertance;
+    const pMinus = pLoad - pIn;
 
     const pGhost = Math.max(GAS.pAmb + pPlus + pMinus, 1e-3);
 
     /**
      * Ghost velocity from the outgoing Riemann invariant, not from the linear impedance.
      *
-     * `(pPlus - pMinus) / zc` is the acoustic relation, and using it here quietly contradicted
-     * the claim above that only the weak returning wave is treated acoustically — it applied a
+     * `(pPlus - pMinus) / zc` is the acoustic relation, and using it here would contradict the
+     * claim above that only the weak returning wave is treated acoustically — it applies a
      * linear impedance to the *whole* outgoing wave, which at blowdown is most of a bar. Worse,
      * it is a positive feedback: `zc = rho c` sits in the denominator, so as the mouth pushes
      * mass out and the density falls, the same wave asks for a larger outflow velocity, which
      * pushes more mass out.
      *
-     * To be clear about what this does and does not fix: it does *not* cure the known runaway on
-     * a short duct with a very wide mouth (a V8 with a 0.2 m, 42-to-130 mm cone collector still
-     * reaches 40,000 K). That was measured directly, before and after. This is corrected on its
-     * own merits — a linear impedance is the wrong relation for a wave this large whatever else
-     * is wrong — and the runaway has a separate, still-unidentified cause.
-     *
      * The invariant `u + 2c/(gamma-1)` is carried out of the domain by the outgoing
      * characteristic, so it is what the interior actually determines. Holding it, taking the
      * pressure from the radiation model and the entropy from the interior closes the boundary
      * exactly and nonlinearly. It reduces to the acoustic relation for small perturbations —
-     * `u - dp/(rho c)` — so nothing quiet changes; only pulses large enough for the two to
-     * differ, which were the ones being got wrong.
+     * `u - dp/(rho c)` — so the two differ only for pulses large enough for the linear relation
+     * to be wrong.
      */
     // Outflow first: gas on its way out carries the duct's own entropy, so the ghost is the
     // interior state brought isentropically to the boundary pressure.
@@ -1424,27 +1478,27 @@ export class EulerPipe {
     let uGhost = u + TWO_OVER_GM1 * (c - cGhost);
 
     /**
-     * Inflow carries *ambient* entropy, not the duct's. This is the runaway.
+     * Inflow carries *ambient* entropy, not the duct's.
      *
      * Scaling the interior state to the boundary pressure is right for gas leaving and wrong for
      * gas arriving: air coming in from outside has never been in the engine, and giving it the
-     * duct's entropy hands it the duct's temperature as well. On an ordinary tailpipe that is a
-     * small error, because the end sits near ambient and inflow is brief. On a short duct with a
-     * wide mouth it is a *feedback*: the mouth empties the duct to well below ambient, which
-     * draws air in, and each parcel arrives at `T_interior * (p_amb/p)^((gamma-1)/gamma)` — so a
-     * hot duct inhales hotter gas and gets hotter still.
+     * duct's entropy hands it the duct's temperature as well. On an ordinary tailpipe that would
+     * be a small error, because the end sits near ambient and inflow is brief. On a short duct
+     * with a wide mouth it would be a *feedback*: the mouth empties the duct to well below
+     * ambient, which draws air in, and each parcel would arrive at
+     * `T_interior * (p_amb/p)^((gamma-1)/gamma)` — so a hot duct inhales hotter gas and gets
+     * hotter still.
      *
-     * Measured on a V8 with a 0.2 m, 42-to-130 mm cone collector at 7000 rpm: the duct fell to
-     * 0.109 bar and reached 40,586 K at a four-hundredth of ambient density, and of nine
-     * ablations only closing the mouth entirely stopped it — because a closed end has no inflow.
-     * Mass left while energy did not, which is the signature of gas being replaced by hotter gas
-     * rather than of a conservation error, and both the junction (`p_J/p_end` peaked at 1.1) and
-     * the substep cap were ruled out by direct measurement first.
+     * With the duct's entropy on inflow, a V8 with a 0.2 m, 42-to-130 mm cone collector at
+     * 7000 rpm falls to 0.109 bar and reaches 40,586 K at a four-hundredth of ambient density.
+     * Mass leaves while energy does not, which is the signature of gas being replaced by hotter
+     * gas rather than of a conservation error; only a closed mouth, which has no inflow, is
+     * immune.
      *
      * Physically this is the subsonic-inflow condition: `u + 2c/(gamma-1)` comes out of the duct
      * along the one outgoing characteristic, while pressure and entropy are imposed from the
      * reservoir outside. The two incoming characteristics must carry the reservoir's properties,
-     * which is exactly what was missing.
+     * which is what this imposes.
      *
      * The outside air keeps the exhaust `gamma` rather than `gammaAir`: the solver carries one
      * ratio of specific heats, and a boundary that disagreed with the interior about it would
@@ -1452,23 +1506,23 @@ export class EulerPipe {
      */
     if (uGhost < 0) {
       /**
-       * Density only. The velocity relation above is left exactly as it was, on purpose.
+       * Density only. The velocity keeps the outgoing-invariant relation above, on purpose.
        *
-       * What is wrong with the old boundary is the *temperature* it gives arriving gas, not the
-       * velocity it gives it. Two attempts at also replacing the velocity here both failed, and
-       * instructively:
+       * What the interior-entropy ghost gets wrong for arriving gas is its *temperature*, not
+       * its velocity. The two obvious ways of also taking the velocity from outside both fail,
+       * and instructively:
        *
-       *  - recomputing the invariant from an ambient-entropy `cGhost` produced +1600 m/s of
+       *  - recomputing the invariant from an ambient-entropy `cGhost` produces +1600 m/s of
        *    spurious outflow, because ambient air is cool and dense so `cGhost` falls far below
-       *    `c` and `2/(gamma-1)` multiplies the difference by six. It turned two healthy ducts
-       *    into runaways.
-       *  - using the exterior acoustic relation `dp / (rho_amb c_amb)` destroyed the reflection.
+       *    `c` and `2/(gamma-1)` multiplies the difference by six. It turns healthy ducts into
+       *    runaways.
+       *  - using the exterior acoustic relation `dp / (rho_amb c_amb)` destroys the reflection.
        *    Near an open end `pGhost` is close to ambient by construction, so that expression goes
        *    to zero exactly when the reflection needs a large inflow velocity, and the measured
-       *    reflection coefficient at ka = 0.04 fell from 0.99 to 0.732.
+       *    reflection coefficient at ka = 0.04 falls from 0.99 to 0.732.
        *
        * The velocity has to come from the duct's own outgoing characteristic either way, and in
-       * the linear limit the invariant form and the original `(pPlus - pMinus) / zc` agree, which
+       * the linear limit the invariant form and the acoustic `(pPlus - pMinus) / zc` agree, which
        * is what keeps `|R|` right. Only the entropy is imposed from outside.
        */
       rGhost = Math.max(AMBIENT_RHO * Math.pow(pGhost / GAS.pAmb, INV_GAMMA), 1e-7);
@@ -1487,15 +1541,17 @@ export class EulerPipe {
    * This is the expensive half — a `pow` per cell — so it runs occasionally. The cheap half
    * runs every sample, which is the whole point: applying the *transfer* in batches injects
    * a periodic energy perturbation at `sampleRate / interval`, which at 16 samples is
-   * exactly 3000 Hz. That artefact was audible as a whistle in any geometry with a resonance
-   * near it, and it took a third of the total energy above 1.5 kHz in the
+   * exactly 3000 Hz. That artefact would be audible as a whistle in any geometry with a
+   * resonance near it, and would take a third of the total energy above 1.5 kHz in the
    * expansion-chamber preset. Note that it is invisible to a grid-refinement test, because
    * the batch interval does not scale with cell size.
    */
   private refreshThermalCoefficients(dtSample: number): void {
     const K_GAS = 0.05; // W/(m K), hot exhaust
     const MU = 3.5e-5; // Pa s
-    const PR04 = 0.867; // Pr^0.4 at Pr = 0.7
+    // Dittus-Boelter's Pr^n takes n = 0.3 for a fluid being cooled, which exhaust gas in a
+    // pipe always is.
+    const PR_N = 0.899; // Pr^0.3 at Pr = 0.7
 
     this.fluxAvgC = 1 - Math.exp(-dtSample / FLUX_AVERAGE_TAU);
 
@@ -1505,7 +1561,7 @@ export class EulerPipe {
       // On the *averaged* mass flux, not the instantaneous one — see `FLUX_AVERAGE_TAU`.
       const re = (this.fluxAvg[i]! * d) / MU;
       const nu = Math.max(
-        0.023 * Math.pow(re, 0.8) * PR04 * PULSATION_NUSSELT,
+        0.023 * Math.pow(re, 0.8) * PR_N * PULSATION_NUSSELT,
         NUSSELT_FLOOR,
       );
       const htcVol = ((nu * K_GAS) / d) * (4 / d); // W/(m^3 K)
@@ -1550,7 +1606,7 @@ export class EulerPipe {
    * Unlike the gas relaxation this may be batched safely. The wall moves by only about
    * 0.007 K per sixteen samples against a gas-to-wall difference of hundreds of kelvin, so
    * stepping it contributes a perturbation five orders of magnitude below the one that
-   * batching the *gas* transfer produced. Keeping it out of the per-sample path removes a
+   * batching the *gas* transfer would produce. Keeping it out of the per-sample path removes a
    * fourth power and a divide per cell.
    */
   private applyWallThermal(dt: number): void {
@@ -1574,19 +1630,20 @@ export class EulerPipe {
    * External heat transfer coefficient, from air moving past the pipe.
    *
    * Natural convection off a hot horizontal cylinder is around 9 W/(m^2 K); forced
-   * convection uses a mid-range Hilpert fit, `Nu = 0.26 Re^0.6`, giving about 47 W/(m^2 K)
-   * at 5 m/s and 134 at 25 m/s. Recomputed only when the air speed or the geometry changes,
+   * convection uses Zukauskas's cross-flow correlation for 10^3 < Re < 2x10^5,
+   * `Nu = 0.26 Re^0.6 Pr^0.37`, giving about 41 W/(m^2 K) at 5 m/s and 118 at 25 m/s. Recomputed only when the air speed or the geometry changes,
    * so its cost is irrelevant.
    */
   setAirSpeed(airSpeed: number): void {
     const K_AIR = 0.026; // W/(m K) at ambient
     const NU_AIR = 1.5e-5; // m^2/s
+    const PR_037 = 0.881; // Pr^0.37 at Pr = 0.71
     const v = Math.max(airSpeed, 0);
     for (let i = 0; i < this.n; i++) {
       // The diameter of a round pipe with the same outer wall, which is what the correlation is for.
       const dOut = this.shapeCell[i]! * this.diaCell[i]! + 2 * this.wallThickness;
       const re = (v * dOut) / NU_AIR;
-      const forced = re > 1 ? (K_AIR / dOut) * 0.26 * Math.pow(re, 0.6) : 0;
+      const forced = re > 1 ? (K_AIR / dOut) * 0.26 * Math.pow(re, 0.6) * PR_037 : 0;
       this.hExt[i] = Math.max(9, forced);
     }
   }
@@ -1608,7 +1665,7 @@ export class EulerPipe {
      * This is called several times per duct per substep — the junction solve needs it for the
      * common-pressure sum, for the pressure bounds, for the mixed node temperature, for each
      * trial Riemann solve and again for the merge noise — so returning a fresh object each time
-     * put a steady stream of short-lived garbage on the audio thread. Two objects per duct, one
+     * would put a steady stream of short-lived garbage on the audio thread. Two objects per duct, one
      * per end, cannot alias: no caller holds an inlet and an outlet state of the *same* duct at
      * once, and different ducts have different objects.
      *
@@ -1713,8 +1770,7 @@ export class EulerPipe {
 
     // Supersonic outflow into the junction, for the same reason as the mouth: a choked end
     // cannot be told what pressure to be at. Its flow is fixed by the interior, and imposing a
-    // downstream pressure against outgoing characteristics is what lets a short collector run
-    // away.
+    // downstream pressure against outgoing characteristics invents energy at the boundary.
     //
     // The junction's own pressure solve still counts this duct's `toward` wave, which is not
     // strictly meaningful once the end is choked, so conservation at the junction is
@@ -1745,8 +1801,8 @@ export class EulerPipe {
      * drive the cell at the valve toward vacuum. The density floor then leaves `rhoC` at
      * something like 1e-7, and dividing the returning wave by it produces a velocity of 1e9 —
      * which the Riemann solver turns into Infinity, then NaN, and from there the whole duct is
-     * poisoned and the audio thread goes silent. Measured on a four-into-one with a 53 mm
-     * collector on 29 mm primaries: 235,000 recoveries in a quarter of a second.
+     * poisoned and the audio thread goes silent. Without the clamp, a four-into-one with a 53 mm
+     * collector on 29 mm primaries takes 235,000 recoveries in a quarter of a second.
      *
      * Five times the sound speed is far outside anything physical for duct flow, so the clamp
      * never engages on a valid state; it only stops an already-degenerate one from becoming
@@ -1759,11 +1815,11 @@ export class EulerPipe {
     const cLocal = Math.sqrt((GAMMA * Math.max(st.p, MIN_JUNCTION_P)) / rhoSafe);
     // Two ceilings, and the second is the one that matters.
     //
-    // `5 c` alone was the hole. It is computed from the *local* density, so on a degenerate
-    // cell it scales with the degeneracy: at the old 1e-7 floor the local sound speed comes
-    // out near 10^6 m/s and a limit of five times that clamps nothing. A V8 with a chamber
-    // against its collector inlet reached u = 1.2e7 m/s and p = 2e35 bar through exactly this
-    // gap. `DESIGN_WAVE_SPEED` is a fixed, physical ceiling — already 17% above the fastest
+    // `5 c` alone would leave a hole. It is computed from the *local* density, so on a
+    // degenerate cell it scales with the degeneracy: at an arithmetic 1e-7 floor the local sound
+    // speed comes out near 10^6 m/s and a limit of five times that clamps nothing. A V8 with a
+    // chamber against its collector inlet would reach u = 1.2e7 m/s and p = 2e35 bar through
+    // exactly this gap. `DESIGN_WAVE_SPEED` is a fixed, physical ceiling — already 17% above the fastest
     // `|u| + c` measured anywhere in this solver — so it cannot be inflated by the very state
     // it is supposed to contain.
     const uLimit = Math.min(5 * cLocal, DESIGN_WAVE_SPEED);
@@ -1776,15 +1832,21 @@ export class EulerPipe {
     /**
      * Entropy of the ghost: this duct's own when gas is leaving, the junction's when it arrives.
      *
-     * The same defect the open end had. Scaling the interior state isentropically to the boundary
+     * The same distinction the open end draws. Scaling the interior state isentropically to the boundary
      * pressure describes gas on its way *out* correctly and gas on its way *in* not at all — it
      * hands the arriving parcel the receiving duct's temperature, so a hot duct inhales hotter
      * gas and climbs. For an inflowing ghost the honest state is the junction's own: the mixed
-     * stagnation temperature of the branches emptying into it, at the junction pressure.
+     * stagnation temperature of the branches emptying into it, at the junction pressure. The
+     * ghost moves, so its static temperature is that stagnation temperature less the kinetic
+     * part, `T0 - u^2 / 2cp`; taken as static, every parcel would arrive with its kinetic
+     * energy counted twice.
      */
     const inflow = end === 'outlet' ? uGhost < 0 : uGhost > 0;
     const rGhost = inflow
-      ? Math.max(pGhost / (GAS.R * Math.max(junctionTemp, GAS.tAmb)), MIN_JUNCTION_RHO)
+      ? Math.max(
+          pGhost / (GAS.R * Math.max(junctionTemp - (uGhost * uGhost) / (2 * CP), GAS.tAmb)),
+          MIN_JUNCTION_RHO,
+        )
       : Math.max(st.rho * Math.pow(pGhost / st.p, INV_GAMMA), MIN_JUNCTION_RHO);
 
     const area = this.areaFace[face]!;
@@ -1836,7 +1898,7 @@ export class EulerPipe {
   }
 
   reset(): void {
-    this.mouthRefState = 0;
+    this.mouthPhi = 0;
     this.mouthCutState = 0;
     this.crossModes?.reset();
   }
@@ -1894,9 +1956,10 @@ function mc(a: number, b: number): number {
  * The six states `hllc` is solving between, passed through here rather than as arguments.
  *
  * A function too large for the engine to inline takes its arguments boxed: every floating-point value
- * handed to it becomes a fresh heap object. `hllc` was called about fifty times a sample at a V8's
- * junctions alone (they now solve in wasm unless `useJunctionKernel` is off), and was allocating 270 MB a second that way — most of the audio thread's garbage,
- * and time spent allocating it on top. A typed array holds the values unboxed, so the call that is not
+ * handed to it becomes a fresh heap object. With junctions solved in TypeScript (`useJunctionKernel`
+ * off), `hllc` is called about fifty times a sample at a V8's junctions alone, and taking boxed
+ * arguments would allocate 270 MB a second that way — most of the audio thread's garbage, and the
+ * time spent allocating it on top. A typed array holds the values unboxed, so the call that is not
  * inlined takes only integers and arrays, and the one that is — `hllc` itself — is small enough to be.
  */
 const HLLC_IN = new Float64Array(6);
@@ -2000,23 +2063,22 @@ export const OPEN_END_FACTOR = 0.6133;
 /**
  * Fewest cells a duct is ever discretised into.
  *
- * Four rather than eight, and the reason is cost rather than accuracy. Every duct is marched in
- * lockstep, so the finest grid in the system sets the substep count for all of them — and a *short*
- * duct hits this floor first. A 0.24 m collector forced to eight cells comes out at `dx = 30 mm`,
- * under the 34.3 mm the CFL pin needs for one substep, so the whole engine paid two substeps
- * because one short duct could not be discretised coarsely enough. Measured on a V8 with a 0.2 m
- * cone collector: 96 cells at two substeps and 80-86% of a core, against 53-68% for every longer
- * collector.
+ * Small, and the reason is cost rather than accuracy. Every duct is marched in lockstep, so the
+ * finest grid in the system sets the substep count for all of them — and a *short* duct hits this
+ * floor first. A 0.24 m collector forced to eight cells would come out at `dx = 30 mm`, under the
+ * 34.3 mm the CFL pin needs for one substep, so the whole engine would pay two substeps because one
+ * short duct could not be discretised coarsely enough: on a V8 with a 0.2 m cone collector, 96 cells
+ * at two substeps and 80-86% of a core, against 53-68% for every longer collector.
  *
- * Four cells is crude, but a 0.24 m duct has correspondingly little to say: its quarter-wave sits
+ * So few cells is crude, but a 0.24 m duct has correspondingly little to say: its quarter-wave sits
  * above where the plane-wave assumption holds for a wide mouth anyway. The cost budget picks the
  * finest grid that fits regardless, so this floor only binds on ducts short enough that it should.
  *
- * And three rather than four, for the same reason one step further. A manifold of straight tube is
- * built from lengths one pin spacing long — 148 mm on a V8 — and at four cells those came out at 37 mm,
- * just under the 37.3 mm one substep needs at 44.1 kHz, so on such a machine the whole V8 paid two
- * substeps and the budget coarsened every other duct to afford them. At three they are 49 mm, which
- * holds one substep to about 60 kHz.
+ * Three rather than four, for the same reason one step further. A manifold of straight tube is
+ * built from lengths one pin spacing long — 148 mm on a V8 — and at four cells those would come out
+ * at 37 mm, just under the 37.3 mm one substep needs at 44.1 kHz, so on such a machine the whole V8
+ * would pay two substeps and the budget would coarsen every other duct to afford them. At three they
+ * are 49 mm, which holds one substep to about 60 kHz.
  */
 const MIN_DUCT_CELLS = 3;
 
@@ -2071,10 +2133,7 @@ export function pinnedSubstepsFor(
   return Math.min(Math.max(Math.ceil(1 / sampleRate / designLimit), 1), maxSubsteps);
 }
 
-/**
- * Discretised length of a duct, m: its segments, an optional head port, and the open-end
- * correction `buildGeometry` adds to the last segment.
- */
+/** Discretised length of a duct, m: its segments and an optional head port. */
 export function ductGridLength(
   pipe: PipeSegment[],
   port?: { length: number; diameter: number },
@@ -2083,8 +2142,7 @@ export function ductGridLength(
   if (segments.length === 0) return 0.1;
   let total = segments.reduce((a, s) => a + s.length, 0);
   if (port && port.length > 1e-4 && port.diameter > 1e-3) total += port.length;
-  const last = segments[segments.length - 1]!;
-  return total + OPEN_END_FACTOR * (segmentDiameter(last, 1) / 2);
+  return total;
 }
 
 interface BuiltGeometry {
@@ -2103,6 +2161,91 @@ interface BuiltGeometry {
   chambers: ChamberPlacement[];
   /** `launchRadius` of the drawn duct over its drawn mouth radius: 1 unless the mouth is a gradual flare. */
   launchRadiusRatio: number;
+  /** Signed contraction loss per cell, 1/m. See `EulerPipe.contractionK`. */
+  contractionK: Float64Array;
+}
+
+/**
+ * Loss coefficient of a contraction, referred to the velocity in the narrow pipe: Crane TP-410's
+ * reducer formula. `halfAngle` is the half-angle of the taper, radians (pi/2 for a step), and
+ * `areaRatio` the narrow area over the wide one.
+ *
+ * A step loses `0.5 (1 - A2/A1)`, the classic sudden-contraction figure. A gentle taper loses far less,
+ * since the flow follows the wall instead of separating from it into a vena contracta.
+ */
+export function contractionLoss(halfAngle: number, areaRatio: number): number {
+  const open = 1 - clamp(areaRatio, 0, 1);
+  const s = Math.sin(clamp(halfAngle, 0, Math.PI / 2));
+  return halfAngle <= Math.PI / 8 ? 0.8 * s * open : 0.5 * open * Math.sqrt(s);
+}
+
+/**
+ * Per-cell contraction loss for a duct, 1/m, signed by the flow direction each applies to.
+ *
+ * Each run of cells that narrows in one direction is one contraction. Its coefficient comes from the
+ * *drawn* profile over that run, not the grid's: the grid spreads a step over several cells to keep
+ * the area ratio per cell bounded, and read off the grid a step would look like a taper. The run's
+ * `K` is then shared out so that in steady flow the cells between them drop `K rho u^2 / 2` at the
+ * narrow end's velocity: a cell of area `A` carries `(A_narrow / A)` of that velocity, so its share is
+ * weighted by `(A / A_narrow)^2`. Applied as `du/dt = -K_i u|u| / (2 dx)`.
+ */
+function contractionLossCells(
+  areaFace: Float64Array,
+  areaCell: Float64Array,
+  dx: number,
+  drawnDiameter: (x: number) => number,
+  total: number,
+): Float64Array {
+  const count = areaCell.length;
+  const out = new Float64Array(count);
+  const narrows = (i: number, dir: number): boolean =>
+    dir > 0
+      ? areaFace[i + 1]! < areaFace[i]! * (1 - 1e-9)
+      : areaFace[i]! < areaFace[i + 1]! * (1 - 1e-9);
+  for (const dir of [1, -1]) {
+    let i = 0;
+    while (i < count) {
+      if (!narrows(i, dir)) {
+        i++;
+        continue;
+      }
+      let j = i;
+      while (j < count && narrows(j, dir)) j++;
+      // Cells i..j-1, faces i..j.
+      const aWide = dir > 0 ? areaFace[i]! : areaFace[j]!;
+      const aNarrow = dir > 0 ? areaFace[j]! : areaFace[i]!;
+
+      // The drawn taper over the same stretch, a cell either side: total fall in diameter over the
+      // length it falls across. A step falls across one sample, which reads as close to a right angle.
+      const x0 = Math.max((i - 1) * dx, 0);
+      const x1 = Math.min((j + 1) * dx, total - 1e-9);
+      const SAMPLES = 64;
+      const h = (x1 - x0) / SAMPLES;
+      let fall = 0;
+      let fallLength = 0;
+      let prev = drawnDiameter(dir > 0 ? x0 : x1);
+      for (let k = 1; k <= SAMPLES; k++) {
+        const d = drawnDiameter(dir > 0 ? x0 + k * h : x1 - k * h);
+        if (d < prev - 1e-12) {
+          fall += prev - d;
+          fallLength += h;
+        }
+        prev = d;
+      }
+      const halfAngle =
+        fall > 0 ? Math.atan(fall / (2 * Math.max(fallLength, 1e-9))) : Math.atan(
+          (Math.sqrt(aWide) - Math.sqrt(aNarrow)) / (Math.sqrt(Math.PI) * (j - i) * dx),
+        );
+      const k = contractionLoss(halfAngle, aNarrow / aWide);
+      const share = k / (j - i);
+      for (let c = i; c < j; c++) {
+        const r = areaCell[c]! / aNarrow;
+        out[c] = (dir * share * r * r) / (2 * dx);
+      }
+      i = j;
+    }
+  }
+  return out;
 }
 
 /**
@@ -2211,11 +2354,10 @@ function buildGeometry(
     });
   }
 
-  // Open-end correction on the final segment: an unflanged pipe behaves slightly
-  // longer than it is because the air just outside the mouth moves with the air in it.
+  // No open-end correction is added to the grid: the air outside the mouth that moves with
+  // the air in it is the mouth's radiation inertance, in `mouthBoundary`.
   const lengths = segments.map((s) => s.length);
   const lastIdx = segments.length - 1;
-  lengths[lastIdx] = lengths[lastIdx]! + OPEN_END_FACTOR * (segmentDiameter(segments[lastIdx]!, 1) / 2);
 
   const total = lengths.reduce((a, b) => a + b, 0);
   const count = ductCellCount(total, cellSize, maxCells, minDx);
@@ -2264,9 +2406,22 @@ function buildGeometry(
     });
   });
 
+  // Each face takes the drawn area averaged over the half-cells either side of it, not the area at
+  // the face itself. Point-sampled, a step lands wholly on one side of whichever face it falls
+  // between, so a chamber's volume would come out quantised to whole cells: up to a cell's worth long or
+  // short, which on a 35 mm grid is a tenth of a street muffler. Averaged, the face straddling an
+  // edge takes the share of it that lies on each side, and the drawn volume is kept.
+  const FACE_SAMPLES = 16;
   for (let f = 0; f <= count; f++) {
-    const d = diameterAt(Math.min(f * dx, total - 1e-9));
-    areaFace[f] = (Math.PI * d * d) / 4;
+    const x0 = Math.max((f - 0.5) * dx, 0);
+    const x1 = Math.min((f + 0.5) * dx, total - 1e-9);
+    const h = (x1 - x0) / FACE_SAMPLES;
+    let sum = 0;
+    for (let k = 0; k < FACE_SAMPLES; k++) {
+      const d = diameterAt(x0 + (k + 0.5) * h);
+      sum += (Math.PI * d * d) / 4;
+    }
+    areaFace[f] = sum / FACE_SAMPLES;
   }
 
   const MAX_RATIO = 1.6;
@@ -2275,15 +2430,16 @@ function buildGeometry(
    * Smallest a junction-fed inlet may be, as a fraction of the combined area of the ducts
    * feeding it.
    *
-   * This is the variable that decides whether a collector is solvable at all, and finding it
-   * took measuring rather than reasoning. A junction imposes a pressure and lets each duct
-   * find its own flux; if the collector's inlet is far narrower than the pipes emptying into
-   * it, that boundary is being asked to pass several pipes' worth of flow through one pipe's
+   * This is the variable that decides whether a collector is solvable at all, and it is set by
+   * measurement rather than reasoning. A junction imposes a pressure and lets each duct find
+   * its own flux; if the collector's inlet is far narrower than the pipes emptying into it,
+   * that boundary is being asked to pass several pipes' worth of flow through one pipe's
    * area. The cell inside over-expands toward vacuum, and the returning wave divided by a
-   * collapsed `rho c` is where the blow-up came from.
+   * collapsed `rho c` is where the blow-up comes from.
    *
-   * Measured on a V8, four 42 mm primaries into one collector, chamber width and everything
-   * else held fixed, counting `junctionClamps` over two seconds at 4000 rpm wide open:
+   * Measured on a V8 without this floor, four 42 mm primaries into one collector, chamber
+   * width and everything else held fixed, counting `junctionClamps` over two seconds at
+   * 4000 rpm wide open:
    *
    *     inlet    ratio to feeding area    clamps
    *      42 mm          0.25              188,275
@@ -2299,8 +2455,8 @@ function buildGeometry(
    * asking for something that does not exist, and rounding it up to something that does is
    * more faithful than solving it as drawn.
    *
-   * An earlier attempt limited the area *gradient* near the junction instead. It was the wrong
-   * variable: six cells of settling cut the clamps only from 188,275 to 104,085 while halving
+   * Limiting the area *gradient* near the junction instead is the wrong variable: six cells
+   * of settling cut the clamps only from 188,275 to 104,085 while halving
    * the width of the user's chamber, where widening the inlet by one or two cells removes them
    * entirely and leaves the chamber exactly as drawn.
    */
@@ -2319,12 +2475,12 @@ function buildGeometry(
 
   // Limit how fast area may change from one cell to the next.
   //
-  // This is not only a stability fix. Quasi-1D theory assumes the area varies slowly
+  // This is not only a stability measure. Quasi-1D theory assumes the area varies slowly
   // compared with the duct radius; where it does not, the flow is genuinely
   // two-dimensional and a 1D model has no claim on it. Numerically, an unlimited step
   // puts a large `p dA/dx` momentum source in a single cell and can drive the state
-  // inadmissible — a 34 mm port necking to an 8 mm tailpipe over 8 cells produced NaN
-  // within four samples before this was added.
+  // inadmissible — without the limit, a 34 mm port necking to an 8 mm tailpipe over 8 cells
+  // produces NaN within four samples.
   //
   // A chamber's step expansion still reads as a step: spread over three or four cells
   // it remains acoustically abrupt for everything below a few kHz, so mufflers keep
@@ -2355,7 +2511,21 @@ function buildGeometry(
   const launch = launchRadius(segments);
   const launchRadiusRatio = launch < drawnMouth ? launch / drawnMouth : 1;
 
-  return { count, dx, length: total, portCells, areaCell, areaFace, diaCell, shapeCell, chambers, launchRadiusRatio };
+  const contractionK = contractionLossCells(areaFace, areaCell, dx, diameterAt, total);
+
+  return {
+    count,
+    dx,
+    length: total,
+    portCells,
+    areaCell,
+    areaFace,
+    diaCell,
+    shapeCell,
+    chambers,
+    launchRadiusRatio,
+    contractionK,
+  };
 }
 
 /**

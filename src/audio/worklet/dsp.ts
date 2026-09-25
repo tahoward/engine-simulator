@@ -1,24 +1,5 @@
 /** Tiny DSP helpers. No allocations in any hot path. */
 
-/** Removes the DC that a net-outflow source inevitably pumps into the pipe. */
-export class DCBlocker {
-  private x1 = 0;
-  private y1 = 0;
-  constructor(private readonly r = 0.9985) {}
-
-  process(x: number): number {
-    const y = x - this.x1 + this.r * this.y1;
-    this.x1 = x;
-    this.y1 = y;
-    return y;
-  }
-
-  reset(): void {
-    this.x1 = 0;
-    this.y1 = 0;
-  }
-}
-
 /** One-pole lowpass, `y += c * (x - y)`. */
 export class OnePole {
   private y = 0;
@@ -42,17 +23,17 @@ export class OnePole {
 /**
  * One structural mode: a two-pole band-pass that rings at `hz` with the given decay.
  *
- * Band-pass, not the plain all-pole resonator this used to be. An all-pole two-pole is a resonant
- * *low-pass*: flat below its peak, with a DC gain of about `1 / theta` — ten for the 780 Hz block mode.
- * Driven by the combustion pressure rise, whose energy sits at the firing harmonics, the "casing" was
- * mostly passing those harmonics straight through, and the valve clacks came out as a buzz at their own
- * repetition rate. Both rates scale with the number of cylinders, which is why the mechanical noise rose
- * in pitch as cylinders were added — measured as a signal periodic at 25 Hz on a single and 214 Hz on a
- * V8, correlation 0.9, when it should have been the casing's own ring.
+ * Band-pass, not a plain all-pole resonator. An all-pole two-pole is a resonant *low-pass*: flat below
+ * its peak, with a DC gain of about `1 / theta` — ten for the 780 Hz block mode. Driven by the combustion
+ * pressure rise, whose energy sits at the firing harmonics, such a "casing" would mostly pass those
+ * harmonics straight through, and the valve clacks would come out as a buzz at their own repetition
+ * rate. Both rates scale with the number of cylinders, so the mechanical noise would rise in pitch as
+ * cylinders were added — a signal periodic at 25 Hz on a single and 214 Hz on a V8, correlation 0.9,
+ * where it should be the casing's own ring.
  *
  * A vibrating surface radiates in proportion to its acceleration, so a mode radiates nothing at DC. The
- * zeros at DC and at Nyquist, `(1 - z^-2) / 2`, say that. With the same poles the ring, the decay and the
- * gain at resonance are unchanged, so the calibrated levels upstream still mean what they did.
+ * zeros at DC and at Nyquist, `(1 - z^-2) / 2`, say that. The poles alone set the ring, the decay and the
+ * gain at resonance, so the calibrated levels upstream mean the same with the zeros as without.
  */
 export class Resonator {
   private y1 = 0;
@@ -85,8 +66,8 @@ export class Resonator {
      * An impulse of amplitude A rings with a peak of about A.
      *
      * The all-pole impulse response is `r^n sin((n+1) theta) / sin(theta)`, so the band-pass one is that
-     * minus itself two samples late — about `2 cos(n theta)` for a lightly damped mode. Halving it keeps
-     * the peak where it was, and excitation levels stay in physical units.
+     * minus itself two samples late — about `2 cos(n theta)` for a lightly damped mode. Halving it puts
+     * the peak back at about A, and excitation levels stay in physical units.
      */
     const y = 0.5 * (x - this.x2) + this.a1 * this.y1 + this.a2 * this.y2;
     this.x2 = this.x1;
@@ -114,8 +95,8 @@ export class Resonator {
  *
  * Driving a resonator with a one-sample impulse instead asserts a spectrum flat to Nyquist,
  * and a two-pole resonator only sheds 12 dB/octave, so the excess comes straight out as
- * hiss an octave or two above the mode. Measured on the muffled presets, that was worth 10
- * to 16 dB in the 8 kHz octave — an audible buzz sitting above the engine.
+ * hiss an octave or two above the mode. On the muffled presets that would be worth 10 to
+ * 16 dB in the 8 kHz octave — an audible buzz sitting above the engine.
  *
  * The pulse is a raised cosine, and it is scaled to preserve *area* rather than peak,
  * because for frequencies well below `1/t` a resonator responds to the impulse's integral.
@@ -236,8 +217,8 @@ export class Delay {
  */
 export function softClip(x: number): number {
   // The cubic `x - x^3 / (3 k^2)` has unit slope at zero and flattens to `2k/3` with zero slope at
-  // `x = k`, so a knee at 1.5 lands exactly on full scale and the curve joins the clamp smoothly. The
-  // knee used to sit at 1.2, where the cubic has only reached 0.8, so anything louder jumped to 1.
+  // `x = k`, so a knee at 1.5 lands exactly on full scale and the curve joins the clamp smoothly. A
+  // knee at 1.2, where the cubic has only reached 0.8, would make anything louder jump to 1.
   if (x > 1.5) return 1;
   if (x < -1.5) return -1;
   return x - (x * x * x) / 6.75;
@@ -246,7 +227,7 @@ export function softClip(x: number): number {
 /**
  * `Math.hypot(a, b)`, bit for bit as V8 computes it: scaled by the larger magnitude, with a compensated sum.
  *
- * For the per-sample path. `Math.hypot` is a builtin call TurboFan does not lower, so each use boxed both
+ * For the per-sample path. `Math.hypot` is a builtin call TurboFan does not lower, so each use would box both
  * arguments and the result into fresh heap objects — six junctions' worth every sample. Checked against
  * `Math.hypot` on twenty million random pairs spanning thirteen decades each, with no differences.
  */

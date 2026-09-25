@@ -1,10 +1,10 @@
 /**
- * The exhaust graph: that it reproduces the old topology exactly, that it rejects nonsense, and that
- * it can express and solve arrangements the old model could not.
+ * The exhaust graph: that it reproduces the primaries-and-collectors topology exactly, that it
+ * rejects nonsense, and that it can express and solve arrangements that topology cannot.
  *
- * The last part is the point of the change. "N identical primaries plus M collectors" could not
- * describe a tri-Y, a branch part way along a duct, or runners of different lengths; a graph can, and
- * the solver has to actually run them rather than merely accept them.
+ * The last part is the point of a graph. "N identical primaries plus M collectors" cannot describe
+ * a tri-Y, a branch part way along a duct, or runners of different lengths; a graph can, and the
+ * solver has to actually run them rather than merely accept them.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -37,7 +37,7 @@ const FS = 48000;
 const specOf = (partial: Partial<EngineSpec>): EngineSpec =>
   ({ ...defaultConfig().engine, ...partial }) as EngineSpec;
 
-describe('compileCollectorLayout reproduces the layout it replaced', () => {
+describe('compileCollectorLayout reproduces the primaries-and-collectors layout', () => {
   it.each(ENGINE_PRESETS.map((p) => p.name))('%s', (name) => {
     const preset = ENGINE_PRESETS.find((p) => p.name === name)!;
     const spec = specOf(preset.engine);
@@ -72,7 +72,7 @@ describe('compileCollectorLayout reproduces the layout it replaced', () => {
   /**
    * Mouth order is load-bearing, not cosmetic: `refreshMouthPaths` lays the mouths out in a line by
    * index and gives each its own delay and gain, so reordering them changes the sound. Collectors
-   * before solo runners is what the pre-graph code produced.
+   * come before solo runners.
    */
   it('radiates collectors before runners that vent alone', () => {
     const spec = specOf({ cylinders: 8, vAngle: 90, crankType: 'crossplane', exhaustLayout: 'perBank' });
@@ -160,13 +160,13 @@ describe('validateGraph catches what a half-drawn route leaves behind', () => {
 });
 
 /**
- * Topologies the old model had no way to describe.
+ * Topologies a fixed set of primaries and collectors has no way to describe.
  *
  * A tri-Y merges in two stages, so its middle ducts are fed by a junction *and* feed another one —
- * something `primaries`/`collectors` could not express, since a collector was always the last duct.
- * Unequal runners were called out in the old comments as needing "a second array".
+ * something `primaries`/`collectors` alone cannot express, where a collector is always the last
+ * duct. Unequal runners would need a second segment array.
  */
-describe('arrangements the old model could not express', () => {
+describe('arrangements primaries and collectors cannot express', () => {
   /** 4 cylinders, paired into two intermediate ducts, merged again into one tailpipe. */
   function triY(): ExhaustGraph {
     const runner = (i: number, node: string, length: number) => ({
@@ -255,7 +255,7 @@ describe('arrangements the old model could not express', () => {
       diff += (even[i]! - uneven[i]!) ** 2;
       energy += even[i]! ** 2;
     }
-    // A tenth of the signal's own energy: far more than drift, and impossible before this change.
+    // A tenth of the signal's own energy: far more than drift, and impossible if runners shared one geometry.
     expect(Math.sqrt(diff / Math.max(energy, 1e-30))).toBeGreaterThan(0.1);
   });
 });
@@ -264,8 +264,8 @@ describe('arrangements the old model could not express', () => {
  * The pieces the panel and the URL rely on.
  *
  * `pathToAir` is what "the tuned length" means once the exhaust is a graph — a runner plus whatever it
- * merges into, however many stages that takes. The old panel added "primary plus collector", which only
- * described the layouts that had exactly those two parts.
+ * merges into, however many stages that takes. "Primary plus collector" would only describe the layouts
+ * that have exactly those two parts.
  */
 describe('walking the graph for the panel and the URL', () => {
   it('a compiled path is the runner plus its collector', () => {
@@ -357,10 +357,10 @@ describe('walking the graph for the panel and the URL', () => {
  *
  * `setEngine` and `setGraph` are separate messages, so switching a V-twin to a V8 rebuilds the exhaust
  * once with the new cylinder count and the *old* graph before the new one arrives — and that graph has
- * no pipe on cylinders 3 to 8. `ExhaustSystem` rightly refuses to build it, but the throw landed inside
- * the worklet's message handler and left a two-duct exhaust attached to an eight-cylinder engine; the
- * next `process` call read `primaries[2]`, got `undefined`, and the node died for good. Switching engine
- * silenced the app permanently.
+ * no pipe on cylinders 3 to 8. `ExhaustSystem` rightly refuses to build it. A throw landing inside the
+ * worklet's message handler would leave a two-duct exhaust attached to an eight-cylinder engine; the
+ * next `process` call would read `primaries[2]`, get `undefined`, and the node would die for good, so
+ * switching engine would silence the app permanently.
  *
  * Nothing on the audio thread may throw: there is nothing above it to catch anything, and the cost of
  * being wrong is the whole app going quiet.
@@ -442,12 +442,11 @@ describe('a stale graph does not silence the engine', () => {
 });
 
 /**
- * Linked runners reproduce what the model used to do.
+ * Linked runners edit every cylinder at once.
  *
- * Every cylinder shared one segment array before ducts were separable, so editing "the pipe" changed all
- * eight runners at once. Per-duct copies are what make unequal headers possible, but they also mean a
- * single edit now touches one runner of eight — which looks like nothing happening on a V8 and sounds
- * like almost nothing. `copyToSiblingRunners` is the default that puts the old behaviour back.
+ * Per-duct copies are what make unequal headers possible, but they also mean a single edit touches one
+ * runner of eight — which looks like nothing happening on a V8 and sounds like almost nothing.
+ * `copyToSiblingRunners` is the default that makes editing "the pipe" change all eight runners together.
  */
 describe('linking runners', () => {
   const v8 = () =>
@@ -483,7 +482,7 @@ describe('linking runners', () => {
   /**
    * The audible proof: editing one runner with linking on is the same engine as compiling the edited
    * geometry from scratch. If it were not, "apply to every cylinder" would be a different exhaust from
-   * the one the old shared array described.
+   * one with the same runner on every cylinder.
    */
   it('sounds the same as compiling the edited geometry directly', () => {
     const spec = { ...v8(), rpm: 3800, throttle: 0.85, freeRunning: false } as EngineSpec;
@@ -562,10 +561,10 @@ describe('compileLayout builds manifolds', () => {
 /**
  * Switching presets gives each preset its own exhaust, every time.
  *
- * Going crossplane to flatplane and back changed the exhaust. A change of topology re-seeds the graph and
- * carries the old runner and collector geometry across, and it read those off the graph as "the first
- * runner" and "the first pipe after a junction" — on a manifold, a 10 cm stub and a manifold length — and
- * the preset's own geometry had been loaded before that ran, so the carry-over overwrote it.
+ * A change of topology re-seeds the graph and carries the previous runner and collector geometry across.
+ * Read off the graph as "the first runner" and "the first pipe after a junction", that would be a 10 cm
+ * stub and a manifold length on a manifold; and run after the preset's own geometry has been loaded, the
+ * carry-over would overwrite it, so going crossplane to flatplane and back would change the exhaust.
  */
 describe('switching presets', () => {
   it('carries a manifold’s collector across, and not its stubs or lengths', async () => {
@@ -622,9 +621,9 @@ describe('switching presets', () => {
 /**
  * A manifold widens as it gathers cylinders, and the collector does not pinch it.
  *
- * Capped at the collector's inlet — the narrow end of its entry cone — an inline six's manifold stayed at
- * one runner's bore all the way along, and five cylinders' gas choked through it: the junction at its end
- * clamped on nearly every sample and the gas reached 2300 K.
+ * Capped at the collector's inlet — the narrow end of its entry cone — an inline six's manifold would stay
+ * at one runner's bore all the way along, and five cylinders' gas would choke through it: the junction at
+ * its end clamping on nearly every sample and the gas reaching 2300 K.
  */
 describe('manifold sizing', () => {
   it('widens along the bank and opens into the collector without a step down', async () => {

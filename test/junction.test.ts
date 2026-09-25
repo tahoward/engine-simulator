@@ -1,21 +1,20 @@
 /**
  * A collector must stay solvable whatever the user draws into it.
  *
- * Regression for a reported blow-up: a V8 with a chamber as the first collector segment went
- * silent, the pressure display saturated, and the crank pinned at the free-running clamp.
- * Root cause was the collector *inlet area* rather than anything about the chamber — four
- * 42 mm primaries merging into a 42 mm inlet ask the junction to pass four pipes' worth of
- * flow through one pipe's area, the cell behind it over-expands toward vacuum, and the
- * returning wave divided by a collapsed `rho c` produced u = 1.2e7 m/s and p = 2e35 bar,
- * then 1.9 million recoveries in four seconds.
+ * The hard case is the collector *inlet area*, not anything about what follows it. Four 42 mm
+ * primaries merging into a 42 mm inlet ask the junction to pass four pipes' worth of flow
+ * through one pipe's area. Solved as drawn, the cell behind it over-expands toward vacuum and
+ * the returning wave divided by a collapsed `rho c` becomes an absurd velocity: the duct
+ * diverges, a V8 goes silent, the pressure display saturates, and the crank pins at the
+ * free-running clamp.
  *
  * Two independent things are asserted, and the second is the one with teeth:
  *
  *   - `recoveries` stays at zero, so nothing diverged;
  *   - `junctionClamps` stays at zero, so the junction never even had to catch a degenerate
  *     end state. A geometry that merely avoids diverging is still not being solved as drawn.
- *     Before the fix these geometries clamped 130,000-190,000 times in two seconds while
- *     reporting zero recoveries, which is exactly the failure a recoveries-only test misses.
+ *     A junction can clamp on a large share of samples while reporting zero recoveries,
+ *     which is exactly the failure a recoveries-only test misses.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -92,13 +91,13 @@ const PRIMARY = () => [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.042 })];
 
 describe('collector junctions stay solvable', () => {
   /**
-   * The reported geometries, plus the two that already worked, plus a deliberately worse one.
-   * The inlet diameters span the range that used to fail: a 42 mm inlet behind four 42 mm
-   * primaries is a ratio of 0.25, where the clamp count used to peak.
+   * Chambers and a cone behind a starved inlet, a pipe-then-chamber and a plain pipe as
+   * controls, and two deliberately worse cases. A 42 mm inlet behind four 42 mm primaries is an
+   * area ratio of 0.25, the most starved the junction is asked to handle.
    */
   const cases: Array<{ name: string; collector: () => PipeSegment[]; rpm: number }> = [
     {
-      name: 'chamber straight off the junction (reported)',
+      name: 'chamber straight off the junction',
       collector: () => [
         makeSegment({ kind: 'chamber', length: 0.34, dIn: 0.042, dOut: 0.13 }),
         makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.04 }),
@@ -115,7 +114,7 @@ describe('collector junctions stay solvable', () => {
       rpm: 4000,
     },
     {
-      name: 'pipe then chamber (already worked)',
+      name: 'pipe then chamber',
       collector: () => [
         makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.055 }),
         makeSegment({ kind: 'chamber', length: 0.34, dIn: 0.055, dOut: 0.13 }),
@@ -154,9 +153,9 @@ describe('collector junctions stay solvable', () => {
   });
 
   /**
-   * Widening a starved inlet must not have cost the chamber its width, which is what an
-   * earlier attempt at this fix did — it limited the area *gradient* near the junction and
-   * halved a 130 mm can to 92 mm. The inlet is raised; nothing downstream of it moves.
+   * Widening a starved inlet must not cost the chamber its width, as limiting the area
+   * *gradient* near the junction would — that shrinks a 130 mm can to about 92 mm. The inlet is
+   * raised; nothing downstream of it moves.
    */
   it('raises a starved inlet without shrinking the chamber behind it', () => {
     const cfg = defaultConfig();
@@ -198,11 +197,10 @@ describe('collector junctions stay solvable', () => {
 /**
  * The bank angle must reach the sound.
  *
- * Regression for a report that changing it did nothing. It was true of a V8: `firingPlan`
- * returned the offsets `[0, 90, ... 630]` whatever the vee angle, which is the firing pattern
- * of a 90-degree V8 and of no other. The offsets are now derived from pin angles, so the
- * 90-degree case must be unchanged — the presets depend on it — and every other angle must
- * move.
+ * `firingPlan` derives the offsets from pin angles. The offsets `[0, 90, ... 630]` whatever the
+ * vee angle would be the firing pattern of a 90-degree V8 and of no other, and changing the angle
+ * would do nothing. So the 90-degree case must give exactly that — the presets depend on it — and
+ * every other angle must move.
  */
 describe('bank angle reaches the firing plan', () => {
   const v8 = (crankType: EngineSpec['crankType'], vAngle: number): EngineSpec =>
@@ -228,7 +226,7 @@ describe('bank angle reaches the firing plan', () => {
     expect(gaps.reduce((a, b) => a + b, 0)).toBeCloseTo(720, 6);
   });
 
-  /** A V-twin already derived its interval from the vee; 45 degrees is the Harley 405/315. */
+  /** A V-twin derives its interval from the vee; 45 degrees is the Harley 405/315. */
   it('a V-twin still derives 405/315 from a 45 degree vee', () => {
     const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, firingOffset: null };
     expect(firingPlan(spec as EngineSpec).offsets).toEqual([0, 405]);
@@ -267,16 +265,16 @@ describe('bank angle reaches the firing plan', () => {
 /**
  * Noise must not heat the duct it is stirring.
  *
- * Regression for an energy rectifier in the valve source. A mass exchange at a boundary trades
- * *stagnation enthalpy*, because gas crossing an orifice does flow work on whatever it moves
- * into — but the reverse branch took only `e + u^2/2` back out while the forward branch put
- * `h + u^2/2` in. Every in-and-out pair therefore deposited `R T` per unit mass: about 430 kJ/kg
- * at 1500 K, against the 45 kJ/kg of kinetic energy that was being accounted for. Throat
- * turbulence, valve-seat pulses and collector merge noise are all zero-mean sources that fed it,
- * and because the source divides by the first cell's volume the smallest ducts heated fastest.
+ * The failure guarded against is an energy rectifier in the valve source. A mass exchange at a
+ * boundary trades *stagnation enthalpy*, because gas crossing an orifice does flow work on whatever
+ * it moves into. A reverse branch that took only `e + u^2/2` back out while the forward branch put
+ * `h + u^2/2` in would deposit `R T` per unit mass on every in-and-out pair: about 430 kJ/kg at
+ * 1500 K, against 45 kJ/kg of kinetic energy being accounted for. Throat turbulence, valve-seat
+ * pulses and collector merge noise are all zero-mean sources that would feed it, and because the
+ * source divides by the first cell's volume the smallest ducts would heat fastest.
  *
  * Asserted at engine level rather than by driving a bare duct with a synthetic square wave. That
- * looked like the tighter test and is not: the source is capped against the first cell's density
+ * looks like the tighter test and is not: the source is capped against the first cell's density
  * and floored for admissibility, so a large synthetic amplitude measures those guards rather than
  * the enthalpy asymmetry, and the two are hard to separate afterwards. What matters is that a real
  * engine with its noise sources at full scale stays at a physical temperature.
@@ -306,8 +304,8 @@ describe('noise does not pump energy into the exhaust', () => {
     const ducts = [...sim.pipeSolver.primaries, ...sim.pipeSolver.collectors];
     let maxT = 0;
     for (const d of ducts) for (let k = 0; k < d.n; k++) maxT = Math.max(maxT, d.temperatureAt(k));
-    // Exhaust leaves a cylinder near 1200-1600 K and only cools from there. Before the fix this
-    // geometry passed 40,000 K.
+    // Exhaust leaves a cylinder near 1200-1600 K and only cools from there. An enthalpy
+    // rectifier would drive this geometry past 40,000 K.
     expect(maxT).toBeLessThan(2500);
     expect(ducts.reduce((a, d) => a + d.recoveries, 0)).toBe(0);
   });
@@ -317,10 +315,10 @@ describe('noise does not pump energy into the exhaust', () => {
  * A junction must pass what it receives, and the solver must stay inside its cost budget.
  *
  * The node solves for a common pressure by linearising the returning wave, then each branch
- * computes its own nonlinear flux from it; nothing makes those agree, and measured they disagreed
- * about the mass crossing the node by 18-36% at peak on every layout. A Newton step on the
- * *nonlinear* residual, using the closed-form slope the linear model already provides, brings it
- * to a few percent.
+ * computes its own nonlinear flux from it; nothing makes those agree on their own, and on every
+ * layout they can disagree about the mass crossing the node by tens of percent at peak. A Newton
+ * step on the *nonlinear* residual, using the closed-form slope the linear model already provides,
+ * brings it to a few percent.
  */
 describe('junctions conserve mass and the grid stays affordable', () => {
   const geometries: Array<[string, () => PipeSegment[]]> = [
@@ -355,10 +353,10 @@ describe('junctions conserve mass and the grid stays affordable', () => {
      * One substep, always.
      *
      * A V8 can afford a grid coarse enough for a single CFL substep at every duct length, and the
-     * cost budget must find it. It used to pick 32.3 mm — two millimetres under the 34.3 mm the
-     * pin needs — and pay two substeps for a 6% finer grid, which put the preset at 94-101% of a
-     * core. Above 100% the audio thread cannot deliver at all, so the sound cut out above roughly
-     * 5500 rpm and came back as the revs fell.
+     * cost budget must find it. A grid a couple of millimetres finer than the one substep needs
+     * pays two substeps for a few percent of resolution, which puts the preset at about a whole
+     * core. Above 100% the audio thread cannot deliver at all, so the sound would cut out at high
+     * rpm and come back as the revs fell.
      */
     expect(substeps).toBe(1);
     expect(cells * substeps).toBeLessThanOrEqual(budgetOf(cfg));
@@ -385,10 +383,10 @@ describe('junctions conserve mass and the grid stays affordable', () => {
 });
 
 /**
- * The manifolds every preset now compiles to stay solvable and affordable.
+ * The manifolds every preset compiles to stay solvable and affordable.
  *
- * Each junction on a manifold takes the full blowdown from a stub a few centimetres away, which a
- * collector's half-metre runners used to spread out, so these are the hardest junctions the solver sees.
+ * Each junction on a manifold takes the full blowdown from a stub a few centimetres away, where a
+ * collector's half-metre runners would spread it out, so these are the hardest junctions the solver sees.
  * Their peak imbalance is larger than a collector's — it spikes where flow through a junction reverses —
  * so what is held here is what matters for the sound: nothing blows up, nothing is clamped, no duct
  * needs recovering, the gas stays at physical temperatures, and the grid stays inside its budget.

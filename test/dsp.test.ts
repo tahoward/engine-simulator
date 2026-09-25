@@ -1,11 +1,11 @@
 /**
  * The structural mode filter.
  *
- * The mechanical noise rose in pitch as cylinders were added, because each "mode" was a resonant low-pass
- * that passed everything below it: the combustion drive's firing harmonics, and the valve clacks'
- * repetition rate, both of which scale with the cylinder count. A radiating surface puts out nothing at
- * DC, so a mode must be a band-pass — and must still ring, decay and peak exactly as before, since the
- * levels driving it are calibrated in pascals.
+ * A radiating surface puts out nothing at DC, so a mode is a band-pass. A resonant low-pass would pass
+ * everything below it — the combustion drive's firing harmonics and the valve clacks' repetition rate,
+ * both of which scale with the cylinder count — and the mechanical noise would rise in pitch as
+ * cylinders were added. The band-pass must still ring, decay and peak at the gain the calibration
+ * assumes, since the levels driving it are calibrated in pascals.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -45,7 +45,7 @@ describe('a structural mode', () => {
   it('peaks where it should, at the gain the calibration assumes', () => {
     const r = new Resonator(780, 11, FS);
     const rr = Math.exp((-Math.PI * 780) / (11 * FS));
-    // 1 / (2 (1 - r)): unchanged from the all-pole form, so upstream levels mean what they did.
+    // 1 / (2 (1 - r)): the same peak gain as the all-pole form, which the upstream levels assume.
     expect(gainAt(r, 780)).toBeCloseTo(1 / (2 * (1 - rr)), -0.5);
     expect(gainAt(r, 780)).toBeGreaterThan(gainAt(r, 700));
     expect(gainAt(r, 780)).toBeGreaterThan(gainAt(r, 860));
@@ -64,9 +64,9 @@ describe('a structural mode', () => {
 /**
  * The structure-borne sounds, pitched and levelled for the engine they are in.
  *
- * Every engine used to ring at a single cylinder's frequencies and levels, so a large engine's mechanical
- * layer sat far too high and too loud; and piston slap never sounded at all, because the TDC check
- * compared each angle with itself.
+ * Rung at a single cylinder's frequencies and levels, a large engine's mechanical layer would sit far
+ * too high and too loud. Piston slap is counted outright, because a TDC check that compared each angle
+ * with itself would never fire and the slap would never sound.
  */
 describe('structure-borne sound', async () => {
   const { EngineSim, clackShare } = await import('../src/audio/worklet/engineSim.js');
@@ -87,8 +87,8 @@ describe('structure-borne sound', async () => {
 
   /**
    * By the size of a cylinder, not by how many there are: the block's radiating modes are its wall panels,
-   * and a panel spans a cylinder. Scaled by the whole engine, a V8's lowest mode sat on its own firing
-   * harmonics and boomed 19 dB over the exhaust.
+   * and a panel spans a cylinder. Scaled by the whole engine, a V8's lowest mode would sit on its own
+   * firing harmonics and boom over the exhaust.
    */
   it('rings bigger cylinders lower, whatever their number', () => {
     const small = sim({ cylinders: 1 }).structuralFrequencies();

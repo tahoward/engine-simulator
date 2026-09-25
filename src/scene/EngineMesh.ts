@@ -131,8 +131,8 @@ export class EngineMesh {
         /**
          * Exhaust on the outside of the vee for both banks, intake in the valley, as a V is built.
          *
-         * One side for every cylinder put bank 0's exhaust into the valley and bank 1's outside, so the two
-         * banks' pipes came off the same side of the engine. Straddling the vertical leans bank 0 towards
+         * One side for every cylinder would put bank 0's exhaust into the valley and bank 1's outside, so the
+         * two banks' pipes would come off the same side of the engine. Straddling the vertical leans bank 0 towards
          * -X, so its outside is -X; bank 1 leans the other way. An inline engine keeps +X, and so does a
          * parallel twin, whose two firing banks are one physical bank under one head.
          */
@@ -454,8 +454,8 @@ export class EngineMesh {
    * Open a valve by `lift`: down its own stem, away from the seat.
    *
    * Taken from the stem's axis as the valve is actually tilted, rather than from a separate formula for
-   * the same angle. That formula had the sideways part's sign the wrong way round, so a valve leaning
-   * out at the top slid outward as it opened instead of inward — off its own axis by 40% of the lift.
+   * the same angle, so the sideways part cannot disagree with the tilt. With its sign the wrong way round
+   * a valve leaning out at the top would slide outward as it opened instead of inward, off its own axis.
    */
   private poseValve(group: THREE.Group, sign: number, lift: number): void {
     const stem = new THREE.Vector3(0, 1, 0).applyAxisAngle(AXIS_Z, group.rotation.z);

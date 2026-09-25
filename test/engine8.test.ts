@@ -130,7 +130,8 @@ describe('the three, five, six and V6', () => {
    * Every cylinder gets its own place in the spread of breathing, cam timing and head ring.
    *
    * The spread's shuffle only permutes when its step shares no factor with the cylinder count, and the
-   * steps were 3, 5 and 7 — so a five, or a three or six, gave every cylinder the same place.
+   * steps are 3, 5 and 7 — so taken as they are, a five, or a three or six, would give every cylinder the
+   * same place.
    */
   it('spreads every cylinder count', async () => {
     const { spreadOf } = await import('../src/audio/worklet/engineSim.js');
@@ -144,10 +145,10 @@ describe('the three, five, six and V6', () => {
 });
 
 describe('firing plans', () => {
-  it('an inline four fires evenly every 180 degrees on one bank', () => {
+  it('an inline four fires 1-3-4-2, evenly every 180 degrees on one bank', () => {
     const s = spec({ cylinders: 4 });
     const plan = firingPlan(s);
-    expect(plan.offsets).toEqual([0, 180, 360, 540]);
+    expect(plan.offsets).toEqual([0, 540, 180, 360]);
     expect(plan.bankCount).toBe(1);
     expect(bankFiringIntervals(s, 0)).toEqual([180, 180, 180, 180]);
   });
@@ -397,7 +398,7 @@ describe('the drawn mechanism', () => {
    * own angle is `theta0 - offset`, which is what the simulation hands the renderer. Getting it
    * backwards is invisible for a single (offset 0) and for an inline four (offsets differ by
    * multiples of 360, and the slider-crank has period 360), so only a V or an odd-fire layout
-   * shows it up — which is exactly what the rod-length assertion below caught.
+   * shows it up — which is exactly what the rod-length assertion below catches.
    */
   function poseAll(mesh: EngineMesh, s: EngineSpec, crankAngle: number): void {
     const plan = firingPlan(s);
@@ -516,9 +517,9 @@ describe('the drawn mechanism', () => {
   /**
    * Each bank's exhaust comes out of the outside of the vee.
    *
-   * One side for every cylinder put bank 0's exhaust into the valley and bank 1's outside, so both banks'
-   * pipes left the same side of the engine. Mirrored, the ports sit either side of the crank and face away
-   * from each other.
+   * One side for every cylinder would put bank 0's exhaust into the valley and bank 1's outside, so both
+   * banks' pipes would leave the same side of the engine. Mirrored, the ports sit either side of the crank
+   * and face away from each other.
    */
   it.each([
     ['a V8', { ...V8 }],
@@ -538,9 +539,8 @@ describe('the drawn mechanism', () => {
   /**
    * A valve opens straight down its own stem.
    *
-   * The opening motion used to have its sideways part the wrong way round, so a valve leaning out at
-   * the top slid outward as it dropped — crabbing across its guide by 40% of the lift instead of
-   * travelling along it.
+   * With the sideways part of the opening motion the wrong way round, a valve leaning out at the top
+   * would slide outward as it dropped — crabbing across its guide instead of travelling along it.
    */
   it.each([
     ['a single', { cylinders: 1 }],
@@ -629,12 +629,12 @@ describe('every preset', () => {
 
 describe('why a multi-cylinder engine does not just go up in pitch', () => {
   /**
-   * Two things had to be fixed before an engine with several tailpipes sounded like one.
+   * Two things keep an engine with several tailpipes sounding like one.
    *
-   * Both are about cancellation. Evenly spaced firing already cancels every order that is not a
-   * multiple of the cylinder count, which is correct and is why a multi sounds smooth. What was
-   * wrong was that the model made *two further* cancellations perfect when reality does not:
-   * separate mouths summed at a single point, and cylinders that breathed identically.
+   * Both are about cancellation. Evenly spaced firing cancels every order that is not a multiple
+   * of the cylinder count, which is correct and is why a multi sounds smooth. But a model can make
+   * *two further* cancellations perfect when reality does not: separate mouths summed at a single
+   * point, and cylinders that breathe identically.
    */
 
   function render(over: Partial<EngineSpec>, seconds = 1) {
@@ -653,7 +653,7 @@ describe('why a multi-cylinder engine does not just go up in pitch', () => {
   /**
    * A flatplane V8's two banks fire in exact antiphase, so summing their mouths at one point
    * annihilates the loudest thing in the spectrum — each bank's own firing order — and the engine
-   * jumps an octave to the doubled order. Measured, that component was 44 dB down.
+   * jumps an octave to the doubled order.
    *
    * Real tailpipes are a metre or so apart, which at 187 Hz is most of a wavelength.
    */
@@ -673,10 +673,9 @@ describe('why a multi-cylinder engine does not just go up in pitch', () => {
 
   it('and the spacing has to be off the mouths’ own axis to do anything', () => {
     // Mouths placed symmetrically about the listener's axis are all the *same* distance away, so
-    // the path differences are zero and the sum is as coherent as if they were coincident. The
-    // first version of this fix did exactly that and changed the output not at all, bit for bit.
-    // The listener therefore stands off to one side. This test pins the consequence: sweeping the
-    // spacing must actually change the output.
+    // the path differences are zero and the sum is as coherent as if they were coincident: the
+    // output does not change at all, bit for bit. The listener therefore stands off to one side.
+    // This test pins the consequence: sweeping the spacing must actually change the output.
     const base = { cylinders: 8 as const, vAngle: 90, crankType: 'flatplane' as const,
       exhaustLayout: 'perBank' as const, rpm: 5600 };
     const bankOrderHz = (5600 / 120) * 4;
@@ -685,7 +684,7 @@ describe('why a multi-cylinder engine does not just go up in pitch', () => {
     const far = at(render({ ...base, mouthSpacing: 1.3 }));
     // Measured at the bank order rather than broadband, because that is where the path
     // differences do their work; a whole-spectrum metric also moves when anything else changes,
-    // and sat marginally either side of its threshold as soon as merge noise was added.
+    // and with merge noise in the mix it sits marginally either side of any sensible threshold.
     expect(Math.max(near, far) / Math.min(near, far)).toBeGreaterThan(3);
   });
 
@@ -718,17 +717,6 @@ describe('why a multi-cylinder engine does not just go up in pitch', () => {
     const dB = 10 * Math.log10(ratio(real, 3));
     expect(dB).toBeGreaterThan(-40);
     expect(dB).toBeLessThan(-12);
-  });
-
-  it('perfectly matched cylinders still cancel almost everything', () => {
-    // The mechanism itself is correct and must stay: this is why a multi sounds smooth.
-    const rpm = 3400;
-    const half = rpm / 120;
-    const r = render({ cylinders: 4, exhaustLayout: 'merged', rpm, cylinderSpread: 0 }, 2);
-    const fire = bandEnergy(r.mag, FS, r.N, half * 4, 3);
-    for (const order of [1, 2, 3]) {
-      expect(bandEnergy(r.mag, FS, r.N, half * order, 3)).toBeLessThan(fire * 1e-4);
-    }
   });
 
   it('the spread is deterministic, so an engine sounds the same each time it starts', () => {

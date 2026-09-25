@@ -183,8 +183,8 @@ describe('valve flow', () => {
     const dia = 0.034;
     const small = valveFlowArea(0.001, dia);
     const large = valveFlowArea(0.05, dia);
-    // Curtain area at 1 mm lift.
-    expect(small).toBeCloseTo(Math.PI * dia * 0.001 * Math.cos(Math.PI / 4), 9);
+    // Curtain area at 1 mm lift, the area the discharge coefficient is referred to.
+    expect(small).toBeCloseTo(Math.PI * dia * 0.001, 9);
     // Way past the crossover, the throat rules and more lift buys nothing.
     expect(large).toBeCloseTo(valveFlowArea(0.1, dia), 12);
   });
@@ -222,16 +222,14 @@ describe('valve flow', () => {
 
 describe('the gas state stays admissible while the cylinder empties', () => {
   /**
-   * The exhaust stroke is the hard case for a filling-and-emptying model, and it is where
-   * this used to fail.
+   * The exhaust stroke is the hard case for a filling-and-emptying model.
    *
    * Compression work `-p dV/dt` and outflow enthalpy nearly cancel while gas is being pushed
    * out — exactly, at constant pressure, which is why temperature should hold steady. With
    * *temperature* as the state variable that near-zero residual gets divided by a mass
-   * shrinking toward the residual, and it blew up: at part throttle the temperature ran to
-   * its clamp several hundred times a second right at exhaust valve closing, with the
-   * cylinder drained to 0.5% of a charge. Integrating internal energy instead keeps the
-   * cancellation between terms of the same size.
+   * shrinking toward the residual, and it blows up: at part throttle the temperature runs to
+   * its clamp right at exhaust valve closing, with the cylinder nearly drained. Integrating
+   * internal energy instead keeps the cancellation between terms of the same size.
    */
   it('emptying the cylinder converges under time refinement', () => {
     // The integrator tested directly, rather than against an analytic answer — wall heat
@@ -240,8 +238,8 @@ describe('the gas state stays admissible while the cylinder empties', () => {
     //
     // Drive the exact quasi-steady constant-pressure outflow (from pV = mRT at fixed p and
     // T, mass tracks p V/(R T), so mdot = -(p/(R T)) dV/dt) and compare coarse against fine
-    // steps. A sound integrator gives nearly the same answer; the old one, dividing a
-    // near-cancelling residual by a vanishing mass, diverged as the cylinder emptied.
+    // steps. A sound integrator gives nearly the same answer; one dividing a near-cancelling
+    // residual by a vanishing mass diverges as the cylinder empties.
     const spec: EngineSpec = { ...DEFAULT_ENGINE };
     const omega = (3200 * 2 * Math.PI) / 60;
 
@@ -262,8 +260,8 @@ describe('the gas state stays admissible while the cylinder empties', () => {
     const fine = emptyOut(16);
 
     // It really did empty substantially — about half the charge leaves over this stroke,
-    // which is the regime that used to break. (Not more: dV/dtheta tapers toward TDC, so
-    // the constant-pressure outflow tapers with it.)
+    // which is the regime a temperature-state integrator breaks in. (Not more: dV/dtheta
+    // tapers toward TDC, so the constant-pressure outflow tapers with it.)
     expect(fine.massRatio).toBeLessThan(0.6);
     expect(Math.abs(coarse.temp - fine.temp) / fine.temp).toBeLessThan(0.05);
     expect(coarse.clamps).toBe(0);
@@ -273,8 +271,8 @@ describe('the gas state stays admissible while the cylinder empties', () => {
 
   it('never clamps at any steady operating point', () => {
     // The clamp truncates energy, so a hit means the integration has left the physics
-    // behind. It used to fire hundreds of times a second below about 0.5 throttle while
-    // staying silent at full load, which is what made it easy to miss.
+    // behind. A fault of that kind fires hundreds of times a second below about 0.5 throttle
+    // while staying silent at full load, which is why the sweep goes down to 0.1.
     for (const throttle of [1, 0.75, 0.45, 0.3, 0.2, 0.1]) {
       const cfg = defaultConfig();
       cfg.engine = { ...cfg.engine, throttle, rpm: 3200 };

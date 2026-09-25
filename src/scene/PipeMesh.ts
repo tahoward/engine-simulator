@@ -177,8 +177,8 @@ export function pipeSpan(pipe: PipeSegment[], heading: THREE.Vector3): number {
  *
  * Corners turn about world up and then the local right axis, so the shape is not a rigid body that
  * can be rotated into place — change the heading and the corners land differently.
- * Aiming the *inlet* at the target, which is what the layout used to do, therefore misses by the
- * whole of the corners: the pipe leaves in the right direction and then turns away.
+ * Aiming the *inlet* at the target would therefore miss by the whole of the corners: the pipe would
+ * leave in the right direction and then turn away.
  *
  * Solved by fixed-point iteration instead. Sweep, see where the end actually went, rotate the
  * heading by the rotation that would carry that point onto the target, repeat. The map is close

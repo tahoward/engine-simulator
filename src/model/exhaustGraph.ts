@@ -1,10 +1,10 @@
 /**
  * The exhaust as a graph of ducts joined at nodes.
  *
- * This replaces "one primary geometry shared by every cylinder, plus one collector per bank" as the
- * thing the solver is built from. That shape was fine while the topology came from a dropdown, but it
- * cannot express what drawing pipes implies: runners of different lengths, a tri-Y, or a branch part
- * way along another duct.
+ * This is the thing the solver is built from, rather than one primary geometry shared by every cylinder
+ * plus one collector per bank. That shape suits a topology picked from a dropdown, but it cannot express
+ * what drawing pipes implies: runners of different lengths, a tri-Y, or a branch part way along another
+ * duct.
  *
  * The model is deliberately small. A duct is a list of `PipeSegment`s with something at each end —
  * a cylinder's exhaust valve, a node, or open air — and a node is nothing but an id that several duct
@@ -68,9 +68,9 @@ export interface ExhaustDuct {
    * Set on the downstream half of a split, on the pipe added after a joined end, and by `compileLayout` on
    * each manifold length after the first and on a single bank's collector. It is what says the
    * junction was made by attaching to a pipe that was already there, so that pipe keeps going the way it
-   * was: without it the junction took its direction from the average of its feeds' *starting* directions
-   * — right for a collector's runners, which all head one way, and a 90-degree swing for a pipe attached
-   * from the other side — and the collar search re-aimed the pipe being attached to.
+   * was: without it the junction would take its direction from the average of its feeds' *starting*
+   * directions — right for a collector's runners, which all head one way, and a 90-degree swing for a pipe
+   * attached from the other side — and the collar search would re-aim the pipe being attached to.
    */
   continues?: string;
   /**
@@ -79,7 +79,8 @@ export interface ExhaustDuct {
    * A manifold's stubs and lengths are generated from the engine, not from the runner and collector
    * geometry a preset gives, so anything that reads that geometry back out of a graph — carrying it
    * across a change of cylinder count, say — has to know which ducts actually hold it. Reading "the
-   * first runner" and "the first pipe after a junction" off a manifold found a stub and a manifold length.
+   * first runner" and "the first pipe after a junction" off a manifold would find a stub and a manifold
+   * length.
    */
   role?: 'runner' | 'stub' | 'manifold' | 'downpipe' | 'collector';
 }
@@ -163,8 +164,7 @@ export function endsAt(
  * The order matters and is not cosmetic: `refreshMouthPaths` lays the mouths out *in a line* by
  * index and gives each its own delay and gain, so reordering them changes the sound. Node-fed ducts
  * come first because a node-fed duct is further downstream than a valve-fed one — which is a real
- * ordering rather than an arbitrary one, and happens to be the order the pre-graph code produced
- * (`[...collectors, ...soloPrimaries]`), so the change to a graph can be shown to be inert.
+ * ordering rather than an arbitrary one: collectors, then cylinders venting alone.
  */
 export function radiatingDucts(graph: ExhaustGraph): ExhaustDuct[] {
   const mouths = graph.ducts.filter((d) => d.to.kind === 'mouth');
@@ -230,10 +230,10 @@ export function compileLayout(
   /**
    * The widest the collector gets, short of a silencer's can: the most a manifold need ever widen to.
    *
-   * Not its inlet, which is where it used to be read. A fitted collector opens with a cone from just over
-   * a runner's bore, so capping at the inlet held an inline six's manifold at 33 mm all the way along —
-   * five cylinders' gas through one runner's worth of pipe. It choked: the junction at its end clamped on
-   * nearly every sample and the gas ran at 2300 K.
+   * Not its inlet. A fitted collector opens with a cone from just over a runner's bore, so capping at the
+   * inlet would hold an inline six's manifold at 33 mm all the way along — five cylinders' gas through one
+   * runner's worth of pipe. That chokes: the junction at its end clamps on nearly every sample and the gas
+   * runs at 2300 K.
    */
   let collectorDia = runnerDia;
   for (const seg of collector) {
@@ -278,9 +278,9 @@ export function compileLayout(
      * into `last`, for whatever leaves it to carry on from.
      *
      * The first cylinder's duct is its stub *and* the manifold's first length, turning at a corner onto
-     * the line of ports. As a separate duct it made a junction of just two pipes, which is a corner, not a
-     * junction — and the junction solve does not hold one: measured on a V8 at 8500 rpm, those two nodes
-     * went fully out of balance on 43 samples in a second while every three-way node stayed under 1.3%.
+     * the line of ports. As a separate duct it would make a junction of just two pipes, which is a corner,
+     * not a junction — and the junction solve does not hold one: measured on a V8 at 8500 rpm, those two
+     * nodes go fully out of balance on 43 samples in a second while every three-way node stays under 1.3%.
      */
     const chain = (bankMembers: number[], last: string, tag: string): string | null => {
       const order = [...bankMembers].sort((a, b) => (pinOf.get(a) ?? a) - (pinOf.get(b) ?? b));
@@ -357,7 +357,8 @@ export function compileLayout(
      * A bank of one cylinder aims its runner straight there. A bank of several gets a downpipe from the end
      * of its manifold, cut to the length that reaches: the banks are mirror images, so the two downpipes are
      * the same length and meet exactly, at a plain fitting. That length is taken out of the collector, so
-     * the path from each valve to the air — which is what the tuning depends on — is as long as it was.
+     * the path from each valve to the air — which is what the tuning depends on — keeps the length the
+     * runner and collector give it.
      */
     const ends = banks.map((bank) => {
       const bankMembers = members.filter((c) => physicalBank(spec, c) === bank);
@@ -390,9 +391,9 @@ export function compileLayout(
         from: { kind: 'node', node: bankNode },
         to: { kind: 'node', node: `merge${g}` },
         // The manifold carries on into it, so its junction is laid out on the manifold rather than
-        // aimed. Without this, a bank of two — whose manifold is its first runner — had both runners
-        // aimed at a collar, and the fitting came out a 29 cm collector. The downpipe itself is still
-        // aimed where the banks meet: see `layoutGraph`.
+        // aimed. Without this, a bank of two — whose manifold is its first runner — would have both
+        // runners aimed at a collar, and the fitting would come out a 29 cm collector. The downpipe itself
+        // is still aimed where the banks meet: see `layoutGraph`.
         ...(carried ? { continues: carried } : {}),
         role: 'downpipe',
       });
@@ -424,7 +425,7 @@ export function compileLayout(
 /**
  * The equal-length alternative: every runner of a group into one junction, then its collector.
  *
- * What the compiled exhaust used to be for every engine, and still the textbook tuned header — each
+ * The textbook tuned header — each
  * cylinder's path to air the same length, so its pulses reach the merge evenly spaced and matched
  * cylinders cancel their low orders. `compileLayout` builds manifolds instead, because that is what straight
  * pipes snapping together make; this is kept for anything that needs the symmetric system, which is what
@@ -462,7 +463,7 @@ export function compileCollectorLayout(
  * junction — so every cylinder needs a duct of its own. And not much shorter than this, because the
  * shortest cell anywhere sets the time step for the whole exhaust: with the head port's own length on
  * top and the fewest cells a duct may have, this keeps one step per sample at 44.1 kHz with room to
- * spare. At 85 mm it was 35 mm cells, just under the 37.3 mm that needs, and a V8 paid double.
+ * spare. At 85 mm the cells would be 35 mm, just under the 37.3 mm that needs, and a V8 would pay double.
  */
 const MANIFOLD_STUB = 0.1;
 
@@ -492,7 +493,7 @@ function shortened(segments: PipeSegment[], length: number): PipeSegment[] {
  * Only ducts that actually carry that geometry count: a runner compiled from it, or failing that one a
  * user drew from a port, and a compiled collector, or failing that a pipe venting to air after a
  * junction. A manifold's stubs, lengths and downpipes are generated from the engine, and carrying one
- * as "the runner" made the next exhaust out of 10 cm pipes. `undefined` means keep what there was.
+ * as "the runner" would make the next exhaust out of 10 cm pipes. `undefined` means keep what there was.
  */
 export function carriedGeometry(graph: ExhaustGraph): { pipe?: PipeSegment[]; collector?: PipeSegment[] } {
   const generated = (d: ExhaustDuct) => d.role === 'stub' || d.role === 'manifold' || d.role === 'downpipe';
@@ -535,8 +536,7 @@ export function pathToAir(graph: ExhaustGraph, cylinder: number): ExhaustDuct[] 
 /**
  * Copy one runner's shape onto every other runner.
  *
- * What "apply to every cylinder" means. A symmetric engine is the normal case and used to be the only
- * one the model could express — every cylinder shared a single segment array — so eight identical runners
+ * What "apply to every cylinder" means. A symmetric engine is the normal case, so eight identical runners
  * should not need eight identical edits.
  *
  * The whole list is copied rather than the individual edit replayed, which is both simpler and more
@@ -638,7 +638,7 @@ export function splitSegments(
       makeSegment({ ...seg, id: undefined, length: within, dIn: seg.dIn, dOut: mid }),
     );
     // The segment's corner is at its start, which the head keeps; the tail carries straight on from the
-    // cut. Copying the turn onto the tail as well put a second corner where the pipe was cut.
+    // cut. Copying the turn onto the tail as well would put a second corner where the pipe is cut.
     tail.push(
       makeSegment({
         ...seg,
@@ -714,7 +714,7 @@ export function removeDuct(graph: ExhaustGraph, ductId: string, dirs?: DuctDirec
  *
  * For a pipe that no longer reaches the junction it was joined to — shortened by deleting a segment,
  * say. Pipes are straight tube that snaps together, so one cut short does not stretch to stay joined,
- * and a fitting grown to bridge the gap was 36 cm across. The junction it left is tidied.
+ * and a fitting grown to bridge the gap would be 36 cm across. The junction it left is tidied.
  */
 export function disconnectEnd(graph: ExhaustGraph, ductId: string, dirs?: DuctDirections): void {
   const duct = graph.ducts.find((d) => d.id === ductId);
@@ -802,10 +802,10 @@ export type DuctDirections = (ductId: string) => { end: Vec3; first: Vec3 } | un
 /**
  * Join `out` onto the end of `into`, which it continues: one pipe where there were two.
  *
- * `out`'s first segment used to turn off the junction's direction, and now turns off the end of `into`,
- * which need not be the same — a manifold's next length ran along the bank, off a stub that points out
- * of the port. Given the directions, that segment's turn is recomputed so it still runs the way it did;
- * without them the rest of the manifold swung round to follow the stub.
+ * `out`'s first segment turns off the junction's direction while the two are separate, and off the end of
+ * `into` once they are joined, which need not be the same — a manifold's next length runs along the bank,
+ * off a stub that points out of the port. Given the directions, that segment's turn is recomputed so it
+ * still runs the way it did; without them the rest of the manifold would swing round to follow the stub.
  */
 function fuse(graph: ExhaustGraph, into: ExhaustDuct, out: ExhaustDuct, dirs?: DuctDirections): void {
   const into_ = dirs?.(into.id);

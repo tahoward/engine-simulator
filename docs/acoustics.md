@@ -121,24 +121,34 @@ plane-wave model alone.
 
 ### The open end
 
-At the open end, reflection weakens above the frequency `c/a` (speed of sound over pipe
-radius). High frequencies radiate out instead of bouncing back and forming [standing waves](glossary.md#standing-wave). So
-a wide megaphone lets treble out, and a small tailpipe keeps it in.
+At the open end, reflection weakens as `ka` (wavenumber times pipe radius) grows. High
+frequencies radiate out instead of bouncing back and forming [standing waves](glossary.md#standing-wave). So a wide
+megaphone lets treble out, and a small tailpipe keeps it in.
 
-A [one-pole filter](glossary.md#one-pole-high-pass-and-low-pass-filters) at `c/a` closely matches the [Levine-Schwinger](glossary.md#levineschwinger) result for an unflanged pipe ([Levine and Schwinger 1948](references.md#levine1948))
-(the standard reference for this):
+The mouth is loaded by its **radiation impedance**: the outside air that moves with the air in
+the pipe (a mass, `rho_amb × 0.6133 a` per unit area, which is the familiar end correction) in
+parallel with a resistance sized so the load absorbs `rho_amb c_amb (ka)²/4`, the radiation
+resistance of an unflanged pipe. Both belong to the ambient air, and the pipe side is the duct
+gas's own `rho c`. The end correction is therefore not added to the pipe as extra length; it
+comes from the load. For a hot pipe the end correction, measured as a length of hot gas, grows
+as `rho_amb / rho`, and more of each wave escapes, because hot gas matches cold air poorly.
 
-| ka  | Measured \|R\| | Levine-Schwinger |
-|-----|----------------|------------------|
-| 0.8 | 0.77           | 0.80             |
-| 1.5 | 0.55           | 0.55             |
+For a cold pipe this reproduces the [Levine-Schwinger](glossary.md#levineschwinger) result for an unflanged pipe
+([Levine and Schwinger 1948](references.md#levine1948)), the standard reference for this, measured from the
+decay of a single pipe mode:
 
-A second pole sits at the **[plane-wave cut-on](glossary.md#cut-on-frequency)**. Above that frequency, sound in the pipe is no
-longer a simple flat wave, so a plane-wave reflection value means nothing and the energy
-should leave. The effect is large: measured energy decay time drops from 188 ms at 84 Hz to
-8 ms at 1.9 kHz, which matches the predicted loss per round trip.
+| ka   | Measured \|R\| | Levine-Schwinger |
+|------|----------------|------------------|
+| 0.35 | 0.96           | 0.94             |
+| 0.90 | 0.78           | 0.77             |
 
-Both filter coefficients are worked out from the solver's step length, because the boundary
+Only what lies below the **[plane-wave cut-on](glossary.md#cut-on-frequency)** is reflected at all. Above that frequency, sound in
+the pipe is no longer a simple flat wave, so a plane-wave reflection value means nothing and the
+energy should leave. A one-pole filter at the cut-on handles this, and the delay it adds is taken
+out of the load's mass so the end correction is counted once. Measured energy decay time drops
+from 75 ms at 752 Hz to 12 ms at 1.9 kHz.
+
+The filter and the load are worked out from the solver's step length, because the boundary
 runs once per solver step. That is one step per audio sample in the app.
 
 ### Radiation
@@ -146,10 +156,13 @@ runs once per solver step. That is one step per audio sample in the app.
 Only the small wave coming *back in* from outside is treated as linear acoustics. That is fine
 because radiation is weak. The outgoing wave stays fully nonlinear.
 
-The [far-field](glossary.md#far-field) sound is a first-order [highpass](glossary.md#one-pole-high-pass-and-low-pass-filters) at the same `c/a` corner. Below the corner it
-reduces to the [monopole](glossary.md#monopole) (point source) result `p = rho/(4 pi r) dQ/dt`. Its 6 dB/octave rise
-is why a real exhaust cracks rather than thumps. Above the corner it levels off, like a
-piston in a baffle.
+The [far-field](glossary.md#far-field) sound is a first-order [highpass](glossary.md#one-pole-high-pass-and-low-pass-filters) with its corner at `ka = 2`, on the
+ambient sound speed. Below the corner it reduces to the [monopole](glossary.md#monopole) (point source) result
+`p = rho/(4 pi r) dQ/dt`. Its 6 dB/octave rise is why a real exhaust cracks rather than thumps.
+Above the corner it levels off, like a piston whose radiation efficiency has saturated: `ka = 2`
+is where the monopole's power would pass that piston's `rho c A u²/2`. The highpass is a bilinear
+design, so its low-frequency level is the same at every sample rate. Each tailpipe has its own,
+tuned to its own mouth.
 
 Output is band-limited at whichever limit comes first:
 
@@ -165,9 +178,9 @@ or at the inlet. A gradual flare doesn't launch them. A wave entering a megaphon
 cone's lowest mode, a spherical front, all the way out. So `a` is the largest radius at an
 abrupt widening in the final run that widens toward the mouth, or that run's throat if there
 is none. Anything upstream of the run's narrowest point can't pass it except as a plane wave.
-For a straight pipe, or one that steps up to a wide tail, `a` is the mouth as before. For a
-48 → 200 mm megaphone it's the 24 mm throat, and the band limit goes back from 1.3 kHz to the
-grid's 2.5 kHz. The 15° threshold is a judgement, not a derived figure; every drawn cone in the
+For a straight pipe, or one that steps up to a wide tail, `a` is the mouth. For a
+48 → 200 mm megaphone it's the 24 mm throat, so the band limit is the grid's 2.5 kHz rather than
+the 1.3 kHz the mouth radius would give. The 15° threshold is a judgement, not a derived figure; every drawn cone in the
 presets is under 5°. The mouth boundary's second pole uses the same cut-on, so the energy it
 lets out is the energy the far field radiates.
 
@@ -187,26 +200,34 @@ and correctly sized.
 ### In the cylinder
 
 The cylinder uses the **[Woschni](glossary.md#woschni-model)** model ([Woschni 1967](references.md#woschni1967)), a standard formula for heat loss from gas to the
-cylinder walls. Heat loss peaks at 33.5 kW at 69 bar. This puts the compression curve at a
-[polytropic exponent](glossary.md#polytropic-exponent) of 1.28–1.36 rather than the [adiabatic](glossary.md#adiabatic-and-isentropic) (no heat loss) 1.35.
+cylinder walls, in full: a gas velocity of 6.18 times mean piston speed while the valves exchange
+gas, 2.28 times while they are shut, and a combustion term proportional to how far the pressure
+has risen above the motored (unfired) curve. On the single at 3200 rpm, heat loss is 17% of the
+fuel energy at full throttle, inside the 15–25% real spark-ignition engines lose. This puts the
+compression curve at a [polytropic exponent](glossary.md#polytropic-exponent) of 1.28–1.36 rather than the [adiabatic](glossary.md#adiabatic-and-isentropic) (no heat loss) 1.35.
+
+The gas's specific heat rises with temperature, as it does in real gas, where vibrational modes
+take up energy as it heats. Gamma is 1.35 at 500 K, during compression, and 1.28 at 1800 K,
+during expansion. A single fixed value overheats the combustion by several hundred kelvin;
+the peak at full throttle is about 2700 K.
 
 ### In the pipe
 
 The pipe uses a three-stage heat chain. The wall temperature is *solved*, not fixed:
 
 ```
-gas --Dittus-Boelter Nu = 3 × 0.023 Re^0.8 Pr^0.4--> wall --convection + radiation--> ambient
+gas --Dittus-Boelter Nu = 3 × 0.023 Re^0.8 Pr^0.3--> wall --convection + radiation--> ambient
 ```
 
 Gas to wall uses the [Dittus–Boelter correlation](glossary.md#dittusboelter-correlation)
-([Dittus and Boelter 1930](references.md#dittus1930)) for turbulent pipe flow, tripled because exhaust
-flow pulses rather than flowing steadily. Wall to air combines outside convection with
+([Dittus and Boelter 1930](references.md#dittus1930)) for turbulent pipe flow, in its form for a gas being cooled, and
+tripled because exhaust flow pulses rather than flowing steadily. Wall to air combines outside convection with
 [radiation](glossary.md#stefanboltzmann-law-and-emissivity).
 
 Heat that leaves the gas goes *into* the wall instead of vanishing, so the two together
 conserve energy. Radiation matters: oxidised steel at 800 K radiates about 18 kW/m², the same
 as a [convection coefficient](glossary.md#heat-transfer-coefficient) of h = 36 W/(m²K), several times natural convection. Outside
-convection uses a [Hilpert](glossary.md#hilpert-correlation) fit, giving 9 W/(m²K) in still air and 134 at 25 m/s.
+convection uses the [Zukauskas](glossary.md#zukauskas-correlation) correlation, giving 9 W/(m²K) in still air and 118 at 25 m/s.
 
 A solved wall temperature gives three things a fixed one can't:
 
@@ -288,5 +309,5 @@ time. Batching the gas transfer as well would put a regular energy kick into the
 - Open end and radiation: [Levine and Schwinger 1948](references.md#levine1948),
   [Kinsler et al. 2000](references.md#kinsler2000), [Pierce 2019](references.md#pierce2019).
 - Heat transfer: [Woschni 1967](references.md#woschni1967),
-  [Dittus and Boelter 1930](references.md#dittus1930), [Hilpert 1933](references.md#hilpert1933).
+  [Dittus and Boelter 1930](references.md#dittus1930), [Zukauskas 1972](references.md#zukauskas1972).
 - Flow noise: [Lighthill 1952](references.md#lighthill1952), [Tam 1998](references.md#tam1998).

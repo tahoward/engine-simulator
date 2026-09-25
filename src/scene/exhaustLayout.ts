@@ -1,8 +1,8 @@
 /**
  * Where each duct of the exhaust is drawn: one primary per cylinder, plus a collector per group.
  *
- * Pure geometry, no scene objects, so the layout can be tested for the thing that actually went
- * wrong — pipes occupying the same space — rather than inspected by eye.
+ * Pure geometry, no scene objects, so the layout can be tested for pipes occupying the same space
+ * rather than inspected by eye.
  *
  * None of this touches the sound. The 1D solver integrates area against *axial* distance, so how a
  * runner is routed between its port and the junction is a rendering choice; the physics has already
@@ -35,12 +35,11 @@ export interface DuctPlacement {
 /**
  * Where each duct meets a junction, for `jointMesh` to build geometry from.
  *
- * Limbs rather than a profile. The junction used to be described as a mouth radius, a throat radius and a
- * length — enough to lathe a surface of revolution about the junction's axis, and nothing more. That could
- * only ever *enclose* the pipes, because they are not axisymmetric about the joint: they arrive at their own
- * angles and offsets, so a body wide enough to contain them all was wider than any of them, which read as a
- * balloon on a 2-into-1. A tee had to be excluded from having a body at all, since no surface of revolution
- * around one makes sense.
+ * Limbs rather than a profile. A mouth radius, a throat radius and a length would be enough to lathe a
+ * surface of revolution about the junction's axis, and nothing more. That can only ever *enclose* the
+ * pipes, because they are not axisymmetric about the joint: they arrive at their own angles and offsets, so
+ * a body wide enough to contain them all is wider than any of them, which reads as a balloon on a 2-into-1.
+ * And no surface of revolution around a tee makes sense at all.
  *
  * Giving the mesh the actual limbs lets it size a fitting to the pipes instead — a ball where they meet at a
  * point, a collector drum where they arrive spread apart — with every pipe end inside it, so there is no gap.
@@ -69,7 +68,7 @@ const COLLAR_CLEARANCE = 1.06;
  *
  * The collar search measures clearance over the zone where the ends bundle together, not just at their
  * tips: they are still converging there, so they sit progressively further out than the tips suggest, and a
- * search that only looked at the tips passed layouts whose runners crossed a couple of centimetres
+ * search that only looked at the tips would pass layouts whose runners cross a couple of centimetres
  * upstream.
  */
 const SOCKET_RATIO = 1.3;
@@ -80,8 +79,8 @@ const SOCKET_RATIO = 1.3;
  *
  * A merge body exists to gather ends that are spread around a collar. At a T they are not spread: the
  * branch and the pipe it joins finish at the same point, so there is nothing to gather and a body is pure
- * invention — a 40 mm branch onto a 40 mm pipe was producing a 391 mm mouth tapering over 720 mm, which is
- * the funnel-instead-of-a-joint complaint exactly.
+ * invention — for a 40 mm branch onto a 40 mm pipe it would be a 391 mm mouth tapering over 720 mm, a
+ * funnel where there should be a joint.
  *
  * Measured on the *ends*, not on the socket-zone bundle radius, and that distinction matters: the bundle
  * radius is inflated by a steeply-arriving branch passing through the socket zone well off-axis, so it says
@@ -130,9 +129,8 @@ function sampleRunner(duct: ExhaustDuct, place: DuctPlacement, stride = 3): Runn
   /**
    * A duct with no segments ends where it starts.
    *
-   * `layoutPipe` sweeps per segment, so an empty list yields no joints — and the obvious
-   * `joints[joints.length - 1]!` threw. `pipeSpan` and `solveHeading` both guard for it; this was the one
-   * caller that assumed one.
+   * `layoutPipe` sweeps per segment, so an empty list yields no joints and no last joint to read. The
+   * origin and heading stand in, as `pipeSpan` and `solveHeading` also allow for.
    */
   const last = layout.joints[layout.joints.length - 1];
   const dir = layout.jointDirections[layout.jointDirections.length - 1];
@@ -238,7 +236,7 @@ export function layoutGraph(ports: ExhaustPort[], graph: ExhaustGraph): ExhaustP
        *
        * With each bank's exhaust on the outside of the vee, a V-twin's two ports face almost exactly away
        * from each other, so their headings cancel and what is left is the slight downward tilt they share —
-       * which aimed the merge straight down through the crank. A real V-twin routes both pipes round one
+       * which would aim the merge straight down through the crank. A real V-twin routes both pipes round one
        * side of the engine to meet, and the one direction square to both banks is the crank axis, so the
        * merge goes that way, tilted by whatever the headings still agree on.
        */
@@ -250,8 +248,8 @@ export function layoutGraph(ports: ExhaustPort[], graph: ExhaustGraph): ExhaustP
       if (bisector.lengthSq() < 1e-8) bisector.set(1, 0, 0);
       bisector.normalize();
 
-      // Seeded at zero, not at the fallback: seeding at 0.02 made the default a *floor*, so a 34 mm
-      // runner was treated as 40 mm and its weld socket came out a fifth too long.
+      // Seeded at zero, not at the fallback: seeding at 0.02 would make the default a *floor*, so a
+      // 34 mm runner would be treated as 40 mm and its weld socket come out a fifth too long.
       let rOut = 0;
       for (const d of upstream) rOut = Math.max(rOut, ductOutletRadius(d));
       if (rOut <= 0) rOut = 0.02;
@@ -272,11 +270,11 @@ export function layoutGraph(ports: ExhaustPort[], graph: ExhaustGraph): ExhaustP
        *
        * A collector sits at the centre of the ends it gathers. A *branch* does not: it sits on the pipe
        * being teed into, because that pipe has to run through the joint unbroken. Averaging the ends there
-       * pulls the joint off the pipe's axis by roughly half a radius — measured as an 11.6 mm step in a pipe
-       * of 20 mm radius — and the step shows as a kink where the two halves of the pipe meet.
+       * would pull the joint off the pipe's axis by roughly half a radius — an 11.6 mm step in a pipe of
+       * 20 mm radius — and the step would show as a kink where the two halves of the pipe meet.
        *
        * Which case it is comes from how far apart the feeds *finish*. Not from the socket-zone bundle
-       * radius: a steeply-arriving branch crosses that zone well off-axis, so it reported 195 mm for a joint
+       * radius: a steeply-arriving branch crosses that zone well off-axis, so it reads 195 mm for a joint
        * between two 40 mm pipes whose ends coincide.
        */
       const centroid = new THREE.Vector3();
@@ -292,8 +290,8 @@ export function layoutGraph(ports: ExhaustPort[], graph: ExhaustGraph): ExhaustP
       }
       /**
        * Only a joint nothing was aimed at can be a tee. Runners the collar search placed are a collector by
-       * construction, and packed tightly enough their ends are close — which, read as a tee, sent a V-twin's
-       * collector off along one runner, 24 degrees to that side, instead of down the middle between them.
+       * construction, and packed tightly enough their ends are close — which, read as a tee, would send a
+       * V-twin's collector off along one runner, 24 degrees to that side, instead of down the middle.
        */
       const pointJoint = (free.length <= 1 || opposed) && endSpread <= rOut * POINT_JOINT_SPREAD;
 
@@ -333,9 +331,8 @@ export function layoutGraph(ports: ExhaustPort[], graph: ExhaustGraph): ExhaustP
        * The joint's limbs: every pipe that meets here, and which way it arrives.
        *
        * No cases and no sizing. A tee is two limbs and an outlet, a 4-into-1 is five limbs, a tri-Y is two
-       * joints of three — and `jointMesh` sizes a fitting to whichever it is. The old body
-       * needed a mouth radius, a throat radius, a length and a socket, plus a rule to suppress it entirely at
-       * a tee, because a surface of revolution could not follow the pipes.
+       * joints of three — and `jointMesh` sizes a fitting to whichever it is, following the pipes rather
+       * than enclosing them.
        */
       const limbs: JointLimb[] = samples.map((sm) => ({
         point: sm.end.clone(),
@@ -407,9 +404,9 @@ export function layoutGraph(ports: ExhaustPort[], graph: ExhaustGraph): ExhaustP
  * The collar is searched for, not computed. A closed formula has to be conservative, because the
  * runner ends do not land where they are aimed: `solveHeading` fixes the *direction* the pipe finishes
  * in, but the distance it covers is its own span, so an end overshoots or falls short depending on how
- * far that port happens to be from the junction. Sizing the collar from the targets left the bundle
- * looser than it needed to be — on a V8 the body came out 223 mm across for 44 mm pipes, a 21-degree
- * taper, which reads as a megaphone.
+ * far that port happens to be from the junction. Sizing the collar from the targets would leave the
+ * bundle looser than it needs to be — on a V8 a body 223 mm across for 44 mm pipes, a 21-degree taper,
+ * which reads as a megaphone.
  *
  * So candidates are tried from tight to loose and the first whose runners actually clear each other is
  * kept. That is the same clearance condition the layout test asserts, so the layout checks its own
@@ -480,7 +477,7 @@ function aimRunners(
    * Interpenetration inside the weld is not a defect, it is how the part is made: a fabricated
    * collector has the pipe walls cut away where they meet, and the body covers the join. So what has to
    * be checked is that the runners clear each other everywhere the body does *not* enclose them.
-   * Requiring clearance along the whole length is what forced the bundle out to two hundred millimetres
+   * Requiring clearance along the whole length would force the bundle out to two hundred millimetres
    * for forty-four millimetre pipes.
    */
   const trial = (collar: number, wrap: number) => {
@@ -491,10 +488,10 @@ function aimRunners(
       /**
        * Slots follow the runners' order across the collar, starting on the side the first one comes from.
        *
-       * The half turn does this by construction. The ring was a quarter turn out — its first slot sat
-       * square to the direction the runners are ordered along — which for two runners arriving from
-       * opposite sides of a V-twin stacked them one above the other, so each had to pass the other to
-       * reach its slot, and they clipped at 94% of their combined radii.
+       * The half turn does this by construction. The ring needs a quarter-turn phase to match: without it
+       * its first slot sits square to the direction the runners are ordered along, which for two runners
+       * arriving from opposite sides of a V-twin stacks them one above the other, so each has to pass the
+       * other to reach its slot, and they clip at 94% of their combined radii.
        */
       const phase = wrap > Math.PI * 1.5 ? -Math.PI / 2 : 0;
       const theta = n > 1 ? wrap * (1 - (slot + 0.5) / n) + phase : Math.PI / 2;
@@ -536,8 +533,8 @@ function aimRunners(
    * The ring is the packing a fabricator uses and about half the radius of the arc, so it is preferred
    * when it works. For runners from ports in a line it usually does not: straight runners can only
    * reach targets that stay monotonic across the collar, and a ring is not monotonic, so two of them
-   * always cross. Measured that way they interpenetrated at 67% of their combined radii even inside the
-   * weld exemption, which is why the arc is still what most engines get.
+   * always cross. Measured that way they interpenetrate at 67% of their combined radii even inside the
+   * weld exemption, which is why the arc is what most engines get.
    */
   const ringCollar = rOut / Math.sin(Math.PI / n);
   const arcCollar = rOut / Math.sin(Math.PI / (2 * n));
@@ -550,14 +547,14 @@ function aimRunners(
    *
    * They cannot collide on the way — they come from opposite sides — and where they overlap at the end is
    * the joint itself, drawn as a tee or a fitting. A collar here only spreads their ends apart around the
-   * junction, which is what made a V-twin's 2-into-1 a big cone.
+   * junction, which turns a V-twin's 2-into-1 into a big cone.
    */
   if (meetAtPoint) {
     /**
      * Two pipes of different lengths still meet exactly, where they can.
      *
      * One point for both only works if they are the same length; shorten one — delete a segment of a
-     * V-twin's runner — and the shorter fell short, leaving a gap the fitting grew to 20 cm to span.
+     * V-twin's runner — and the shorter falls short, leaving a gap the fitting would grow to 20 cm to span.
      * The point both can reach is on the circle where a sphere of each one's reach about its own start
      * meets the other's, and of that circle the point furthest along the way the merge heads.
      */
@@ -640,9 +637,9 @@ export function pipesMeetAt(graph: ExhaustGraph, placement: ExhaustPlacement, no
  *
  * A compiled exhaust is partly *worked out*: runners and downpipes are aimed to meet, and a junction's
  * direction follows whatever arrives at it. That is right until the user starts changing things, after
- * which re-aiming swung pipes they had not touched — deleting one runner of a V-twin turned the other
- * and sent the collector 70 cm off, and on an 8-into-1 a downpipe no longer aimed missed its junction by
- * 33 cm. So on the first edit every pipe's direction is stored as it stands: a runner's relative to its
+ * which re-aiming would swing pipes they have not touched — deleting one runner of a V-twin would turn the
+ * other and send the collector 70 cm off, and on an 8-into-1 a downpipe left unaimed would miss its
+ * junction by 33 cm. So on the first edit every pipe's direction is stored as it stands: a runner's relative to its
  * port, which moves with the engine, and a pipe leaving a junction in world terms, since the junction's
  * own direction is worked out again each time. Pipes already drawn keep what they have.
  */

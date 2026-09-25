@@ -1,6 +1,6 @@
 /**
  * What the wasm SIMD kernel is actually worth, measured against the TypeScript loops it
- * replaces rather than estimated from instruction counts.
+ * stands in for rather than estimated from instruction counts.
  *
  *   BENCH_ENTRY=kernel.ts npm run bench
  *
@@ -32,7 +32,7 @@ const REPEATS = Number(process.env.KERNEL_REPEATS ?? 5);
  * Self-time fractions from `node --cpu-prof` on the V-twin preset at 6500 rpm, full
  * throttle, total 56.1% of one core. Used only to project an end-to-end figure from a
  * measured loop speedup; the projection is labelled as such because it assumes the other
- * 27.6% is untouched, which is true of this change but is still an assumption.
+ * 27.6% is untouched, which the kernel does not reach but is still an assumption.
  */
 const PROFILE = { reconstruct: 0.377, update: 0.193, hllc: 0.154 };
 const HOT_FRACTION = PROFILE.reconstruct + PROFILE.update + PROFILE.hllc;

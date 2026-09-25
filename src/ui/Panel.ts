@@ -136,17 +136,16 @@ export class Panel {
    * The graph the current selection belongs to.
    *
    * A preset or a change of cylinder count replaces the graph wholesale, and an id that still exists in
-   * the new one is not the same duct: staying on `collector0` after picking a V8 left the list editing a
-   * collector buried inside the merge body, where deleting a segment is invisible and nearly inaudible.
+   * the new one is not the same duct: staying on `collector0` after picking a V8 would leave the list
+   * editing a collector buried inside the merge body, where deleting a segment is invisible and nearly inaudible.
    * A new graph therefore resets the selection to the first runner.
    */
   private selectionGraph: ExhaustGraph | null = null;
   /**
    * Whether editing one runner edits them all.
    *
-   * On by default because it is what the panel did before ducts were separable, and because a symmetric
-   * engine is the normal case — eight identical runners should not need eight identical edits. Turning it
-   * off is what unequal-length headers need, and that is now a thing the model can express.
+   * On by default because a symmetric engine is the normal case — eight identical runners should not need
+   * eight identical edits. Turning it off is what unequal-length headers need.
    */
   private linkRunners = true;
   private drawing = false;
@@ -311,8 +310,8 @@ export class Panel {
        * `onEngine` re-seeds the exhaust itself when the topology changes (or the ports move on an
        * exhaust that has not been edited), carrying the previous
        * engine's runner and collector across so an edit survives a change of cylinder count. Loading
-       * the preset's geometry *before* it let that carry-over overwrite the geometry just loaded, so
-       * going crossplane to flatplane and back came out with a different exhaust each time. And the
+       * the preset's geometry *before* it would let that carry-over overwrite the geometry just loaded,
+       * so going crossplane to flatplane and back would come out with a different exhaust each time. And the
        * collector is always replaced — emptied if the preset has none — so no preset inherits one.
        */
       this.cb.onEngine(presetEngine(preset, this.config.engine));
@@ -465,9 +464,9 @@ export class Panel {
     /**
      * Which duct is being edited.
      *
-     * Replaces the old split between an "Exhaust" list and a separate "Collector" list. Once the
-     * exhaust is a graph a collector is simply another duct, and giving it its own permanently-visible
-     * panel made no more sense than giving cylinder 3's runner one.
+     * One picker for every duct. The exhaust is a graph, so a collector is simply another duct, and
+     * giving it its own permanently-visible panel would make no more sense than giving cylinder 3's
+     * runner one.
      */
     const ductRow = el('div', 'row', exhaust);
     el('label', '', ductRow).textContent = 'Editing';
@@ -483,8 +482,7 @@ export class Panel {
      * Draw mode.
      *
      * A mode rather than a replacement for the handles: the handles adjust a route that exists — length,
-     * bend, diameter — and drawing creates one. Two tools with distinct jobs, and the one that already
-     * worked keeps working.
+     * bend, diameter — and drawing creates one. Two tools with distinct jobs.
      */
     const drawRow = el('div', 'row', exhaust);
     this.drawBtn = el('button', '', drawRow) as HTMLButtonElement;
@@ -1025,7 +1023,7 @@ export class Panel {
 
   /**
    * Build one segment row. Parameterised by which array it edits, and by whether picking
-   * the row selects the segment; every caller now passes the selected duct's segments and `true`.
+   * the row selects the segment; every caller passes the selected duct's segments and `true`.
    */
   private buildRow(
     container: HTMLElement,
@@ -1330,8 +1328,8 @@ export class Panel {
     /**
      * The tuned length a cylinder sees: everything between its valve and open air.
      *
-     * Walked along the graph rather than added up as "primary plus collector", which only described
-     * the layouts that had exactly those two parts. A tri-Y has three.
+     * Walked along the graph rather than added up as "primary plus collector", which would only
+     * describe layouts with exactly those two parts. A tri-Y has three.
      */
     const path = graph ? pathToAir(graph, 0) : [];
     const len = path.length > 0
@@ -1515,8 +1513,8 @@ function numberInto(
   /**
    * Applied on `change` — Enter, leaving the field, or the spinner — not on every keystroke.
    *
-   * Committing as you type meant committing every prefix of what you were typing: on the way to a 50 mm
-   * inlet the field held "5", which the 6 mm minimum clamped and wrote straight back as "6". And a
+   * Committing as you type would commit every prefix of what you are typing: on the way to a 50 mm
+   * inlet the field holds "5", which the 6 mm minimum would clamp and write straight back as "6". And a
    * prefix that is in range is still wrong: typing a 1200 mm length would briefly make it 12 mm, short
    * enough to pull the pipe off its junction.
    */

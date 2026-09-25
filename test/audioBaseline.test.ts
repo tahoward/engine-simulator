@@ -1,10 +1,9 @@
 /**
  * A fingerprint of the audio every preset produces, so a refactor can prove it changed nothing.
  *
- * The exhaust is being rewritten from "N identical primaries plus M collectors" to a general duct
- * graph. That is a big change to the middle of a carefully tuned solver, and the only way to make it
- * safe is to fix the output first: this snapshot is taken *before* the rewrite, and the rewrite is
- * not finished until it still matches.
+ * The exhaust is a general duct graph in the middle of a carefully tuned solver, and the only safe
+ * way to restructure it is against fixed output: a change that is meant to be a pure refactor is not
+ * finished until every preset still matches its snapshot.
  *
  * A hash rather than the samples themselves, because the requirement is bit-identity and a hash
  * states that exactly in one line per preset. The summary figures alongside it are there so a

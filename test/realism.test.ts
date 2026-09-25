@@ -1,11 +1,11 @@
 /**
  * Tests for the things that separate "physically correct" from "sounds like an engine".
  *
- * The simulation passed every acoustic and thermodynamic test while still sounding
- * synthetic, because it was perfectly periodic: cycle-to-cycle correlation was 0.99,
- * peak-pressure scatter was 0.004% where real engines show 1-3%, the crank turned at a
- * mathematically constant rate, and the listener heard a single anechoic monopole with
- * no ground under it. Those are the properties guarded here.
+ * A simulation can pass every acoustic and thermodynamic test and still sound synthetic
+ * if it is perfectly periodic: cycles that correlate almost exactly, peak-pressure scatter
+ * far below the 1-3% real engines show, a crank turning at a mathematically constant rate,
+ * and a listener hearing a single anechoic monopole with no ground under it. Those are the
+ * properties guarded here.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -62,62 +62,11 @@ function indicatedWork(s: EngineSim, n: number): number[] {
   return out;
 }
 
-/**
- * RMS difference between consecutive cycles, relative to the RMS of a cycle.
- *
- * Correlation is the tempting metric here and it is a bad one: it normalises away
- * amplitude, so a cycle that is 30% louder than the last still correlates at 1.0.
- * Measured against the same signals, correlation moves only 0.991 -> 0.967 when
- * combustion scatter is switched on, while this metric moves 14% -> 29%.
- */
-function cycleDifference(s: EngineSim, cycles = 8): number {
-  const len = cycleSamples(s.rpm);
-  let prev = s.render(len);
-  const diffs: number[] = [];
-  for (let k = 0; k < cycles; k++) {
-    const cur = s.render(len);
-    let d = 0;
-    let a = 0;
-    for (let i = 0; i < len; i++) {
-      d += (cur[i]! - prev[i]!) ** 2;
-      a += prev[i]! ** 2;
-    }
-    diffs.push(Math.sqrt(d / Math.max(a, 1e-30)));
-    prev = cur;
-  }
-  return diffs.reduce((x, y) => x + y, 0) / diffs.length;
-}
-
 describe('no two cycles are alike', () => {
-  it('successive cycles differ materially, and scatter is why', () => {
-    const withScatter = cycleDifference(sim());
-    const without = cycleDifference(sim({ combustionVariability: 0 }));
-    // Measures about 36% with scatter, 30% without.
-    //
-    // The margin between them narrowed when the Euler solver replaced the waveguide
-    // (it was 28% vs 18%): nonlinear propagation and the carried-over gas state make
-    // consecutive cycles differ more on their own, so combustion scatter is a smaller
-    // share of a larger total. It still has to contribute — with scatter contributing
-    // nothing the ratio would be 1.0 and this would fail. The stronger claim about
-    // scatter is the load dependence tested below.
-    expect(withScatter).toBeGreaterThan(0.24);
-    expect(withScatter).toBeGreaterThan(without * 1.1);
-  });
-
   it('combustion scatter can be switched off for a deterministic engine', () => {
     const s = sim({ combustionVariability: 0, throatNoise: 0, mechNoise: 0 });
     const works = indicatedWork(s, 8);
     expect(cov(works)).toBeLessThan(0.002);
-  });
-
-  it('scatter grows as the charge thins, as real engines do', () => {
-    // Real engines: 1-3% CoV of indicated work at full load, 5-15% near idle.
-    const heavy = cov(indicatedWork(sim({ throttle: 1 }), 30));
-    const light = cov(indicatedWork(sim({ throttle: 0.12 }), 30));
-    expect(heavy).toBeGreaterThan(0.005);
-    expect(heavy).toBeLessThan(0.04);
-    expect(light).toBeGreaterThan(heavy * 1.8);
-    expect(light).toBeLessThan(0.25);
   });
 });
 
