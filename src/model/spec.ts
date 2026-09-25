@@ -184,8 +184,19 @@ export interface EngineSpec {
   ivc: number;
 
   // --- Combustion ---
-  /** Spark timing, deg ATDC. Negative / >540 means before TDC firing. */
+  /**
+   * Spark timing, deg ATDC. Negative / >540 means before TDC firing.
+   *
+   * With `advanceCurve` on, this is the timing for a charge that burns over `burnDuration`; the
+   * spark moves from it to keep each cycle's combustion phased the same.
+   */
   ignition: number;
+  /**
+   * Whether the spark follows an advance map. On, it moves with the predicted burn of each charge:
+   * later at low rpm, where the burn is quick, earlier at part throttle and high rpm, where it is
+   * slow. Off, it fires at `ignition` whatever the charge, as a fixed-timing magneto does.
+   */
+  advanceCurve: boolean;
   /**
    * Wiebe burn duration at the reference flame state, deg: a stoichiometric charge at 13 bar and
    * 650 K with 4% residual, at 10 m/s mean piston speed. That is roughly any naturally aspirated
@@ -1055,6 +1066,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
 
   ignition: 695, // 25 deg BTDC
   burnDuration: 55,
+  advanceCurve: true,
   lambda: 1,
   fuelCut: true,
   combustionVariability: 1,

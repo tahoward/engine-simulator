@@ -94,10 +94,15 @@ export class Cylinder {
   /** Burned-gas mass fraction of the trapped charge. */
   private chargeResidual = 0;
   /**
-   * Wiebe duration this cycle burns over, deg: `burnAngle` at the spark, times the cycle's scatter.
-   * Zero until the spark. Exposed for diagnostics.
+   * Wiebe duration this cycle burns over, deg: `burnAngle` for the charge as trapped, times the
+   * cycle's scatter. Latched at intake valve closing. Exposed for diagnostics.
    */
   burnAngle = 0;
+  /**
+   * Crank angle this cycle's spark fires at, deg: the nominal timing plus the cycle's ignition-delay
+   * scatter, moved by the advance map. Latched at intake valve closing.
+   */
+  spark = 0;
   /** Whether combustion has been armed for the cycle about to fire. */
   private armed = false;
   /**
@@ -269,7 +274,7 @@ export class Cylinder {
 
     // --- Combustion ---------------------------------------------------------
     this.updateCombustionLatches(spec);
-    const dQcomb = this.heatRelease(spec);
+    const dQcomb = this.heatRelease();
 
     // --- Wall heat transfer (Woschni) ---------------------------------------
     const dQwall = this.woschni(spec, p, v, omega, tNow) * dt;
@@ -476,8 +481,23 @@ export class Cylinder {
         }
       }
 
+      // --- Burn duration and spark timing ---------------------------------------
+      // The duration is set by the charge as the spark will find it: this one, compressed from here
+      // to the nominal spark along the polytropic the compression follows.
+      const nominal = spec.ignition + this.ignitionOffset;
+      const squeeze = this.stepVolume / cylinderVolume(spec, nominal);
+      const predicted = burnAngle(
+        spec,
+        this.stepOmega,
+        this.stepPressure * Math.pow(squeeze, COMPRESSION_EXPONENT),
+        this.stepTemp * Math.pow(squeeze, COMPRESSION_EXPONENT - 1),
+        this.chargePhi,
+        this.chargeResidual,
+      );
+      this.burnAngle = clamp(predicted * this.burnScale, 4, MAX_BURN_ANGLE);
+      this.spark = spec.advanceCurve ? advancedSpark(spec, nominal, predicted) : nominal;
+
       this.burned = 0;
-      this.burnAngle = 0;
       // The scatter is still drawn on a cut cycle, so the limiter does not shift the noise
       // sequence of every cycle after it.
       this.armed = !this.sparkCut;
@@ -485,24 +505,10 @@ export class Cylinder {
   }
 
   /** Wiebe-function heat release for this step, J. */
-  private heatRelease(spec: EngineSpec): number {
+  private heatRelease(): number {
     const nextAngle = this.nextAngle;
     if (!this.armed || this.qCycle <= 0) return 0;
-    const spark = spec.ignition + this.ignitionOffset;
-    if (this.burnAngle === 0) {
-      // The duration is set by the charge as the spark finds it, so it is worked out on the step
-      // that reaches the spark, from the state at its start.
-      if (cycleDelta(nextAngle, spark) <= 0) return 0;
-      const predicted = burnAngle(
-        spec,
-        this.stepOmega,
-        this.stepPressure,
-        this.stepTemp,
-        this.chargePhi,
-        this.chargeResidual,
-      );
-      this.burnAngle = clamp(predicted * this.burnScale, 4, MAX_BURN_ANGLE);
-    }
+    const spark = this.spark;
     const duration = this.burnAngle;
     const from = wiebe(cycleDelta(this.angle, spark), duration);
     const to = wiebe(cycleDelta(nextAngle, spark), duration);
@@ -743,6 +749,41 @@ const BURNUP_SHARE = 0.35;
 
 /** Ceiling on the burn duration, deg. A charge that slow is still burning as the exhaust opens. */
 const MAX_BURN_ANGLE = 150;
+
+/**
+ * Polytropic exponent the charge is compressed along from intake valve closing to the spark, used to
+ * estimate the state the spark will find. What this model's compression measures, with its wall heat
+ * loss: 1.28-1.36.
+ */
+const COMPRESSION_EXPONENT = 1.32;
+
+/**
+ * Fraction of the Wiebe duration at which half the charge has burned: `1 - e^(-5 u^3)`, normalised,
+ * reaches one half at `u = 0.516`.
+ */
+const WIEBE_HALF = 0.516;
+
+/** Spark advance the map may reach, deg BTDC, and how far it may retard, to TDC. */
+const MAX_ADVANCE = 50;
+const MIN_ADVANCE = 0;
+
+/**
+ * Where the spark fires, deg, under the advance map: moved from `nominal` by however much earlier or
+ * later this charge reaches half burned than a reference burn would, so the combustion stays phased
+ * where `spec.ignition` puts it at the reference state.
+ *
+ * An engine's ignition map exists to do this, because the burn does not take a fixed number of
+ * degrees. With the spark held, a fast burn at low rpm peaks before top dead centre and pushes against
+ * the piston, and a slow one at part throttle peaks too late to do work. That is also why the map is
+ * advanced at part throttle and retarded near idle, both of which come out of this. Held within
+ * `MIN_ADVANCE` and `MAX_ADVANCE` of top dead centre, as a real map is.
+ */
+function advancedSpark(spec: EngineSpec, nominal: number, predicted: number): number {
+  const shifted = nominal - WIEBE_HALF * (predicted - spec.burnDuration);
+  // As degrees before firing TDC at 720.
+  const advance = clamp(720 - shifted, MIN_ADVANCE, MAX_ADVANCE);
+  return 720 - advance;
+}
 
 /**
  * Wiebe burn duration, deg, for the charge the spark finds: `spec.burnDuration` rescaled from the
