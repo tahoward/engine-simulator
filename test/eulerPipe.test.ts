@@ -1,12 +1,12 @@
 /**
- * Tests for the quasi-1D Euler solver that replaced the linear waveguide.
+ * Tests for the quasi-1D Euler solver.
  *
  * Two families here, and both matter. The first is standard CFD verification: the Sod
  * shock tube against its exact solution, TVD behaviour (no overshoot), and conservation.
- * The second is the acoustics the old waveguide guaranteed *by construction* and this
+ * The second is the acoustics a linear waveguide guarantees *by construction* and this
  * solver has to earn numerically — resonating at c/4L, reflecting off area changes, and
- * staying stable. Swapping an exact linear method for an approximate nonlinear one is
- * only worth it if the linear behaviour survives.
+ * staying stable. An approximate nonlinear method is only worth having over an exact
+ * linear one if the linear behaviour survives.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -209,8 +209,8 @@ describe('nonlinear steepening — the reason for the whole exercise', () => {
   it('a large-amplitude wave steepens; a small one stays sinusoidal', () => {
     const quiet = steepnessRatio(0.002, 0.8);
     const loud = steepnessRatio(0.8, 0.8);
-    // The old linear waveguide gave exactly 1.0 here at every amplitude, which is why
-    // open pipes never sounded brassy.
+    // A linear waveguide gives exactly 1.0 here at every amplitude, which is why it
+    // cannot make an open pipe sound brassy.
     expect(quiet).toBeLessThan(1.15);
     expect(loud).toBeGreaterThan(1.5);
   });
@@ -259,12 +259,12 @@ describe('conservation', () => {
   }
 
   it('a cavity between two area changes does not pump itself', () => {
-    // This is a regression guard on two coupled bugs in the Hancock predictor. The area
-    // source has to be in the predictor as well as the corrector, *and* the predictor's
-    // fluxes have to be area-weighted so it stays well balanced at rest. Omitting the
-    // source gave 650x acoustic energy growth here; adding it without area-weighting the
-    // fluxes instead invented momentum at rest and made the transient ~56 dB too loud.
-    // A single expansion or contraction hides both — only a cavity traps the error.
+    // This guards two coupled requirements of the Hancock predictor. The area source has
+    // to be in the predictor as well as the corrector, *and* the predictor's fluxes have
+    // to be area-weighted so it stays well balanced at rest. Omitting the source lets the
+    // acoustic energy here grow by orders of magnitude; adding it without area-weighting
+    // the fluxes instead invents momentum at rest and makes the transient tens of dB too
+    // loud. A single expansion or contraction hides both — only a cavity traps the error.
     for (const segments of [
       [
         makeSegment({ kind: 'pipe', length: 0.35, dIn: 0.04 }),
@@ -337,7 +337,7 @@ describe('conservation', () => {
   });
 });
 
-describe('the linear acoustics the waveguide gave for free', () => {
+describe('the linear acoustics a waveguide gets for free', () => {
   /** Impulse response at the mouth of a closed-open duct driven by a flow pulse. */
   function impulseResponse(p: EulerPipe, n: number, kick: number): Float32Array {
     const out = new Float32Array(n);
@@ -369,7 +369,7 @@ describe('the linear acoustics the waveguide gave for free', () => {
    *
    * Taking "the strongest peak in a wide range" is fragile: which mode dominates depends
    * on the geometry, so it can silently compare mode 1 in one case against mode 3 in
-   * another — which is exactly how this test suite first went wrong.
+   * another.
    */
   function fundamentalOf(segments: ReturnType<typeof makeSegment>[], portTemp: number): number {
     const p = duct(segments, portTemp);
@@ -391,8 +391,9 @@ describe('the linear acoustics the waveguide gave for free', () => {
       const ir = impulseResponse(p, FFT, 2);
       const mag = magnitudeSpectrum(ir, FFT);
 
-      // Cross-check the solver's own prediction against the closed form first.
-      const f1 = speedOfSound(GAS.tAmb) / (4 * p.totalLength);
+      // Cross-check the solver's own prediction against the closed form first: the pipe plus
+      // its open-end correction, 0.6133 of the mouth radius.
+      const f1 = speedOfSound(GAS.tAmb) / (4 * (p.totalLength + 0.6133 * 0.025));
       expect(Math.abs(p.quarterWaveHz() - f1) / f1).toBeLessThan(0.02);
       const peaks = findPeaks(mag, FS, FFT, f1 * 0.5, f1 * 4.5, 0.05);
       expect(peaks.length).toBeGreaterThanOrEqual(2);
@@ -402,7 +403,7 @@ describe('the linear acoustics the waveguide gave for free', () => {
         const near = peaks.reduce((best, q) =>
           Math.abs(q.hz - want) < Math.abs(best.hz - want) ? q : best,
         );
-        // Looser than the waveguide's 6%: a finite-volume scheme has numerical
+        // Looser than a delay line would need: a finite-volume scheme has numerical
         // dispersion, where a delay line has none.
         expect(
           Math.abs(near.hz - want) / want,
@@ -651,8 +652,8 @@ describe('wall temperature is solved, not assumed', () => {
 describe('friction acts on what it physically should', () => {
   it('a steady mean flow is barely touched by the acoustic damping term', () => {
     // The linear boundary-layer term is acoustic damping and must skip the mean flow.
-    // Applied to the total velocity it braked the mean hard — at low speed it outweighed
-    // Darcy roughly forty to one.
+    // Applied to the total velocity it would brake the mean hard — at low speed it would
+    // outweigh Darcy roughly forty to one.
     const steady = (linearDamping: number) => {
       const p = new EulerPipe([makeSegment({ length: 1, dIn: 0.04 })], FS, 900, {
         heatTransfer: false,
@@ -757,8 +758,8 @@ describe('the open end reflects less at high frequency, as a real one does', () 
 
   it('decay matches the reflection coefficient it should have', () => {
     // Energy falls by |R|^2 each round trip, so the decay time pins |R| down. Compared
-    // against the Levine-Schwinger result for an unflanged pipe, which the one-pole at c/a
-    // tracks closely.
+    // against the Levine-Schwinger result for an unflanged pipe, which the mouth's radiation
+    // impedance tracks closely.
     const c = speedOfSound(GAS.tAmb);
     const a = 0.025;
     const roundTrip = 2 / c;
@@ -780,10 +781,10 @@ describe('the open end reflects less at high frequency, as a real one does', () 
   });
 
   it('is independent of how many substeps the solver takes', () => {
-    // The regression guard. The reflection filter runs once per CFL substep, so its
-    // coefficient has to come from the substep duration. Deriving it from the audio sample
-    // period instead doubled the corner frequency and made high-frequency standing waves
-    // linger about three times too long.
+    // The reflection filter runs once per CFL substep, so its coefficient has to come from
+    // the substep duration. Deriving it from the audio sample period instead would double
+    // the corner frequency and make high-frequency standing waves linger about three times
+    // too long.
     const twoSubsteps = modeDecayMs(10, 0.05, 0.85);
     const manySubsteps = modeDecayMs(10, 0.05, 0.2);
     expect(manySubsteps).toBeGreaterThan(twoSubsteps * 0.7);
@@ -791,7 +792,7 @@ describe('the open end reflects less at high frequency, as a real one does', () 
   });
 
   it('a wider mouth radiates high frequencies away sooner', () => {
-    // The corner is c/a, so a bigger radius reflects less at a given frequency.
+    // Reflection falls with ka, so a bigger radius reflects less at a given frequency.
     expect(modeDecayMs(8, 0.09)).toBeLessThan(modeDecayMs(8, 0.03));
   });
 });

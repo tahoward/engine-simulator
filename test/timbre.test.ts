@@ -1,11 +1,10 @@
 /**
  * Spectral balance tests.
  *
- * These exist because of a real regression: the valve-throat turbulence was injected as
- * *white* noise, and the radiation derivative then tilted it +6 dB/octave into a rising
- * hiss that dominated everything above 2 kHz by more than 10 dB. The engine measured
- * fine on every other test — firing frequency, resonances, passivity all passed — it just
- * sounded wrong. So the timbre needs its own guards.
+ * An engine can measure fine on every other test — firing frequency, resonances, passivity
+ * — and still sound wrong. Valve-throat turbulence injected as *white* noise is the case in
+ * point: the radiation derivative tilts it +6 dB/octave into a rising hiss that dominates
+ * everything above 2 kHz, and nothing else notices. So the timbre needs its own guards.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -63,15 +62,13 @@ describe('the exhaust note is not dominated by broadband hiss', () => {
   it('rolls off steeply above 2 kHz rather than holding a flat hiss', () => {
     const b = bands(render());
     const peak = Math.max(...OCTAVES.map((f) => b.get(f)!));
-    // Measures about -14 dB at 4 kHz and -36 at 8 kHz. The broken version sat at -9.4
-    // at 4 kHz, so this still catches it.
+    // Measures about -14 dB at 4 kHz and -36 at 8 kHz; a white throat source sits well
+    // above the 4 kHz limit, so this catches it.
     //
-    // The threshold moved from -14 to -12 when the linear waveguide was replaced by the
-    // Euler solver, and that is expected rather than a regression: nonlinear steepening
-    // genuinely creates harmonics the linear model could not produce at any amplitude —
-    // the exhaust-only path alone went from -20 to -16 dB at 4 kHz. What matters is that
-    // the added content is *harmonic* (brassiness) rather than broadband hiss, and the
-    // 'band-limited, not white' test below checks that mechanism directly.
+    // The 4 kHz limit leaves room for nonlinear steepening in the Euler solver, which
+    // genuinely creates harmonics a linear model could not produce at any amplitude. What
+    // matters is that that content is *harmonic* (brassiness) rather than broadband hiss,
+    // and the 'band-limited, not white' test below checks that mechanism directly.
     expect(dB(b.get(4000)!, peak)).toBeLessThan(-12);
     expect(dB(b.get(8000)!, peak)).toBeLessThan(-28);
   });
@@ -92,12 +89,8 @@ describe('the exhaust note is not dominated by broadband hiss', () => {
     const off = bands(render({ throatNoise: 0 }));
     const full = bands(render({ throatNoise: 1 }));
     // Turning it to maximum may colour the upper mids, but it must not transform the
-    // spectrum. Measures +6.3 dB at 4 kHz and +2.6 at 8 kHz, against more than 10 dB at
-    // 4 kHz at only *half* power before the white-noise fix.
-    //
-    // The threshold moved from 6 to 8 once the 3 kHz heat-batching artefact was removed:
-    // that artefact inflated the no-noise baseline, so the same absolute turbulence used to
-    // look like a smaller relative step than it really was.
+    // spectrum. White turbulence, tilted up by the radiation derivative, adds more than
+    // 10 dB at 4 kHz at only *half* power.
     expect(dB(full.get(4000)!, off.get(4000)!)).toBeLessThan(8);
     expect(dB(full.get(8000)!, off.get(8000)!)).toBeLessThan(8);
     // And it must not shift the low end at all.
@@ -121,13 +114,11 @@ describe('the exhaust note is not dominated by broadband hiss', () => {
     for (let p = 0; p < PIPE_PRESETS.length; p++) {
       const name = PIPE_PRESETS[p]!.name;
 
-      // No preset is excepted here any more.
-      //
-      // The expansion chamber used to need a far looser limit, blamed on quasi-1D theory
-      // missing flow separation at its reverse cone. That diagnosis was wrong: the peak was
-      // a numerical artefact from batching the wall heat transfer every 16 samples, which
-      // injects a periodic energy perturbation at exactly 48000/16 = 3000 Hz. It showed up
-      // in every preset and was loudest here only because this geometry has a high-Q
+      // No preset is excepted, the expansion chamber included. Its treble is not a
+      // quasi-1D shortcoming to be allowed for: excess energy there comes from fixed-rate
+      // numerical artefacts such as batching the wall heat transfer every 16 samples, which
+      // injects a periodic energy perturbation at exactly 48000/16 = 3000 Hz. That would
+      // show in every preset and be loudest here only because this geometry has a high-Q
       // tailpipe mode near 3 kHz to amplify it.
 
       for (const rpm of [1500, 3200, 6500]) {
@@ -212,8 +203,8 @@ describe('no fixed-rate numerical artefacts', () => {
 
   it('nothing rings at the heat-transfer batch rate', () => {
     // Batching the wall heat transfer every N samples injects a periodic energy
-    // perturbation at sampleRate/N — at N = 16 that is exactly 3000 Hz. It appeared in every
-    // preset and dominated the expansion chamber, which has a high-Q tailpipe mode there.
+    // perturbation at sampleRate/N — at N = 16 that is exactly 3000 Hz. It would appear in
+    // every preset and dominate the expansion chamber, which has a high-Q tailpipe mode there.
     //
     // Deliberately checked on that preset, since it is the one that amplifies it most, and
     // with every stochastic source disabled so nothing can mask it.
@@ -226,7 +217,7 @@ describe('no fixed-rate numerical artefacts', () => {
   });
 
   it('the expansion chamber is no louder in the treble than the others', () => {
-    // It needed a 12 dB looser limit while the artefact was there.
+    // Its tailpipe mode amplifies any fixed-rate artefact, so it is where one would show first.
     const share = (preset: number) => {
       const b = bands(
         render({ rpm: 1500, mechNoise: 0, throatNoise: 0, combustionVariability: 0 }, preset),

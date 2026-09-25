@@ -73,7 +73,7 @@ describe.each(CASES)('%s', (_name, placement) => {
 });
 
 describe('sizing', () => {
-  /** The funnel this whole line of work started from was 391 mm across a joint of two 40 mm pipes. */
+  /** Sized to the pipes, not their layout: a joint of two 40 mm pipes must not become a wide funnel. */
   it('fits pipes meeting at a point with a ball a little wider than the widest', () => {
     const hub = hubShape(tee());
     expect(hub.kind).toBe('ball');

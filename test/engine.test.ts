@@ -111,7 +111,7 @@ describe('the exhaust the user builds changes the sound', () => {
     // several chambers of different lengths.
     //
     // The floor depends on the discretised can keeping its drawn volume; see
-    // `limitAreaRatio`. With the ramps taken out of the body it drops to about 6.4 dB.
+    // `limitAreaRatio`. Taking the ramps out of the body would drop it to about 6.4 dB.
     expect(dB).toBeGreaterThan(7.2);
     expect(dB).toBeLessThan(14);
   });
@@ -155,12 +155,11 @@ describe('the exhaust the user builds changes the sound', () => {
 
       // Strongest radiated component in the band the pipe resonance lives in.
       //
-      // This used to be an energy-weighted centroid over 40-1200 Hz, on the reasoning that
-      // it was more robust than peak-picking against a harmonic comb. It is not, and the
-      // finite intake plenum exposed that: once the low orders carry realistic weight, the
-      // centroid is dominated by the firing comb rather than by the resonance, and it went
-      // non-monotonic with length (187, 167, 187, 362 Hz at 0.35, 0.7, 1.4, 2.8 m) while the
-      // duct's actual quarter-wave frequency tracked c/4L to within 1% (342, 182, 90, 42).
+      // Not an energy-weighted centroid over 40-1200 Hz, which looks more robust than
+      // peak-picking against a harmonic comb but is not: with a finite intake plenum the low
+      // orders carry realistic weight, so a centroid is dominated by the firing comb rather
+      // than by the resonance and goes non-monotonic with length, even while the duct's
+      // actual quarter-wave frequency tracks c/4L.
       const binHz = FS / FFT_SIZE;
       let best = 0;
       let bestHz = 0;

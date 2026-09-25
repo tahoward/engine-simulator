@@ -4,8 +4,7 @@
  * The thing that has to be true and is not obvious: a fitted segment's *swept* end lands where the click
  * was. `PipeSegment` does not describe a straight line — `layoutPipe` turns the heading a little at every
  * station, so any segment with a bend is an arc and "point it at the target" misses by the whole of the
- * bend. That was already the cause of one bug, where runners were aimed at a collector by their inlet
- * direction and then curved away from it.
+ * bend. Runners aimed at a collector by their inlet direction curve away from it for the same reason.
  *
  * So every case here fits a segment and then checks against the real sweep, not against the arithmetic
  * that produced it.
@@ -135,10 +134,10 @@ describe('snap targets', () => {
   /**
    * Every port is offered, occupied or not.
    *
-   * An earlier version left occupied ports out, on the reasoning that a cylinder may only have one pipe.
-   * That made draw mode useless: a compiled engine gives every cylinder a runner, so no port was ever
-   * clickable and a route could only start from a junction. Drawing from an occupied port replaces what is
-   * there, and `occupied` is what says so.
+   * Leaving occupied ports out, on the reasoning that a cylinder may only have one pipe, would make draw
+   * mode useless: a compiled engine gives every cylinder a runner, so no port would ever be clickable and a
+   * route could only start from a junction. Drawing from an occupied port replaces what is there, and
+   * `occupied` is what says so.
    */
   it('offers every port and every junction', () => {
     const graph = compileLayout(spec, [makeSegment({ length: 0.4, dIn: 0.042 })], [makeSegment({ length: 0.5, dIn: 0.055 })]);
@@ -333,8 +332,8 @@ describe('joining the end of a pipe', () => {
  * Branching *out of* the side of a pipe.
  *
  * The mirror of a T drawn into a pipe: the pipe is split where the route starts, and the new pipe leaves
- * the junction that makes. So the junction has one pipe in and two out — which the solver, the layout and
- * the joint geometry all have to take, since until now every junction was drawn with pipes going *in*.
+ * the junction that makes. So the junction has one pipe in and two out, where a merge has several in and
+ * one out — and the solver, the layout and the joint geometry all have to take both.
  */
 describe('branching from the side of a pipe', () => {
   const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
@@ -562,9 +561,10 @@ describe('deleting', () => {
 /**
  * Attaching a pipe to another leaves the one attached to where it was.
  *
- * It used to swing through 90 degrees: the junction took its direction from the average of its feeds'
- * *starting* directions, which for a pipe attached from the other side of the engine points nowhere
- * useful, and the collar search re-aimed the pipe being attached to as if it were a collector runner.
+ * A junction that took its direction from the average of its feeds' *starting* directions would swing it
+ * through 90 degrees, since for a pipe attached from the other side of the engine that average points
+ * nowhere useful; and a collar search would re-aim the pipe being attached to as if it were a collector
+ * runner.
  */
 describe('attaching leaves the pipe attached to alone', () => {
   const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
@@ -587,7 +587,7 @@ describe('attaching leaves the pipe attached to alone', () => {
   it.each([0.3, 0.65])('into its side, cut at %s m: the pipe carries straight on', (x) => {
     const graph = compileLayout(spec, pipe(), []);
     const node = splitDuctAt(graph, 'runner0', x)!;
-    // The other cylinder's runner, unedited, attached into it — which used to set off the collar search.
+    // The other cylinder's runner, unedited, attached into it — which is what would set off a collar search.
     graph.ducts.find((d) => d.id === 'runner1')!.to = { kind: 'node', node };
     const placement = layoutGraph(ports(), graph);
     const onward = graph.ducts.find((d) => d.from.kind === 'node' && d.from.node === node)!;
@@ -617,11 +617,12 @@ describe('attaching leaves the pipe attached to alone', () => {
 /**
  * No deletion leaves a giant fitting, or moves a pipe it did not touch.
  *
- * Deleting a segment of a pipe that ran into a junction left it short of the junction, and the fitting
- * grew to bridge the gap — up to 36 cm. And pipes the layout aims, a V-twin's runners and an 8-into-1's
- * downpipes, were re-aimed after every deletion, swinging pipes nobody touched by up to two metres. Every
- * single deletion on every preset is tried here, doing what the app does: fix every pipe where it stands,
- * delete, take the edited pipe off its junction if it no longer reaches, and tidy with the old directions.
+ * Deleting a segment of a pipe that runs into a junction leaves it short of the junction, and a fitting
+ * grown to bridge the gap could reach tens of centimetres. And pipes the layout aims, a V-twin's runners
+ * and an 8-into-1's downpipes, would be re-aimed after every deletion, swinging pipes nobody touched by
+ * metres. Every single deletion on every preset is tried here, doing what the app does: fix every pipe
+ * where it stands, delete, take the edited pipe off its junction if it no longer reaches, and tidy with
+ * the directions from before the delete.
  */
 describe('deleting keeps the exhaust in one piece', async () => {
   const { ENGINE_PRESETS } = await import('../src/model/spec.js');

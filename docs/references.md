@@ -76,9 +76,9 @@ for. Plain-language definitions of the terms are in the [Glossary](glossary.md).
   12 (1985), 3–22.
   [doi:10.1016/0735-1933(85)90003-X](https://doi.org/10.1016/0735-1933(85)90003-X)
   — The gas-to-wall heat transfer correlation used in the pipes.
-- <a id="hilpert1933"></a>**Hilpert, R. (1933).** "Wärmeabgabe von geheizten Drähten und Rohren im
-  Luftstrom." *Forschung auf dem Gebiete des Ingenieurwesens* 4, 215–224.
-  [doi:10.1007/BF02719754](https://doi.org/10.1007/BF02719754)
+- <a id="zukauskas1972"></a>**Žukauskas, A. (1972).** "Heat transfer from tubes in crossflow."
+  *Advances in Heat Transfer* 8, 93–160.
+  [doi:10.1016/S0065-2717(08)70038-8](https://doi.org/10.1016/S0065-2717(08)70038-8)
   — Heat loss from a pipe in moving air, used for the outside of the pipe wall.
 
 ## Engines

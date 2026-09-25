@@ -78,8 +78,7 @@ export function quantiseLength(length: number, gridM: number): number {
  * A segment leaving `entry` along `entryDir` whose end lands on `target`.
  *
  * Exact, since a segment is straight: the corner where it starts turns it to face the target, and its
- * length is the distance. This used to be a Newton solve against the sweep, because a turn was spread
- * along the segment as an arc and its end was nowhere near where "point it at the target" put it.
+ * length is the distance.
  *
  * `kind` and the diameters come from the caller: geometry here, plumbing there.
  */
@@ -142,9 +141,9 @@ export type SnapTarget =
  * Surfaces are found by raycasting the meshes instead, because "the nearest point on a tube" is what a
  * ray already answers and `PipeMesh.stationAt` already turns a hit into an arc distance.
  *
- * Every port is offered, including ones that already have a pipe. Excluding those was a mistake that made
- * draw mode useless: a compiled engine gives every cylinder a runner, so *no* port was ever clickable and
- * a route could only be started from a junction. A cylinder may still only have one pipe — `validateGraph`
+ * Every port is offered, including ones that already have a pipe. Excluding those would make draw mode
+ * useless: a compiled engine gives every cylinder a runner, so *no* port would ever be clickable and a
+ * route could only be started from a junction. A cylinder may still only have one pipe — `validateGraph`
  * enforces that — so drawing from an occupied port means *replacing* what is there, which is also the
  * obvious reading of the gesture. `occupied` says which duct would go, so the caller can take it out.
  */

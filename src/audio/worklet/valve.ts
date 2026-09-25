@@ -11,11 +11,11 @@
 import { GAS } from '../../model/spec.js';
 import { windowPhase } from './dsp.js';
 
-/** Discharge coefficient of a poppet valve at moderate lift. */
+/**
+ * Discharge coefficient of a poppet valve at moderate lift, referred to the curtain area
+ * `pi * D * L`. Measured that way it already includes the seat angle.
+ */
 export const VALVE_CD = 0.72;
-
-/** Valve seat half-angle; 45 degrees is near-universal. */
-const SEAT_ANGLE = Math.PI / 4;
 
 /**
  * Lift, m, at crank angle `deg`. Handles windows that wrap past 720 degrees, which
@@ -28,10 +28,10 @@ const SEAT_ANGLE = Math.PI / 4;
  *
  * The exponent is set by real cams, through the gap between advertised duration (lift from
  * zero) and duration at 0.050 in: a stock small-block's 256 and 195 degrees give 2.0, a
- * street performance cam's 262 and 218 about 1.7. It was 1.25, fatter at the ends than any
- * real profile, and the ends are what overlap is made of: at top dead centre the intake stood
- * three times as far open as a real one, and at idle, against a near-vacuum manifold, that
- * poured exhaust back up the intake until the trapped charge was half spent gas. With this
+ * street performance cam's 262 and 218 about 1.7. One of 1.25 would be fatter at the ends than
+ * any real profile, and the ends are what overlap is made of: at top dead centre the intake would
+ * stand three times as far open as a real one, and at idle, against a near-vacuum manifold, that
+ * would pour exhaust back up the intake until the trapped charge was half spent gas. With this
  * shape a stock V8 idles on 25%, inside the 20-30% real engines show.
  */
 export function valveLift(deg: number, open: number, close: number, maxLift: number): number {
@@ -44,14 +44,14 @@ export function valveLift(deg: number, open: number, close: number, maxLift: num
 /**
  * Effective flow area, m^2, for a given lift.
  *
- * At low lift the restriction is the curtain area swept between the valve face and
- * its seat, `pi * D * L * cos(beta)`. Past a certain lift the valve stops being the
+ * At low lift the restriction is the curtain area between the valve head and its
+ * seat, `pi * D * L`, the area the discharge coefficient is measured against. Past a certain lift the valve stops being the
  * restriction and the port throat takes over, so the area saturates — which is why
  * fitting a wilder cam eventually stops helping.
  */
 export function valveFlowArea(lift: number, valveDia: number): number {
   if (lift <= 0) return 0;
-  const curtain = Math.PI * valveDia * lift * Math.cos(SEAT_ANGLE);
+  const curtain = Math.PI * valveDia * lift;
   // 0.85 accounts for stem and guide blockage in the throat.
   const throat = ((Math.PI * valveDia * valveDia) / 4) * 0.85;
   return Math.min(curtain, throat);
@@ -89,11 +89,13 @@ export function orificeMassFlow(
 }
 
 /**
- * `orificeMassFlow`'s arguments in slots 0-5, and its answer in slot 6.
+ * `orificeMassFlow`'s arguments in slots 0-5, its answer in slot 6, the critical pressure ratio of the
+ * gamma it was given in slot 7, and, when it flows, the throat's static temperature over the upstream
+ * stagnation temperature in slot 8.
  *
  * Exported with `orificeSolve` for a caller whose budget will not stretch to inlining even the wrapper.
  */
-export const ORIFICE_IO = new Float64Array(7);
+export const ORIFICE_IO = new Float64Array(9);
 
 export function orificeSolve(io: Float64Array): void {
   const area = io[0]!;
@@ -103,16 +105,22 @@ export function orificeSolve(io: Float64Array): void {
   const pDown = io[4]!;
   const gamma = io[5]!;
   io[6] = 0;
-  if (area <= 0 || pUp <= pDown || pUp <= 0 || tUp <= 0) return;
-
-  // Cached per gamma. This is a constant, and it was being raised to a power on every call
-  // — and this function is called for both valves of every cylinder plus the throttle, on
+  // Cached per gamma. This is a constant, and not worth raising to a power on every call
+  // — this function is called for both valves of every cylinder plus the throttle, on
   // every audio sample, so it is squarely on the hot path.
   const c = gammaConstants(gamma);
+  // The critical pressure ratio, for a caller that needs the throat state too.
+  io[7] = c.critical;
+  if (area <= 0 || pUp <= pDown || pUp <= 0 || tUp <= 0) return;
+
   let pr = pDown / pUp;
   if (pr < c.critical) pr = c.critical; // choked
 
-  const term = Math.pow(pr, c.exp1) - Math.pow(pr, c.exp2);
+  const p2 = Math.pow(pr, c.exp2);
+  // Throat static over upstream stagnation temperature, `pr^((gamma-1)/gamma)`, for a caller
+  // that needs the throat state too.
+  io[8] = p2 / pr;
+  const term = Math.pow(pr, c.exp1) - p2;
   if (term <= 0) return;
   const flux = Math.sqrt(c.fluxScale * term);
 
@@ -134,24 +142,29 @@ interface GammaConstants {
 }
 
 /**
- * Scanned, not a `Map`: a `Map` lookup takes its key as a tagged value, so every lookup with a gamma
- * read out of a typed array boxed it into a fresh heap object. There are only ever a handful of gammas.
+ * Indexed by gamma in steps of 1/400, filled as each is first needed.
+ *
+ * A mixture's gamma follows its composition and takes a new value nearly every call, so an exact
+ * cache would grow without limit. A step of 0.0025 in gamma moves the mass flow by well under 0.1%,
+ * and every fixed gamma in use — 1.4, 1.35, 1.33, 1.28 — is an exact multiple of it, so those come out
+ * exactly as they would unrounded. An array rather than a `Map`: a `Map` lookup takes its key as a
+ * tagged value, so every lookup with a gamma read out of a typed array would box it.
  */
-const cachedGammas: number[] = [];
-const cachedConstants: GammaConstants[] = [];
+const GAMMA_STEPS = 400;
+const gammaTable: (GammaConstants | undefined)[] = [];
 
-function gammaConstants(gamma: number): GammaConstants {
-  for (let i = 0; i < cachedGammas.length; i++) {
-    if (cachedGammas[i] === gamma) return cachedConstants[i]!;
-  }
+function gammaConstants(gammaRaw: number): GammaConstants {
+  const key = Math.round(gammaRaw * GAMMA_STEPS);
+  const hit = gammaTable[key];
+  if (hit !== undefined) return hit;
+  const gamma = key / GAMMA_STEPS;
   const c = {
     critical: Math.pow(2 / (gamma + 1), gamma / (gamma - 1)),
     exp1: 2 / gamma,
     exp2: (gamma + 1) / gamma,
     fluxScale: (2 * gamma) / (gamma - 1),
   };
-  cachedGammas.push(gamma);
-  cachedConstants.push(c);
+  gammaTable[key] = c;
   return c;
 }
 

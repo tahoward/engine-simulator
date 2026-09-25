@@ -1,5 +1,5 @@
 /**
- * The wasm SIMD kernel must be *bit-identical* to the TypeScript loops it replaces.
+ * The wasm SIMD kernel must be *bit-identical* to the TypeScript loops it stands in for.
  *
  * Not "close". Bit-identical, asserted with `Object.is` on every element of every field.
  * That is a reachable bar — JavaScript and wasm both do strictly IEEE-754 double arithmetic
@@ -121,9 +121,9 @@ function stepBoth(kernel: EulerKernel, pipe: EulerPipe, dt: number): void {
   loadKernel(kernel, pipe);
 
   const wasmSpeed = kernel.reconstruct(p.n, dt, p.limiterCode);
-  // The TypeScript implementations, named directly. `reconstruct` and `update` now dispatch
-  // to the kernel when the duct has one, so going through them would compare wasm to itself
-  // and pass no matter what.
+  // The TypeScript implementations, named directly. `reconstruct` and `update` dispatch to
+  // the kernel when the duct has one, so going through them would compare wasm to itself and
+  // pass no matter what.
   p.reconstructTs(dt);
   compare(kernel, pipe, RECONSTRUCT_OUT, 'reconstruct');
 

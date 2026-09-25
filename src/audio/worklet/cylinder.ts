@@ -10,17 +10,26 @@
  */
 
 import {
+  CV_REF,
+  CV_SLOPE,
   GAS,
+  T_REF,
   type EngineSpec,
   crankAt,
   cylinderVolume,
   displacement,
   makeCrankState,
 } from '../../model/spec.js';
-import { Noise, clamp, cycleDelta, wrapCycle } from './dsp.js';
+import { Noise, clamp, cycleDelta, windowPhase, wrapCycle } from './dsp.js';
 
-const CV = GAS.R / (GAS.gammaCyl - 1);
-const CP = (GAS.gammaCyl * GAS.R) / (GAS.gammaCyl - 1);
+/**
+ * `gasEnergy`, `gasEnthalpy` and `gasTemperature` from the spec, written out for the hot path: they
+ * are called from functions too large to inline them, where each float argument and result would be
+ * boxed into a fresh heap object.
+ */
+const HALF_SLOPE = 0.5 * CV_SLOPE;
+const CV_REF_SQ = CV_REF * CV_REF;
+const TWO_SLOPE = 2 * CV_SLOPE;
 
 export class Cylinder {
   /** Crank angle, deg in [0, 720). 0 = TDC firing. */
@@ -34,17 +43,17 @@ export class Cylinder {
    */
   mass = 0;
   /**
-   * Total internal energy of the trapped gas, J.
+   * Total sensible internal energy of the trapped gas, J: `m * gasEnergy(T)`.
    *
    * This is the state variable, not temperature, and that choice matters. Integrating
    * temperature directly means dividing the energy increment by `m*cv`, and during the
    * exhaust stroke the two largest terms in that increment — compression work `-p dV/dt`
    * and outflow enthalpy `-mdot R T` — very nearly cancel. Analytically they cancel exactly
    * at constant pressure, which is why temperature should hold steady while gas is pushed
-   * out. Numerically, the small residual of that cancellation was divided by a mass shrinking
-   * toward the residual, so it blew up: measured at part throttle, the temperature ran to its
-   * 4000 K clamp several hundred times a second right at exhaust valve closing, with the
-   * cylinder drained to 0.5% of a charge.
+   * out. Numerically, the small residual of that cancellation would be divided by a mass shrinking
+   * toward the residual, so it would blow up: at part throttle the temperature would run to its
+   * clamp several hundred times a second right at exhaust valve closing, with the cylinder
+   * drained to 0.5% of a charge.
    *
    * Integrating energy puts the cancellation between two terms of the same size and leaves
    * the division by mass to the point where temperature is *read*, where mass and energy
@@ -59,10 +68,10 @@ export class Cylinder {
   /**
    * Unburned charge currently trapped, kg — the part that can still release heat.
    *
-   * Tracked rather than inferred. The old measure was `mass - massAtEvc`, the mass admitted
-   * between exhaust valve closing and intake valve closing, which silently assumes
-   * everything that comes down the intake is clean air. Once the intake is a finite plenum
-   * that assumption breaks: some of what is re-inducted is the cylinder's own exhaust,
+   * Tracked rather than inferred. Inferring it as `mass - massAtEvc`, the mass admitted
+   * between exhaust valve closing and intake valve closing, silently assumes everything
+   * that comes down the intake is clean air. With a finite plenum for an intake that
+   * assumption breaks: some of what is re-inducted is the cylinder's own exhaust,
    * pushed up the port during overlap and handed back. Carrying the composition explicitly
    * is what makes residual dilution — and so the load dependence of exhaust temperature —
    * come out of the bookkeeping instead of being assumed away.
@@ -77,6 +86,11 @@ export class Cylinder {
    * is either fired whole or cut whole; a cut charge goes down the exhaust unburned.
    */
   sparkCut = false;
+  /**
+   * This cylinder's cam timing offset from nominal, crank degrees. Its valves open and close
+   * this much late, so its charge is committed this much late too.
+   */
+  camOffset = 0;
 
   /** Instantaneous gas torque at the crank, N*m. Updated by `advance`. */
   torque = 0;
@@ -92,6 +106,9 @@ export class Cylinder {
    */
   dpdt = 0;
 
+  /** Pressure, temperature and burned fraction after the last step, at the `CYL_*` slots. */
+  readonly endState = new Float64Array(CYL_STATE_SIZE);
+
   /** Scratch for `crankAt`, so the per-substep path allocates nothing. */
   private readonly crank = makeCrankState();
   /** Where this substep ends, degrees: handed to the combustion helpers in a field, not an argument. */
@@ -106,10 +123,10 @@ export class Cylinder {
     this.noise = new Noise(seed);
     this.angle = wrapCycle(angle);
     this.mass = (GAS.pAmb * cylinderVolume(spec, this.angle)) / (GAS.R * 700);
-    this.energy = this.mass * CV * 700;
     // Start as all burned gas. Seeded fresh instead, the very first cycle would fire an
     // unrealistically large heat release before the bookkeeping settles.
     this.freshMass = 0;
+    this.energy = this.mass * energyAt(700);
   }
 
   /** Fraction of the trapped charge that is spent gas, 0..1. */
@@ -119,11 +136,12 @@ export class Cylinder {
 
   /** Bulk gas temperature, K, derived from energy and mass. */
   get temp(): number {
-    return clamp(this.energy / (this.mass * CV), 150, 6000);
+    const u = this.energy / this.mass;
+    return clamp(T_REF + (2 * u) / (CV_REF + Math.sqrt(CV_REF_SQ + TWO_SLOPE * u)), 150, 6000);
   }
 
   set temp(value: number) {
-    this.energy = this.mass * CV * value;
+    this.energy = this.mass * energyAt(value);
   }
 
   volume(spec: EngineSpec): number {
@@ -145,14 +163,16 @@ export class Cylinder {
    * rather than `0`, which no real rod-to-crank ratio comes near).
    */
   readState(spec: EngineSpec, out: Float64Array, base: number): void {
-    const raw = this.energy / (this.mass * CV);
+    const b = 1 - this.freshMass / Math.max(this.mass, MIN_MASS);
+    const burned = b < 0 ? 0 : b > 1 ? 1 : b;
+    const u = this.energy / this.mass;
+    const raw = T_REF + (2 * u) / (CV_REF + Math.sqrt(CV_REF_SQ + TWO_SLOPE * u));
     const temp = raw < 150 ? 150 : raw > 6000 ? 6000 : raw;
     this.crank.angle = this.angle;
     const volume = crankAt(spec, this.crank).volume;
-    const burned = 1 - this.freshMass / Math.max(this.mass, MIN_MASS);
     out[base + CYL_PRESSURE] = (this.mass * GAS.R * temp) / volume;
     out[base + CYL_TEMP] = temp;
-    out[base + CYL_BURNED] = burned < 0 ? 0 : burned > 1 ? 1 : burned;
+    out[base + CYL_BURNED] = burned;
   }
 
   /**
@@ -215,6 +235,9 @@ export class Cylinder {
     const pBefore = p;
     const xd = k.dPosition;
     const xdd = k.d2Position;
+    this.stepPressure = p;
+    this.stepVolume = v;
+    this.stepTemp = tNow;
 
     // --- Combustion ---------------------------------------------------------
     this.updateCombustionLatches(spec);
@@ -231,9 +254,18 @@ export class Cylinder {
     //
     // Each valve is handled by direction, because the gas that comes *back* through an
     // exhaust valve during overlap arrives at port temperature, not at cylinder
-    // temperature. Treating it as the latter quietly imported heat that was never there.
-    const hEx = exMdot >= 0 ? exMdot * CP * tNow : exMdot * CP * portTemp;
-    const hIn = inMdot >= 0 ? inMdot * CP * intakeTemp : inMdot * CP * tNow;
+    // temperature. Treating it as the latter would quietly import heat that was never there.
+    // Every stream carries the enthalpy `gasEnthalpy(T)` of its own temperature.
+    const dOwn = tNow - T_REF;
+    const hOwn = dOwn * (CV_REF + HALF_SLOPE * dOwn) + GAS.R * tNow;
+    const dPort = portTemp - T_REF;
+    const dIntake = intakeTemp - T_REF;
+    const hEx =
+      exMdot >= 0 ? exMdot * hOwn : exMdot * (dPort * (CV_REF + HALF_SLOPE * dPort) + GAS.R * portTemp);
+    const hIn =
+      inMdot >= 0
+        ? inMdot * (dIntake * (CV_REF + HALF_SLOPE * dIntake) + GAS.R * intakeTemp)
+        : inMdot * hOwn;
     const dU = dQ + (-p * dVdt - hEx + hIn) * dt;
 
     const dm = (inMdot - exMdot) * dt;
@@ -255,7 +287,7 @@ export class Cylinder {
 
     // Floor the internal energy so the derived temperature stays admissible. Counted, not
     // silent: in normal running it must never fire.
-    const minEnergy = this.mass * CV * 150;
+    const minEnergy = this.mass * ENERGY_AT_FLOOR;
     if (this.energy < minEnergy) {
       this.energy = minEnergy;
       this.clampHits++;
@@ -275,8 +307,22 @@ export class Cylinder {
     // Pressure rise rate, evaluated across the step just taken.
     this.crank.angle = this.angle;
     const vAfter = crankAt(spec, this.crank).volume;
-    const pAfter = (this.mass * GAS.R * this.temp) / vAfter;
+    const tAfter = this.temp;
+    const pAfter = (this.mass * GAS.R * tAfter) / vAfter;
     this.dpdt = (pAfter - pBefore) / dt;
+    // The state `readState` would give now, so the next substep need not recompute the crank.
+    const endState = this.endState;
+    endState[CYL_PRESSURE] = pAfter;
+    endState[CYL_TEMP] = tAfter;
+    const bAfter = 1 - this.freshMass / Math.max(this.mass, MIN_MASS);
+    endState[CYL_BURNED] = bAfter < 0 ? 0 : bAfter > 1 ? 1 : bAfter;
+
+    // Woschni's motored pressure, compressed isentropically along with the volume from the
+    // reference state: dp/p = -gamma dV/V over the step just taken, at the gamma of the motored
+    // gas's own temperature `p V / (m R)`.
+    const tMotored = (this.motoredPressure * v) / this.refMassR;
+    const gMotored = 1 + GAS.R / (CV_REF + CV_SLOPE * (tMotored - T_REF));
+    this.motoredPressure *= 1 - (gMotored * (vAfter - v)) / (0.5 * (v + vAfter));
   }
 
   /**
@@ -286,7 +332,26 @@ export class Cylinder {
    */
   private updateCombustionLatches(spec: EngineSpec): void {
     const nextAngle = this.nextAngle;
-    if (crossed(this.angle, nextAngle, wrapCycle(spec.ivc))) {
+    // Valve events for this cylinder's cam timing, wrapped once rather than every substep.
+    if (spec !== this.eventSpec || this.camOffset !== this.eventOffset) {
+      this.eventSpec = spec;
+      this.eventOffset = this.camOffset;
+      this.evoAt = wrapCycle(spec.evo + this.camOffset);
+      this.ivcAt = wrapCycle(spec.ivc + this.camOffset);
+      this.exchanging = windowPhase(this.angle, spec.evo + this.camOffset, spec.ivc + this.camOffset) >= 0;
+    }
+    if (crossed(this.angle, nextAngle, this.evoAt)) this.exchanging = true;
+    if (crossed(this.angle, nextAngle, this.ivcAt)) {
+      this.exchanging = false;
+      // Woschni's reference state: the charge as the valve traps it, from which the motored
+      // pressure is extrapolated for the rest of the closed period.
+      this.refPressure = this.stepPressure;
+      this.motoredPressure = this.stepPressure;
+      this.refMassR = (this.stepPressure * this.stepVolume) / this.stepTemp;
+      // Woschni's `C2 Vd Tr / (pr Vr)`, m/(s Pa), fixed until the next intake valve closing.
+      this.combustionVelocity =
+        (WOSCHNI_C2 * displacement(spec) * this.stepTemp) / (this.stepPressure * this.stepVolume);
+
       // Only the fresh charge carries fuel. Residual burned gas does not, so a
       // throttled engine — which traps less fresh air and proportionally more
       // residual — releases less heat. That is the load mechanism, and it falls
@@ -301,16 +366,16 @@ export class Cylinder {
       // smoothly under load. Calibrated to roughly 2% CoV of indicated work at full
       // load rising past 10% near idle, matching published single-cylinder data.
       //
-      // Keyed to fresh charge mass. Residual fraction is the more direct cause, and now
-      // that the intake is a finite plenum the model does track it (`burnedFraction`), but
-      // fresh fill is the quantity this correlation was calibrated against, so it stays.
+      // Keyed to fresh charge mass. Residual fraction is the more direct cause, and the
+      // model does track it (`burnedFraction`), but fresh fill is the quantity this
+      // correlation was calibrated against.
       const fullCharge = (GAS.pAmb * displacement(spec)) / (GAS.R * GAS.tAmb);
       const freshFill = clamp(fresh / Math.max(fullCharge, 1e-12), 0.06, 1.2);
-      // Capped. Uncapped this reached 0.33 at light load, and the Gaussian tails on a
-      // spread that wide regularly produced absurd cycles — a burn three times faster than
-      // commanded, or ignition 30 crank degrees early — which spiked the temperature into
-      // its clamp several hundred times a second. The coefficient of variation was in the
-      // right band but arrived through violent outliers rather than ordinary scatter.
+      // Capped. Uncapped this reaches 0.33 at light load, and the Gaussian tails on a
+      // spread that wide regularly produce absurd cycles — a burn three times faster than
+      // commanded, or ignition 30 crank degrees early — which spike the temperature into
+      // its clamp several hundred times a second. The coefficient of variation would be in
+      // the right band but arrive through violent outliers rather than ordinary scatter.
       const scatter = Math.min(
         spec.combustionVariability * (0.016 + 0.019 / freshFill),
         MAX_SCATTER,
@@ -340,8 +405,8 @@ export class Cylinder {
       // regulates itself as a real one does: a misfired charge goes out unburned, so what the next
       // cycle keeps of it is fuel rather than spent gas, and that cycle fires hard.
       //
-      // Only past the onset, and only there does it draw a random number, so every engine below it
-      // is bit-identical to what it was.
+      // Only past the onset, and only there does it draw a random number, so an engine below it
+      // draws exactly the noise sequence it would with no dilution limit at all.
       const residual = 1 - fresh / Math.max(this.mass, MIN_MASS);
       if (residual > DILUTION_ONSET) {
         const x = Math.min((residual - DILUTION_ONSET) / (DILUTION_FULL - DILUTION_ONSET), 1);
@@ -383,15 +448,24 @@ export class Cylinder {
    * compression peak is too high and the expansion too hot, and the engine sounds
    * hollow and over-bright.
    *
+   * The characteristic gas velocity is Woschni's in full:
+   *
+   *   w = C1 * Sp + C2 * (Vd * Tr / (pr * Vr)) * (p - p_motored)
+   *
+   * with C1 = 6.18 while the valves exchange gas and 2.28 while they are shut, and the second
+   * term, the turbulence the flame itself stirs up, only while they are shut. `r` is the state
+   * at intake valve closing and `p_motored` that state compressed isentropically to the
+   * present volume.
+   *
    * @returns heat flow into the gas, W (negative while the gas is hotter than the wall).
    */
   private woschni(spec: EngineSpec, p: number, v: number, omega: number, temp: number): number {
     /**
-     * Four `Math.pow` calls became two.
+     * Two `Math.pow` calls per step, not four.
      *
-     * This runs per cylinder per cylinder-substep, so at 8500 rpm on a V8 it was 8.4% of total
-     * runtime — and half of that was raising constants to fixed powers. `bore^-0.2` depends only on
-     * the spec, and `w^0.8` only on crank speed, which does not change within a sample; both are
+     * This runs per cylinder per cylinder-substep, so at 8500 rpm on a V8 it is a noticeable share of
+     * runtime, and of four calls half would be raising constants to fixed powers. `bore^-0.2` depends
+     * only on the spec, and `w^0.8` only on crank speed, which does not change within a sample; both are
      * cached and invalidated on identity, the same trick `crankGeometry` uses. The two that remain
      * genuinely vary with the gas state.
      */
@@ -403,11 +477,23 @@ export class Cylinder {
     }
     if (omega !== this.woschniOmega) {
       this.woschniOmega = omega;
-      const meanPistonSpeed = (Math.abs(omega) / (2 * Math.PI)) * 2 * spec.stroke;
-      this.woschniSpeed = Math.pow(2.28 * meanPistonSpeed + 0.5, 0.8);
+      this.woschniPistonSpeed = (Math.abs(omega) / (2 * Math.PI)) * 2 * spec.stroke;
+      this.woschniSpeedExchange = Math.pow(WOSCHNI_C1_EXCHANGE * this.woschniPistonSpeed, 0.8);
+      this.woschniSpeedClosed = Math.pow(WOSCHNI_C1_CLOSED * this.woschniPistonSpeed, 0.8);
     }
-    const h =
-      3.26 * this.woschniBore * Math.pow(p / 1000, 0.8) * Math.pow(temp, -0.55) * this.woschniSpeed;
+    // `(p w)^0.8`: with the speed term cached where it is constant, and raised together with the
+    // pressure where the combustion term makes it vary, so it costs one power either way.
+    let pw: number;
+    const rise = p - this.motoredPressure;
+    if (this.exchanging) {
+      pw = Math.pow(p / 1000, 0.8) * this.woschniSpeedExchange;
+    } else if (this.refPressure > 0 && rise > 0) {
+      const w = WOSCHNI_C1_CLOSED * this.woschniPistonSpeed + this.combustionVelocity * rise;
+      pw = Math.pow((p / 1000) * w, 0.8);
+    } else {
+      pw = Math.pow(p / 1000, 0.8) * this.woschniSpeedClosed;
+    }
+    const h = 3.26 * this.woschniBore * pw * Math.pow(temp, -0.55);
 
     // Head + piston crown + the exposed liner for the current volume.
     const bore = spec.bore;
@@ -422,8 +508,34 @@ export class Cylinder {
   private woschniSpec: EngineSpec | null = null;
   private woschniBore = 0;
   private woschniOmega = NaN;
-  private woschniSpeed = 0;
+  private woschniPistonSpeed = 0;
+  private woschniSpeedExchange = 0;
+  private woschniSpeedClosed = 0;
+  /** State at the last intake valve closing: Woschni's reference for the motored pressure. */
+  private refPressure = 0;
+  /** `m R` of the charge as trapped, J/K: `p V / T` at the reference state. */
+  private refMassR = 1;
+  /** Woschni's combustion-term coefficient from that state, m/(s Pa). */
+  private combustionVelocity = 0;
+  /** Valve events at this cylinder's cam timing, and the spec and offset they were wrapped for. */
+  private eventSpec: EngineSpec | null = null;
+  private eventOffset = 0;
+  private evoAt = 0;
+  private ivcAt = 0;
+  /** Whether a valve is exchanging gas: between exhaust valve opening and intake valve closing. */
+  private exchanging = false;
+  /** The reference state compressed isentropically to the present volume, Pa. */
+  private motoredPressure = 0;
+  /** The state at the start of the current step, handed to the latches in fields. */
+  private stepPressure = 0;
+  private stepVolume = 0;
+  private stepTemp = 0;
 }
+
+/** Woschni's velocity coefficients: m/s per m/s of mean piston speed, and m/(s*K). */
+const WOSCHNI_C1_EXCHANGE = 6.18;
+const WOSCHNI_C1_CLOSED = 2.28;
+const WOSCHNI_C2 = 3.24e-3;
 
 /** Slots of the array `advanceIo` reads its inputs from. */
 export const IO_DT = 0;
@@ -470,15 +582,28 @@ const DILUTION_FULL = 0.9;
 const DILUTION_BURN_STRETCH = 2;
 
 /**
- * Wiebe mass-fraction-burned. `a = 5` puts 99.3% of the burn inside the stated
- * duration; `m = 2` gives the usual slow-then-fast-then-slow S-curve.
+ * Wiebe mass-fraction-burned. `a = 5`, `m = 2` gives the usual slow-then-fast-then-slow
+ * S-curve. Normalised so it reaches exactly 1 at the end of the stated duration: the raw
+ * curve only reaches 1 - e^-5, and the remaining 0.7% would otherwise be released in a
+ * single step.
  */
 export function wiebe(degAfterSpark: number, duration: number): number {
   if (degAfterSpark <= 0) return 0;
   if (degAfterSpark >= duration) return 1;
   const u = degAfterSpark / duration;
-  return 1 - Math.exp(-5 * Math.pow(u, 3));
+  return (1 - Math.exp(-5 * u * u * u)) * WIEBE_NORM;
 }
+
+const WIEBE_NORM = 1 / (1 - Math.exp(-5));
+
+/** `gasEnergy`, J/kg. Off the hot path. */
+function energyAt(t: number): number {
+  const d = t - T_REF;
+  return d * (CV_REF + HALF_SLOPE * d);
+}
+
+/** Sensible energy at the temperature floor, J/kg. */
+const ENERGY_AT_FLOOR = energyAt(150);
 
 /** True if the crank swept past `target` between `from` and `to` (720-deg wrapping). */
 function crossed(from: number, to: number, target: number): boolean {

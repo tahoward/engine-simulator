@@ -1,18 +1,16 @@
 /**
- * Diagnosis for the reported V8-with-a-chamber-collector blow-up.
+ * How a flat-plane V8 with a chamber collector behaves at the junction, sample by sample.
  *
  *   BENCH_ENTRY=repro.ts npm run bench
  *
- * Established so far:
- *   - the wasm SIMD kernel is not involved; every number is identical with it on and off,
- *   - the 12,000 rpm pin happens for *every* collector including a plain pipe with zero
- *     recoveries, so it is the free-running crank against the chosen load, not a pipe fault,
- *   - the divergence is geometry-specific: a plain 55 mm pipe ahead of the chamber is clean,
- *     while a chamber (or a cone to 130 mm) at the collector inlet produces millions of
- *     recoveries.
+ * Each case runs the engine pinned at a fixed speed, wide open, for up to two seconds and
+ * stops at the first duct recovery. For that duct it prints the state one sample before the
+ * recovery — the lowest density and where it sits, the fastest cell velocity and the pressure
+ * range — so the mechanism can be read directly. It also prints the collector geometry (inlet
+ * and widest area, and the area ratio against the primaries feeding it) and the run's total
+ * `junctionClamps` and `recoveries`.
  *
- * This run captures the duct state one sample before the first recovery, to identify the
- * mechanism. The prediction from the comment on `applyJunction` is a vacuum collapse: a
+ * The mechanism it is built to expose is the vacuum collapse described on `applyJunction`: a
  * collector much wider than the primaries reflects a strong expansion back up the pipe that
  * is blowing down, the density floor pins that cell at 1e-7, and the returning wave divided
  * by `rhoC` becomes an absurd velocity.
@@ -140,13 +138,11 @@ function diagnose(name: string, collector: PipeSegment[], rpm = 4000): void {
   console.log(`  ambient density for reference: ${(GAS.pAmb / (GAS.R * 900)).toFixed(3)} kg/m^3 at 900 K`);
 }
 
-// Does the *inlet area* explain it, rather than the area gradient?
+// Whether the collector's *inlet area*, rather than its area gradient, decides the outcome.
 //
-// Four 42 mm primaries feed one collector. In the case that works the collector starts at
-// 55 mm; in the cases that fail it starts at 42 mm — the same width as a single primary, so
-// the junction is asked to pass four pipes' worth of flow through one pipe's area. This
-// sweeps the collector inlet diameter alone, chamber width and everything else held fixed,
-// with the geometry guard disabled so only the junction is in play.
+// Four 42 mm primaries feed one collector. At a 42 mm inlet — the width of a single primary —
+// the junction is asked to pass four pipes' worth of flow through one pipe's area. This sweeps
+// the collector inlet diameter alone, with the 130 mm chamber and everything else held fixed.
 for (const dIn of [0.042, 0.048, 0.055, 0.065, 0.075, 0.09]) {
   diagnose(`collector inlet ${(dIn * 1000).toFixed(0)} mm -> 130 mm chamber`, [
     makeSegment({ kind: 'chamber', length: 0.34, dIn, dOut: 0.13 }),

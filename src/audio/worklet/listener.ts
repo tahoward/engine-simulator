@@ -69,8 +69,8 @@ export class Listener {
     // Ground absorption: progressively duller for a longer, more grazing bounce.
     this.groundLoss.setCutoff(2600, this.sampleRate);
 
-    // Atmospheric absorption. Roughly 0.1 dB/m at 10 kHz at room conditions, which
-    // corresponds to a one-pole whose corner falls as the path lengthens.
+    // Atmospheric absorption, about 0.11 dB/m at 10 kHz at room conditions, as a one-pole
+    // whose corner falls as the path lengthens.
     this.airDirect.setCutoff(airCutoffHz(rDirect), this.sampleRate);
     this.airGround.setCutoff(airCutoffHz(rGround), this.sampleRate);
   }
@@ -95,10 +95,16 @@ export class Listener {
 }
 
 /**
- * One-pole corner, Hz, approximating atmospheric absorption over `metres`. Tuned so
- * the loss at 10 kHz lands near the standard 0.1 dB/m; effectively transparent at a
- * metre or two and clearly audible across a field.
+ * One-pole corner, Hz, approximating atmospheric absorption over `metres`.
+ *
+ * Absorption in dB is `alpha(f) * r`, linear in distance and, at the top of the audio band,
+ * close to `f^2`. A one-pole's loss well below its corner is `10 log10(1 + (f/fc)^2)`, about
+ * `4.34 (f/fc)^2` dB, so matching the two needs `fc` to fall as `1/sqrt(r)`:
+ * `fc = f0 sqrt(4.34 / (alpha(f0) r))`, here with ISO 9613-1's 0.11 dB/m at 10 kHz (20 C, 70% RH).
+ * Effectively transparent at a metre or two and clearly audible across a field.
  */
 function airCutoffHz(metres: number): number {
-  return 90000 / Math.max(metres, 0.2);
+  return AIR_CORNER_AT_1M / Math.sqrt(Math.max(metres, 0.2));
 }
+
+const AIR_CORNER_AT_1M = 1e4 * Math.sqrt(4.34 / 0.11);

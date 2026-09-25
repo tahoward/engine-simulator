@@ -56,16 +56,16 @@ import { JunctionKernel } from './kernel.js';
  *
  * A collector is a violent shear layer: several pulsating streams, each arriving at a different
  * speed and at a different moment, forced into one pipe. That mixing is a broadband noise source
- * and a large part of what a real 4-into-1 sounds like, and leaving it out was audible in exactly
- * the way you would expect — merged layouts came out *purer* than separate pipes. Measured
- * tone-to-noise ratio was 18.0 dB for a 2-into-1 twin against 5.9 dB for the same engine with two
- * separate pipes, and 17.4 dB for an inline four. A model that makes a collector *cleaner* than an
- * open pipe has it exactly backwards.
+ * and a large part of what a real 4-into-1 sounds like. Left out, it is audible in exactly the way
+ * you would expect — merged layouts come out *purer* than separate pipes: a tone-to-noise ratio of
+ * 18.0 dB for a 2-into-1 twin against 5.9 dB for the same engine with two separate pipes, and
+ * 17.4 dB for an inline four. A model that makes a collector *cleaner* than an open pipe has it
+ * exactly backwards.
  *
- * This matters more the more cylinders there are, which is why multi-cylinder engines were the
- * ones that sounded synthetic: their firing energy adds coherently, concentrating into fewer and
- * stronger spectral lines, while what little broadband content the model had adds incoherently. A
- * V8 was therefore about 9 dB more tonal than a single for no physical reason.
+ * This matters more the more cylinders there are, which is why multi-cylinder engines are the ones
+ * that sound synthetic without it: their firing energy adds coherently, concentrating into fewer and
+ * stronger spectral lines, while what little other broadband content the model has adds
+ * incoherently. A V8 would come out about 9 dB more tonal than a single for no physical reason.
  */
 const MERGE_TURBULENCE = 0.14;
 
@@ -75,9 +75,9 @@ export type { ExhaustLayout } from '../../model/spec.js';
  * Result of one `advance`. **Reused between calls** — read it before advancing again.
  *
  * This is on the audio thread's per-sample path, so a fresh result object and three fresh
- * arrays 48,000 times a second is not free: the allocation and the garbage it makes measured
- * at 17% of total CPU, for arrays of two or three numbers. Port pressure is not here at all,
- * because nothing read it; `primaries[b].portPressure` is there for anyone who needs it.
+ * arrays 48,000 times a second is not free: the allocation and the garbage it would make
+ * measure at 17% of total CPU, for arrays of two or three numbers. Port pressure is not here at all,
+ * because nothing reads it; `primaries[b].portPressure` is there for anyone who needs it.
  */
 export interface ExhaustResult {
   /** Volume flow out of each radiating mouth, m^3/s. */
@@ -98,13 +98,11 @@ const JUNCTION_BALANCE_TOL = 0.005;
  *
  * Held as two lists rather than one list of tagged ends, so `endState` and `probeJunction` are called
  * with *literal* sides on the per-substep path rather than a variable string, and each end costs one
- * property load fewer. Worth about a point on a V8 — measured, and measured because the graph rewrite
- * appeared to cost three: it did not, the machine had simply drifted over a long session, which the
- * junction-free single-cylinder presets moving by the same 3% showed.
+ * property load fewer. Worth about a point on a V8, measured.
  *
  * Outlets are always visited before inlets. That is not cosmetic: the common-pressure sum and the mass
- * residual are accumulated across ends, floating-point addition is not associative, and this is the
- * order the pre-graph code used — which is how the move to a graph is shown to change nothing.
+ * residual are accumulated across ends, and floating-point addition is not associative, so the visiting
+ * order is part of the result — the wasm junction solve takes its branches in the same order.
  */
 interface JunctionNode {
   id: string;
@@ -137,7 +135,7 @@ export class ExhaustSystem {
   // Everything below is preallocated because `advance` runs once per audio sample.
   /** Every duct, primaries first. Marched in this order. */
   private readonly ducts: EulerPipe[];
-  /** For each duct, its index in `radiating`, or -1. Replaces an `indexOf` per substep. */
+  /** For each duct, its index in `radiating`, or -1. Saves an `indexOf` per substep. */
   private readonly radiatingIndex: Int32Array;
   private readonly result: ExhaustResult;
   /** The junctions, resolved at construction: the solve runs per substep. */
@@ -151,15 +149,21 @@ export class ExhaustSystem {
   /**
    * The ducts a junction feeds, with the mass source going into each one's first cell.
    *
-   * A compact list rather than one entry per duct indexed alongside `ducts`. That version held `null`
-   * for every valve-fed duct, which made the array holey and gave `endStep` a polymorphic argument on
+   * A compact list rather than one entry per duct indexed alongside `ducts`, which would hold `null`
+   * for every valve-fed duct, making the array holey and giving `endStep` a polymorphic argument on
    * the per-substep path for no gain.
    */
   private readonly fedByNode: Array<{ pipe: EulerPipe; valve: ValveState }>;
   private readonly fedFlow: Float64Array;
   /** A fed duct's inlet pressure, temperature and area, from `EulerPipe.readPort`. */
   private readonly portState = new Float64Array(3);
-  private readonly sampleRate: number;
+  /**
+   * Duration of the current substep, s, and the square root of the substep count. The merge noise
+   * is advanced once per substep, so its filter is discretised on the substep and its white-noise
+   * draws are scaled so the noise density does not depend on how many substeps a sample takes.
+   */
+  private substepDt = 0;
+  private substepNoiseScale = 1;
   /**
    * Worst relative mass-flux imbalance a junction's per-duct solves produced, dimensionless.
    *
@@ -176,9 +180,8 @@ export class ExhaustSystem {
   /**
    * Build one `EulerPipe` per duct in the graph and wire the junctions.
    *
-   * `EulerPipe` needed no changes for this: it already takes `inletKind: 'valve' | 'junction'` and
-   * `outletKind: 'mouth' | 'junction'`, so any duct in any graph was already expressible. All that was
-   * hard-coded was this wiring.
+   * `EulerPipe` takes `inletKind: 'valve' | 'junction'` and `outletKind: 'mouth' | 'junction'`, so any
+   * duct in any graph is expressible as one; all this adds is the wiring.
    */
   constructor(
     graph: ExhaustGraph,
@@ -194,7 +197,7 @@ export class ExhaustSystem {
 
     const order = nodeOrder(graph);
     const built = new Map<string, EulerPipe>();
-    /** Ducts in build order: valve-fed first, then node-fed. Mirrors the pre-graph duct order. */
+    /** Ducts in build order: valve-fed first, then node-fed. */
     const ductList: ExhaustDuct[] = [];
 
     const valveFed = valveDucts(graph, cylinders);
@@ -328,7 +331,6 @@ export class ExhaustSystem {
       substeps: 1,
     };
 
-    this.sampleRate = sampleRate;
     this.fedByNode = [];
     const fedSlot = new Map<string, number>();
     ductList.forEach((duct, i) => {
@@ -340,6 +342,7 @@ export class ExhaustSystem {
           throatArea: 0,
           cylPressure: GAS.pAmb,
           cylTemp: portGasTemp,
+          cylGamma: GAS.gammaExh,
           extraMassFlow: 0,
         },
       });
@@ -404,6 +407,8 @@ export class ExhaustSystem {
     }
 
     const h = dt / substeps;
+    this.substepDt = h;
+    this.substepNoiseScale = Math.sqrt(substeps);
     mouthFlows.fill(0);
     valveMassFlows.fill(0);
 
@@ -426,9 +431,10 @@ export class ExhaustSystem {
         const valve = valves[b]!;
         const primary = this.primaries[b]!;
         const flow = primary.valveFluxFor(valve);
-        valveMassFlows[b]! += flow;
         primary.setEndStep(h, flow + (valve.extraMassFlow ?? 0));
         primary.endStepSet(valve);
+        // Only what the duct actually took: see `EulerPipe.sourceScale`.
+        valveMassFlows[b]! += flow * primary.sourceScale;
       }
       // 5. Everything a junction feeds, carrying that junction's share of the mixing noise.
       const fed = this.fedByNode;
@@ -503,9 +509,8 @@ export class ExhaustSystem {
        *
        * The node needs each branch's state five separate ways — the common-pressure sum, the pressure
        * bounds, the mixed node temperature, every trial Riemann solve, and the mixing noise.
-       * Recomputing it each time meant five square roots and five short-lived objects per duct per
-       * substep, which at the 96,000 substeps a second the solver then ran was a steady drip of
-       * garbage onto the audio thread.
+       * Recomputing it each time would mean five square roots and five short-lived objects per duct
+       * per substep, a steady drip of garbage onto the audio thread.
        * `endState` fills a preallocated object, so these are stable references and this only refreshes
        * their values.
        */
@@ -542,11 +547,11 @@ export class ExhaustSystem {
        *
        * A duct cannot build an *inflowing* ghost state from its own interior: that scales the
        * receiving duct's own entropy up to the junction pressure, so a collector inhales its own heat
-       * back and amplifies it. Measured on a V8 with a 0.2 m 42-to-130 mm cone collector at 7000 rpm,
-       * the collector reached 42,000 K while every primary feeding it sat at 1568 K, and its inlet was
-       * importing 2.46 MJ/s at 0.109 kg/s — an implied 19,500 K that no branch was supplying. So the
-       * node gets a state of its own: the mass-weighted stagnation temperature of whatever is emptying
-       * into it.
+       * back and amplifies it. Built that way, a V8 with a 0.2 m 42-to-130 mm cone collector at
+       * 7000 rpm has the collector reach 42,000 K while every primary feeding it sits at 1568 K, its
+       * inlet importing 2.46 MJ/s at 0.109 kg/s — an implied 19,500 K that no branch is supplying. So
+       * the node gets a state of its own: the mass-weighted stagnation temperature of whatever is
+       * emptying into it.
        */
       const fallback = states[states.length - 1]!;
       const tJunction =
@@ -557,10 +562,10 @@ export class ExhaustSystem {
        *
        * The closed form is a *linearisation* of the returning wave, and with several branches carrying
        * large pulses it can solve for a pressure far outside anything any branch actually contains — at
-       * which point the ghost state built from it is inadmissible and the duct fills with NaN. Measured
-       * on a four-into-one with a 53 mm collector on 29 mm primaries at full throttle: divergence
-       * within a tenth of a second. It survived at half throttle, which is the signature of an
-       * amplitude limit rather than a coding error.
+       * which point the ghost state built from it is inadmissible and the duct fills with NaN. Unheld,
+       * a four-into-one with a 53 mm collector on 29 mm primaries diverges within a tenth of a second
+       * at full throttle yet survives at half throttle, which is the signature of an amplitude limit
+       * rather than a coding error.
        */
       let gauge = clamp(GAS.pAmb + (den > 0 ? num / den : 0), 0.3 * pMin, 3 * pMax) - GAS.pAmb;
 
@@ -568,14 +573,13 @@ export class ExhaustSystem {
        * Then correct it until the branches actually balance.
        *
        * A node has no volume, so what flows in is exactly what flows out — and nothing in the per-duct
-       * solves enforces that. Measured before this was added, the branches disagreed about the mass
-       * crossing the node by 18-36% at peak, on every layout including a plain-pipe collector and a
-       * healthy V-twin.
+       * solves enforces that. Uncorrected, the branches disagree about the mass crossing the node by
+       * 18-36% at peak, on every layout including a plain-pipe collector and a healthy V-twin.
        *
        * The residual is nearly linear in the node pressure and its slope is known in closed form,
        * `dR/dp = -sum(A_k / c_k)`, which is exactly `den` — so a Newton step needs no extra derivative,
        * only a trial evaluation of the *nonlinear* fluxes. Two steps bring the peak imbalance to a
-       * fraction of a percent. The early exit rarely fires — profiled on a V8's manifolds, junctions ran
+       * fraction of a percent. The early exit rarely fires — profiled on a V8's manifolds, junctions run
        * 1.8 of the 2 steps on average — which is part of why this runs in wasm (`kernel/euler.ts`).
        */
       if (den > 0) {
@@ -661,10 +665,11 @@ export class ExhaustSystem {
 
     const dia = Math.sqrt((4 * inlet.area) / Math.PI);
     const strouhalHz = (0.2 * uMix) / Math.max(dia, 1e-3);
-    // See the note in `engineSim`: `1 - exp(-w/fs)` is the pole mapping, not `w/fs`.
-    const k = clamp(1 - Math.exp((-2 * Math.PI * strouhalHz) / this.sampleRate), 0.01, 0.9);
+    // See the note in `engineSim`: `1 - exp(-w h)` is the pole mapping, not `w h`. On the substep,
+    // because that is how often this runs.
+    const k = clamp(1 - Math.exp(-2 * Math.PI * strouhalHz * this.substepDt), 1e-4, 0.9);
 
-    const white = node.noise.next() * sigma;
+    const white = node.noise.next() * sigma * this.substepNoiseScale;
     node.lp1 += k * (white - node.lp1);
     node.lp2 += k * (node.lp1 - node.lp2);
 
@@ -719,13 +724,18 @@ export class ExhaustSystem {
     return (this.collector ?? this.primaries[0]!).exportWall();
   }
 
-  /** The radiation corner and band limit of the first radiating duct (see `radiatingDucts`). */
-  get mouthCutoffRad(): number {
-    return this.radiating[0]!.mouthCutoffRad;
+  /** The radiation corner of radiating mouth `m`, in the order of `mouthFlows`. */
+  mouthCutoffRadOf(m: number): number {
+    return this.radiating[m]!.mouthCutoffRad;
   }
 
-  get bandLimitRad(): number {
-    const d = this.radiating[0]!;
+  /**
+   * Upper band limit for mouth `m`'s radiation: whichever of the two model limits binds first.
+   * Plane-wave cut-on rules for a wide mouth; the solver's cell size rules for a narrow one,
+   * where cut-on can sit above 10 kHz.
+   */
+  bandLimitRadOf(m: number): number {
+    const d = this.radiating[m]!;
     return Math.min(d.planeWaveCutoffRad, d.resolutionCutoffRad);
   }
 

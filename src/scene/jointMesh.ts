@@ -6,10 +6,10 @@
  * down in a cone to a collar on the pipe that leaves. Either way every pipe end sits inside it, so there is
  * never a gap to see, and it is a plain part sized to the pipes rather than a shape derived from them.
  *
- * This replaced a procedural blend of the pipes — capsules and cones smooth-unioned and polygonised — that
- * made each collector a streamlined, welded-looking casting. That needed a signed distance field, surface
- * nets, a taper per runner, a sleeve along the outlet and a string of special cases for tees, all rebuilt
- * on every drag frame. With straight pipes that snap together, a fitting is what the junction is.
+ * A procedural blend of the pipes — capsules and cones smooth-unioned and polygonised — would make each
+ * collector a streamlined, welded-looking casting, but would need a signed distance field, surface nets, a
+ * taper per runner, a sleeve along the outlet and a string of special cases for tees, all rebuilt on every
+ * drag frame. With straight pipes that snap together, a fitting is what the junction is.
  */
 
 import * as THREE from 'three';
@@ -51,8 +51,8 @@ const COLLECTOR_TAPER = (20 * Math.PI) / 180;
  *
  * A ball where everything meets at a point. A merge collector where pipes arrive spread around a collar:
  * a drum from `start` along `axis` that the runners plug into, `body` long, then a cone `taper` long down to
- * a collar just over the pipe leaving it. A single shape sized to take every end whatever its spread was a
- * big ball on every collector — 19 cm across on a V8 — which is not what a collector is.
+ * a collar just over the pipe leaving it. A single shape sized to take every end whatever its spread would be
+ * a big ball on every collector — 19 cm across on a V8 — which is not what a collector is.
  */
 export type HubShape =
   | { kind: 'ball'; centre: THREE.Vector3; radius: number }

@@ -203,9 +203,9 @@ describe('the collector couples the banks', () => {
    *
    * Comparing 2-into-1 against 2-into-2 directly would not show this: the merged path is also
    * longer, so its port pressure differs for reasons that have nothing to do with the other
-   * cylinder. Verified against a mutant junction that couples each primary only to the
-   * collector — that fails here, where an earlier version comparing fluctuation *magnitude*
-   * between the two layouts passed it happily.
+   * cylinder. A mutant junction that couples each primary only to the collector fails here,
+   * whereas a test comparing fluctuation *magnitude* between the two layouts would pass it
+   * happily.
    */
   it('through a collector, bank 0 feels where bank 1 fires', () => {
     // Measures ~1.27, i.e. the change is larger than the signal itself.
@@ -213,17 +213,15 @@ describe('the collector couples the banks', () => {
   });
 
   it('with separate pipes the exhaust path is gone, leaving only the intake', () => {
-    // Measures ~7e-5, and that is now the *intake* path rather than a leak.
+    // Measures ~7e-5, and that is the *intake* path rather than a leak.
     //
-    // It was 1e-8 when the intake was an infinite fixed-pressure plenum, because then the
-    // cylinders genuinely shared nothing but a crank. A finite plenum is a real shared
-    // volume: move bank 1's firing and you move when it draws from and spits into the
-    // manifold bank 0 breathes out of, so bank 0's trapped mass changes. Engines do this —
-    // it is why a twin on one throttle body behaves differently from one with two — so the
-    // coupling belongs here. What must stay true is that it is small: three orders of
-    // magnitude under the 3e-1 that the collector produces, and still tight enough to catch
-    // the bug this test was written for, a single shared turbulence generator, which showed
-    // up as 4e-2.
+    // The intake plenum is finite, a real shared volume: move bank 1's firing and you move
+    // when it draws from and spits into the manifold bank 0 breathes out of, so bank 0's
+    // trapped mass changes. Engines do this — it is why a twin on one throttle body behaves
+    // differently from one with two — so the coupling belongs here. What must stay true is
+    // that it is small: three orders of magnitude under the 3e-1 that the collector
+    // produces, and tight enough to catch a single turbulence generator shared between the
+    // cylinders, which shows up around 4e-2.
     expect(relDiff(bank0Port('2into2', 360), bank0Port('2into2', 450))).toBeLessThan(1e-3);
   });
 
@@ -362,7 +360,7 @@ describe('robustness', () => {
     const snap = sim.snapshot();
     expect(snap.banks).toHaveLength(2);
     expect(((snap.banks[0]!.crankAngle - snap.banks[1]!.crankAngle + 720) % 720)).toBeCloseTo(450, 0);
-    // The flat fields mirror bank 0, for the existing readouts.
+    // The flat fields mirror bank 0, for the single-bank readouts.
     expect(snap.crankAngle).toBe(snap.banks[0]!.crankAngle);
     expect(snap.cylPressure).toBe(snap.banks[0]!.cylPressure);
   });

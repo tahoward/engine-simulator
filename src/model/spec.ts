@@ -93,7 +93,7 @@ export type CrankType = 'shared' | 'flatplane' | 'crossplane' | 'boxer';
 export type ExhaustLayout = 'open' | 'perBank' | 'merged';
 
 /**
- * Accepted layout values, including the earlier twin-only names.
+ * Accepted layout values, including the twin-only names older configs use.
  *
  * `single` and `2into2` both mean one pipe per cylinder; `2into1` means one shared collector.
  * Kept so saved links and older configs still load — `exhaustLayoutOf` normalises them.
@@ -263,8 +263,8 @@ export interface EngineSpec {
    * engine makes at full throttle.
    *
    * A fraction rather than N*m because a fixed torque means a different thing on every engine: 60 N*m
-   * holds a 500 cc single down hard and is nothing to a 5.5 litre V8, which with a light flywheel then
-   * ran to its limiter in a few hundredths of a second. See `loadTorqueOf`.
+   * holds a 500 cc single down hard and is nothing to a 5.5 litre V8, which with a light flywheel would
+   * run to its limiter in a few hundredths of a second. See `loadTorqueOf`.
    */
   load: number;
 
@@ -308,8 +308,8 @@ export interface EngineSpec {
    * Only matters with more than one tailpipe, and then it matters a great deal. Mouths at the
    * *same* point sum coherently, and the two banks of a flatplane V8 fire in exact antiphase, so
    * their strongest component — each bank's own firing order — annihilates completely. Measured
-   * with the mouths coincident, that component came out 43 dB below where it belongs and the
-   * engine jumped an octave to the doubled order. Real tailpipes sit a metre or more apart, which
+   * with the mouths coincident, that component comes out 43 dB below where it belongs and the
+   * engine jumps an octave to the doubled order. Real tailpipes sit a metre or more apart, which
    * at 187 Hz is most of a wavelength, so they cannot cancel like that.
    *
    * Typical: 0.15 m for open headers side by side, 0.5 m for twin tailpipes on a bike, 1.2-1.6 m
@@ -458,7 +458,10 @@ export const CYCLE_DEG = 720;
 export const GAS = {
   /** Specific gas constant for air / exhaust, J/(kg*K). */
   R: 287,
-  /** Ratio of specific heats in the cylinder (hot burned gas). */
+  /**
+   * Ratio of specific heats of cylinder gas at compression temperatures, around 500 K. Where the
+   * cylinder's gamma is needed as a single number; the cylinder itself uses `gasCv`.
+   */
   gammaCyl: 1.35,
   /** Ratio of specific heats in the exhaust pipe. */
   gammaExh: 1.33,
@@ -479,6 +482,60 @@ export const GAS = {
   /** Lower heating value of a stoichiometric gasoline/air charge, J per kg of mixture. */
   chargeEnergy: 2.75e6,
 } as const;
+
+/**
+ * Specific heat of the gas in the cylinder and the plenum, J/(kg*K), rising linearly with
+ * temperature: `cv(T) = CV_REF + CV_SLOPE (T - T_REF)`.
+ *
+ * Temperature, not composition, is what moves gamma. As a gas heats up its molecules' vibrational
+ * modes come into play and take up energy, so cv climbs: burned gas expanding at 1500-2500 K sits
+ * near gamma 1.25-1.30, while the same burned gas pushed back in as residual and compressed at
+ * 500 K is back near 1.35, like the fresh charge around it. Fixed at the compression value, the
+ * burned gas's cv comes out a quarter too small, which overheats the combustion by several hundred
+ * kelvin and carries through to the blowdown pressure and the exhaust temperature.
+ *
+ * Anchored at gamma 1.35 at 500 K (compression) and 1.28 at 1800 K (expansion). That gives 1.36 at
+ * room temperature and 1.25 at 2500 K.
+ */
+const CV_AT_500 = GAS.R / (1.35 - 1);
+const CV_AT_1800 = GAS.R / (1.28 - 1);
+export const CV_SLOPE = (CV_AT_1800 - CV_AT_500) / (1800 - 500);
+
+/**
+ * Datum of the sensible internal energy, K. The heating value is the energy released between
+ * reactants and products *at room temperature*, so that is where the energy is zero.
+ */
+export const T_REF = 298;
+export const CV_REF = CV_AT_500 + CV_SLOPE * (T_REF - 500);
+
+/** cv at `t` (K), J/(kg*K). */
+export function gasCv(t: number): number {
+  return CV_REF + CV_SLOPE * (t - T_REF);
+}
+
+/** Ratio of specific heats at `t` (K). */
+export function gasGamma(t: number): number {
+  return 1 + GAS.R / gasCv(t);
+}
+
+/** Sensible internal energy at `t` (K), J/kg: the integral of `gasCv` from `T_REF`. */
+export function gasEnergy(t: number): number {
+  const d = t - T_REF;
+  return d * (CV_REF + 0.5 * CV_SLOPE * d);
+}
+
+/**
+ * Temperature, K, at sensible internal energy `u` (J/kg): `gasEnergy` inverted, in the form
+ * that loses no precision as `CV_SLOPE` goes to zero.
+ */
+export function gasTemperature(u: number): number {
+  return T_REF + (2 * u) / (CV_REF + Math.sqrt(CV_REF * CV_REF + 2 * CV_SLOPE * u));
+}
+
+/** Specific enthalpy at `t` (K), J/kg, on the same datum: `u + p/rho`. */
+export function gasEnthalpy(t: number): number {
+  return gasEnergy(t) + GAS.R * t;
+}
 
 /** Speed of sound in exhaust gas at temperature `t` (K), m/s. */
 export function speedOfSound(t: number, gamma: number = GAS.gammaExh): number {
@@ -574,8 +631,8 @@ export function cylinderVolume(spec: EngineSpec, deg: number): number {
  *
  * The four functions above are the readable form and are what the renderer and the tests use,
  * but the simulation calls all of them at the *same* angle, several times per audio sample per
- * cylinder — five or six sin/cos/sqrt triples where one will do. They measured about 6% of
- * total CPU between them.
+ * cylinder — five or six sin/cos/sqrt triples where one will do. Called separately they cost
+ * about 6% of total CPU between them.
  *
  * Fills `out` rather than returning a fresh object, because this is on the per-substep path.
  * `crankState` is verified against the individual functions across the whole cycle, so the
@@ -611,10 +668,11 @@ export function makeCrankState(): CrankState {
  * Spec-derived crank geometry, memoised on the spec object's identity.
  *
  * `crankAt` is on the per-substep path — eight cylinders times several
- * cylinder substeps times 48,000 samples a second — and every call was recomputing `stroke / 2`,
- * `rodLength^2`, the bore area and `clearanceVolume` (itself a divide) from scratch. None of those
- * depend on crank angle. Profiled on a V8 at 8500 rpm, `crankState` alone was 11.5% of total
- * runtime, which for a pure function of the angle is mostly bookkeeping.
+ * cylinder substeps times 48,000 samples a second — and without the memo every call would recompute
+ * `stroke / 2`, `rodLength^2`, the bore area and `clearanceVolume` (itself a divide) from scratch.
+ * None of those depend on crank angle. Profiled on a V8 at 8500 rpm, recomputing them makes the
+ * crank evaluation alone 11.5% of total runtime, which for a pure function of the angle is mostly
+ * bookkeeping.
  *
  * Keyed on identity rather than on the field values because `EngineSim` replaces its whole spec
  * object on every `setEngine`, so a stale entry is impossible: a changed spec is a different
@@ -974,7 +1032,6 @@ export const DEFAULT_ENGINE: EngineSpec = {
   mouthSpacing: 0.4,
   cylinderSpread: 1,
   groundReflection: 0.7,
-  // Every preset gain was rescaled when the cam profile changed (see `valveLift`), to keep its level.
   outputGain: 0.77,
   mechNoise: 0.45,
   throatNoise: 0.5,
@@ -1112,8 +1169,8 @@ export interface FiringPlan {
  *
  * A firing offset is only meaningful for *one* bank angle. A cylinder on the second bank
  * reaches TDC `vAngle` degrees of crank rotation after the pin partner it shares a throw with,
- * so its firing angle moves when the vee moves. Storing offsets directly therefore made the
- * bank angle inert on a V8: it produced even 90-degree firing at every angle, which is true of
+ * so its firing angle moves when the vee moves. Storing offsets directly would make the bank
+ * angle inert on a V8: it would produce even 90-degree firing at every angle, which is true of
  * a 90-degree V8 and of nothing else. A 60-degree vee on a 90-degree crank fires unevenly, and
  * that is most of the reason real 60-degree V8s are rare.
  *
@@ -1122,11 +1179,10 @@ export interface FiringPlan {
  *
  *     offset = pin + vAngle * bank + 360 * rev
  *
- * which is exactly the relationship `crankPins` already inverts to draw the mechanism. At
- * `vAngle = 90` these reproduce the previous hardcoded offsets element for element, so every
- * shipped preset is bit-identical; only angles other than 90 change, and they were wrong.
+ * which is exactly the relationship `crankPins` inverts to draw the mechanism. At `vAngle = 90`
+ * both cranks fire evenly every 90 degrees, as a 90-degree V8 does.
  *
- * Read off the same engines as before: crossplane is the Ford 302 order with cylinders 1-4 on
+ * Read off real engines: crossplane is the Ford 302 order with cylinders 1-4 on
  * the left bank, giving pins at 0/90/180/270 — the four-plane crank. Flatplane puts every throw
  * in one plane, so its pins are only ever 0 or 180.
  */
@@ -1240,8 +1296,9 @@ export function firingPlan(spec: EngineSpec): FiringPlan {
       // Two banks of one: a V-twin's cylinders are each their own bank.
       return { offsets: [0, firingOffsetDeg(spec)], banks: [0, 1], bankCount: 2 };
     case 4:
-      // Inline four on a flat crank: even 180-degree firing, one bank.
-      return { offsets: [0, 180, 360, 540], banks: [0, 0, 0, 0], bankCount: 1 };
+      // Inline four on a flat crank, pins 0/180/180/0 so the outer pair and the inner pair each
+      // share a throw: fires 1-3-4-2, every 180 degrees, one bank.
+      return { offsets: [0, 540, 180, 360], banks: [0, 0, 0, 0], bankCount: 1 };
     case 8: {
       const crank = spec.crankType === 'flatplane' ? V8_FLATPLANE : V8_CROSSPLANE;
       const offsets = crank.pins.map(
@@ -1337,9 +1394,9 @@ export function crankPins(spec: EngineSpec): CrankPin[] {
    * Two cylinders on one crank throw are only distinguishable if the banks are angled apart — that
    * angle is the entire reason the bores do not occupy the same space. With `vAngle` zero the
    * pairing test degenerates: a 360-degree parallel twin fires its cylinders a revolution apart, so
-   * the offsets differ by 0 modulo 360 and match a zero bank angle exactly. Both cylinders were then
-   * put on one pin at one Z with no rotation between them, and drawn precisely on top of each other
-   * — along with their exhaust runners, which coincided to the millimetre.
+   * the offsets differ by 0 modulo 360 and match a zero bank angle exactly. Paired on that, both
+   * cylinders would go on one pin at one Z with no rotation between them, and be drawn precisely on
+   * top of each other — along with their exhaust runners, coinciding to the millimetre.
    *
    * A parallel twin really does have two pins side by side, so that is what it gets.
    */
@@ -1427,12 +1484,12 @@ export function collectorGroups(spec: EngineSpec): number[] {
 /**
  * An exhaust system sized for the engine.
  *
- * This exists because the geometry not scaling with the engine turned out to be the single
- * biggest reason multi-cylinder engines sounded wrong: a V8 was breathing through the header of
- * the 500 cc single this project started as. Eight times the gas through one cylinder's pipework
- * gives a thin, high note, and no amount of adjusting the firing plan fixes it.
+ * This exists because exhaust geometry that does not scale with the engine is the single biggest
+ * reason a multi-cylinder engine sounds wrong: a V8 breathing through the header of a 500 cc single
+ * puts eight times the gas through one cylinder's pipework, which gives a thin, high note, and no
+ * amount of adjusting the firing plan fixes it.
  *
- * What it is fixing, specifically. With a realistic system the loudest thing in the spectrum is
+ * What it gets right, specifically. With a realistic system the loudest thing in the spectrum is
  * the firing frequency itself, right across the usable rev range — measured at 1.00 to 1.01 times
  * firing from 1000 to 3500 rpm on a 2 litre four. With a short open header the *pipe's* resonance
  * dominates instead, and since that resonance does not care how many cylinders there are, every
@@ -1446,7 +1503,7 @@ export function collectorGroups(spec: EngineSpec): number[] {
  * - Total path around 2.2 m for a road system. This is the part that matters most: it puts the
  *   first resonance below the firing frequency instead of above it.
  * - Silencer volume about eight times the displacement it serves, which is the usual ballpark
- *   and is far larger than anything hand-built here had been.
+ *   and far larger than a can looks like it needs to be.
  */
 export interface ExhaustSizing {
   /** Per-cylinder primary. */
@@ -1478,7 +1535,7 @@ export function fittedExhaust(spec: EngineSpec): ExhaustSizing {
   // Collector: constant-velocity merge, then a long enough run to put the first resonance low.
   const dCollector = dPrimary * Math.sqrt(perCollector) * 0.92;
   // `displacement` is one cylinder's swept volume, so multiply by the cylinders this collector
-  // actually serves. Treating it as the whole engine's undersized every silencer by that factor.
+  // actually serves. Treating it as the whole engine's would undersize every silencer by that factor.
   const servedDisp = displacement(spec) * perCollector;
 
   /**
@@ -1486,7 +1543,7 @@ export function fittedExhaust(spec: EngineSpec): ExhaustSizing {
    *
    * A real muffler is a 50 mm pipe opening into a 200 mm can — sixteen times the area — and the
    * solver does not survive that at these flow speeds: sized purely by volume, a four-cylinder
-   * system diverged continuously (235,000 recoveries in a quarter of a second, which the audio
+   * system diverges continuously (235,000 recoveries in a quarter of a second, which the audio
    * thread reports as silence). Capping the diameter ratio at 2.5 keeps it stable and still
    * silences properly; the missing volume is made up in length. The underlying fragility is a
    * solver limit worth fixing separately, not something to design around for ever.
@@ -1545,8 +1602,8 @@ const PRESET_KEEPS = [
  *
  * Over the defaults rather than over the current engine, because a preset only states what it changes
  * from them — which is also how its exhaust is sized, in `fullSpec`. Merged over the current engine,
- * every field a preset left out came from whatever was loaded before it: a V-twin after a V8 got the
- * V8's bore, and anything after the overcammed V8 got its cam.
+ * every field a preset leaves out would come from whatever was loaded before it: a V-twin after a V8
+ * would get the V8's bore, and anything after the overcammed V8 its cam.
  */
 export function presetEngine(preset: EnginePreset, current: EngineSpec): EngineSpec {
   const spec: EngineSpec = { ...DEFAULT_ENGINE, ...preset.engine };
@@ -1560,7 +1617,7 @@ function fullSpec(engine: Partial<EngineSpec>): EngineSpec {
 }
 
 /**
- * The newer engines, sized from their real counterparts, with exhausts fitted by `fittedExhaust`.
+ * Engines sized from their real counterparts, with exhausts fitted by `fittedExhaust`.
  *
  * Idle-ish cruising rpm chosen so each fires near the others' firing frequencies: a three at 2800 fires
  * at 70 Hz, a five at 2400 at 100 Hz, a six and a V6 at 2200-2400 at 110-120 Hz.
@@ -1721,7 +1778,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       // Long-stroke and pushrod: a Harley stops pulling not far past 5500.
       revLimit: 5600,
       flywheelInertia: 0.4,
-      // Its own, now that the default's moved with the single's: the level it has always had.
+      // Its own, independent of the default the single uses.
       outputGain: 0.72,
     },
     pipe: () => [
@@ -1773,7 +1830,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       bore: 0.073,
       stroke: 0.06,
       rodLength: 0.11,
-      // Valves scaled to this bore. Left at the single's 34 mm they were enormous for a 73 mm
+      // Valves scaled to this bore. Left at the single's 34 mm they would be enormous for a 73 mm
       // cylinder, which sharpens the blowdown and brightens everything downstream of it.
       exValveDia: 0.028,
       inValveDia: 0.032,
@@ -1784,8 +1841,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.42, dIn: 0.034 })],
     // A real exhaust system, not an open header: something over two metres of it, with a
-    // silencer. This is where a road engine's body comes from — measured, going from a 0.57 m
-    // open collector to this lifted the bottom two octaves by 15-19 dB.
+    // silencer. This is where a road engine's body comes from — measured against a 0.57 m open
+    // collector, this lifts the bottom two octaves by 15-19 dB.
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.14, dIn: 0.05, dOut: 0.058 }),
       makeSegment({ kind: 'pipe', length: 1.0, dIn: 0.058, yaw: 0.25 }),
@@ -1835,22 +1892,21 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       crankType: 'crossplane',
       exhaustLayout: 'perBank',
       // Eight cylinders fire eight times per cycle, so a V8 reaches a given firing frequency at
-      // an eighth of a single's rpm. 2200 gives 147 Hz; 3200 gave 213 and sounded like it.
+      // an eighth of a single's rpm. 2200 gives 147 Hz; 3200 would give 213, and sound like it.
       rpm: 2200,
       // Pushrods and a heavy crank: a road V8's 6500.
       revLimit: 6500,
       mouthSpacing: 1.3,
       flywheelInertia: 0.9,
       load: 0.06,
-      // The same cells as everything else. These were 45 mm when finer cells also meant more steps
-      // per sample and cost went as their inverse square; at one step per sample it goes only as
-      // their count, and 35 mm costs a V8 a couple of points of a core for its top octave back.
+      // The same cells as everything else. At one step per sample, cost goes only as the cell
+      // count, so 35 mm costs a V8 a couple of points of a core and gives it its top octave.
       pipeCellSize: 0.035,
       bore: 0.102,
       stroke: 0.084,
       rodLength: 0.145,
       compressionRatio: 10,
-      // A 102 mm bore carries far bigger valves than the 500 cc single this project began as.
+      // A 102 mm bore carries far bigger valves than the default 500 cc single.
       exValveDia: 0.041,
       inValveDia: 0.048,
       maxLift: 0.011,
@@ -1879,7 +1935,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       // back-flows into the intake. Measured here at 1000 rpm and 8% throttle, against the stock
       // crossplane at the same: 0.66 bar in the manifold rather than 0.24, and 57% of the trapped
       // charge spent gas rather than 22%. That is past the dilution limit (`DILUTION_ONSET` in
-      // cylinder.ts), and 13% of cycles misfire where the stock engine misfires none. At 6% it was
+      // cylinder.ts), and 13% of cycles misfire where the stock engine misfires none. At 6% it is
       // 30%, an engine about to stall rather than one with a lope; at 12%, none. Free-running, this
       // same throttle holds it near 1100 and hunting, where the stock one would idle at 900 on 7%:
       // a big cam needs more air to idle, and idles higher.
@@ -1929,8 +1985,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 90,
       crankType: 'flatplane',
       exhaustLayout: 'perBank',
-      // Deliberately the loud one: a flat-crank V8 on short pipes. Still well below the 5600 it
-      // shipped at first, where it fired at 373 Hz and screamed.
+      // Deliberately the loud one: a flat-crank V8 on short pipes. Still well below 5600, where it
+      // would fire at 373 Hz and scream.
       rpm: 3000,
       // Oversquare, light and flat-cranked, so it revs like the Ferrari it is.
       revLimit: 9000,

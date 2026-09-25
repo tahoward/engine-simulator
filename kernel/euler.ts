@@ -5,7 +5,8 @@
  * project's `tsc --noEmit` never sees `v128` or `usize`. Build it with
  * `npm run build:kernel`, which regenerates `src/audio/worklet/kernelWasm.ts`.
  *
- * Why this file exists: a CPU profile of the V-twin preset (56.1% of one core) puts 72.4%
+ * Why this file exists: a CPU profile of the TypeScript path on the V-twin preset (56.1% of
+ * one core) puts 72.4%
  * of total runtime in `reconstruct` (37.7%), `update` (19.3%) and `hllc` (15.4%) — three
  * straight-line loops over `Float64Array`. The working set is ~17 kB, so it is already
  * L1-resident and therefore ALU-bound, not memory-bound. The only lever left is wider
@@ -54,8 +55,8 @@ const STRIDE8: usize = <usize>CAP * 8;
  * One static, 16-byte-aligned block holding every field.
  *
  * `memory.data` lets the compiler place it, so there is no guessing about where AS put its
- * own statics — the previous approach of assuming a fixed low offset is exactly the kind of
- * thing that works until a compiler upgrade moves it.
+ * own statics — assuming a fixed low offset instead is exactly the kind of thing that works
+ * until a compiler upgrade moves it.
  */
 const BASE: usize = memory.data(NARR * CAP * 8, 16);
 
@@ -75,8 +76,8 @@ export function stride(): i32 {
  * Every duct has its own instance of this module, so each call site in the solver reaches several
  * different export functions. V8 only lowers a call into Wasm to a direct one when the target is a
  * single known function; otherwise it takes the generic path, which boxes every `f64` argument and
- * result into a fresh heap object: five per duct per substep, about a fifth of what the exhaust step
- * allocated before this block existed. Integers cross unboxed either way.
+ * result into a fresh heap object: five per duct per substep, were these scalars passed as arguments.
+ * Integers cross unboxed either way.
  */
 const IO: usize = memory.data(4 * 8, 8);
 const IO_DT: usize = 0;
@@ -832,6 +833,7 @@ export function update(n: i32, dt: f64, kLin: f64, darcy: f64): void {
 
   const half = f64x2.splat(0.5);
   const one = f64x2.splat(1);
+  const zeroV = f64x2.splat(0);
   const rFloor = f64x2.splat(1e-7);
   const minInt = f64x2.splat(MIN_INTERNAL);
   const dtV = f64x2.splat(dt);
@@ -881,12 +883,11 @@ export function update(n: i32, dt: f64, kLin: f64, darcy: f64): void {
     const uOld = f64x2.mul(nm, invNr);
     const uMean = v128.load(uMeanArr + o);
 
-    const kQuad = f64x2.mul(
-      f64x2.abs(uOld),
-      f64x2.add(
-        f64x2.mul(darcyHalf, v128.load(invDia + o)),
-        v128.load(contractionK + o),
-      ),
+    // The contraction loss is signed by the direction it acts in: `max(u * k, 0)` is `|u| |k|`
+    // when the flow runs into the narrowing and zero when it runs out of it.
+    const kQuad = f64x2.add(
+      f64x2.mul(f64x2.abs(uOld), f64x2.mul(darcyHalf, v128.load(invDia + o))),
+      f64x2.max(f64x2.mul(uOld, v128.load(contractionK + o)), zeroV),
     );
     const uNew = f64x2.div(
       f64x2.add(uOld, f64x2.mul(f64x2.mul(kLinV, uMean), dtV)),
@@ -933,7 +934,8 @@ export function update(n: i32, dt: f64, kLin: f64, darcy: f64): void {
     const uMean = load<f64>(uMeanArr + o);
 
     const kQuad =
-      Math.abs(uOld) * (darcy * 0.5 * load<f64>(invDia + o) + load<f64>(contractionK + o));
+      Math.abs(uOld) * (darcy * 0.5 * load<f64>(invDia + o)) +
+      Math.max(uOld * load<f64>(contractionK + o), 0);
     const uNew = (uOld + kLin * uMean * dt) / (1 + (kLin + kQuad) * dt);
     nm = nr * uNew;
 
@@ -953,13 +955,13 @@ export function update(n: i32, dt: f64, kLin: f64, darcy: f64): void {
 // ---------------------------------------------------------------------------
 
 /**
- * The junction solve, which was a quarter of a V8's time once its exhaust became manifolds.
+ * The junction solve, which in TypeScript is about a quarter of a V8's time on manifold exhausts.
  *
  * Six junctions, each finding the pressure its branches balance at: a closed-form estimate, two Newton
  * corrections that each run a Riemann solve per branch, and the final fluxes — about fifty Riemann solves
- * a sample. In TypeScript every one of them was a call to a function too large to inline, which boxed
- * each of its floating-point arguments into a fresh heap object; that was most of the audio thread's
- * garbage.
+ * a sample. In TypeScript every one of them is a call to a function too large to inline, which boxes
+ * each floating-point argument into a fresh heap object unless it is routed through a typed array
+ * (`HLLC_IN` in eulerPipe.ts); left as arguments, that would be most of the audio thread's garbage.
  *
  * Unlike the cell loops this spans several ducts, each with its own kernel instance, so it has a block of
  * its own: the caller writes each branch's end state in, calls `solveJunction`, and reads the fluxes
@@ -970,7 +972,7 @@ export function update(n: i32, dt: f64, kLin: f64, darcy: f64): void {
  * differs from the JavaScript engine's in the last bit now and then. In a nonlinear solver one bit grows,
  * so the output first differs after some tens of milliseconds, in the eighth significant figure, and never
  * becomes audible — `test/kernel.test.ts` holds it to both. That is why this kernel has its own switch:
- * the cell kernel's standard is bit-exactness, and folding this in would have cost it that.
+ * the cell kernel's standard is bit-exactness, and folding this in would cost it that.
  */
 
 /** Branches a junction may have. */
@@ -1145,7 +1147,10 @@ function branchFlux(i: i32, outlet: bool, gauge: f64, tJunction: f64, commit: bo
     const uGhost = jclamp(uRaw, -uLimit, uLimit);
     const inflow = outlet ? uGhost < 0 : uGhost > 0;
     const rGhost = inflow
-      ? Math.max(pGhost / (jR * Math.max(tJunction, jTAmb)), jMinRho)
+      ? Math.max(
+          pGhost / (jR * Math.max(tJunction - (uGhost * uGhost) / (2 * jCp), jTAmb)),
+          jMinRho,
+        )
       : Math.max(rho * Math.pow(pGhost / p, jInvGamma), jMinRho);
     if (outlet) junctionHllc(rho, u, p, rGhost, uGhost, pGhost);
     else junctionHllc(rGhost, uGhost, pGhost, rho, u, p);

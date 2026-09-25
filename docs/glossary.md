@@ -368,16 +368,17 @@ gas. *Nusselt* (`Nu`) is the heat transfer coefficient in dimensionless form.
 
 ### Dittus–Boelter correlation
 
-`Nu = 0.023 Re^0.8 Pr^0.4`: the standard estimate of heat transfer from turbulent flow in a pipe.
-The pipes use it, multiplied by 3 for the pulsing flow in an exhaust.
+`Nu = 0.023 Re^0.8 Pr^n`: the standard estimate of heat transfer from turbulent flow in a pipe,
+with `n = 0.4` for a fluid being heated and `0.3` for one being cooled. The pipes use the cooling
+form, since exhaust gas is hotter than the wall, multiplied by 3 for the pulsing flow in an exhaust.
 [Wikipedia](https://en.wikipedia.org/wiki/Nusselt_number#Dittus%E2%80%93Boelter_equation) ·
 [Dittus and Boelter 1930](references.md#dittus1930)
 
-### Hilpert correlation
+### Zukauskas correlation
 
-A fit for heat transfer from a cylinder, such as a pipe, in air flowing across it. Used for the
-outside of the exhaust.
-[Hilpert 1933](references.md#hilpert1933)
+`Nu = C Re^m Pr^0.37`: heat transfer from a cylinder, such as a pipe, in air flowing across it.
+Used for the outside of the exhaust.
+[Zukauskas 1972](references.md#zukauskas1972)
 
 ### Stefan–Boltzmann law and emissivity
 
@@ -457,7 +458,8 @@ A standard S-shaped curve for how much of the fuel has burned at each crank angl
 ### Woschni model
 
 A standard formula for the heat transfer coefficient between cylinder gas and the cylinder walls,
-based on pressure, temperature and piston speed.
+based on pressure, temperature, piston speed and, during combustion, how far the pressure has
+risen above the unfired curve.
 [Woschni 1967](references.md#woschni1967)
 
 ### Dynamometer

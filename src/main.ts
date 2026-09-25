@@ -118,7 +118,7 @@ function directionsOf(placement: ExhaustPlacement | null): DuctDirections | unde
  * Take the edited pipe off its junction if the edit left the pipes there no longer meeting.
  *
  * Pipes are straight tube: shorten one that runs into a junction and it falls short of it. Left joined,
- * the fitting grew to bridge the gap — up to 36 cm across. So its end is left open instead, which is what
+ * the fitting would have to grow to bridge the gap. So its end is left open instead, which is what
  * cutting a real pipe short does. If the edited pipe was the one the junction follows, it is the *others*
  * that stop meeting, and it is still the edited one that comes off.
  */
@@ -236,8 +236,8 @@ const panel = new Panel(panelEl, config, {
      * rebuilt from the geometry it carried. See `reseedGraph`.
      *
      * And so does anything that moves the ports, while the exhaust is still as compiled: a manifold's
-     * lengths are cut to the spacing of the ports, so after a bore change they no longer reached, and
-     * the fittings grew to bridge the gaps. An exhaust the user has edited is theirs, and is left alone.
+     * lengths are cut to the spacing of the ports, so after a bore change they would not reach, and
+     * the fittings would grow to bridge the gaps. An exhaust the user has edited is theirs, and is left alone.
      */
     if (touchesTopology(partial) || (touchesGeometry(partial) && !hasBeenEdited(config.graph!))) {
       reseedGraph();
@@ -410,7 +410,7 @@ function rebuildPipeGeometry(): void {
   /**
    * The editor's handles belong to one duct, so they must use the frame that duct was actually built
    * with — not the bare port direction. With a collector those differ by however far the runner had to
-   * be aimed to reach the collar, which is exactly why the handles used to sit off the pipe.
+   * be aimed to reach the collar, and handles laid out on the port direction would sit off the pipe.
    */
   editor.setDrawContext({
     graph,
@@ -527,7 +527,7 @@ function loadConfig(): EngineConfig {
     const parsed = JSON.parse(decodeURIComponent(atob(hash))) as Partial<EngineConfig>;
     if (parsed.engine) {
       Object.assign(base.engine, parsed.engine);
-      // Links from before the load was a fraction carry it in N*m.
+      // A link may carry the load as a torque in N*m, `loadTorque`, rather than as a fraction.
       const legacy = (parsed.engine as { loadTorque?: unknown }).loadTorque;
       if (typeof legacy === 'number' && parsed.engine.load === undefined) {
         base.engine.load = Math.min(Math.max(legacy / fullLoadTorque(base.engine), 0), 1.5);
@@ -537,8 +537,8 @@ function loadConfig(): EngineConfig {
     if (Array.isArray(parsed.pipe) && parsed.pipe.length > 0) {
       base.pipe = parsed.pipe.map((s) => makeSegment(s));
     }
-    // The collector used to be dropped here, so a shared link silently lost it and came back with the
-    // default. It is part of the geometry like anything else.
+    // The collector is part of the geometry like anything else: without this a shared link would lose
+    // it and come back with the default.
     if (Array.isArray(parsed.collector) && parsed.collector.length > 0) {
       base.collector = parsed.collector.map((s) => makeSegment(s));
     }

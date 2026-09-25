@@ -3,8 +3,8 @@
  *
  * "The pipes just overlap when there's a collector" is a claim about solid bodies, so it can be checked
  * rather than looked at: sample every runner's centreline and confirm no two of them come closer than
- * the sum of their radii. That was the bug — every runner of a group was aimed at the *same* junction
- * point, and four 42 mm pipes cannot all occupy one place.
+ * the sum of their radii. Aiming every runner of a group at the *same* junction point would fail it:
+ * four 42 mm pipes cannot all occupy one place.
  *
  * Interpenetration is allowed in one place only: inside the weld, where a fabricated collector has the
  * pipe walls cut away and the body covers the join. Everywhere else it is a defect.
@@ -37,11 +37,11 @@ import {
 /**
  * The engine's real exhaust ports.
  *
- * `EngineMesh` is used rather than reproduced. An earlier version of this test synthesised ports with
- * the bank taken as `i % 2`, which is not how the cylinders are arranged: a crossplane V8's banks follow
- * the firing order `[0,1,0,0,1,0,1,1]`, so cylinders 6 and 7 share a collector while `i % 2` put them on
- * opposite sides of the vee. The layout was then asked to drag two runners across the engine to meet,
- * and the test blamed the layout for it. Constructing the real thing needs no canvas.
+ * `EngineMesh` is used rather than reproduced. Synthesised ports are easy to get wrong: taking the bank
+ * as `i % 2` is not how the cylinders are arranged, since a crossplane V8's banks follow the firing order
+ * `[0,1,0,0,1,0,1,1]`, so cylinders 6 and 7 share a collector while `i % 2` would put them on opposite
+ * sides of the vee. The layout would then be asked to drag two runners across the engine to meet, and
+ * blamed for it. Constructing the real thing needs no canvas.
  */
 function makePorts(spec: EngineSpec): ExhaustPort[] {
   const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
@@ -77,12 +77,11 @@ function sampleAll(graph: ExhaustGraph, placement: ExhaustPlacement): Map<string
  * Closest approach between two runners *outside the joint*, as a multiple of the clearance they need.
  *
  * Inside the joint they are allowed to meet, and must be: a fabricated collector has the pipe walls cut
- * away where they join and the joint covers it. Demanding clearance along the whole length is what forced
- * the bundle out to 201 mm for 44 mm pipes.
+ * away where they join and the joint covers it. Demanding clearance along the whole length would force the
+ * bundle out far wider than the pipes.
  *
- * "Inside the joint" used to be a slab along the junction's axis, because the body was a surface of
- * revolution and that was all it could mean. Now the joint is the union of the pipes themselves, so it is
- * simply a negative signed distance — the same question the mesh answers, asked of the same field.
+ * The joint is the union of the pipes themselves, so "inside the joint" is simply a negative signed
+ * distance — the same question the mesh answers, asked of the same field.
  */
 function clearanceRatio(
   a: Sampled,
@@ -120,9 +119,9 @@ function weldOf(placement: ExhaustPlacement): (p: THREE.Vector3) => boolean {
 /**
  * How far the joint's *mesh* reaches, and how far its limbs are spread.
  *
- * Measured off the built geometry rather than a described profile, because a described profile is what
- * went wrong: the old body reported a mouth radius and a length, and the mesh drawn from them was a
- * funnel nobody had asked for. What the renderer puts on screen is the only thing worth asserting on.
+ * Measured off the built geometry rather than a described profile, because a described profile can
+ * disagree with its mesh: a mouth radius and a length can read as sensible while the mesh drawn from them
+ * is a funnel nobody asked for. What the renderer puts on screen is the only thing worth asserting on.
  */
 function jointExtent(placement: ExhaustPlacement, node: string) {
   const joint = placement.joints.get(node)!;
@@ -215,9 +214,9 @@ describe('exhaust layout is geometrically possible', () => {
    *
    * The joint is the union of the pipes that meet at it, each limb reaching back *inside* its own pipe
    * before it starts, so every pipe end is strictly within the solid. That is what makes a gap impossible
-   * rather than merely unlikely, and a negative signed distance at each end is the statement of it. The
-   * old body could only promise this by being wide enough to enclose everything, which is how a 2-into-1
-   * ended up with a balloon on it.
+   * rather than merely unlikely, and a negative signed distance at each end is the statement of it. A
+   * body that could only promise this by being wide enough to enclose everything would put a balloon on
+   * a 2-into-1.
    */
   it.each(CASES)('$name: every pipe end is inside its joint', ({ engine, pipe }) => {
     const segments = pipe();
@@ -236,7 +235,7 @@ describe('exhaust layout is geometrically possible', () => {
       /**
        * And bounded: a fitting sized to what arrives, not a funnel around how it approached.
        *
-       * This is the assertion the tee failed when it was given a collector's body — 391 mm across a
+       * A tee given a collector's enclosing body fails it, coming out hundreds of millimetres across a
        * joint between two 40 mm pipes.
        */
       const bound = 2.5 * (spread + widest * 2);
@@ -245,7 +244,7 @@ describe('exhaust layout is geometrically possible', () => {
 
       /**
        * The fitting sits where the collector starts, so the collector comes out of it rather than the
-       * fitting preceding it. Putting a body in front made the drawn exhaust longer than the one being
+       * fitting preceding it. A body in front would make the drawn exhaust longer than the one being
        * solved, which merges at a junction with no volume at all.
        */
       const group = Number(node.replace('merge', ''));
@@ -263,8 +262,8 @@ describe('exhaust layout is geometrically possible', () => {
   /**
    * The editor's handles sit on one duct, placed by sweeping its segments from a frame the editor is
    * told about. That frame has to be the one the *mesh* used: with a collector the runner is aimed at
-   * its collar, well away from the bare port axis, and using the port axis put the handles off the pipe
-   * entirely. This asserts the gap is real, so the two cannot be casually conflated again.
+   * its collar, well away from the bare port axis, and using the port axis would put the handles off the
+   * pipe entirely. This asserts the gap is real, so the two cannot be casually conflated.
    */
   it('a collector aims runners well away from the bare port axis', () => {
     const segments = [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.042 })];
@@ -316,17 +315,17 @@ describe('exhaust layout is geometrically possible', () => {
  * A merge of runners from opposite banks goes round the side of the engine, down the middle between them.
  *
  * With each bank's exhaust on the outside of the vee, a V-twin's ports face away from each other and their
- * mean heading is only the downward tilt they share — which aimed the collector through the crank. And
- * packed tightly, their ends were read as a tee, which sent the collector off along one runner.
+ * mean heading is only the downward tilt they share, so a collector aimed along it would go through the
+ * crank.
  */
 describe('a merge across the vee', () => {
   /**
    * A V-twin's runners meet at one point behind the engine, and one carries straight on into the collector
    * while the other joins its side.
    *
-   * They converge at about 50 degrees, so meeting symmetrically they crossed each other for several
-   * centimetres before the point, and the fitting big enough to hide that was a big cone. As a tee they
-   * meet the way straight pipes do.
+   * They converge at about 50 degrees, so meeting symmetrically they would cross each other for several
+   * centimetres before the point, and the fitting big enough to hide that would be a big cone. As a tee
+   * they meet the way straight pipes do.
    */
   it('meets at a point, as a tee, along the crank rather than down into it', () => {
     const { graph, placement } = layoutOf(
@@ -447,9 +446,8 @@ describe('a two-stage merge places in the right order', () => {
  *
  * Reachable by deleting the last segment of a runner, and with the runners linked that empties every one
  * of them at once. `layoutPipe` sweeps per segment, so an empty list yields no joints — and the obvious
- * `joints[joints.length - 1]!` threw. The non-null assertion is what let it through: `layoutPipe` makes no
- * promise of a joint, `pipeSpan` and `solveHeading` both guard for it, and `sampleRunner` was the one
- * caller that assumed one.
+ * `joints[joints.length - 1]!` throws. `layoutPipe` makes no promise of a joint, so every caller has to
+ * guard for it, and a non-null assertion is exactly what hides one that does not.
  */
 describe('a duct with no segments', () => {
   const v8 = { ...defaultConfig().engine, cylinders: 8, vAngle: 90, crankType: 'crossplane', exhaustLayout: 'perBank' } as EngineSpec;
@@ -482,12 +480,11 @@ describe('a duct with no segments', () => {
 /**
  * A joint is the size of the pipes at it, whatever kind of joint it is.
  *
- * There is no longer a case split. A tee and a 4-into-1 are built the same way — the union of the pipes
- * that meet, filleted — so a tee comes out the size of two 40 mm pipes and a collector comes out the size
- * of the bundle it gathers, with nothing deciding which is which. The earlier code had to choose: it drew
- * a surface of revolution sized to *enclose* the feeds, which gave the tee a 391 mm mouth over 720 mm
- * because a steeply-arriving branch crosses the socket zone far off-axis, and the fix was to suppress the
- * body at a tee entirely. Both the funnel and the special case are gone; these tests hold the sizes.
+ * There is no case split. A tee and a 4-into-1 are built the same way — the union of the pipes that meet,
+ * filleted — so a tee comes out the size of two 40 mm pipes and a collector comes out the size of the
+ * bundle it gathers, with nothing deciding which is which. A surface of revolution sized to *enclose* the
+ * feeds would instead give a tee a mouth hundreds of millimetres wide, because a steeply-arriving branch
+ * crosses the socket zone far off-axis. These tests hold the sizes.
  */
 describe('joints are shaped like the joint they are', () => {
   const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
@@ -522,7 +519,7 @@ describe('joints are shaped like the joint they are', () => {
     const placement = layoutGraph(p, graph);
     expect(placement.joints.has(node)).toBe(true);
     const { span, widest } = jointExtent(placement, node);
-    // Two 40 mm pipes meeting at a point: tens of millimetres, not the 391 mm the funnel gave.
+    // Two 40 mm pipes meeting at a point: tens of millimetres, not the hundreds a funnel would give.
     expect(span).toBeLessThan(0.12);
     expect(span).toBeGreaterThan(widest * 2);
   });
@@ -565,10 +562,10 @@ describe('joints are shaped like the joint they are', () => {
 /**
  * A pipe teed into another has to run through the joint unbroken.
  *
- * The joint used to sit at the *centroid* of the feed ends, which is right for a collector and wrong here:
- * the branch finishes on the pipe's surface while the pipe's own two halves meet on its centreline, so the
- * average lands half a radius off the axis. Measured as an 11.6 mm step in a pipe of 20 mm radius, showing
- * as a kink exactly where the pipe should be continuous.
+ * Placing the joint at the *centroid* of the feed ends is right for a collector and wrong here: the branch
+ * finishes on the pipe's surface while the pipe's own two halves meet on its centreline, so the average
+ * lands about half a radius off the axis — a step of more than 10 mm in a pipe of 20 mm radius, showing as
+ * a kink exactly where the pipe should be continuous.
  */
 describe('a tee runs through unbroken', () => {
   const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
@@ -623,7 +620,7 @@ describe('a tee runs through unbroken', () => {
   /**
    * Still recognised as a tee when the branch stops on the skin rather than reaching the axis.
    *
-   * Draw mode aims at the axis now, but a route built any other way — an older saved link, say — must not
+   * Draw mode aims at the axis, but a route built any other way — an older saved link, say — must not
    * turn into a collector because its branch is one radius short.
    */
   it('recognises a tee even when the branch stops on the skin', () => {
@@ -636,8 +633,8 @@ describe('a tee runs through unbroken', () => {
 
 /**
  * What a page refresh does to the exhaust: the config goes out to the URL as JSON and comes back through
- * `graphFromJson`. Anything the loader drops lays the pipes out differently — the bug this guards against
- * dropped each frozen heading's frame, so every pipe after a junction turned on reload.
+ * `graphFromJson`. Anything the loader drops lays the pipes out differently — dropping each frozen
+ * heading's frame, for one, would turn every pipe after a junction on reload.
  */
 describe('the exhaust survives a reload', () => {
   const reloaded = (graph: ExhaustGraph) => graphFromJson(JSON.parse(JSON.stringify(graph)))!;

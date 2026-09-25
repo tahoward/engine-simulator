@@ -24,7 +24,7 @@
  * `Phi_N(r_j)` is the mode averaged over the pipe's opening. A pipe on the centreline of a symmetric
  * section sees none of the antisymmetric modes, so it is the offset that decides which modes a
  * muffler rings with. Only modes the pipe grid can resolve are kept (see `modeCutoffK`). A round can
- * with centred pipes has none, and is left to the plane-wave solver exactly as before.
+ * with centred pipes has none, and is left to the plane-wave solver alone.
  *
  * The section modes come from a Rayleigh-Ritz solution of the Neumann Helmholtz problem, so one code
  * path serves every shape: exact for a rectangle, and within a fraction of a percent of the Bessel
