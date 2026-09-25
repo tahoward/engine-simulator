@@ -9,6 +9,10 @@
 - **Layout → Cylinders** changes only the layout: single, twin, inline three to six, V6, V8, or a
   four- or six-cylinder boxer. It also builds an exhaust to suit. The **Exhaust** menu below it
   picks the pipe style: separate pipes, one collector per bank, or one collector for all cylinders.
+- **Operating point → Rev limiter** sets the highest speed the engine will run. Each preset sets
+  the limit of the real engine it copies. Above the limit the spark is cut, and it comes back
+  200 rpm lower, so the engine bounces off the limit the way a real one does. Set **Engine speed**
+  at or past the limit and the engine revs freely up into the limiter and bounces there.
 
 ## The camera
 

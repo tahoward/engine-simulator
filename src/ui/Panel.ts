@@ -187,6 +187,20 @@ export class Panel {
     this.rpmRow = rpmSlider.row;
     this.resyncers.push(() => rpmSlider.render(this.config.engine.rpm));
 
+    const revLimit = slider(op, {
+      label: 'Rev limiter',
+      min: 2000,
+      max: 12000,
+      step: 100,
+      value: spec.revLimit,
+      unit: 'rpm',
+      onInput: (v) => this.cb.onEngine({ revLimit: v }),
+    });
+    revLimit.row.title =
+      'The spark is cut above this and returns once the crank has dropped back, so the engine ' +
+      'bounces off it. An engine speed set at or past it revs freely into the limiter.';
+    this.resyncers.push(() => revLimit.render(this.config.engine.revLimit));
+
     slider(op, {
       label: 'Throttle',
       min: 0,
@@ -1245,7 +1259,7 @@ export class Panel {
 
 
   updateReadouts(s: EngineSnapshot): void {
-    this.rpmEl.textContent = `${Math.round(s.rpm)} rpm`;
+    this.rpmEl.textContent = `${Math.round(s.rpm)} rpm${s.limiter ? ' · limiter' : ''}`;
     const stroke = strokeName(s.crankAngle);
     this.readoutEl.textContent =
       `${stroke} · ${s.crankAngle.toFixed(0)}° · ` +

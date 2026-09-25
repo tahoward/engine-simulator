@@ -21,6 +21,7 @@
 import {
   GAS,
   PIPE_PRESSURE_TAPS,
+  REV_LIMIT_HYSTERESIS_RPM,
   type EngineConfig,
   type EngineSnapshot,
   type EngineSpec,
@@ -410,6 +411,8 @@ export class EngineSim {
   private torqueAvg = 0;
   /** Smoothed speed for the readout, rad/s. */
   private omegaDisplay = 0;
+  /** Whether the rev limiter is cutting the spark. Latched, with hysteresis: see `revLimit`. */
+  private limiterCut = false;
   private prevExLift!: Float64Array;
   private prevInLift!: Float64Array;
   private prevAngle!: Float64Array;
@@ -467,7 +470,7 @@ export class EngineSim {
       sourceHeight: this.spec.exhaustHeight,
       reflection: this.spec.groundReflection,
     });
-    this.omegaMean = (this.spec.rpm * 2 * Math.PI) / 60;
+    this.omegaMean = (Math.min(this.spec.rpm, this.spec.revLimit) * 2 * Math.PI) / 60;
     this.omega = this.omegaMean;
     this.omegaDisplay = this.omegaMean;
     // ~8 ms ramp.
@@ -502,8 +505,9 @@ export class EngineSim {
     this.spec = { ...this.spec, ...partial };
     this.displacementM3 = displacement(this.spec);
     if (!this.spec.freeRunning) {
-      // Fixed-rpm mode follows the slider directly.
-      this.omegaMean = (this.spec.rpm * 2 * Math.PI) / 60;
+      // Fixed-rpm mode follows the slider directly, until it reaches the limiter; from there the crank
+      // runs on from wherever it is. See `integratingCrank`.
+      if (!this.integratingCrank()) this.omegaMean = (this.spec.rpm * 2 * Math.PI) / 60;
     }
     this.listener.setGeometry({
       distance: this.spec.micDistance,
@@ -968,8 +972,16 @@ export class EngineSim {
 
   /** Mean crank speed, rev/min. Excludes the within-cycle ripple so readouts are steady. */
   get rpm(): number {
-    const w = this.spec.freeRunning ? this.omegaDisplay : this.omegaMean;
+    const w = this.integratingCrank() ? this.omegaDisplay : this.omegaMean;
     return (w * 60) / (2 * Math.PI);
+  }
+
+  /**
+   * Whether the crank speed is integrated from the torque rather than held: free-running, or held
+   * at a speed the rev limiter will not allow.
+   */
+  private integratingCrank(): boolean {
+    return this.spec.freeRunning || this.spec.rpm >= this.spec.revLimit;
   }
 
   /** Instantaneous crank speed, rev/min, ripple included. */
@@ -991,9 +1003,13 @@ export class EngineSim {
     // Summed over banks, from the previous sample — the cylinders have not advanced yet.
     const torque = this.torqueLast;
 
-    if (spec.freeRunning) {
+    if (this.integratingCrank()) {
       // Gas torque fights the load plus friction, so the pipe's tuning can actually
       // pull the engine up or hold it back.
+      //
+      // Also how a held speed at or past the rev limiter runs: a crank pinned at the limit would
+      // hold it exactly, and what a limiter sounds like is the bounce. So the hold lets go and the
+      // engine revs freely into the cut and off it, with no load, as one revved in neutral does.
       //
       // Friction is expressed as an FMEP (friction mean effective pressure) rising
       // with speed and converted to torque the same way indicated work is, which
@@ -1002,7 +1018,8 @@ export class EngineSim {
       // a fixed N*m guess does not scale and lets the engine run away.
       const fmep = 0.8e5 + 120 * this.omegaMean;
       const friction = (fmep * this.displacementM3) / (4 * Math.PI);
-      const net = torque - spec.loadTorque - friction;
+      const load = spec.freeRunning ? spec.loadTorque : 0;
+      const net = torque - load - friction;
       this.omegaMean += (net / inertia) * dt;
       const minOmega = (MIN_RPM * 2 * Math.PI) / 60;
       const maxOmega = (12000 * 2 * Math.PI) / 60;
@@ -1012,6 +1029,15 @@ export class EngineSim {
       // its own smoothing here — otherwise `rpm` reports the instantaneous value in
       // free-running mode and the smoothed one in fixed-rpm mode, and the display jitters.
       this.omegaDisplay += (this.omegaMean - this.omegaDisplay) * (dt / IRREGULARITY_TAU);
+      // Hard spark cut. Judged on the unsmoothed speed, as an ECU timing crank teeth does: the
+      // readout's smoothing lags by a tenth of a second, which would let the engine sail well past
+      // the limit before it noticed.
+      const limitOmega = (spec.revLimit * 2 * Math.PI) / 60;
+      if (this.omegaMean >= limitOmega) {
+        this.limiterCut = true;
+      } else if (this.omegaMean < ((spec.revLimit - REV_LIMIT_HYSTERESIS_RPM) * 2 * Math.PI) / 60) {
+        this.limiterCut = false;
+      }
     } else {
       // Holding a *mean* speed, not a rigid one.
       //
@@ -1027,6 +1053,9 @@ export class EngineSim {
       // instead leaves a DC term that drags the engine off the commanded speed by over
       // a hundred rpm, and by a load-dependent amount at that.
       this.omegaMean = (spec.rpm * 2 * Math.PI) / 60;
+      // Kept current, so the readout does not start from a stale speed when the hold lets go.
+      this.omegaDisplay = this.omegaMean;
+      this.limiterCut = false;
       this.torqueAvg += (torque - this.torqueAvg) * (dt / IRREGULARITY_TAU);
       const leak = Math.exp(-dt / (IRREGULARITY_TAU * 4));
       this.omegaRipple = this.omegaRipple * leak + ((torque - this.torqueAvg) / inertia) * dt;
@@ -1041,9 +1070,11 @@ export class EngineSim {
     let torqueSum = 0;
     let dpdtSum = 0;
 
+    const limiterCut = this.limiterCut;
     for (let b = 0; b < banks; b++) {
       const cyl = this.cyls[b]!;
       const angle = cyl.angle;
+      cyl.sparkCut = limiterCut;
       // This cylinder's own cam timing, a degree or two from nominal.
       this.computeLifts(b);
       const exLift = this.liftNow[b * 3]!;
@@ -1314,6 +1345,7 @@ export class EngineSim {
       banks,
       crankAngle: first.crankAngle,
       rpm: this.rpm,
+      limiter: this.limiterCut,
       cylPressure: first.cylPressure,
       cylTemp: first.cylTemp,
       exLift: first.exLift,

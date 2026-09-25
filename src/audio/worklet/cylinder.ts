@@ -72,6 +72,11 @@ export class Cylinder {
   private freshAtIvc = 0;
   /** Whether combustion has been armed for the cycle about to fire. */
   private armed = false;
+  /**
+   * Set by the rev limiter. Read when the charge is committed at intake valve closing, so a cycle
+   * is either fired whole or cut whole; a cut charge goes down the exhaust unburned.
+   */
+  sparkCut = false;
 
   /** Instantaneous gas torque at the crank, N*m. Updated by `advance`. */
   torque = 0;
@@ -328,7 +333,9 @@ export class Cylinder {
       this.qCycle = fresh * GAS.chargeEnergy * COMBUSTION_EFFICIENCY * qScale;
       this.freshAtIvc = fresh;
       this.burned = 0;
-      this.armed = true;
+      // The scatter is still drawn on a cut cycle, so the limiter does not shift the noise
+      // sequence of every cycle after it.
+      this.armed = !this.sparkCut;
     }
   }
 
