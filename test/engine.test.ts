@@ -269,20 +269,20 @@ describe('free-running crank dynamics', () => {
   }
 
   it('settles to a steady speed instead of running away or stalling', () => {
-    const rpm = settle({ throttle: 0.7, loadTorque: 20 });
+    const rpm = settle({ throttle: 0.7, load: 0.46 });
     expect(rpm).toBeGreaterThan(600);
     expect(rpm).toBeLessThan(11000);
   });
 
   it('more load slows it down', () => {
-    const light = settle({ throttle: 0.8, loadTorque: 12 });
-    const heavy = settle({ throttle: 0.8, loadTorque: 34 });
+    const light = settle({ throttle: 0.8, load: 0.28 });
+    const heavy = settle({ throttle: 0.8, load: 0.78 });
     expect(heavy).toBeLessThan(light * 0.95);
   });
 
   it('more throttle speeds it up', () => {
-    const low = settle({ throttle: 0.3, loadTorque: 16 });
-    const high = settle({ throttle: 1.0, loadTorque: 16 });
+    const low = settle({ throttle: 0.3, load: 0.37 });
+    const high = settle({ throttle: 1.0, load: 0.37 });
     expect(high).toBeGreaterThan(low * 1.05);
   });
 });

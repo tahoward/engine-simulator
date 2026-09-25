@@ -29,6 +29,7 @@ import {
   type PipeSegment,
   displacement,
   exhaustLayoutOf,
+  loadTorqueOf,
   ambientSoundSpeed,
   firingPlan,
   physicalBankCount,
@@ -425,6 +426,8 @@ export class EngineSim {
   private readonly tapBuffer = new Float32Array(PIPE_PRESSURE_TAPS);
   /** Cached swept volume, m^3; only changes when bore or stroke does. */
   private displacementM3 = 0;
+  /** Cached `loadTorqueOf(spec)`, N*m, so the per-sample path does not call for it. */
+  private loadTorqueNm = 0;
   /** The finite intake manifold. See `IntakePlenum` for why it has to be finite. */
   private readonly plenum: IntakePlenum;
 
@@ -452,6 +455,7 @@ export class EngineSim {
     this.graph = graph ?? config.graph ?? null;
     this.spec = { ...config.engine };
     this.displacementM3 = displacement(this.spec);
+    this.loadTorqueNm = loadTorqueOf(this.spec);
     this.pipe = config.pipe.map((s) => ({ ...s }));
     this.collectorPipe = (config.collector ?? []).map((s) => ({ ...s }));
     this.wg = this.buildExhaust();
@@ -504,6 +508,7 @@ export class EngineSim {
     const prevPhase = firingPlan(this.spec).offsets.join(',');
     this.spec = { ...this.spec, ...partial };
     this.displacementM3 = displacement(this.spec);
+    this.loadTorqueNm = loadTorqueOf(this.spec);
     if (!this.spec.freeRunning) {
       // Fixed-rpm mode follows the slider directly, until it reaches the limiter; from there the crank
       // runs on from wherever it is. See `integratingCrank`.
@@ -1018,7 +1023,7 @@ export class EngineSim {
       // a fixed N*m guess does not scale and lets the engine run away.
       const fmep = 0.8e5 + 120 * this.omegaMean;
       const friction = (fmep * this.displacementM3) / (4 * Math.PI);
-      const load = spec.freeRunning ? spec.loadTorque : 0;
+      const load = spec.freeRunning ? this.loadTorqueNm : 0;
       const net = torque - load - friction;
       this.omegaMean += (net / inertia) * dt;
       const minOmega = (MIN_RPM * 2 * Math.PI) / 60;

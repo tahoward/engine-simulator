@@ -308,7 +308,7 @@ describe('the gas state stays admissible while the cylinder empties', () => {
 
   it('free-running wind-down from full throttle to shut stays clean', () => {
     const cfg = defaultConfig();
-    cfg.engine = { ...cfg.engine, freeRunning: true, throttle: 1, loadTorque: 14 };
+    cfg.engine = { ...cfg.engine, freeRunning: true, throttle: 1, load: 0.32 };
     cfg.pipe = PIPE_PRESETS[1]!.build();
     const sim = new EngineSim(FS, cfg);
     sim.render(FS * 4);
