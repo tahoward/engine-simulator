@@ -92,3 +92,13 @@ for. Plain-language definitions of the terms are in the [Glossary](glossary.md).
   instantaneous heat transfer coefficient in the internal combustion engine." SAE Technical Paper
   670931. [doi:10.4271/670931](https://doi.org/10.4271/670931)
   — The in-cylinder heat loss model.
+- <a id="rhodes1985"></a>**Rhodes, D. B. and Keck, J. C. (1985).** "Laminar burning speed
+  measurements of indolene-air-diluent mixtures at high pressures and temperatures." SAE
+  Technical Paper 850047. [doi:10.4271/850047](https://doi.org/10.4271/850047)
+  — How the laminar flame speed changes with temperature, pressure, mixture and leftover
+  exhaust.
+- <a id="blizard1974"></a>**Blizard, N. C. and Keck, J. C. (1974).** "Experimental and theoretical
+  investigation of turbulent burning model for internal combustion engines." SAE Technical Paper
+  740191. [doi:10.4271/740191](https://doi.org/10.4271/740191)
+  — The burn as a flame front taking in turbulent eddies, each of which then burns out at the
+  laminar speed.

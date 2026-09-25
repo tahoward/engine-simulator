@@ -73,6 +73,9 @@ export interface PipeSegment {
  */
 export type CylinderCount = 1 | 2 | 3 | 4 | 5 | 6 | 8;
 
+/** Valves on one side of a cylinder: one for a two-valve head, two for a four-valve head. */
+export type ValveCount = 1 | 2;
+
 /**
  * Crank arrangement, where an engine has a choice of one.
  *
@@ -158,8 +161,14 @@ export interface EngineSpec {
   compressionRatio: number;
 
   // --- Valves ---
-  /** Exhaust valve head diameter, m. */
+  /** Exhaust valve head diameter, m: each valve's, where there are two. */
   exValveDia: number;
+  /**
+   * Exhaust valves per cylinder, 1 or 2. A four-valve head has two of each, and two valves open
+   * more curtain than one of the same total area: at the same lift, √2 as much. That is why four
+   * valves are what lets an engine breathe at high rpm.
+   */
+  exValveCount: ValveCount;
   /**
    * Length of the exhaust port, from the valve seat to the header flange, m.
    *
@@ -170,8 +179,10 @@ export interface EngineSpec {
    * tuned length is measured from the valve, which is where a real one is measured.
    */
   portLength: number;
-  /** Intake valve head diameter, m. */
+  /** Intake valve head diameter, m: each valve's, where there are two. */
   inValveDia: number;
+  /** Intake valves per cylinder, 1 or 2. See `exValveCount`. */
+  inValveCount: ValveCount;
   /** Peak valve lift, m. Applies to both valves. */
   maxLift: number;
   /** Exhaust valve opens, deg ATDC. Typically ~130 (i.e. 50 deg BBDC). */
@@ -633,6 +644,14 @@ export function loadTorqueOf(spec: EngineSpec): number {
   return spec.load * fullLoadTorque(spec);
 }
 
+/**
+ * Diameter of the exhaust port, m: one duct that the exhaust valves share, of the same area as
+ * their heads together. Every exhaust starts from it.
+ */
+export function exhaustPortDiameter(spec: EngineSpec): number {
+  return spec.exValveDia * Math.sqrt(spec.exValveCount);
+}
+
 /** Clearance (TDC) volume, m^3. */
 export function clearanceVolume(spec: EngineSpec): number {
   return displacement(spec) / (spec.compressionRatio - 1);
@@ -1056,8 +1075,10 @@ export const DEFAULT_ENGINE: EngineSpec = {
   compressionRatio: 10.5,
 
   exValveDia: 0.034,
+  exValveCount: 1,
   portLength: 0.055,
   inValveDia: 0.04,
+  inValveCount: 1,
   maxLift: 0.0095,
   evo: 128,
   evc: 378,
@@ -1561,7 +1582,7 @@ export function collectorGroups(spec: EngineSpec): number[] {
  *
  * The sizing rules are ordinary exhaust practice rather than anything derived:
  *
- * - Primary bore about 0.85x the exhaust valve, which is what a header builder uses.
+ * - Primary bore about 0.85x the exhaust port, which is what a header builder uses.
  * - Collector bore scaled as the square root of the number of pipes feeding it, so the gas sees
  *   roughly constant velocity through the merge.
  * - Total path around 2.2 m for a road system. This is the part that matters most: it puts the
@@ -1583,7 +1604,7 @@ export function fittedExhaust(spec: EngineSpec): ExhaustSizing {
   const perCollector = collectorCount > 0 ? spec.cylinders / collectorCount : 1;
 
   // Primary: bore from the valve it is bolted to, length a typical header runner.
-  const dPrimary = Math.max(0.85 * spec.exValveDia, 0.02);
+  const dPrimary = Math.max(0.85 * exhaustPortDiameter(spec), 0.02);
   const primaryLength = layout === 'open' ? 0.75 : 0.45;
   const pipe: PipeSegment[] = [
     makeSegment({ kind: 'pipe', length: primaryLength, dIn: dPrimary }),
@@ -1681,6 +1702,21 @@ function fullSpec(engine: Partial<EngineSpec>): EngineSpec {
 }
 
 /**
+ * A four-valve head's valves for `bore`, as the presets with overhead cams use.
+ *
+ * Every engine here with overhead cams has a four-valve head, two intake and two exhaust valves, and is
+ * given one. The sizes are a typical four-valve head's for the bore, each intake valve 0.40 of it and
+ * each exhaust 0.34, rather than any one engine's published figures. Two of those open about 1.6 times
+ * the area one valve of a two-valve head does for the same bore, and without them these engines choke
+ * on their own exhaust well before their rev limits.
+ *
+ * The single, the V-twins and the pushrod V8s keep two-valve heads, as the engines they copy have.
+ */
+function fourValveHead(bore: number): Pick<EngineSpec, 'exValveDia' | 'exValveCount' | 'inValveDia' | 'inValveCount'> {
+  return { exValveDia: 0.34 * bore, exValveCount: 2, inValveDia: 0.4 * bore, inValveCount: 2 };
+}
+
+/**
  * Engines sized from their real counterparts, with exhausts fitted by `fittedExhaust`.
  *
  * Idle-ish cruising rpm chosen so each fires near the others' firing frequencies: a three at 2800 fires
@@ -1700,11 +1736,10 @@ const THREE_CYL: Partial<EngineSpec> = {
   stroke: 0.082,
   rodLength: 0.137,
   compressionRatio: 10,
-  exValveDia: 0.027,
-  inValveDia: 0.031,
+  ...fourValveHead(0.072),
   maxLift: 0.0085,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 4.79,
+  outputGain: 2.89,
 };
 
 const FIVE_CYL: Partial<EngineSpec> = {
@@ -1721,11 +1756,10 @@ const FIVE_CYL: Partial<EngineSpec> = {
   stroke: 0.0928,
   rodLength: 0.144,
   compressionRatio: 10,
-  exValveDia: 0.031,
-  inValveDia: 0.036,
+  ...fourValveHead(0.0825),
   maxLift: 0.0095,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.85,
+  outputGain: 1.07,
 };
 
 const SIX_CYL: Partial<EngineSpec> = {
@@ -1742,11 +1776,10 @@ const SIX_CYL: Partial<EngineSpec> = {
   stroke: 0.0946,
   rodLength: 0.145,
   compressionRatio: 10.5,
-  exValveDia: 0.031,
-  inValveDia: 0.036,
+  ...fourValveHead(0.082),
   maxLift: 0.0095,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 2.33,
+  outputGain: 1.32,
 };
 
 const V6_60: Partial<EngineSpec> = {
@@ -1765,11 +1798,10 @@ const V6_60: Partial<EngineSpec> = {
   stroke: 0.0856,
   rodLength: 0.1545,
   compressionRatio: 10.5,
-  exValveDia: 0.035,
-  inValveDia: 0.041,
+  ...fourValveHead(0.094),
   maxLift: 0.01,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 2.1,
+  outputGain: 1.25,
 };
 
 /**
@@ -1792,11 +1824,10 @@ const BOXER_FOUR: Partial<EngineSpec> = {
   stroke: 0.079,
   rodLength: 0.1305,
   compressionRatio: 10,
-  exValveDia: 0.03,
-  inValveDia: 0.036,
-  maxLift: 0.0095,
+  ...fourValveHead(0.0995),
+  maxLift: 0.0105,
   // Level-matched to the inline four, as the other presets are: RMS over two seconds, each at its own rpm.
-  outputGain: 2.9,
+  outputGain: 1.2,
 };
 
 const BOXER_SIX: Partial<EngineSpec> = {
@@ -1814,11 +1845,10 @@ const BOXER_SIX: Partial<EngineSpec> = {
   stroke: 0.0815,
   rodLength: 0.1275,
   compressionRatio: 11.3,
-  exValveDia: 0.0355,
-  inValveDia: 0.0405,
+  ...fourValveHead(0.097),
   maxLift: 0.011,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.68,
+  outputGain: 0.97,
 };
 
 export const ENGINE_PRESETS: EnginePreset[] = [
@@ -1894,14 +1924,11 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       bore: 0.073,
       stroke: 0.06,
       rodLength: 0.11,
-      // Valves scaled to this bore. Left at the single's 34 mm they would be enormous for a 73 mm
-      // cylinder, which sharpens the blowdown and brightens everything downstream of it.
-      exValveDia: 0.028,
-      inValveDia: 0.032,
+      ...fourValveHead(0.073),
       maxLift: 0.008,
       // A silenced system really is 10-15 dB quieter than an open pipe, which is correct and also
       // makes a preset sound thin next to one. Level-matched to the single instead.
-      outputGain: 3.53,
+      outputGain: 3.15,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.42, dIn: 0.034 })],
     // A real exhaust system, not an open header: something over two metres of it, with a
@@ -2062,10 +2089,9 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       stroke: 0.067,
       rodLength: 0.132,
       compressionRatio: 12,
-      exValveDia: 0.038,
-      inValveDia: 0.044,
+      ...fourValveHead(0.094),
       maxLift: 0.0105,
-      outputGain: 1.03,
+      outputGain: 0.94,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.44, dIn: 0.042 })],
     collector: () => [
@@ -2098,11 +2124,12 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       cylinders: 2,
       vAngle: 0,
       firingOffset: 360,
+      ...fourValveHead(DEFAULT_ENGINE.bore),
       exhaustLayout: '2into1',
       rpm: 3600,
       // A modern 1200 cc parallel twin's.
       revLimit: 7500,
-      outputGain: 0.74,
+      outputGain: 0.64,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.04 })],
     collector: () => [

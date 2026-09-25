@@ -31,6 +31,18 @@ why it matters.
   down to 0.1 may clamp the gas temperature. Exhaust gas flowing back in must arrive at port
   temperature. A free wind-down from full throttle to closed must stay clean. Tracking
   temperature instead of energy as the cylinder's state fails three of these.
+- **Combustion.** The laminar flame speed must match the correlation at room conditions, rise
+  with temperature, fall with pressure and leftover exhaust, and be zero outside the flammability
+  limits. The burn duration must equal the reference at the reference state, lengthen with rpm by
+  much less than a burn taking a fixed time would, and come out longer at part throttle and lean
+  in the running engine. The advance map must retard the spark at low rpm and advance it at high
+  rpm and part throttle. An inline four bogged down under load must pull away on full throttle.
+  Lean mixtures must release less heat, rich ones no more than stoichiometric, and λ 2 must
+  misfire. With the fuel cut, a shut throttle at 3200 rpm must leave no fuel in the manifold and
+  fire no cycles, and opening the throttle must bring every cycle back.
+- **Valves per cylinder.** The boxer four's torque at full throttle must hold from 3600 to 6200
+  rpm on its four-valve head, and fall well away with one valve of each. Each valve must open along
+  its own stem in the 3D view, with two per side on a four-valve head.
 - **Thermal.** The pipe wall must warm steadily and slowly from cold: two seconds must not get
   close to equilibrium. It must be cooler downstream than at the flange, sit between gas and
   outside air temperature, cool when airflow rises, and warm more slowly when thicker. Editing

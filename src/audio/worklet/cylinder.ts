@@ -742,8 +742,8 @@ const REF_VISCOSITY = kinematicViscosity(650, 13e5);
  * Share of the burn, at the reference state, that is the burn-up of eddies behind the flame front
  * rather than the front's travel across the chamber. Calibrated, not derived. On the default single at
  * 0.35, the burn lengthens by about a quarter from full throttle to a manifold at 0.4 bar, and by
- * three quarters from 1000 to 6000 rpm: 36 to 63 degrees, where a burn taking a fixed time would go
- * up sixfold.
+ * two thirds from 1000 to 6000 rpm: 39 to 66 degrees, where a burn taking a fixed time would go up
+ * sixfold.
  */
 const BURNUP_SHARE = 0.35;
 
@@ -774,9 +774,10 @@ const MIN_ADVANCE = 0;
  *
  * An engine's ignition map exists to do this, because the burn does not take a fixed number of
  * degrees. With the spark held, a fast burn at low rpm peaks before top dead centre and pushes against
- * the piston, and a slow one at part throttle peaks too late to do work. That is also why the map is
- * advanced at part throttle and retarded near idle, both of which come out of this. Held within
- * `MIN_ADVANCE` and `MAX_ADVANCE` of top dead centre, as a real map is.
+ * the piston, and a slow one at part throttle peaks too late to do work. So the spark comes out
+ * retarded at low rpm and full throttle, and advanced at part throttle, with residual gas, lean,
+ * and at high rpm, as a real map's is. Held within `MIN_ADVANCE` and `MAX_ADVANCE` of top dead
+ * centre.
  */
 function advancedSpark(spec: EngineSpec, nominal: number, predicted: number): number {
   const shifted = nominal - WIEBE_HALF * (predicted - spec.burnDuration);

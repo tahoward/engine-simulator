@@ -43,9 +43,21 @@ Where the model is simplified, and by how much.
   corrections (refinement steps), not solved fully. Its mass flow balance is close but not
   exact, and the remaining imbalance is reported as a diagnostic.
 - **A closed throttle still leaks.** It is modelled as 22 kPa manifold pressure, not a perfect
-  seal. That is realistic for throttle-plate clearance plus idle bypass. But there is no fuel
-  cut when coasting, so the engine keeps firing weakly instead of being turned over with no
-  combustion.
+  seal. That is realistic for throttle-plate clearance plus idle bypass.
+- **The burn duration's model has two calibrated constants.** How the burn splits between the
+  flame front's travel and the burn-out behind it (0.35 burn-out at the reference state) and the
+  mixture speed below which the spark starts to fail (half a stoichiometric one's) are chosen, not
+  derived. The laminar speed's correction for leftover exhaust is measured only up to about 30%,
+  and is held at a floor above that.
+- **Rich mixtures make no extra power.** A real engine peaks near λ 0.85-0.9, from fuel evaporation
+  cooling the charge and the extra gas molecules rich combustion produces. Neither is modelled,
+  so here torque is flat, or falls slightly, rich of stoichiometric.
+- **The exhaust carries no chemistry.** Unburned fuel from a rich mixture, a misfire or the rev
+  limiter goes down the pipe as ordinary exhaust gas. So there is no afterfire or popping on the
+  overrun.
+- **The fuel is metered at the throttle, not in each port.** It reaches the cylinders through
+  the manifold, a cycle or so later. A port injector's fuel film on the port walls delays it about
+  as much. There is no knock model, so an over-advanced spark just loses power.
 
 ## Sources
 

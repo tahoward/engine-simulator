@@ -11,7 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import { burnAngle, laminarFlameSpeed, laminarSpeedBase } from '../src/audio/worklet/cylinder.js';
 import { EngineSim } from '../src/audio/worklet/engineSim.js';
-import { DEFAULT_ENGINE, PIPE_PRESETS, defaultConfig, type EngineSpec } from '../src/model/spec.js';
+import { DEFAULT_ENGINE, ENGINE_PRESETS, PIPE_PRESETS, defaultConfig, type EngineSpec } from '../src/model/spec.js';
 
 const FS = 48000;
 
@@ -123,6 +123,55 @@ describe('burn duration', () => {
   });
 });
 
+describe('advance map', () => {
+  /** Mean spark timing of cylinder 1 over a second, deg BTDC. */
+  function advance(over: Partial<EngineSpec>): number {
+    const sim = single(over);
+    sim.render(FS / 2);
+    const cyl = (sim as unknown as { cyls: { spark: number }[] }).cyls[0]!;
+    let sum = 0;
+    for (let i = 0; i < 20; i++) {
+      sim.render(FS / 20);
+      sum += 720 - cyl.spark;
+    }
+    return sum / 20;
+  }
+
+  it('retards where the burn is quick and advances where it is slow', () => {
+    const nominal = 720 - DEFAULT_ENGINE.ignition;
+    const low = advance({ throttle: 1, rpm: 1000 });
+    const high = advance({ throttle: 1, rpm: 6000 });
+    const part = advance({ throttle: 0.2, rpm: 3200 });
+    expect(low).toBeLessThan(nominal - 3);
+    expect(high).toBeGreaterThan(nominal + 2);
+    expect(part).toBeGreaterThan(nominal + 2);
+  });
+
+  it('holds the spark where it is set with the map off', () => {
+    const nominal = 720 - DEFAULT_ENGINE.ignition;
+    expect(advance({ throttle: 1, rpm: 1000, advanceCurve: false })).toBeCloseTo(nominal, 9);
+  });
+
+  /**
+   * A four bogged to its speed floor under load has to be able to pull away on full throttle. On fixed
+   * timing its burn is so short at 450 rpm that most of the heat is released before top dead centre,
+   * and it sits there making no power whatever the throttle does.
+   */
+  it('lets a bogged engine pull away', () => {
+    const four = ENGINE_PRESETS.find((p) => p.name === 'Inline four')!;
+    const cfg = defaultConfig();
+    cfg.engine = { ...cfg.engine, ...four.engine, freeRunning: true, load: 0.46, throttle: 0.1 };
+    cfg.pipe = four.pipe();
+    cfg.collector = four.collector!();
+    const sim = new EngineSim(FS, cfg);
+    sim.render(FS * 2);
+    expect(sim.rpm).toBeLessThan(600);
+    sim.setControls(1, cfg.engine.rpm, 0.46);
+    sim.render(FS * 3);
+    expect(sim.rpm).toBeGreaterThan(3000);
+  });
+});
+
 describe('mixture', () => {
   it('lean releases less heat per charge; rich has no more oxygen to release it with', () => {
     const stoich = watch(single({ throttle: 1, rpm: 3200 }), 1);
@@ -167,5 +216,36 @@ describe('overrun fuel cut', () => {
     watch(sim, 0.5);
     sim.setControls(0.5, 3200, 0);
     expect(watch(sim, 1).fired).toBe(1);
+  });
+});
+
+describe('valves per cylinder', () => {
+  /** Mean gas torque, N*m, of the boxer four at full throttle and `rpm`. */
+  function boxerTorque(rpm: number, over: Partial<EngineSpec> = {}): number {
+    const boxer = ENGINE_PRESETS.find((p) => p.name === 'Boxer four')!;
+    const cfg = defaultConfig();
+    cfg.engine = { ...cfg.engine, ...boxer.engine, freeRunning: false, throttle: 1, rpm, combustionVariability: 0, ...over };
+    cfg.pipe = boxer.pipe();
+    cfg.collector = boxer.collector!();
+    const sim = new EngineSim(FS, cfg);
+    sim.render(FS / 2);
+    const inner = sim as unknown as { torqueLast: number };
+    let t = 0;
+    for (let i = 0; i < FS / 2; i++) {
+      sim.render(1);
+      t += inner.torqueLast;
+    }
+    return t / (FS / 2);
+  }
+
+  /**
+   * A four-valve engine breathes to its rev limit. The same valves, one of each, choke it: the cylinder
+   * cannot empty through them, and torque falls away long before the limit.
+   */
+  it('lets a four-valve head breathe at high rpm, where one valve of each chokes', () => {
+    const four = boxerTorque(6200) / boxerTorque(3600);
+    const two = boxerTorque(6200, { exValveCount: 1, inValveCount: 1 }) / boxerTorque(3600, { exValveCount: 1, inValveCount: 1 });
+    expect(four).toBeGreaterThan(0.9);
+    expect(two).toBeLessThan(four - 0.15);
   });
 });

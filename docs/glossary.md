@@ -455,6 +455,27 @@ with gas entering and leaving through the valves.
 A standard S-shaped curve for how much of the fuel has burned at each crank angle during combustion.
 [Heywood 2018](references.md#heywood2018)
 
+### Laminar burning velocity
+
+How fast a flame moves through a still, premixed fuel-air mixture. For gasoline in an engine it is
+around half a metre to a metre per second. It rises steeply with temperature and falls with
+leftover exhaust in the charge. Turbulence spreads the flame much faster, but the laminar speed
+still sets how quickly the charge burns out behind it.
+[Rhodes and Keck 1985](references.md#rhodes1985)
+
+### Air-fuel ratio and lambda
+
+The mass of air per mass of fuel. Gasoline burns completely at about 14.7:1, the
+*stoichiometric* ratio. *λ* is the actual ratio divided by that: below 1 is rich (more fuel than
+the air can burn), above 1 is lean. The *equivalence ratio* φ is its inverse.
+[Wikipedia](https://en.wikipedia.org/wiki/Air%E2%80%93fuel_ratio)
+
+### Mean piston speed
+
+Twice the stroke times the revolutions per second: how fast the piston moves on average. Most
+engines run between 5 and 20 m/s. The turbulence in the cylinder scales with it.
+[Wikipedia](https://en.wikipedia.org/wiki/Mean_piston_speed)
+
 ### Woschni model
 
 A standard formula for the heat transfer coefficient between cylinder gas and the cylinder walls,

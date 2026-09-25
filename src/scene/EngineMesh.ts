@@ -26,6 +26,7 @@ import {
   type EngineSpec,
   clearanceVolume,
   crankPins,
+  exhaustPortDiameter,
   cylinderSpacing,
   firingPlan,
   physicalBank,
@@ -50,8 +51,8 @@ interface CylinderMesh {
   /** Rotated to the cylinder's bank axis and translated along Z; holds the moving parts. */
   group: THREE.Group;
   piston: THREE.Group;
-  exValve: THREE.Group;
-  inValve: THREE.Group;
+  exValves: THREE.Group[];
+  inValves: THREE.Group[];
   /** Which side of the head, in the cylinder's own frame, the exhaust comes out of: +1 is +X. */
   exhaustSide: number;
   /** Lives outside `group`: it spans from the crankpin to this cylinder's piston. */
@@ -240,9 +241,9 @@ export class EngineMesh {
     group.add(piston);
 
     // --- valves ---
-    const exValve = this.buildValve(s.exValveDia, exhaustSide, true);
-    const inValve = this.buildValve(s.inValveDia, -exhaustSide, false);
-    group.add(exValve, inValve);
+    const exValves = this.buildValves(s.exValveDia, s.exValveCount, exhaustSide, true);
+    const inValves = this.buildValves(s.inValveDia, s.inValveCount, -exhaustSide, false);
+    group.add(...exValves, ...inValves);
 
     // --- block, in this cylinder's frame ---
     this.buildCastings(group, clip);
@@ -275,8 +276,8 @@ export class EngineMesh {
     return {
       group,
       piston,
-      exValve,
-      inValve,
+      exValves,
+      inValves,
       exhaustSide,
       rod,
       flame,
@@ -287,7 +288,17 @@ export class EngineMesh {
     };
   }
 
-  private buildValve(dia: number, sign: number, exhaust: boolean): THREE.Group {
+  /** One side's valves: one on the cylinder's mid-plane, or a pair either side of it along the crank. */
+  private buildValves(dia: number, count: number, sign: number, exhaust: boolean): THREE.Group[] {
+    const out: THREE.Group[] = [];
+    for (let i = 0; i < count; i++) {
+      const z = count === 1 ? 0 : (i === 0 ? -1 : 1) * (dia / 2 + 0.001);
+      out.push(this.buildValve(dia, sign, exhaust, z));
+    }
+    return out;
+  }
+
+  private buildValve(dia: number, sign: number, exhaust: boolean, z: number): THREE.Group {
     const s = this.spec;
     const group = new THREE.Group();
 
@@ -319,7 +330,8 @@ export class EngineMesh {
     group.add(spring);
 
     group.rotation.z = -sign * this.valveTilt;
-    group.position.set(sign * s.bore * 0.24, this.deckY, 0);
+    group.position.set(sign * s.bore * 0.24, this.deckY, z);
+    group.userData.z = z;
     return group;
   }
 
@@ -390,6 +402,8 @@ export class EngineMesh {
       spec.compressionRatio !== this.spec.compressionRatio ||
       spec.exValveDia !== this.spec.exValveDia ||
       spec.inValveDia !== this.spec.inValveDia ||
+      spec.exValveCount !== this.spec.exValveCount ||
+      spec.inValveCount !== this.spec.inValveCount ||
       spec.cylinders !== this.spec.cylinders ||
       spec.crankType !== this.spec.crankType ||
       spec.firingOffset !== this.spec.firingOffset ||
@@ -440,8 +454,10 @@ export class EngineMesh {
       mesh.rod.scale.set(1, axis.length(), 1);
       mesh.rod.quaternion.setFromUnitVectors(AXIS_Y, axis.normalize());
 
-      this.poseValve(mesh.exValve, mesh.exhaustSide, valveLift(snap.crankAngle, s.evo, s.evc, s.maxLift));
-      this.poseValve(mesh.inValve, -mesh.exhaustSide, valveLift(snap.crankAngle, s.ivo, s.ivc, s.maxLift));
+      const exLift = valveLift(snap.crankAngle, s.evo, s.evc, s.maxLift);
+      const inLift = valveLift(snap.crankAngle, s.ivo, s.ivc, s.maxLift);
+      for (const v of mesh.exValves) this.poseValve(v, mesh.exhaustSide, exLift);
+      for (const v of mesh.inValves) this.poseValve(v, -mesh.exhaustSide, inLift);
 
       const mat = mesh.flame.material as THREE.MeshBasicMaterial;
       mat.opacity = Math.min(burnGlow[i] ?? 0, 1) * 0.75;
@@ -460,7 +476,7 @@ export class EngineMesh {
   private poseValve(group: THREE.Group, sign: number, lift: number): void {
     const stem = new THREE.Vector3(0, 1, 0).applyAxisAngle(AXIS_Z, group.rotation.z);
     group.position
-      .set(sign * this.spec.bore * 0.24, this.deckY, 0)
+      .set(sign * this.spec.bore * 0.24, this.deckY, group.userData.z as number)
       .addScaledVector(stem, -lift);
   }
 
@@ -506,7 +522,7 @@ export class EngineMesh {
 
   /** Diameter the port should hand off to the first pipe segment, m. */
   get portDiameter(): number {
-    return this.spec.exValveDia * 0.95;
+    return exhaustPortDiameter(this.spec) * 0.95;
   }
 }
 
