@@ -186,8 +186,34 @@ export interface EngineSpec {
   // --- Combustion ---
   /** Spark timing, deg ATDC. Negative / >540 means before TDC firing. */
   ignition: number;
-  /** Wiebe burn duration, deg. */
+  /**
+   * Wiebe burn duration at the reference flame state, deg: a stoichiometric charge at 13 bar and
+   * 650 K with 4% residual, at 10 m/s mean piston speed. That is roughly any naturally aspirated
+   * engine at full throttle.
+   *
+   * The duration each cycle actually burns over is worked out from this at the spark, from the
+   * charge's own flame speed: longer at part throttle and with residual gas, longer lean, and
+   * somewhat longer the faster the engine turns. See `burnAngle` in cylinder.ts.
+   */
   burnDuration: number;
+  /**
+   * Air-fuel equivalence ratio λ: the air-fuel ratio as a multiple of stoichiometric. 1 is
+   * stoichiometric, below 1 rich, above 1 lean.
+   *
+   * The fuel is metered in proportion to the air past the throttle, so this is the mixture the
+   * cylinders draw once the manifold has settled. Lean, every kilogram of charge carries less
+   * fuel and burns slower; rich, the extra fuel has no oxygen to burn with and goes out unburned.
+   */
+  lambda: number;
+  /**
+   * Overrun fuel cut, as a fuel-injected engine's ECU does it: with the throttle shut above
+   * `FUEL_CUT_RPM` the fuel stops, and it comes back below `FUEL_RESUME_RPM` or as soon as the
+   * throttle opens. The engine is then turned over by its load, pumping air.
+   *
+   * Off, a closed throttle keeps feeding fuel with the air that leaks past it, as a carburettor
+   * does, and the engine keeps firing weakly on the overrun.
+   */
+  fuelCut: boolean;
   /**
    * Cycle-to-cycle combustion scatter, 0..1 (1 = realistic amount).
    *
@@ -398,6 +424,8 @@ export interface EngineSnapshot {
   rpm: number;
   /** Whether the rev limiter is cutting the spark right now. */
   limiter: boolean;
+  /** Whether the overrun fuel cut has stopped the fuel right now. */
+  fuelCut: boolean;
   /** Cylinder pressure, Pa. Bank 0. */
   cylPressure: number;
   /** Cylinder gas temperature, K. Bank 0. */
@@ -479,9 +507,31 @@ export const GAS = {
   tAmb: 293,
   /** Cylinder wall temperature, K. */
   tWall: 450,
-  /** Lower heating value of a stoichiometric gasoline/air charge, J per kg of mixture. */
-  chargeEnergy: 2.75e6,
+  /** Lower heating value of gasoline, J/kg. */
+  fuelLhv: 43.2e6,
+  /** Stoichiometric air-fuel ratio of gasoline, by mass. */
+  afrStoich: 14.7,
 } as const;
+
+/**
+ * Throttle opening at or below which the throttle counts as shut for the overrun fuel cut. The pedal
+ * is off; the plate sits on its stop with the idle bypass open.
+ */
+export const FUEL_CUT_THROTTLE = 0.005;
+
+/**
+ * Speeds at which the overrun fuel cut acts, rev/min: the fuel stops above the first with the
+ * throttle shut, and returns below the second, so the engine settles into its idle rather than
+ * stalling. The gap is what a production ECU leaves so the cut does not toggle on the crank's own
+ * ripple.
+ */
+export const FUEL_CUT_RPM = 1500;
+export const FUEL_RESUME_RPM = 1200;
+
+/** Fuel mass fraction of a charge mixed at `lambda`, 0..1. */
+export function fuelFractionAt(lambda: number): number {
+  return 1 / (1 + Math.max(lambda, 0.05) * GAS.afrStoich);
+}
 
 /**
  * Specific heat of the gas in the cylinder and the plenum, J/(kg*K), rising linearly with
@@ -1005,6 +1055,8 @@ export const DEFAULT_ENGINE: EngineSpec = {
 
   ignition: 695, // 25 deg BTDC
   burnDuration: 55,
+  lambda: 1,
+  fuelCut: true,
   combustionVariability: 1,
   recipMass: 0.55,
   throttle: 0.75,
