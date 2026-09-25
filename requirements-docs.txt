@@ -1,0 +1,7 @@
+# Documentation toolchain. The site is built by .github/workflows/deploy.yml
+# and can be previewed locally with `npm run docs:serve`.
+#
+# Pinned to minor versions so a CI run months from now builds the same site
+# that was reviewed locally.
+mkdocs~=1.6
+mkdocs-material~=9.7

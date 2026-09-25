@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Engine Sound Simulator — physically modelled engines and exhausts</title>
+    <meta
+      name="description"
+      content="Engines from one to eight cylinders simulated from crank-angle thermodynamics, with a 1D gas-dynamics exhaust you can build yourself."
+    />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2314171c'/%3E%3Cpath d='M6 20h7l4-8 4 8h5' fill='none' stroke='%234fd1ff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <main id="app">
+      <section id="stage">
+        <div id="viewport"></div>
+        <div id="hud"></div>
+        <canvas id="scope"></canvas>
+        <div id="overlay">
+          <div class="overlay-card">
+            <h1>Engine simulator</h1>
+            <p>
+              The sound here is not a recording or a filtered oscillator. A
+              crank-angle thermodynamic model works out the cylinder pressure; the
+              exhaust valve is a compressible orifice; and the pipe you build is
+              solved as one-dimensional gas dynamics, where pressure waves actually
+              travel, steepen, reflect off every change in area and junction, and
+              radiate from the open end.
+            </p>
+            <ul>
+              <li><strong>Drag the blue spheres</strong> to lengthen and angle each length of pipe.</li>
+              <li><strong>Drag the rings</strong> to open up or choke down a diameter.</li>
+              <li>Or type exact dimensions into the panel on the right.</li>
+              <li><strong>Space</strong> starts and stops.</li>
+            </ul>
+            <button id="start" class="primary">Start the engine</button>
+            <p class="fine">Turn your volume down first — an open header is genuinely loud.</p>
+          </div>
+        </div>
+      </section>
+      <aside id="panel"></aside>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
