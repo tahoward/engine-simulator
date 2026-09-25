@@ -396,7 +396,7 @@ per cycle.
 
 *Top dead centre*: the piston's highest point. Each cylinder passes it twice per cycle, once to fire
 and once during valve overlap.
-[Wikipedia](https://en.wikipedia.org/wiki/Dead_center)
+[Wikipedia](https://en.wikipedia.org/wiki/Dead_centre_(engineering))
 
 ### Firing order
 
