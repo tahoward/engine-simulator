@@ -103,16 +103,16 @@ describe('the exhaust the user builds changes the sound', () => {
     const muffled = rms(run({}, 3).render(FFT_SIZE));
     const dB = 20 * Math.log10(open / muffled);
 
-    // Around 5 dB, and that is the right order for a *single* expansion chamber. Its
+    // Around 8 dB, and that is the right order for a *single* expansion chamber. Its
     // transmission loss is 10*log10(1 + 0.25*(m - 1/m)^2 * sin^2(kL)); with an area
     // ratio of 9.6 the peak is about 13 dB near 330 Hz, but it falls to exactly zero at
     // c/2L (~660 Hz) and every multiple, so broadband attenuation is far lower than the
     // peak. Real single-chamber boxes behave the same way, which is why silencers use
     // several chambers of different lengths.
     //
-    // The linear waveguide reported 8.2 dB here; the Euler solver's ~5 dB is the more
-    // honest figure.
-    expect(dB).toBeGreaterThan(3.5);
+    // The floor depends on the discretised can keeping its drawn volume; see
+    // `limitAreaRatio`. With the ramps taken out of the body it drops to about 6.4 dB.
+    expect(dB).toBeGreaterThan(7.2);
     expect(dB).toBeLessThan(14);
   });
 

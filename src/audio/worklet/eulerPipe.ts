@@ -31,14 +31,21 @@
  */
 
 import {
+  CHAMBER_THROAT,
   GAS,
   PIPE_PRESSURE_TAPS,
   type PipeSegment,
   ambientSoundSpeed,
+  chamberBody,
+  chamberOffsets,
   pipeTemperature,
+  sectionArea,
+  sectionPerimeter,
   segmentDiameter,
+  segmentSection,
   speedOfSound,
 } from '../../model/spec.js';
+import { type ChamberPlacement, CrossModes } from './crossModes.js';
 import { clamp } from './dsp.js';
 import { EulerKernel, type JunctionField, type KernelField } from './kernel.js';
 import { ORIFICE_IO, orificeSolve, VALVE_CD } from './valve.js';
@@ -341,9 +348,21 @@ export class EulerPipe {
   private readonly areaCell: Float64Array;
   private readonly areaFace: Float64Array;
   private readonly diaCell: Float64Array;
+  /**
+   * Hydraulic diameter per cell, `4A / P`, m. The same as `diaCell` for a round duct and smaller for
+   * a flat one, which has more wall for its area. Friction and heat transfer use this one.
+   */
+  private readonly hydDia: Float64Array;
+  /**
+   * Wetted perimeter per cell over that of a circle of the same area: exactly 1 for a round duct,
+   * more for a flat one. See `BuiltGeometry.shapeCell`.
+   */
+  private readonly shapeCell: Float64Array;
+  /** The cross-wise modes of any chambers in this duct, or `null` if none has one worth keeping. */
+  readonly crossModes: CrossModes | null;
   /** 1/(cell volume), precomputed: the update needs it every cell, every substep. */
   private readonly invVol: Float64Array;
-  /** 1/diameter, for the friction term. */
+  /** 1/(hydraulic diameter), for the friction term. */
   private readonly invDia: Float64Array;
   /** Slowly tracked mean velocity per cell, m/s, so acoustic damping can skip it. */
   private readonly uMean: Float64Array;
@@ -552,13 +571,16 @@ export class EulerPipe {
     this.areaFace = face('areaFace');
     this.areaFace.set(built.areaFace);
     this.diaCell = built.diaCell;
+    this.shapeCell = built.shapeCell;
+    this.hydDia = new Float64Array(this.n);
+    for (let i = 0; i < this.n; i++) this.hydDia[i] = this.diaCell[i]! / this.shapeCell[i]!;
     this.invVol = cell('invVol');
     this.invDia = cell('invDia');
     this.uMean = cell('uMean');
     this.contractionK = cell('contractionK');
     for (let i = 0; i < this.n; i++) {
       this.invVol[i] = 1 / (this.areaCell[i]! * this.dx);
-      this.invDia[i] = 1 / this.diaCell[i]!;
+      this.invDia[i] = 1 / this.hydDia[i]!;
       const aIn = this.areaFace[i]!;
       const aOut = this.areaFace[i + 1]!;
       const k = aOut < aIn ? 0.5 * (1 - aOut / aIn) : 0;
@@ -594,12 +616,16 @@ export class EulerPipe {
     this.gasDecay.fill(1);
     for (let i = 0; i < this.n; i++) {
       this.cellVolume[i] = this.areaCell[i]! * this.dx;
-      this.outerArea[i] = Math.PI * (this.diaCell[i]! + 2 * this.wallThickness) * this.dx;
+      // The outer wall is the inner one offset by the thickness, which for any convex section adds
+      // the perimeter of a circle of that radius.
+      const d = this.shapeCell[i]! * this.diaCell[i]!;
+      this.outerArea[i] = Math.PI * (d + 2 * this.wallThickness) * this.dx;
     }
     const initTempForWall = opts.initialPortTemp ?? portGasTemp;
     for (let i = 0; i < this.n; i++) {
-      const d = this.diaCell[i]!;
-      // Thin-wall mass: density * (perimeter * thickness) * length.
+      // Thin-wall mass: density * (mid-wall perimeter * thickness) * length, the perimeter being
+      // that of the circle with the same wall, `pi * shape * d`.
+      const d = this.shapeCell[i]! * this.diaCell[i]!;
       const mass = WALL_RHO * Math.PI * (d + this.wallThickness) * this.wallThickness * this.dx;
       this.wallHeatCapacity[i] = Math.max(mass * WALL_CP, 1e-6);
       this.invWallHeatCapacity[i] = 1 / this.wallHeatCapacity[i]!;
@@ -629,6 +655,18 @@ export class EulerPipe {
       const t = pipeTemperature(initTemp, x);
       this.setPrimitive(i, GAS.pAmb / (GAS.R * t), 0, GAS.pAmb);
     }
+
+    const cross = new CrossModes(
+      built.chambers,
+      this.n,
+      this.dx,
+      this.rho,
+      this.mom,
+      this.en,
+      this.areaCell,
+      this.invVol,
+    );
+    this.crossModes = cross.count > 0 ? cross : null;
 
     const mouthRadius = Math.max(this.diaCell[this.n - 1]! / 2, 5e-3);
     const mouthT = pipeTemperature(initTemp, this.totalLength);
@@ -933,6 +971,7 @@ export class EulerPipe {
     }
     this.mouthRefState = 0;
     this.mouthCutState = 0;
+    this.crossModes?.reset();
     this.lastMaxSpeed = speedOfSound(this.meanWallTemp()) * 1.5;
   }
 
@@ -1140,6 +1179,11 @@ export class EulerPipe {
     if (kernel !== null) kernel.update(this.n, this.boundaryDt, this.linearDamping, this.darcy);
     else this.updateCellsTs(this.boundaryDt);
     this.applyValveSource(valve);
+    const cross = this.crossModes;
+    if (cross !== null) {
+      cross.dt = this.boundaryDt;
+      cross.step();
+    }
   }
 
   private updateCellsTs(dt: number): void {
@@ -1455,7 +1499,7 @@ export class EulerPipe {
 
     for (let i = 0; i < this.n; i++) {
       const r = this.rho[i]!;
-      const d = this.diaCell[i]!;
+      const d = this.hydDia[i]!;
       // On the *averaged* mass flux, not the instantaneous one — see `FLUX_AVERAGE_TAU`.
       const re = (this.fluxAvg[i]! * d) / MU;
       const nu = Math.max(
@@ -1537,7 +1581,8 @@ export class EulerPipe {
     const NU_AIR = 1.5e-5; // m^2/s
     const v = Math.max(airSpeed, 0);
     for (let i = 0; i < this.n; i++) {
-      const dOut = this.diaCell[i]! + 2 * this.wallThickness;
+      // The diameter of a round pipe with the same outer wall, which is what the correlation is for.
+      const dOut = this.shapeCell[i]! * this.diaCell[i]! + 2 * this.wallThickness;
       const re = (v * dOut) / NU_AIR;
       const forced = re > 1 ? (K_AIR / dOut) * 0.26 * Math.pow(re, 0.6) : 0;
       this.hExt[i] = Math.max(9, forced);
@@ -1791,6 +1836,7 @@ export class EulerPipe {
   reset(): void {
     this.mouthRefState = 0;
     this.mouthCutState = 0;
+    this.crossModes?.reset();
   }
 }
 
@@ -2047,6 +2093,12 @@ interface BuiltGeometry {
   areaCell: Float64Array;
   areaFace: Float64Array;
   diaCell: Float64Array;
+  /**
+   * Wetted perimeter per cell over `pi * diaCell`. Kept as a ratio, exactly 1 where the duct is round,
+   * so a round duct's wall and friction terms come out bit for bit as they would without it.
+   */
+  shapeCell: Float64Array;
+  chambers: ChamberPlacement[];
 }
 
 /**
@@ -2122,7 +2174,9 @@ function buildGeometry(
     acc += l;
   }
 
-  const diameterAt = (x: number): number => {
+  // Segment index and normalised position at `x`, written into `at` so nothing is allocated per face.
+  const at = { si: 0, u: 0 };
+  const locate = (x: number): void => {
     let si = segments.length - 1;
     for (let k = 0; k < segments.length; k++) {
       if (x < starts[k]! + lengths[k]!) {
@@ -2130,9 +2184,26 @@ function buildGeometry(
         break;
       }
     }
-    const u = clamp((x - starts[si]!) / Math.max(lengths[si]!, 1e-9), 0, 1);
-    return segmentDiameter(segments[si]!, u);
+    at.si = si;
+    at.u = clamp((x - starts[si]!) / Math.max(lengths[si]!, 1e-9), 0, 1);
   };
+  const diameterAt = (x: number): number => {
+    locate(x);
+    return segmentDiameter(segments[at.si]!, at.u);
+  };
+
+  const chambers: ChamberPlacement[] = [];
+  segments.forEach((seg, k) => {
+    if (seg.kind !== 'chamber') return;
+    const [offIn, offOut] = chamberOffsets(seg);
+    chambers.push({
+      section: chamberBody(seg),
+      xIn: starts[k]! + CHAMBER_THROAT * lengths[k]!,
+      xOut: starts[k]! + (1 - CHAMBER_THROAT) * lengths[k]!,
+      inlet: { offset: offIn, diameter: seg.dIn },
+      outlet: { offset: offOut, diameter: seg.dIn },
+    });
+  });
 
   for (let f = 0; f <= count; f++) {
     const d = diameterAt(Math.min(f * dx, total - 1e-9));
@@ -2199,31 +2270,95 @@ function buildGeometry(
   // A chamber's step expansion still reads as a step: spread over three or four cells
   // it remains acoustically abrupt for everything below a few kHz, so mufflers keep
   // reflecting as they should.
-  for (let pass = 0; pass < 24; pass++) {
-    let changed = false;
-    for (let f = 0; f < count; f++) {
-      const a = areaFace[f]!;
-      const b = areaFace[f + 1]!;
-      if (b > a * MAX_RATIO) {
-        areaFace[f + 1] = a * MAX_RATIO;
-        changed = true;
-      } else if (a > b * MAX_RATIO) {
-        areaFace[f] = b * MAX_RATIO;
-        changed = true;
-      }
-    }
-    if (!changed) break;
-  }
+  limitAreaRatio(areaFace, MAX_RATIO);
 
+  const shapeCell = new Float64Array(count);
   for (let i = 0; i < count; i++) {
     // Cell area as the mean of its faces, so the cell and face geometry stay
     // consistent after limiting.
     const a = 0.5 * (areaFace[i]! + areaFace[i + 1]!);
     areaCell[i] = a;
     diaCell[i] = Math.sqrt((4 * a) / Math.PI);
+    // The drawn shape's perimeter over its equivalent circle's, applied to the limited area: a flat
+    // can has more wall per unit of area than a round one, and wall is what friction and heat act on.
+    locate(Math.min((i + 0.5) * dx, total - 1e-9));
+    const section = segmentSection(segments[at.si]!, at.u);
+    shapeCell[i] =
+      section.section === 'round'
+        ? 1
+        : sectionPerimeter(section) / (Math.PI * Math.sqrt((4 * sectionArea(section)) / Math.PI));
   }
 
   const portCells = hasPort ? Math.min(count - 1, Math.round(lengths[0]! / dx)) : 0;
 
-  return { count, dx, length: total, portCells, areaCell, areaFace, diaCell };
+  return { count, dx, length: total, portCells, areaCell, areaFace, diaCell, shapeCell, chambers };
+}
+
+/**
+ * Limit the face-to-face area ratio to `maxRatio`, in place, without changing the duct's volume.
+ *
+ * Shrinking only the larger side of a step is wrong for a chamber. On a 35 mm grid a 42 -> 130 mm
+ * muffler needs about five cells to ramp up and five to ramp down, and taking all of them out of the
+ * body turns the street muffler's 0.34 m can into a diamond peaking at 108 mm with 39% of its drawn
+ * volume. Volume is what sets a chamber's low-frequency attenuation, so it would muffle far less than
+ * the drawing says.
+ *
+ * So take both one-sided limits — `lo`, which only shrinks the large side (the ramp entirely
+ * inside the chamber), and `hi`, which only widens the small side (entirely in the pipes around it)
+ * — and blend them geometrically, `lo^(1-t) hi^t`. Both satisfy the ratio limit, so any blend does
+ * too, being a convex combination in log-area. Each stretch of faces the limit touched gets its own
+ * `t`, found by bisection so that stretch holds exactly the volume drawn. The step ends up where
+ * the drawing's volume says it is, straddling the drawn edge, rather than wholly on one side of it.
+ *
+ * Faces the limit did not touch are left exactly as drawn, and they separate the stretches, so
+ * each stretch can take its own `t` without breaking the limit where it meets the next.
+ */
+export function limitAreaRatio(areaFace: Float64Array, maxRatio: number): void {
+  const n = areaFace.length;
+  if (n < 2) return;
+  const lo = Float64Array.from(areaFace);
+  const hi = Float64Array.from(areaFace);
+  // Two sweeps give the exact envelope: min over g of A[g] R^|f-g|, and max of A[g] / R^|f-g|.
+  for (let f = 1; f < n; f++) {
+    lo[f] = Math.min(lo[f]!, lo[f - 1]! * maxRatio);
+    hi[f] = Math.max(hi[f]!, hi[f - 1]! / maxRatio);
+  }
+  for (let f = n - 2; f >= 0; f--) {
+    lo[f] = Math.min(lo[f]!, lo[f + 1]! * maxRatio);
+    hi[f] = Math.max(hi[f]!, hi[f + 1]! / maxRatio);
+  }
+
+  // A face's share of the volume, in cells: the end faces bound one cell, the rest two.
+  const weight = (f: number) => (f === 0 || f === n - 1 ? 0.5 : 1);
+  const touched = (f: number) => hi[f]! > lo[f]! * (1 + 1e-12);
+
+  let f = 0;
+  while (f < n) {
+    if (!touched(f)) {
+      f++;
+      continue;
+    }
+    const start = f;
+    while (f < n && touched(f)) f++;
+    const end = f; // exclusive
+
+    let target = 0;
+    for (let g = start; g < end; g++) target += weight(g) * areaFace[g]!;
+    const volumeAt = (t: number): number => {
+      let v = 0;
+      for (let g = start; g < end; g++) v += weight(g) * lo[g]! * Math.pow(hi[g]! / lo[g]!, t);
+      return v;
+    };
+
+    // Volume rises monotonically with t, from at most the drawn volume at 0 to at least it at 1.
+    let a = 0;
+    let b = 1;
+    for (let it = 0; it < 40; it++) {
+      const m = 0.5 * (a + b);
+      if (volumeAt(m) < target) a = m;
+      else b = m;
+    }
+    const t = 0.5 * (a + b);
+    for (let g = start; g < end; g++) areaFace[g] = lo[g]! * Math.pow(hi[g]! / lo[g]!, t);
+  }
 }

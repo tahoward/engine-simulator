@@ -26,6 +26,16 @@ export type SegmentKind =
   /** Sudden expansion into a large-diameter volume, then back down: a muffler can. */
   | 'chamber';
 
+/**
+ * Cross-section of a chamber's body. The throats at either end are always round.
+ *
+ * `rect` has rounded corners, of radius `RECT_CORNER` times the shorter side, as a pressed or
+ * rolled can does.
+ */
+export type ChamberSection = 'round' | 'oval' | 'rect';
+
+export const CHAMBER_SECTIONS: ChamberSection[] = ['round', 'oval', 'rect'];
+
 export interface PipeSegment {
   id: string;
   kind: SegmentKind;
@@ -33,7 +43,10 @@ export interface PipeSegment {
   length: number;
   /** Inlet diameter, metres. */
   dIn: number;
-  /** Outlet diameter, metres. Forced equal to `dIn` when `kind === 'pipe'`. */
+  /**
+   * Outlet diameter, metres. Forced equal to `dIn` when `kind === 'pipe'`. For a chamber, the
+   * body's diameter if it is round and its width otherwise.
+   */
   dOut: number;
   /**
    * Routing only — never affects the 1D acoustics, which care about area vs
@@ -42,6 +55,16 @@ export interface PipeSegment {
    */
   yaw: number;
   pitch: number;
+  /** Chamber only: body cross-section. Round when absent. */
+  section?: ChamberSection;
+  /** Chamber only: body height, metres, for an oval or rect body. Width is `dOut`. */
+  height?: number;
+  /**
+   * Chamber only: how far the inlet and outlet pipes sit off the body's centreline, metres,
+   * along its width. Offset pipes excite the cross-wise modes a centred pipe cannot reach.
+   */
+  offsetIn?: number;
+  offsetOut?: number;
 }
 
 /**
@@ -686,7 +709,12 @@ export function segmentArea(seg: PipeSegment, u: number): number {
   return (Math.PI * d * d) / 4;
 }
 
-/** Diameter, m, at normalised position `u` (0..1) within a segment. */
+/**
+ * Diameter, m, at normalised position `u` (0..1) within a segment.
+ *
+ * For a non-round chamber body this is the diameter of the circle with the same area, which is
+ * all the 1D acoustics needs. `segmentSection` gives the real shape.
+ */
 export function segmentDiameter(seg: PipeSegment, u: number): number {
   switch (seg.kind) {
     case 'pipe':
@@ -696,10 +724,154 @@ export function segmentDiameter(seg: PipeSegment, u: number): number {
     case 'chamber':
       // Stepped: a short entry throat at dIn, the body at dOut, then back to dIn.
       // The steps are what make a muffler reflect rather than just absorb.
-      if (u < 0.08) return seg.dIn;
-      if (u > 0.92) return seg.dIn;
-      return seg.dOut;
+      if (u < CHAMBER_THROAT || u > 1 - CHAMBER_THROAT) return seg.dIn;
+      if ((seg.section ?? 'round') === 'round') return seg.dOut;
+      return Math.sqrt((4 * sectionArea(chamberBody(seg))) / Math.PI);
   }
+}
+
+/** Fraction of a chamber's length taken by each of its throats. */
+export const CHAMBER_THROAT = 0.08;
+
+/** Corner radius of a `rect` section, as a fraction of its shorter side. */
+export const RECT_CORNER = 0.15;
+
+export interface Section {
+  section: ChamberSection;
+  width: number;
+  height: number;
+}
+
+/** The body cross-section of a chamber. */
+export function chamberBody(seg: PipeSegment): Section {
+  const section = seg.section ?? 'round';
+  const width = seg.dOut;
+  return { section, width, height: section === 'round' ? width : (seg.height ?? width) };
+}
+
+/** Cross-section at normalised position `u` within a segment: round everywhere but a chamber's body. */
+export function segmentSection(seg: PipeSegment, u: number): Section {
+  if (seg.kind === 'chamber' && u >= CHAMBER_THROAT && u <= 1 - CHAMBER_THROAT) return chamberBody(seg);
+  const d = segmentDiameter(seg, u);
+  return { section: 'round', width: d, height: d };
+}
+
+export function sectionArea(s: Section): number {
+  switch (s.section) {
+    case 'round':
+      return (Math.PI * s.width * s.width) / 4;
+    case 'oval':
+      return (Math.PI * s.width * s.height) / 4;
+    case 'rect': {
+      const r = RECT_CORNER * Math.min(s.width, s.height);
+      return s.width * s.height - (4 - Math.PI) * r * r;
+    }
+  }
+}
+
+/** Wetted perimeter, m. Ramanujan's second approximation for the ellipse, good to 1e-5 here. */
+export function sectionPerimeter(s: Section): number {
+  switch (s.section) {
+    case 'round':
+      return Math.PI * s.width;
+    case 'oval': {
+      const a = s.width / 2;
+      const b = s.height / 2;
+      const h = ((a - b) * (a - b)) / ((a + b) * (a + b));
+      return Math.PI * (a + b) * (1 + (3 * h) / (10 + Math.sqrt(4 - 3 * h)));
+    }
+    case 'rect': {
+      const r = RECT_CORNER * Math.min(s.width, s.height);
+      return 2 * (s.width + s.height) - (8 - 2 * Math.PI) * r;
+    }
+  }
+}
+
+/** Whether the point `(y, z)`, measured from the section's centre along its width and height, is inside it. */
+export function insideSection(s: Section, y: number, z: number): boolean {
+  const a = s.width / 2;
+  const b = s.height / 2;
+  switch (s.section) {
+    case 'round':
+    case 'oval':
+      return (y * y) / (a * a) + (z * z) / (b * b) <= 1;
+    case 'rect': {
+      const r = RECT_CORNER * Math.min(s.width, s.height);
+      const dy = Math.abs(y) - (a - r);
+      const dz = Math.abs(z) - (b - r);
+      if (Math.abs(y) > a || Math.abs(z) > b) return false;
+      if (dy <= 0 || dz <= 0) return true;
+      return dy * dy + dz * dz <= r * r;
+    }
+  }
+}
+
+/**
+ * Where a ray from the section's centre at angle `theta` (from the width axis) meets its wall.
+ * Writes the distance and the outward unit normal, as `[r, ny, nz]`, into `out`.
+ */
+export function sectionBoundary(s: Section, theta: number, out: Float64Array): void {
+  const a = s.width / 2;
+  const b = s.height / 2;
+  const cy = Math.cos(theta);
+  const cz = Math.sin(theta);
+  const sy = cy < 0 ? -1 : 1;
+  const sz = cz < 0 ? -1 : 1;
+  const dy = Math.abs(cy);
+  const dz = Math.abs(cz);
+  if (s.section !== 'rect') {
+    const r = 1 / Math.sqrt((dy * dy) / (a * a) + (dz * dz) / (b * b));
+    const ny = (r * dy) / (a * a);
+    const nz = (r * dz) / (b * b);
+    const len = Math.hypot(ny, nz);
+    out[0] = r;
+    out[1] = (sy * ny) / len;
+    out[2] = (sz * nz) / len;
+    return;
+  }
+  const rc = RECT_CORNER * Math.min(s.width, s.height);
+  // The flat sides first; a ray that meets neither inside its straight part is in a corner.
+  if (dy > 1e-12) {
+    const t = a / dy;
+    if (t * dz <= b - rc) {
+      out[0] = t;
+      out[1] = sy;
+      out[2] = 0;
+      return;
+    }
+  }
+  if (dz > 1e-12) {
+    const t = b / dz;
+    if (t * dy <= a - rc) {
+      out[0] = t;
+      out[1] = 0;
+      out[2] = sz;
+      return;
+    }
+  }
+  // |t d - c| = rc for the corner centre c, taking the far root.
+  const ccy = a - rc;
+  const ccz = b - rc;
+  const half = dy * ccy + dz * ccz;
+  const t = half + Math.sqrt(Math.max(half * half - (ccy * ccy + ccz * ccz - rc * rc), 0));
+  out[0] = t;
+  out[1] = (sy * (t * dy - ccy)) / rc;
+  out[2] = (sz * (t * dz - ccz)) / rc;
+}
+
+/**
+ * A chamber's inlet and outlet offsets, m, held to what fits: a pipe cannot sit further off
+ * centre than leaves its whole bore inside the body.
+ */
+export function chamberOffsets(seg: PipeSegment): [number, number] {
+  if (seg.kind !== 'chamber') return [0, 0];
+  const room = Math.max(0, (seg.dOut - seg.dIn) / 2);
+  const hold = (v: number | undefined) => clampTo(v ?? 0, -room, room);
+  return [hold(seg.offsetIn), hold(seg.offsetOut)];
+}
+
+function clampTo(v: number, lo: number, hi: number): number {
+  return v < lo ? lo : v > hi ? hi : v;
 }
 
 export function totalPipeLength(pipe: PipeSegment[]): number {
@@ -730,7 +902,7 @@ export function newSegmentId(): string {
 export function makeSegment(partial: Partial<PipeSegment> = {}): PipeSegment {
   const kind = partial.kind ?? 'pipe';
   const dIn = partial.dIn ?? 0.042;
-  return {
+  const seg: PipeSegment = {
     id: partial.id ?? newSegmentId(),
     kind,
     length: partial.length ?? 0.3,
@@ -739,6 +911,17 @@ export function makeSegment(partial: Partial<PipeSegment> = {}): PipeSegment {
     yaw: partial.yaw ?? 0,
     pitch: partial.pitch ?? 0,
   };
+  if (kind === 'chamber') {
+    // Checked rather than copied, since a segment can arrive from a shared link.
+    const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+    if (partial.section && partial.section !== 'round' && CHAMBER_SECTIONS.includes(partial.section)) {
+      seg.section = partial.section;
+      seg.height = finite(partial.height) && partial.height > 1e-3 ? partial.height : seg.dOut;
+    }
+    if (finite(partial.offsetIn) && partial.offsetIn !== 0) seg.offsetIn = partial.offsetIn;
+    if (finite(partial.offsetOut) && partial.offsetOut !== 0) seg.offsetOut = partial.offsetOut;
+  }
+  return seg;
 }
 
 /** A 500cc-ish thumper: 89 mm bore, 80 mm stroke. */
@@ -847,6 +1030,24 @@ export const PIPE_PRESETS: Preset[] = [
       makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.04, yaw: 0.4 }),
       makeSegment({ kind: 'cone', length: 0.35, dIn: 0.04, dOut: 0.06, yaw: 0.2 }),
       makeSegment({ kind: 'pipe', length: 0.25, dIn: 0.06 }),
+    ],
+  },
+  {
+    name: 'Oval muffler, offset pipes',
+    description: 'Flat oval can with its pipes at opposite sides. Rings across the can, rougher in the mids.',
+    build: () => [
+      makeSegment({ kind: 'pipe', length: 0.6, dIn: 0.042, yaw: 0.25 }),
+      makeSegment({
+        kind: 'chamber',
+        length: 0.4,
+        dIn: 0.042,
+        dOut: 0.26,
+        section: 'oval',
+        height: 0.13,
+        offsetIn: 0.07,
+        offsetOut: -0.07,
+      }),
+      makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.04, pitch: -0.1 }),
     ],
   },
 ];

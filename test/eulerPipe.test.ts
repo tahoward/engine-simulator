@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest';
 import { GAS, makeSegment, speedOfSound } from '../src/model/spec.js';
 import {
   EulerPipe,
+  limitAreaRatio,
   type EulerPipeOptions,
   type SlopeLimiter,
 } from '../src/audio/worklet/eulerPipe.js';
@@ -458,6 +459,50 @@ describe('geometry and robustness', () => {
     const bare = new EulerPipe([makeSegment({ length: 0.5, dIn: 0.042 })], FS, 900);
     expect(bare.portCells).toBe(0);
     expect(p.totalLength).toBeGreaterThan(bare.totalLength);
+  });
+
+  it('limits area steps without losing a chamber its volume', () => {
+    const face = Float64Array.from([1, 1, 1, 1, 9.6, 9.6, 9.6, 9.6, 9.6, 1, 1, 1, 1, 0.1, 0.1, 0.1]);
+    const drawn = [...face];
+    limitAreaRatio(face, 1.6);
+    for (let f = 0; f + 1 < face.length; f++) {
+      expect(Math.max(face[f]! / face[f + 1]!, face[f + 1]! / face[f]!)).toBeLessThanOrEqual(1.6 + 1e-9);
+    }
+    const vol = (a: ArrayLike<number>) => {
+      let v = 0;
+      for (let f = 0; f < a.length; f++) v += (f === 0 || f === a.length - 1 ? 0.5 : 1) * a[f]!;
+      return v;
+    };
+    expect(vol(face) / vol(drawn)).toBeCloseTo(1, 6);
+    // The step straddles the drawn edge: the pipe beside it widens, the body narrows.
+    expect(face[3]!).toBeGreaterThan(1);
+    expect(face[4]!).toBeLessThan(9.6);
+  });
+
+  it('keeps a drawn muffler can close to its drawn volume and diameter', () => {
+    const L = 0.34;
+    const p = new EulerPipe(
+      [
+        makeSegment({ length: 0.5, dIn: 0.042 }),
+        makeSegment({ kind: 'chamber', length: L, dIn: 0.042, dOut: 0.13 }),
+        makeSegment({ length: 0.5, dIn: 0.042 }),
+      ],
+      FS,
+      900,
+      { cellSize: 0.035, singleStep: true },
+    );
+    let vol = 0;
+    let peak = 0;
+    for (let i = 0; i < p.n; i++) {
+      const x = (i + 0.5) * p.dx;
+      if (x < 0.25 || x > 0.75 + L) continue;
+      vol += (p.areaOf(i) - (Math.PI / 4) * 0.042 ** 2) * p.dx;
+      peak = Math.max(peak, Math.sqrt((4 * p.areaOf(i)) / Math.PI));
+    }
+    const drawn = (Math.PI / 4) * (0.13 ** 2 - 0.042 ** 2) * L * 0.84;
+    expect(vol / drawn).toBeGreaterThan(0.93);
+    expect(vol / drawn).toBeLessThan(1.07);
+    expect(peak).toBeGreaterThan(0.12);
   });
 
   it('survives degenerate geometry and a violent valve', () => {
