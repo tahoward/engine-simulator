@@ -24,8 +24,16 @@ export class AudioEngine {
   private readonly listeners = new Set<SnapshotListener>();
   private config: EngineConfig;
   private starting: Promise<void> | null = null;
+  private masterGain = 1;
 
-  constructor(config: EngineConfig) {
+  /**
+   * @param rate Audio sample rate, Hz. The solver takes one step per sample, so this also sets the
+   *   finest cell it can use and so the cost: 32 kHz needs about 63% of the CPU 48 kHz does.
+   */
+  constructor(
+    config: EngineConfig,
+    private rate = 48000,
+  ) {
     this.config = {
       engine: { ...config.engine },
       pipe: config.pipe.map((s) => ({ ...s })),
@@ -41,7 +49,33 @@ export class AudioEngine {
   }
 
   get sampleRate(): number {
-    return this.ctx?.sampleRate ?? 48000;
+    return this.ctx?.sampleRate ?? this.rate;
+  }
+
+  /**
+   * Switch the audio sample rate.
+   *
+   * A context's rate is fixed when it is made, so a live one is closed and a new one booted in its
+   * place: the simulation restarts from cold, with the pipe walls back at their starting temperature.
+   */
+  async setSampleRate(hz: number): Promise<void> {
+    if (hz === this.rate) return;
+    this.rate = hz;
+    if (!this.ctx && !this.starting) return;
+    // Let a boot in flight finish, so there is one whole context to close rather than half of one.
+    await this.starting;
+    // A change made while the first was still closing: the reboot below picks up the newest rate.
+    if (!this.ctx) return;
+    const wasRunning = this.running;
+    const ctx = this.ctx;
+    this.node?.disconnect();
+    this.ctx = null;
+    this.node = null;
+    this.master = null;
+    this.analyser = null;
+    this.starting = null;
+    await ctx.close();
+    if (wasRunning) await this.start();
   }
 
   /** Audio can only begin from a user gesture, so this is called from a click. */
@@ -56,7 +90,8 @@ export class AudioEngine {
   }
 
   private async boot(): Promise<void> {
-    const ctx = new AudioContext({ latencyHint: 'interactive' });
+    // The browser resamples to the device's own rate, so any rate plays; only the simulation's cost changes.
+    const ctx = new AudioContext({ latencyHint: 'interactive', sampleRate: this.rate });
     this.ctx = ctx;
     await ctx.audioWorklet.addModule(processorUrl);
 
@@ -82,7 +117,7 @@ export class AudioEngine {
     analyser.smoothingTimeConstant = 0.6;
 
     const master = ctx.createGain();
-    master.gain.value = 1;
+    master.gain.value = this.masterGain;
 
     node.connect(analyser);
     analyser.connect(master);
@@ -143,7 +178,8 @@ export class AudioEngine {
 
   /** Master output level, linear. Independent of the physical `outputGain`. */
   setMasterGain(value: number): void {
-    if (this.master) this.master.gain.value = Math.max(0, value);
+    this.masterGain = Math.max(0, value);
+    if (this.master) this.master.gain.value = this.masterGain;
   }
 
   /** Fills `out` with the current time-domain waveform. Returns false if audio was never started. */

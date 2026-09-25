@@ -56,6 +56,8 @@ export interface PanelCallbacks {
   /** A pipe had its last segment deleted and should go, tidying the junctions around it. */
   onRemoveDuct: (id: string) => void;
   onToggleAudio: () => void;
+  /** The user picked a different audio sample rate, Hz. */
+  onSampleRate: (hz: number) => void;
   onView: (view: ViewOptions) => void;
   onResetView: () => void;
 }
@@ -76,6 +78,16 @@ interface SegmentRow {
 }
 
 const MM = 1000;
+
+/**
+ * What the Sample rate menu offers, with the exhaust's band limit at each: the solver's finest cell is
+ * `1400 / (fs · 0.85)` and it resolves up to about `c / (5 dx)` with `c` = 400 m/s at the mouth.
+ */
+export const SAMPLE_RATES: Array<[number, string]> = [
+  [48000, '48 kHz · full detail'],
+  [32000, '32 kHz · ~63% CPU, exhaust to ~1.5 kHz'],
+  [24000, '24 kHz · ~47% CPU, exhaust to ~1.2 kHz'],
+];
 
 /** What the Cylinders menu offers: a count, and for six whether it is a V. */
 const ENGINE_TYPES: Array<[string, string]> = [
@@ -158,6 +170,7 @@ export class Panel {
     root: HTMLElement,
     private readonly config: EngineConfig,
     private readonly cb: PanelCallbacks,
+    sampleRate: number,
   ) {
     const spec = config.engine;
 
@@ -173,6 +186,17 @@ export class Panel {
     this.rpmEl = el('div', 'big-readout', transport);
     this.rpmEl.textContent = '— rpm';
     this.readoutEl = el('div', 'readout', transport);
+
+    const rateRow = el('div', 'row', transport);
+    el('label', '', rateRow).textContent = 'Sample rate';
+    const rateSel = el('select', '', rateRow) as HTMLSelectElement;
+    for (const [hz, label] of SAMPLE_RATES) rateSel.appendChild(option(String(hz), label));
+    rateSel.value = String(sampleRate);
+    rateSel.addEventListener('change', () => this.cb.onSampleRate(Number(rateSel.value)));
+    rateRow.title =
+      'The solver takes one step per audio sample, so a lower rate means fewer steps and coarser ' +
+      'cells: much less CPU, for a duller exhaust. For phones and slow machines. Changing it ' +
+      'restarts the audio, and the pipes warm up again from cold.';
 
     // ---- Operating point -------------------------------------------------
     const op = section(root, 'Operating point', false);
@@ -699,7 +723,7 @@ export class Panel {
     }).row.title =
       'Cell length for the exhaust gas-dynamics solver. Smaller cells resolve higher ' +
       'frequencies and cost more. The solver takes one step per audio sample, so cells ' +
-      'cannot be shorter than about 35 mm (37 mm at 44.1 kHz); a big engine may be given ' +
+      'cannot be shorter than about 35 mm at 48 kHz (51 mm at 32 kHz, 69 mm at 24 kHz); a big engine may be given ' +
       'coarser cells than asked for, to keep it in real time.';
     slider(comb, {
       label: 'Port gas temp',

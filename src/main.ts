@@ -36,7 +36,7 @@ import {
   type DuctDirections,
 } from './model/exhaustGraph.js';
 import { Viewer } from './scene/Viewer.js';
-import { Panel, type ViewOptions } from './ui/Panel.js';
+import { Panel, SAMPLE_RATES, type ViewOptions } from './ui/Panel.js';
 import { Scope } from './ui/Scope.js';
 
 const viewportEl = must<HTMLElement>('#viewport');
@@ -57,7 +57,13 @@ const config: EngineConfig = loadConfig();
 config.graph ??= compileLayout(config.engine, config.pipe, config.collector);
 
 
-const audio = new AudioEngine(config);
+/**
+ * The audio sample rate, kept per device rather than in the URL: it is a choice about what this
+ * machine can afford, not part of the engine, so a shared link should not carry a phone's setting.
+ */
+const SAMPLE_RATE_KEY = 'engine-simulator:sampleRate';
+const sampleRate = loadSampleRate();
+const audio = new AudioEngine(config, sampleRate);
 const viewer = new Viewer(viewportEl);
 const engineMesh = new EngineMesh(config.engine, viewer.clipPlane);
 /**
@@ -273,9 +279,17 @@ const panel = new Panel(panelEl, config, {
       overlayEl.classList.toggle('hidden', running);
     });
   },
+  onSampleRate: (hz) => {
+    try {
+      localStorage.setItem(SAMPLE_RATE_KEY, String(hz));
+    } catch {
+      // Storage can be off (private browsing); the choice then lasts until reload.
+    }
+    void audio.setSampleRate(hz);
+  },
   onView: applyView,
   onResetView: () => viewer.frameBounds(sceneBounds()),
-});
+}, sampleRate);
 
 const scope = new Scope(scopeEl, audio);
 
@@ -538,6 +552,16 @@ function loadConfig(): EngineConfig {
     console.warn('[main] could not read the configuration in the URL; using defaults');
     return base;
   }
+}
+
+function loadSampleRate(): number {
+  let stored: number;
+  try {
+    stored = Number(localStorage.getItem(SAMPLE_RATE_KEY));
+  } catch {
+    return 48000;
+  }
+  return SAMPLE_RATES.some(([hz]) => hz === stored) ? stored : 48000;
 }
 
 let saveTimer = 0;
