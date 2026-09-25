@@ -12,6 +12,7 @@
 
 import type { EngineConfig, EngineSnapshot, EngineSpec, PipeSegment } from '../../model/spec.js';
 import type { ExhaustGraph } from '../../model/exhaustGraph.js';
+import { CONTROL_PARAMS } from './controls.js';
 import { EngineSim } from './engineSim.js';
 
 /** Main thread -> worklet. */
@@ -25,6 +26,10 @@ export type ToWorklet =
 export type FromWorklet = { type: 'snapshot'; snapshot: EngineSnapshot };
 
 class EngineProcessor extends AudioWorkletProcessor {
+  static get parameterDescriptors() {
+    return CONTROL_PARAMS.map((name) => ({ name, defaultValue: 0, automationRate: 'k-rate' as const }));
+  }
+
   private readonly sim: EngineSim;
   private snapshotInterval: number;
   private sinceSnapshot = 0;
@@ -59,11 +64,18 @@ class EngineProcessor extends AudioWorkletProcessor {
     };
   }
 
-  process(_inputs: Float32Array[][], outputs: Float32Array[][]): boolean {
+  process(
+    _inputs: Float32Array[][],
+    outputs: Float32Array[][],
+    parameters: Record<string, Float32Array>,
+  ): boolean {
     const out = outputs[0];
     if (!out || out.length === 0) return true;
     const mono = out[0]!;
     const n = mono.length;
+
+    // k-rate, so one value per block. `setControls` returns at once when nothing moved.
+    this.sim.setControls(parameters.throttle![0]!, parameters.rpm![0]!, parameters.load![0]!);
 
     // No timing here. `performance` is not exposed in AudioWorkletGlobalScope (verified
     // absent in Chrome), and `currentTime` only advances once per block, so the audio

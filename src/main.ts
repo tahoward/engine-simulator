@@ -63,7 +63,13 @@ config.graph ??= compileLayout(config.engine, config.pipe, config.collector);
  */
 const SAMPLE_RATE_KEY = 'engine-simulator:sampleRate';
 const sampleRate = loadSampleRate();
-const audio = new AudioEngine(config, sampleRate);
+// A touch screen stands in for "probably a phone": the device where the audio thread runs late, and
+// where a larger buffer turns a late block into a little delay rather than crackle.
+const audio = new AudioEngine(
+  config,
+  sampleRate,
+  matchMedia('(pointer: coarse)').matches ? 'playback' : 'interactive',
+);
 const viewer = new Viewer(viewportEl);
 const engineMesh = new EngineMesh(config.engine, viewer.clipPlane);
 /**

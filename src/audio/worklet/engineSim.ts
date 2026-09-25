@@ -504,6 +504,25 @@ export class EngineSim {
   // Configuration
   // -------------------------------------------------------------------------
 
+  /**
+   * The operating point alone: throttle, commanded speed and load.
+   *
+   * What the worklet calls every audio block, so it does only what these three reach and allocates
+   * nothing. `setEngine` redoes the mouth paths, the structural modes and the firing plan, and makes
+   * new arrays — fine for an edit, but not for every frame of a throttle drag on a thread with no time
+   * to spare. Same effect as `setEngine({ throttle, rpm, load })`.
+   */
+  setControls(throttle: number, rpm: number, load: number): void {
+    const spec = this.spec;
+    if (throttle === spec.throttle && rpm === spec.rpm && load === spec.load) return;
+    spec.throttle = throttle;
+    spec.rpm = rpm;
+    spec.load = load;
+    this.loadTorqueNm = loadTorqueOf(spec);
+    if (!spec.freeRunning && !this.integratingCrank()) this.omegaMean = (rpm * 2 * Math.PI) / 60;
+    this.plenum.setGeometry(spec);
+  }
+
   setEngine(partial: Partial<EngineSpec>): void {
     const prevTemp = this.spec.portGasTemp;
     const prevPortLength = this.spec.portLength;
