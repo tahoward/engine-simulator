@@ -7,6 +7,7 @@
 
 import type { ExhaustGraph } from '../model/exhaustGraph.js';
 import type { EngineConfig, EngineSnapshot, EngineSpec, PipeSegment } from '../model/spec.js';
+import { CONTROL_PARAMS } from './worklet/controls.js';
 import type { FromWorklet, ToWorklet } from './worklet/processor.js';
 
 // `?worker&url` bundles the processor and everything it imports into one ES module
@@ -29,10 +30,13 @@ export class AudioEngine {
   /**
    * @param rate Audio sample rate, Hz. The solver takes one step per sample, so this also sets the
    *   finest cell it can use and so the cost: 32 kHz needs about 63% of the CPU 48 kHz does.
+   * @param latency How much output buffering to ask for. `'playback'` trades delay for tolerance of a
+   *   late block, which on a slow device is the difference between a clean note and crackle.
    */
   constructor(
     config: EngineConfig,
     private rate = 48000,
+    private readonly latency: AudioContextLatencyCategory = 'interactive',
   ) {
     this.config = {
       engine: { ...config.engine },
@@ -91,15 +95,19 @@ export class AudioEngine {
 
   private async boot(): Promise<void> {
     // The browser resamples to the device's own rate, so any rate plays; only the simulation's cost changes.
-    const ctx = new AudioContext({ latencyHint: 'interactive', sampleRate: this.rate });
+    const ctx = new AudioContext({ latencyHint: this.latency, sampleRate: this.rate });
     this.ctx = ctx;
     await ctx.audioWorklet.addModule(processorUrl);
 
+    const eng = this.config.engine;
     const node = new AudioWorkletNode(ctx, 'engine-processor', {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [1],
       processorOptions: this.config,
+      // Without these the parameters start at their default of 0, and the first block would drop the
+      // engine to zero throttle and zero rpm.
+      parameterData: { throttle: eng.throttle, rpm: eng.rpm, load: eng.load },
     });
     node.port.onmessage = (e: MessageEvent<FromWorklet>) => {
       if (e.data.type === 'snapshot') {
@@ -151,7 +159,18 @@ export class AudioEngine {
   /** Update engine parameters. Safe to call before the context exists. */
   setEngine(partial: Partial<EngineSpec>): void {
     Object.assign(this.config.engine, partial);
-    this.post({ type: 'engine', engine: partial });
+    // The continuous controls go as parameters, which an overloaded audio thread still reads; see
+    // `CONTROL_PARAMS`. Everything else, and only if there is anything else, as a message.
+    let rest: Partial<EngineSpec> | null = null;
+    for (const key of Object.keys(partial) as Array<keyof EngineSpec>) {
+      if ((CONTROL_PARAMS as readonly string[]).includes(key)) {
+        const param = this.node?.parameters.get(key);
+        if (param) param.value = partial[key] as number;
+      } else {
+        (rest ??= {} as Record<string, unknown>)[key] = partial[key];
+      }
+    }
+    if (rest) this.post({ type: 'engine', engine: rest });
   }
 
   /**
