@@ -175,11 +175,20 @@ export class IntakePlenum {
    * Advance by `dt`.
    *
    * @param valveFlow Net mass flow to the cylinders, kg/s, positive out of the plenum.
-   *   Negative means back-flow, and `backflowTemp`/`backflowBurned` describe what arrives.
+   * @param backflow Of that, the part flowing back *in*, kg/s, 0 or more; `backflowTemp` and
+   *   `backflowBurned` describe it.
+   *
+   * The two are separate because on a multi-cylinder engine the net hides the back-flow: one
+   * cylinder spitting exhaust up its runner while another draws is a small positive net, and taken
+   * as that alone the spat gas vanished and was replaced, in the bookkeeping, by clean plenum air.
+   * The next cylinder then burned it. That is harmless with a mild cam and badly wrong with a big
+   * one, which reverts a lot at idle: an overcammed V8 trapped two and a half times the fresh charge
+   * its throttle could pass.
    */
   step(
     dt: number,
     valveFlow: number,
+    backflow: number,
     backflowTemp: number,
     backflowBurned: number,
   ): void {
@@ -199,14 +208,16 @@ export class IntakePlenum {
     // --- Energy and mass --------------------------------------------------------
     // dU/dt = (enthalpy in) - (enthalpy out). No moving boundary, so no p dV work.
     const hThrottle = throttleFlow >= 0 ? throttleFlow * CP * GAS.tAmb : throttleFlow * CP * t;
-    const hValve = valveFlow >= 0 ? -valveFlow * CP * t : -valveFlow * CP * backflowTemp;
+    // What the cylinders drew leaves at plenum temperature; what they spat arrives at its own.
+    const drawn = valveFlow + backflow;
+    const hValve = -drawn * CP * t + backflow * CP * backflowTemp;
 
     this.energy += (hThrottle + hValve) * dt;
     this.mass += (throttleFlow - valveFlow) * dt;
 
     // Composition. Fresh air enters past the throttle carrying no burned gas; back-flow
     // arrives carrying the cylinder's.
-    const burnedIn = valveFlow >= 0 ? -valveFlow * this.burnedFraction : -valveFlow * backflowBurned;
+    const burnedIn = -drawn * this.burnedFraction + backflow * backflowBurned;
     this.burnedMass += burnedIn * dt;
 
     if (this.mass < MIN_MASS) {

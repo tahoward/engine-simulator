@@ -424,7 +424,13 @@ export class EngineSim {
 
   private peak = 0;
   private readonly tapBuffer = new Float32Array(PIPE_PRESSURE_TAPS);
-  /** Cached swept volume, m^3; only changes when bore or stroke does. */
+  /**
+   * Cached swept volume of the whole engine, m^3; only changes with bore, stroke or cylinder count.
+   *
+   * The whole engine's, because friction is charged against it. It was one cylinder's, which gave a V8
+   * an eighth of its friction: it idled on a fifth of the air a real one needs, and so at a manifold
+   * vacuum deep enough that most of what it trapped was its own exhaust, back-flowed up the intake.
+   */
   private displacementM3 = 0;
   /** Cached `loadTorqueOf(spec)`, N*m, so the per-sample path does not call for it. */
   private loadTorqueNm = 0;
@@ -454,7 +460,7 @@ export class EngineSim {
      */
     this.graph = graph ?? config.graph ?? null;
     this.spec = { ...config.engine };
-    this.displacementM3 = displacement(this.spec);
+    this.displacementM3 = displacement(this.spec) * this.spec.cylinders;
     this.loadTorqueNm = loadTorqueOf(this.spec);
     this.pipe = config.pipe.map((s) => ({ ...s }));
     this.collectorPipe = (config.collector ?? []).map((s) => ({ ...s }));
@@ -507,7 +513,7 @@ export class EngineSim {
     const prevLayout = this.layoutKey();
     const prevPhase = firingPlan(this.spec).offsets.join(',');
     this.spec = { ...this.spec, ...partial };
-    this.displacementM3 = displacement(this.spec);
+    this.displacementM3 = displacement(this.spec) * this.spec.cylinders;
     this.loadTorqueNm = loadTorqueOf(this.spec);
     if (!this.spec.freeRunning) {
       // Fixed-rpm mode follows the slider directly, until it reaches the limiter; from there the crank
@@ -1226,6 +1232,7 @@ export class EngineSim {
     this.plenum.step(
       dt,
       intakeFlowSum,
+      backflowMass,
       backflowMass > 0 ? backflowEnergy / backflowMass : tPlenum,
       backflowMass > 0 ? backflowBurned / backflowMass : 0,
     );
