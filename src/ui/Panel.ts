@@ -25,6 +25,7 @@ import {
   exhaustLayoutOf,
   firingOffsetDeg,
   firingPlan,
+  fullLoadTorque,
   isBoxer,
   type ExhaustLayout,
   type EngineConfig,
@@ -224,15 +225,21 @@ export class Panel {
     const loadWrap = el('div', 'subgroup', op);
     this.loadRow = loadWrap;
     loadWrap.classList.toggle('hidden', !spec.freeRunning);
-    slider(loadWrap, {
-      label: 'Load torque',
+    const load = slider(loadWrap, {
+      label: 'Load',
       min: 0,
-      max: 60,
-      step: 0.5,
-      value: spec.loadTorque,
-      unit: 'N·m',
-      onInput: (v) => this.cb.onEngine({ loadTorque: v }),
+      // Past full throttle's worth, so the engine can be bogged down and stalled.
+      max: 1.5,
+      step: 0.01,
+      value: spec.load,
+      format: (v) => `${Math.round(v * 100)}% · ${Math.round(v * fullLoadTorque(this.config.engine))} N·m`,
+      onInput: (v) => this.cb.onEngine({ load: v }),
     });
+    load.row.title =
+      'Braking torque at the crank, as a share of what this engine makes at full throttle, ' +
+      'so the same setting loads a single and a V8 alike.';
+    // Also redraws the N·m figure, which follows the engine's size.
+    this.resyncers.push(() => load.render(this.config.engine.load));
     const flywheel = slider(loadWrap, {
       label: 'Flywheel inertia',
       min: 0.02,

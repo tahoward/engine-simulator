@@ -9,7 +9,7 @@ describe('closed throttle must not run away', () => {
     console.log('\n  preset                              rpm @ 2s   4s     8s    12s   MAP');
     for (const p of ENGINE_PRESETS) {
       const cfg = defaultConfig();
-      cfg.engine = { ...cfg.engine, ...p.engine, throttle: 0, freeRunning: true, loadTorque: 0 };
+      cfg.engine = { ...cfg.engine, ...p.engine, throttle: 0, freeRunning: true, load: 0 };
       cfg.pipe = p.pipe();
       cfg.collector = p.collector ? p.collector() : defaultCollector();
       const sim = new EngineSim(FS, cfg);
@@ -35,7 +35,7 @@ describe('closed throttle must not run away', () => {
     for (const name of ['Single', 'Inline four', 'V8, crossplane']) {
       const p = ENGINE_PRESETS.find((x) => x.name.startsWith(name))!;
       const cfg = defaultConfig();
-      cfg.engine = { ...cfg.engine, ...p.engine, throttle: 0.3, freeRunning: true, loadTorque: 25 };
+      cfg.engine = { ...cfg.engine, ...p.engine, throttle: 0.3, freeRunning: true, load: 0.3 };
       cfg.pipe = p.pipe();
       cfg.collector = p.collector ? p.collector() : defaultCollector();
       const sim = new EngineSim(FS, cfg);

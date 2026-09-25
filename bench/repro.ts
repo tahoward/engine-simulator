@@ -78,7 +78,7 @@ function diagnose(name: string, collector: PipeSegment[], rpm = 4000): void {
     freeRunning: false,
     rpm,
     throttle: 1,
-    loadTorque: 60,
+    load: 1,
   };
   cfg.pipe = [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.042 })];
   cfg.collector = collector;

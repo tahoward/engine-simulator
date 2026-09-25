@@ -230,13 +230,20 @@ export interface EngineSpec {
   /**
    * When true the crank is integrated from gas torque, reciprocating inertia and
    * load instead of being swept at a fixed `rpm`, so the pipe's tuning can pull
-   * the engine around. See `flywheelInertia` / `loadTorque`.
+   * the engine around. See `flywheelInertia` / `load`.
    */
   freeRunning: boolean;
   /** Rotating inertia, kg*m^2. Small single-cylinders are ~0.02-0.2. */
   flywheelInertia: number;
-  /** Braking torque at the crank, N*m. */
-  loadTorque: number;
+  /**
+   * Braking torque at the crank, as a fraction of `fullLoadTorque` — 0 unloaded, 1 about what the
+   * engine makes at full throttle.
+   *
+   * A fraction rather than N*m because a fixed torque means a different thing on every engine: 60 N*m
+   * holds a 500 cc single down hard and is nothing to a 5.5 litre V8, which with a light flywheel then
+   * ran to its limiter in a few hundredths of a second. See `loadTorqueOf`.
+   */
+  load: number;
 
   // --- Acoustics / output ---
   /** Port gas temperature, K. Sets the speed of sound at the head of the pipe. */
@@ -403,6 +410,15 @@ export interface EngineSnapshot {
 export const PIPE_PRESSURE_TAPS = 128;
 
 /**
+ * Brake mean effective pressure that `load = 1` stands for, Pa.
+ *
+ * Eleven bar is a naturally aspirated petrol engine's full-load figure, give or take a couple. It fixes
+ * the load's scale by displacement alone, which is what makes one setting mean the same on a single and
+ * a V8; the engine's own torque curve would be more exact, but is only known by running it.
+ */
+export const FULL_LOAD_BMEP = 11e5;
+
+/**
  * How far below `revLimit` the free-running crank must fall before the spark returns, rev/min.
  * A production hard-cut limiter sits in the 100-300 range; without the gap it would toggle on the
  * crank's own within-cycle ripple rather than on the speed.
@@ -464,6 +480,16 @@ export function density(p: number, t: number): number {
 /** Swept (displacement) volume, m^3. */
 export function displacement(spec: EngineSpec): number {
   return (Math.PI * spec.bore * spec.bore) / 4 * spec.stroke;
+}
+
+/** Nominal full-throttle torque of the whole engine, N*m: `FULL_LOAD_BMEP` over its displacement. */
+export function fullLoadTorque(spec: EngineSpec): number {
+  return (FULL_LOAD_BMEP * displacement(spec) * spec.cylinders) / (4 * Math.PI);
+}
+
+/** The braking torque `load` asks for, N*m. */
+export function loadTorqueOf(spec: EngineSpec): number {
+  return spec.load * fullLoadTorque(spec);
 }
 
 /** Clearance (TDC) volume, m^3. */
@@ -752,7 +778,8 @@ export const DEFAULT_ENGINE: EngineSpec = {
   // A bare crank is nearer 0.06; 0.25 represents crank plus clutch and primary
   // drive, which is what a rider actually hears. Lower it for a lumpier idle.
   flywheelInertia: 0.25,
-  loadTorque: 20,
+  // About 20 N*m on this engine.
+  load: 0.46,
 
   portGasTemp: 950,
   pipeCellSize: 0.035,
@@ -1379,7 +1406,7 @@ const V6_60: Partial<EngineSpec> = {
   // The GM 3.6's.
   revLimit: 7000,
   flywheelInertia: 0.5,
-  loadTorque: 25,
+  load: 0.08,
   mouthSpacing: 1.0,
   pipeCellSize: 0.035,
   // A 3.6 litre 60-degree V6.
@@ -1581,7 +1608,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       revLimit: 6500,
       mouthSpacing: 1.3,
       flywheelInertia: 0.9,
-      loadTorque: 30,
+      load: 0.06,
       // The same cells as everything else. These were 45 mm when finer cells also meant more steps
       // per sample and cost went as their inverse square; at one step per sample it goes only as
       // their count, and 35 mm costs a V8 a couple of points of a core for its top octave back.
@@ -1621,7 +1648,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       revLimit: 9000,
       mouthSpacing: 1.3,
       flywheelInertia: 0.5,
-      loadTorque: 22,
+      load: 0.07,
       pipeCellSize: 0.035,
       bore: 0.094,
       stroke: 0.067,

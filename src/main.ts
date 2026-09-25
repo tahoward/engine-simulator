@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { AudioEngine } from './audio/AudioEngine.js';
 import {
   defaultConfig,
+  fullLoadTorque,
   makeSegment,
   type EngineConfig,
   type EngineSnapshot,
@@ -504,7 +505,15 @@ function loadConfig(): EngineConfig {
   if (!hash) return base;
   try {
     const parsed = JSON.parse(decodeURIComponent(atob(hash))) as Partial<EngineConfig>;
-    if (parsed.engine) Object.assign(base.engine, parsed.engine);
+    if (parsed.engine) {
+      Object.assign(base.engine, parsed.engine);
+      // Links from before the load was a fraction carry it in N*m.
+      const legacy = (parsed.engine as { loadTorque?: unknown }).loadTorque;
+      if (typeof legacy === 'number' && parsed.engine.load === undefined) {
+        base.engine.load = Math.min(Math.max(legacy / fullLoadTorque(base.engine), 0), 1.5);
+      }
+      delete (base.engine as { loadTorque?: unknown }).loadTorque;
+    }
     if (Array.isArray(parsed.pipe) && parsed.pipe.length > 0) {
       base.pipe = parsed.pipe.map((s) => makeSegment(s));
     }
