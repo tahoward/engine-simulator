@@ -35,6 +35,7 @@ import {
   type PipeSegment,
   displacement,
   exhaustLayoutOf,
+  exhaustPortDiameter,
   fuelFractionAt,
   loadTorqueOf,
   ambientSoundSpeed,
@@ -559,7 +560,7 @@ export class EngineSim {
   setEngine(partial: Partial<EngineSpec>): void {
     const prevTemp = this.spec.portGasTemp;
     const prevPortLength = this.spec.portLength;
-    const prevValveDia = this.spec.exValveDia;
+    const prevPortDia = exhaustPortDiameter(this.spec);
     const prevCellSize = this.spec.pipeCellSize;
     const prevWallThickness = this.spec.pipeWallThickness;
     const prevLayout = this.layoutKey();
@@ -590,7 +591,7 @@ export class EngineSim {
     if (
       this.spec.portGasTemp !== prevTemp ||
       this.spec.portLength !== prevPortLength ||
-      this.spec.exValveDia !== prevValveDia ||
+      exhaustPortDiameter(this.spec) !== prevPortDia ||
       this.spec.pipeCellSize !== prevCellSize ||
       this.spec.pipeWallThickness !== prevWallThickness ||
       this.layoutKey() !== prevLayout
@@ -695,7 +696,7 @@ export class EngineSim {
     const requested = Math.max(this.spec.pipeCellSize, minDx, 1e-4);
 
     // The ducts that will actually be built, with the lengths the discretiser will see.
-    const port = { length: this.spec.portLength, diameter: this.spec.exValveDia };
+    const port = { length: this.spec.portLength, diameter: exhaustPortDiameter(this.spec) };
     const graph = this.usableGraph();
     const lengths = graph.ducts.map((d) =>
       ductGridLength(d.segments, d.from.kind === 'valve' ? port : undefined),
@@ -746,7 +747,7 @@ export class EngineSim {
       ...this.wgOptions,
       port: this.wgOptions.port ?? {
         length: this.spec.portLength,
-        diameter: this.spec.exValveDia,
+        diameter: exhaustPortDiameter(this.spec),
       },
     };
   }
@@ -935,7 +936,7 @@ export class EngineSim {
     const inLift = valveLift(angle, spec.ivo + camOffset, spec.ivc + camOffset, spec.maxLift);
     this.liftNow[b * 3] = exLift;
     this.liftNow[b * 3 + 1] = inLift;
-    this.liftNow[b * 3 + 2] = valveFlowArea(exLift, spec.exValveDia);
+    this.liftNow[b * 3 + 2] = valveFlowArea(exLift, spec.exValveDia) * spec.exValveCount;
   }
 
   /**
@@ -1304,7 +1305,7 @@ export class EngineSim {
       const cyl = this.cyls[b]!;
       const exMdot = pipeResult.valveMassFlows[b]!;
       this.lastValveMdot[b] = exMdot;
-      const inArea = valveFlowArea(this.inLift[b]!, spec.inValveDia);
+      const inArea = valveFlowArea(this.inLift[b]!, spec.inValveDia) * spec.inValveCount;
       intakeIo[INTAKE_AREA] = inArea;
       // Each cylinder sees a slightly different runner pressure — see `breathing`.
       intakeIo[INTAKE_BREATHING] = this.breathing[b]!;

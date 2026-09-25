@@ -14,6 +14,24 @@
   200 rpm lower, so the engine bounces off the limit the way a real one does. Set **Engine speed**
   at or past the limit and the engine revs freely up into the limiter and bounces there.
 
+## Valves
+
+- **Valves per cylinder** chooses a two-valve head (one intake, one exhaust) or a four-valve head
+  (two of each). The **Exhaust valve** and **Intake valve** sizes are for each valve.
+
+## Combustion
+
+- **Ignition advance** is the spark timing for a charge that burns over the reference **Burn
+  duration**. An advance map moves it for each charge, so the spark fires later at low rpm and
+  earlier at part throttle and high rpm. See [The flame](engine.md#the-advance-map).
+- **Burn duration** is how long the charge takes to burn at full throttle, stoichiometric, at
+  10 m/s mean piston speed. Each cycle burns faster or slower than this from its own flame speed.
+- **Mixture** sets λ, the air-fuel ratio as a multiple of stoichiometric: below 1 rich, above 1
+  lean.
+- **Overrun fuel cut** stops the fuel with the throttle shut above 1500 rpm, until the engine
+  drops below 1200 or the throttle opens. Off, it behaves like a carburettor and keeps firing
+  weakly.
+
 ## The camera
 
 - **Left drag** to orbit, **right drag** to pan, **scroll** to zoom.

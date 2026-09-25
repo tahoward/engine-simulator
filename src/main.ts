@@ -12,6 +12,7 @@ import * as THREE from 'three';
 import { AudioEngine } from './audio/AudioEngine.js';
 import {
   defaultConfig,
+  exhaustPortDiameter,
   fullLoadTorque,
   makeSegment,
   type EngineConfig,
@@ -327,6 +328,7 @@ function touchesGeometry(partial: Partial<EngineSpec>): boolean {
     'rodLength' in partial ||
     'compressionRatio' in partial ||
     'exValveDia' in partial ||
+    'exValveCount' in partial ||
     'cylinders' in partial ||
     'vAngle' in partial ||
     'crankType' in partial ||
@@ -419,7 +421,7 @@ function rebuildPipeGeometry(): void {
     meshes: pipeMeshes,
     joints: bodies.map(([node], i) => ({ node, target: jointMeshes[i]!.pickTarget })),
   });
-  editor.portDiameter = config.engine.exValveDia;
+  editor.portDiameter = exhaustPortDiameter(config.engine);
 
   const editedDuct = graph.ducts.find((d) => d.id === editedDuctId) ?? graph.ducts[0];
   if (editedDuct) {

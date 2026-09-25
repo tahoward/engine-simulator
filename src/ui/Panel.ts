@@ -585,6 +585,20 @@ export class Panel {
 
     // ---- Valves ----------------------------------------------------------
     const valves = section(root, 'Valves and timing', true);
+    const headRow = el('div', 'row', valves);
+    el('label', '', headRow).textContent = 'Valves per cylinder';
+    const headSel = el('select', '', headRow) as HTMLSelectElement;
+    headSel.appendChild(option('2', '2 (one intake, one exhaust)'));
+    headSel.appendChild(option('4', '4 (two of each)'));
+    headSel.value = spec.exValveCount === 2 && spec.inValveCount === 2 ? '4' : '2';
+    headSel.addEventListener('change', () => {
+      const count = headSel.value === '4' ? 2 : 1;
+      this.cb.onEngine({ exValveCount: count, inValveCount: count });
+    });
+    headRow.title =
+      'Two small valves open more of the cylinder than one big one: at the same lift, √2 as much ' +
+      'curtain for the same total area. That is what lets a four-valve engine breathe at high rpm. ' +
+      'The diameters below are each valve\'s.';
     slider(valves, {
       label: 'Exhaust valve',
       min: 0.018,

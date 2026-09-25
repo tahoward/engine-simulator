@@ -190,7 +190,8 @@ The **exhaust port** is modelled as the first length of duct, not as a single lu
 At 55 mm long, its own [quarter-wave resonance](glossary.md#quarter-wave-resonance) is near 3 kHz, right in the range that matters.
 Treating it as a simple volume would wrongly cut high frequencies from the source there.
 Modelling it as duct also means tuned length is measured from the valve seat, as it is on a
-real engine.
+real engine. On a four-valve head the two exhaust valves share one port, with the area of both
+valve heads together.
 
 ## Heat and friction
 

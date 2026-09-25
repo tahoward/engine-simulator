@@ -545,14 +545,21 @@ describe('the drawn mechanism', () => {
   it.each([
     ['a single', { cylinders: 1 }],
     ['a V8', { ...V8 }],
+    ['a four-valve four', { cylinders: 4, vAngle: 0, exValveCount: 2, inValveCount: 2 }],
   ] as Array<[string, Partial<EngineSpec>]>)('opens every valve of %s along its stem', (_n, engine) => {
     const mesh = new EngineMesh(spec(engine), clip) as unknown as {
-      cyls: Array<{ exValve: THREE.Group; inValve: THREE.Group; exhaustSide: number }>;
+      cyls: Array<{ exValves: THREE.Group[]; inValves: THREE.Group[]; exhaustSide: number }>;
       poseValve: (g: THREE.Group, sign: number, lift: number) => void;
     };
     const lift = 0.009;
+    const count = (engine.exValveCount ?? 1) + (engine.inValveCount ?? 1);
     for (const c of mesh.cyls) {
-      for (const [valve, sign] of [[c.exValve, c.exhaustSide], [c.inValve, -c.exhaustSide]] as const) {
+      const valves = [
+        ...c.exValves.map((v) => [v, c.exhaustSide] as const),
+        ...c.inValves.map((v) => [v, -c.exhaustSide] as const),
+      ];
+      expect(valves.length).toBe(count);
+      for (const [valve, sign] of valves) {
         mesh.poseValve(valve, sign, 0);
         const shut = valve.position.clone();
         mesh.poseValve(valve, sign, lift);
