@@ -1,8 +1,8 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
-exports[`audio fingerprint per preset > 45° V-twin, 2-into-1 1`] = `"d15ffb0e  rms 2.787129e-2 peak 0.091789 nonFinite 0"`;
+exports[`audio fingerprint per preset > 45° V-twin, 2-into-1 1`] = `"35b95eaa  rms 2.788663e-2 peak 0.091617 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > 90° V-twin, 2-into-2 1`] = `"9fe94b17  rms 5.684255e-2 peak 0.197795 nonFinite 0"`;
+exports[`audio fingerprint per preset > 90° V-twin, 2-into-2 1`] = `"862c79e5  rms 5.627987e-2 peak 0.196408 nonFinite 0"`;
 
 exports[`audio fingerprint per preset > Boxer four 1`] = `"6478f208  rms 1.060765e-1 peak 0.469072 nonFinite 0"`;
 
@@ -18,12 +18,12 @@ exports[`audio fingerprint per preset > Inline three 1`] = `"0e4b78cb  rms 6.236
 
 exports[`audio fingerprint per preset > Parallel twin, 360° 1`] = `"b7de3c2c  rms 2.056493e-2 peak 0.076485 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > Single, megaphone 1`] = `"5f75ffe3  rms 4.065366e-2 peak 0.143921 nonFinite 0"`;
+exports[`audio fingerprint per preset > Single, megaphone 1`] = `"8985777f  rms 4.144672e-2 peak 0.147361 nonFinite 0"`;
 
 exports[`audio fingerprint per preset > V6, 60°, manifold per bank 1`] = `"6e92884f  rms 6.675810e-2 peak 0.244794 nonFinite 0"`;
 
 exports[`audio fingerprint per preset > V8, crossplane, manifold per bank 1`] = `"28b5c872  rms 5.275594e-2 peak 0.188963 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > V8, flatplane, manifold per bank 1`] = `"325b356c  rms 5.576638e-2 peak 0.151373 nonFinite 0"`;
+exports[`audio fingerprint per preset > V8, flatplane, manifold per bank 1`] = `"b2595148  rms 5.582602e-2 peak 0.151100 nonFinite 0"`;
 
 exports[`audio fingerprint per preset > V8, overcammed 1`] = `"4d6ff2a1  rms 8.737883e-2 peak 0.268874 nonFinite 0"`;

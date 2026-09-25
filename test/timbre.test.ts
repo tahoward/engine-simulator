@@ -111,8 +111,10 @@ describe('the exhaust note is not dominated by broadband hiss', () => {
     const off = bands(render({ throatNoise: 0, mechNoise: 0 }));
     const on = bands(render({ throatNoise: 1, mechNoise: 0 }));
     const added = (f: number) => Math.max(on.get(f)! - off.get(f)!, 1e-30);
+    // At or equal to, because above 8 kHz the noise adds nothing measurable: the two runs differ
+    // there by a few percent either way, so both octaves can clamp to the floor together.
     expect(added(8000)).toBeLessThan(added(2000));
-    expect(added(16000)).toBeLessThan(added(8000));
+    expect(added(16000)).toBeLessThanOrEqual(added(8000));
   });
 
   it('holds across every preset and speed', () => {
