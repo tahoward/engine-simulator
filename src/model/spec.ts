@@ -218,6 +218,16 @@ export interface EngineSpec {
   /** Target crank speed, rev/min. Used directly when `freeRunning` is false. */
   rpm: number;
   /**
+   * Rev limiter, rev/min.
+   *
+   * A hard spark cut: past the limit every cylinder whose charge is committed misses its firing,
+   * and sparks return once speed has fallen `REV_LIMIT_HYSTERESIS_RPM` below it. The unburned
+   * charge still goes down the pipe, and the engine bounces off the limit in the stuttering way a
+   * real one does. A fixed `rpm` at or above the limit is not held: the crank is let go, unloaded,
+   * so it can bounce too.
+   */
+  revLimit: number;
+  /**
    * When true the crank is integrated from gas torque, reciprocating inertia and
    * load instead of being swept at a fixed `rpm`, so the pipe's tuning can pull
    * the engine around. See `flywheelInertia` / `loadTorque`.
@@ -356,6 +366,8 @@ export interface EngineSnapshot {
   /** Crank angle, deg in [0, 720). Bank 0, kept flat for the readouts. */
   crankAngle: number;
   rpm: number;
+  /** Whether the rev limiter is cutting the spark right now. */
+  limiter: boolean;
   /** Cylinder pressure, Pa. Bank 0. */
   cylPressure: number;
   /** Cylinder gas temperature, K. Bank 0. */
@@ -389,6 +401,13 @@ export interface EngineSnapshot {
 }
 
 export const PIPE_PRESSURE_TAPS = 128;
+
+/**
+ * How far below `revLimit` the free-running crank must fall before the spark returns, rev/min.
+ * A production hard-cut limiter sits in the 100-300 range; without the gap it would toggle on the
+ * crank's own within-cycle ripple rather than on the speed.
+ */
+export const REV_LIMIT_HYSTERESIS_RPM = 200;
 
 /** Number of crank degrees in one full four-stroke cycle. */
 export const CYCLE_DEG = 720;
@@ -728,6 +747,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
   plenumVolume: 0,
 
   rpm: 3200,
+  revLimit: 7000,
   freeRunning: false,
   // A bare crank is nearer 0.06; 0.25 represents crank plus clutch and primary
   // drive, which is what a rider actually hears. Lower it for a lumpier idle.
@@ -1293,6 +1313,8 @@ const THREE_CYL: Partial<EngineSpec> = {
   vAngle: 0,
   exhaustLayout: 'merged',
   rpm: 2800,
+  // A Ford 1.0 EcoBoost's.
+  revLimit: 6500,
   flywheelInertia: 0.2,
   pipeCellSize: 0.035,
   // A 1.0 litre three.
@@ -1312,6 +1334,8 @@ const FIVE_CYL: Partial<EngineSpec> = {
   vAngle: 0,
   exhaustLayout: 'merged',
   rpm: 2400,
+  // The Audi 2.5 TFSI's.
+  revLimit: 7000,
   flywheelInertia: 0.3,
   pipeCellSize: 0.035,
   // A 2.5 litre five.
@@ -1331,6 +1355,8 @@ const SIX_CYL: Partial<EngineSpec> = {
   vAngle: 0,
   exhaustLayout: 'merged',
   rpm: 2200,
+  // A BMW 3.0 straight six's.
+  revLimit: 7000,
   flywheelInertia: 0.35,
   pipeCellSize: 0.035,
   // A 3.0 litre six.
@@ -1350,6 +1376,8 @@ const V6_60: Partial<EngineSpec> = {
   vAngle: 60,
   exhaustLayout: 'perBank',
   rpm: 2400,
+  // The GM 3.6's.
+  revLimit: 7000,
   flywheelInertia: 0.5,
   loadTorque: 25,
   mouthSpacing: 1.0,
@@ -1378,6 +1406,8 @@ const BOXER_FOUR: Partial<EngineSpec> = {
   crankType: 'boxer',
   exhaustLayout: 'merged',
   rpm: 2400,
+  // A Subaru EJ25's.
+  revLimit: 6500,
   flywheelInertia: 0.3,
   pipeCellSize: 0.035,
   bore: 0.0995,
@@ -1397,6 +1427,8 @@ const BOXER_SIX: Partial<EngineSpec> = {
   crankType: 'boxer',
   exhaustLayout: 'perBank',
   rpm: 2400,
+  // A 997 Carrera 3.6's.
+  revLimit: 7300,
   flywheelInertia: 0.35,
   mouthSpacing: 0.9,
   pipeCellSize: 0.035,
@@ -1415,7 +1447,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'Single, megaphone',
     description: 'The 500 cc thumper this project started as.',
-    engine: { cylinders: 1, exhaustLayout: 'single' },
+    // A big air-cooled single is out of breath well before 7000.
+    engine: { cylinders: 1, exhaustLayout: 'single', revLimit: 7000 },
     pipe: () => PIPE_PRESETS[1]!.build(),
   },
   {
@@ -1428,6 +1461,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       firingOffset: null,
       exhaustLayout: '2into1',
       rpm: 2600,
+      // Long-stroke and pushrod: a Harley stops pulling not far past 5500.
+      revLimit: 5600,
       flywheelInertia: 0.4,
     },
     pipe: () => [
@@ -1449,6 +1484,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       firingOffset: null,
       exhaustLayout: '2into2',
       rpm: 4200,
+      // Desmodromic valves, so no float to guard against: a Ducati twin's 9000.
+      revLimit: 9000,
       mouthSpacing: 0.45,
       flywheelInertia: 0.22,
     },
@@ -1469,6 +1506,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       // 5200 fires at 173 Hz — a high buzz, and not what anyone pictures when they think of a
       // four. At 2600 it is 87 Hz.
       rpm: 2600,
+      // A 60 mm stroke is a bike engine's, and revs like one.
+      revLimit: 10500,
       flywheelInertia: 0.16,
       pipeCellSize: 0.035,
       bore: 0.073,
@@ -1538,6 +1577,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       // Eight cylinders fire eight times per cycle, so a V8 reaches a given firing frequency at
       // an eighth of a single's rpm. 2200 gives 147 Hz; 3200 gave 213 and sounded like it.
       rpm: 2200,
+      // Pushrods and a heavy crank: a road V8's 6500.
+      revLimit: 6500,
       mouthSpacing: 1.3,
       flywheelInertia: 0.9,
       loadTorque: 30,
@@ -1576,6 +1617,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       // Deliberately the loud one: a flat-crank V8 on short pipes. Still well below the 5600 it
       // shipped at first, where it fired at 373 Hz and screamed.
       rpm: 3000,
+      // Oversquare, light and flat-cranked, so it revs like the Ferrari it is.
+      revLimit: 9000,
       mouthSpacing: 1.3,
       flywheelInertia: 0.5,
       loadTorque: 22,
@@ -1622,6 +1665,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       firingOffset: 360,
       exhaustLayout: '2into1',
       rpm: 3600,
+      // A modern 1200 cc parallel twin's.
+      revLimit: 7500,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.04 })],
     collector: () => [
