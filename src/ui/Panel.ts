@@ -684,7 +684,28 @@ export class Panel {
       value: spec.burnDuration,
       unit: '°',
       onInput: (v) => this.cb.onEngine({ burnDuration: v }),
-    });
+    }).row.title =
+      'How long the charge takes to burn at full throttle, stoichiometric, at 10 m/s mean ' +
+      'piston speed. Each cycle burns faster or slower than this with its own flame speed: ' +
+      'slower at part throttle, with residual gas and lean, and a little slower the faster ' +
+      'the engine turns.';
+    slider(comb, {
+      label: 'Mixture',
+      min: 0.7,
+      max: 1.6,
+      step: 0.01,
+      value: spec.lambda,
+      format: (v) =>
+        `λ ${v.toFixed(2)}${Math.abs(v - 1) < 0.005 ? ' (stoichiometric)' : v < 1 ? ' (rich)' : ' (lean)'}`,
+      onInput: (v) => this.cb.onEngine({ lambda: v }),
+    }).row.title =
+      'Air-fuel ratio as a multiple of stoichiometric. Rich, the extra fuel has no oxygen to ' +
+      'burn with; lean, each charge carries less fuel and burns slower, and past about 1.5 ' +
+      'cycles start to misfire.';
+    toggle(comb, 'Overrun fuel cut', spec.fuelCut, (on) => this.cb.onEngine({ fuelCut: on })).title =
+      'With the throttle shut above 1500 rpm the fuel stops, as an injected engine does, until ' +
+      'the speed falls below 1200 or the throttle opens. Off, the engine keeps firing weakly on ' +
+      'the air leaking past the throttle, as a carburettor does.';
     slider(comb, {
       label: 'Cycle-to-cycle scatter',
       min: 0,
@@ -1363,7 +1384,8 @@ export class Panel {
 
 
   updateReadouts(s: EngineSnapshot): void {
-    this.rpmEl.textContent = `${Math.round(s.rpm)} rpm${s.limiter ? ' · limiter' : ''}`;
+    this.rpmEl.textContent =
+      `${Math.round(s.rpm)} rpm${s.limiter ? ' · limiter' : ''}${s.fuelCut ? ' · fuel cut' : ''}`;
     const stroke = strokeName(s.crankAngle);
     this.readoutEl.textContent =
       `${stroke} · ${s.crankAngle.toFixed(0)}° · ` +

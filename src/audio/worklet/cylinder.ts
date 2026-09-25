@@ -18,6 +18,7 @@ import {
   crankAt,
   cylinderVolume,
   displacement,
+  fuelFractionAt,
   makeCrankState,
 } from '../../model/spec.js';
 import { Noise, clamp, cycleDelta, windowPhase, wrapCycle } from './dsp.js';
@@ -77,8 +78,26 @@ export class Cylinder {
    * come out of the bookkeeping instead of being assumed away.
    */
   private freshMass = 0;
-  /** Fresh charge trapped at intake valve closing, kg. What the flame has to consume. */
-  private freshAtIvc = 0;
+  /**
+   * Of `freshMass`, how much is unburned fuel, kg; the rest of it is air. Tracked through every
+   * valve flow as `freshMass` is, so the mixture the cylinder traps is whatever it actually drew —
+   * including fuel it pushed back up the intake last cycle, or none at all once the fuel is cut.
+   */
+  private fuelMass = 0;
+  /**
+   * Fuel the trapped charge can burn, kg: all of it lean, only as much as the air has oxygen for
+   * rich. Latched at intake valve closing, and what the flame consumes.
+   */
+  private burnFuel = 0;
+  /** Equivalence ratio φ of the trapped charge, fuel over air relative to stoichiometric. */
+  private chargePhi = 1;
+  /** Burned-gas mass fraction of the trapped charge. */
+  private chargeResidual = 0;
+  /**
+   * Wiebe duration this cycle burns over, deg: `burnAngle` at the spark, times the cycle's scatter.
+   * Zero until the spark. Exposed for diagnostics.
+   */
+  burnAngle = 0;
   /** Whether combustion has been armed for the cycle about to fire. */
   private armed = false;
   /**
@@ -106,7 +125,7 @@ export class Cylinder {
    */
   dpdt = 0;
 
-  /** Pressure, temperature and burned fraction after the last step, at the `CYL_*` slots. */
+  /** Pressure, temperature, burned fraction and fuel fraction after the last step, at the `CYL_*` slots. */
   readonly endState = new Float64Array(CYL_STATE_SIZE);
 
   /** Scratch for `crankAt`, so the per-substep path allocates nothing. */
@@ -154,7 +173,8 @@ export class Cylinder {
   }
 
   /**
-   * `pressure`, `temp` and `burnedFraction`, written to `out` from `base` at the `CYL_*` slots.
+   * `pressure`, `temp`, `burnedFraction` and the fuel fraction, written to `out` from `base` at the
+   * `CYL_*` slots.
    *
    * For the engine loop, which is too big to inline the getters: each would box its result. This
    * gets inlined into it in turn, so it is written out with no floating-point calls of its own; the
@@ -165,6 +185,8 @@ export class Cylinder {
   readState(spec: EngineSpec, out: Float64Array, base: number): void {
     const b = 1 - this.freshMass / Math.max(this.mass, MIN_MASS);
     const burned = b < 0 ? 0 : b > 1 ? 1 : b;
+    const f = this.fuelMass / Math.max(this.mass, MIN_MASS);
+    out[base + CYL_FUEL] = f > 1 ? 1 : f;
     const u = this.energy / this.mass;
     const raw = T_REF + (2 * u) / (CV_REF + Math.sqrt(CV_REF_SQ + TWO_SLOPE * u));
     const temp = raw < 150 ? 150 : raw > 6000 ? 6000 : raw;
@@ -183,6 +205,8 @@ export class Cylinder {
    * @param intakeTemp K, temperature of the charge arriving through the intake.
    * @param portTemp K, temperature of the gas in the exhaust port, carried in by reverse flow.
    * @param intakeBurned 0..1, burned fraction of what arrives through the intake.
+   * @param intakeFuel 0..1, fuel fraction of what arrives through the intake. Defaults to a
+   *   stoichiometric mixture.
    */
   advance(
     spec: EngineSpec,
@@ -193,6 +217,7 @@ export class Cylinder {
     intakeTemp: number,
     portTemp: number,
     intakeBurned = 0,
+    intakeFuel = fuelFractionAt(1) * (1 - intakeBurned),
   ): void {
     const io = ADVANCE_IO;
     io[IO_DT] = dt;
@@ -202,6 +227,7 @@ export class Cylinder {
     io[IO_INTAKE_T] = intakeTemp;
     io[IO_PORT_T] = portTemp;
     io[IO_INTAKE_BURNED] = intakeBurned;
+    io[IO_INTAKE_FUEL] = intakeFuel;
     this.advanceIo(spec, io);
   }
 
@@ -220,9 +246,11 @@ export class Cylinder {
     const intakeTemp = io[IO_INTAKE_T]!;
     const portTemp = io[IO_PORT_T]!;
     const intakeBurned = io[IO_INTAKE_BURNED]!;
+    const intakeFuel = io[IO_INTAKE_FUEL]!;
     const dTheta = (omega * dt * 180) / Math.PI;
     const nextAngle = wrapCycle(this.angle + dTheta);
     this.nextAngle = nextAngle;
+    this.stepOmega = omega;
 
     const tNow = this.temp;
     // One trig evaluation for volume, dV/dtheta and both piston derivatives.
@@ -279,11 +307,17 @@ export class Cylinder {
     //   intake out   -> the cylinder's own mixture, going back up the runner
     //   exhaust out  -> the cylinder's own mixture
     //   exhaust in   -> spent gas from the port, so no fresh charge at all
+    // The fuel rides along in the same four flows.
     const freshFrac = this.freshMass / Math.max(massBefore, MIN_MASS);
+    const fuelFrac = this.fuelMass / Math.max(massBefore, MIN_MASS);
     let dFresh = 0;
     dFresh += (inMdot >= 0 ? inMdot * (1 - intakeBurned) : inMdot * freshFrac) * dt;
     dFresh -= (exMdot >= 0 ? exMdot * freshFrac : 0) * dt;
     this.freshMass = clamp(this.freshMass + dFresh, 0, this.mass);
+    let dFuel = 0;
+    dFuel += (inMdot >= 0 ? inMdot * intakeFuel : inMdot * fuelFrac) * dt;
+    dFuel -= (exMdot >= 0 ? exMdot * fuelFrac : 0) * dt;
+    this.fuelMass = clamp(this.fuelMass + dFuel, 0, this.freshMass);
 
     // Floor the internal energy so the derived temperature stays admissible. Counted, not
     // silent: in normal running it must never fire.
@@ -316,6 +350,8 @@ export class Cylinder {
     endState[CYL_TEMP] = tAfter;
     const bAfter = 1 - this.freshMass / Math.max(this.mass, MIN_MASS);
     endState[CYL_BURNED] = bAfter < 0 ? 0 : bAfter > 1 ? 1 : bAfter;
+    const fAfter = this.fuelMass / Math.max(this.mass, MIN_MASS);
+    endState[CYL_FUEL] = fAfter > 1 ? 1 : fAfter;
 
     // Woschni's motored pressure, compressed isentropically along with the volume from the
     // reference state: dp/p = -gamma dV/V over the step just taken, at the gamma of the motored
@@ -357,6 +393,13 @@ export class Cylinder {
       // residual — releases less heat. That is the load mechanism, and it falls
       // out of the mass bookkeeping rather than being applied as a fudge factor.
       const fresh = this.freshMass;
+      const fuel = this.fuelMass;
+      const air = Math.max(fresh - fuel, 0);
+      const mass = Math.max(this.mass, MIN_MASS);
+      // Lean, the fuel runs out first; rich, the oxygen does, and the fuel it leaves goes out unburned.
+      this.burnFuel = Math.min(fuel, air / GAS.afrStoich);
+      this.chargePhi = (fuel * GAS.afrStoich) / Math.max(air, 1e-12);
+      this.chargeResidual = 1 - fresh / mass;
 
       // --- Cycle-to-cycle combustion scatter -----------------------------------
       // Drawn here, at the moment the charge is committed, and held for the whole
@@ -395,28 +438,46 @@ export class Cylinder {
       // 3.5 deg (one sigma) respectively.
       this.ignitionOffset = clamp(this.noise.gaussian() * scatter * 22, -14, 14);
 
-      this.qCycle = fresh * GAS.chargeEnergy * COMBUSTION_EFFICIENCY * qScale;
+      this.qCycle = this.burnFuel * GAS.fuelLhv * COMBUSTION_EFFICIENCY * qScale;
 
-      // --- Dilution limit ---------------------------------------------------------
-      // Spent gas absorbs heat and carries no fuel, so the more of it the charge holds the slower the
-      // flame and the weaker the kernel — until, past some limit, the kernel does not survive at all.
-      // The burn stretches as the limit is approached and cycles start to misfire outright; that
-      // misfire, and the partial burns either side of it, are the lope of a big cam at idle. It
-      // regulates itself as a real one does: a misfired charge goes out unburned, so what the next
-      // cycle keeps of it is fuel rather than spent gas, and that cycle fires hard.
-      //
-      // Only past the onset, and only there does it draw a random number, so an engine below it
-      // draws exactly the noise sequence it would with no dilution limit at all.
-      const residual = 1 - fresh / Math.max(this.mass, MIN_MASS);
-      if (residual > DILUTION_ONSET) {
-        const x = Math.min((residual - DILUTION_ONSET) / (DILUTION_FULL - DILUTION_ONSET), 1);
-        this.burnScale *= 1 + DILUTION_BURN_STRETCH * x;
-        const u = (this.noise.next() + 1) / 2;
-        if (u < x * x) this.qCycle = 0;
+      // --- Flammability limits ----------------------------------------------------
+      // Outside them no flame propagates through the mixture at all: far enough lean or rich, or
+      // with no fuel in it, as on the overrun with the fuel cut.
+      const mixtureSpeed = laminarSpeedBase(this.chargePhi);
+      if (!(mixtureSpeed > 0)) {
+        this.qCycle = 0;
+      } else {
+        // --- Dilution limit -------------------------------------------------------
+        // Spent gas absorbs heat and carries no fuel, so the more of it the charge holds the slower
+        // the flame and the weaker the kernel — until, past some limit, the kernel does not survive at
+        // all. The burn stretches as the limit is approached (the flame speed in `burnAngle` falls
+        // with the residual) and cycles start to misfire outright; that misfire, and the partial
+        // burns either side of it, are the lope of a big cam at idle. It regulates itself as a real
+        // one does: a misfired charge goes out unburned, so what the next cycle keeps of it is fuel
+        // rather than spent gas, and that cycle fires hard.
+        //
+        // Air the fuel has no use for dilutes the charge the same way, and is counted mass for mass
+        // with the residual. On its own that puts the onset at λ 1.6 at full throttle, but at 1.15 at
+        // an idle already carrying a quarter of its charge as residual.
+        const excessAir = Math.max(air - fuel * GAS.afrStoich, 0) / mass;
+        const dilution = this.chargeResidual + excessAir;
+        const xDilution = (dilution - DILUTION_ONSET) / (DILUTION_FULL - DILUTION_ONSET);
+        // --- Lean and rich limits ---------------------------------------------------
+        // Far enough from stoichiometric the kernel fails even undiluted, because the mixture itself
+        // barely burns: misfires start once its flame speed falls below `KERNEL_SPEED_ONSET` of
+        // stoichiometric's, near λ 1.5, and become certain at the flammability limit, near λ 2.15.
+        const xMixture = 1 - mixtureSpeed / (KERNEL_SPEED_ONSET * STOICH_SPEED);
+        const x = Math.min(Math.max(xDilution, xMixture), 1);
+        // Only past an onset, and only there does it draw a random number, so an engine below
+        // both draws exactly the noise sequence it would with no limits at all.
+        if (x > 0) {
+          const u = (this.noise.next() + 1) / 2;
+          if (u < x * x) this.qCycle = 0;
+        }
       }
 
-      this.freshAtIvc = fresh;
       this.burned = 0;
+      this.burnAngle = 0;
       // The scatter is still drawn on a cut cycle, so the limiter does not shift the noise
       // sequence of every cycle after it.
       this.armed = !this.sparkCut;
@@ -428,7 +489,21 @@ export class Cylinder {
     const nextAngle = this.nextAngle;
     if (!this.armed || this.qCycle <= 0) return 0;
     const spark = spec.ignition + this.ignitionOffset;
-    const duration = Math.max(spec.burnDuration * this.burnScale, 4);
+    if (this.burnAngle === 0) {
+      // The duration is set by the charge as the spark finds it, so it is worked out on the step
+      // that reaches the spark, from the state at its start.
+      if (cycleDelta(nextAngle, spark) <= 0) return 0;
+      const predicted = burnAngle(
+        spec,
+        this.stepOmega,
+        this.stepPressure,
+        this.stepTemp,
+        this.chargePhi,
+        this.chargeResidual,
+      );
+      this.burnAngle = clamp(predicted * this.burnScale, 4, MAX_BURN_ANGLE);
+    }
+    const duration = this.burnAngle;
     const from = wiebe(cycleDelta(this.angle, spark), duration);
     const to = wiebe(cycleDelta(nextAngle, spark), duration);
     const d = to - from;
@@ -436,8 +511,12 @@ export class Cylinder {
     this.burned = to;
     // The flame turns fresh charge into spent gas. Without this the cylinder would still
     // read as full of unburned mixture after combustion, and anything it pushed back up
-    // the intake would arrive at the plenum as clean air.
-    this.freshMass = Math.max(this.freshMass - d * this.freshAtIvc, 0);
+    // the intake would arrive at the plenum as clean air. It takes the fuel it burns and the
+    // air that burns it; air a lean charge has no fuel for, and fuel a rich one has no air
+    // for, stay as they are.
+    const fuelBurned = d * this.burnFuel;
+    this.freshMass = Math.max(this.freshMass - fuelBurned * (1 + GAS.afrStoich), 0);
+    this.fuelMass = clamp(this.fuelMass - fuelBurned, 0, this.freshMass);
     if (to >= 0.999) this.armed = false;
     return d * this.qCycle;
   }
@@ -530,6 +609,7 @@ export class Cylinder {
   private stepPressure = 0;
   private stepVolume = 0;
   private stepTemp = 0;
+  private stepOmega = 0;
 }
 
 /** Woschni's velocity coefficients: m/s per m/s of mean piston speed, and m/(s*K). */
@@ -545,7 +625,8 @@ export const IO_IN = 3;
 export const IO_INTAKE_T = 4;
 export const IO_PORT_T = 5;
 export const IO_INTAKE_BURNED = 6;
-export const ADVANCE_IO_SIZE = 7;
+export const IO_INTAKE_FUEL = 7;
+export const ADVANCE_IO_SIZE = 8;
 /** Scratch for the plain `advance`. */
 const ADVANCE_IO = new Float64Array(ADVANCE_IO_SIZE);
 
@@ -553,7 +634,9 @@ const ADVANCE_IO = new Float64Array(ADVANCE_IO_SIZE);
 export const CYL_PRESSURE = 0;
 export const CYL_TEMP = 1;
 export const CYL_BURNED = 2;
-export const CYL_STATE_SIZE = 3;
+/** Fuel mass fraction of the cylinder's contents. */
+export const CYL_FUEL = 3;
+export const CYL_STATE_SIZE = 4;
 
 const COMBUSTION_EFFICIENCY = 0.92;
 
@@ -578,8 +661,125 @@ const MAX_SCATTER = 0.16;
 const DILUTION_ONSET = 0.4;
 const DILUTION_FULL = 0.9;
 
-/** How much longer the burn takes at a fully diluted charge, as a multiple of the normal duration. */
-const DILUTION_BURN_STRETCH = 2;
+// ---------------------------------------------------------------------------
+// Flame speed and burn duration
+// ---------------------------------------------------------------------------
+
+/**
+ * Laminar burning velocity of gasoline at 298 K and 1 atm, m/s, before dilution:
+ * `B_m + B_φ (φ - φ_m)^2`, from Heywood's gasoline fit. Zero or less outside the flammability
+ * limits, near φ 0.47 and 1.95, where no flame propagates.
+ */
+export function laminarSpeedBase(phi: number): number {
+  const d = phi - SL_PHI_PEAK;
+  return SL_PEAK + SL_CURVE * d * d;
+}
+
+const SL_PHI_PEAK = 1.21;
+const SL_PEAK = 0.305;
+const SL_CURVE = -0.549;
+const STOICH_SPEED = laminarSpeedBase(1);
+
+/**
+ * Laminar speed of the mixture, as a fraction of a stoichiometric one's, below which the spark kernel
+ * starts to fail. Calibrated, not derived: a half puts the onset at λ 1.5, where homogeneous-charge
+ * engines find their lean limit, and rich at λ 0.57.
+ */
+const KERNEL_SPEED_ONSET = 0.5;
+
+/**
+ * Laminar burning velocity, m/s, of gasoline at equivalence ratio `phi`, unburned-gas temperature
+ * `t` (K) and pressure `p` (Pa), diluted by a burned-gas mass fraction `residual`.
+ *
+ * Rhodes and Keck's correlation: `S_L = S_L0 (T/298)^α (p/1 atm)^β (1 - 2.06 x_b^0.77)`, with α and β
+ * depending on φ. The flame speeds up steeply with temperature and slows a little with pressure,
+ * which is why a hot compressed charge burns in milliseconds.
+ *
+ * The dilution term reaches zero at 39% residual; the measurements behind it stop at about 30%.
+ * Past that the flame is failing rather than slowing, which the misfire limit in `Cylinder`
+ * handles, so the term is floored rather than let go to zero.
+ */
+export function laminarFlameSpeed(phi: number, t: number, p: number, residual: number): number {
+  const base = laminarSpeedBase(phi);
+  if (!(base > 0)) return 0;
+  const alpha = 2.4 - 0.271 * Math.pow(phi, 3.51);
+  const beta = -0.357 + 0.14 * Math.pow(phi, 2.77);
+  const dilution = Math.max(1 - 2.06 * Math.pow(Math.max(residual, 0), 0.77), SL_DILUTION_FLOOR);
+  return base * Math.pow(t / 298, alpha) * Math.pow(p / 101325, beta) * dilution;
+}
+
+/** Floor on the laminar speed's dilution term. See `laminarFlameSpeed`. */
+const SL_DILUTION_FLOOR = 0.1;
+
+/**
+ * RMS turbulence intensity at top dead centre per unit mean piston speed. Heywood gives about 0.5
+ * for an open chamber: the turbulence comes from the intake jet and scales with how fast the piston
+ * draws it in.
+ */
+const TURBULENCE_PER_PISTON_SPEED = 0.5;
+
+/** Kinematic viscosity of the unburned charge, m^2/s: air's `μ = 3.3e-7 T^0.7` over `ρ = p/RT`. */
+function kinematicViscosity(t: number, p: number): number {
+  return (3.3e-7 * Math.pow(t, 0.7) * GAS.R * t) / p;
+}
+
+/**
+ * The flame state `spec.burnDuration` is stated at: stoichiometric, 13 bar and 650 K at the spark,
+ * 4% residual, 10 m/s mean piston speed. What a naturally aspirated engine sees at full throttle.
+ */
+const REF_PISTON_SPEED = 10;
+const REF_TURBULENCE = TURBULENCE_PER_PISTON_SPEED * REF_PISTON_SPEED;
+const REF_LAMINAR = laminarFlameSpeed(1, 650, 13e5, 0.04);
+const REF_VISCOSITY = kinematicViscosity(650, 13e5);
+
+/**
+ * Share of the burn, at the reference state, that is the burn-up of eddies behind the flame front
+ * rather than the front's travel across the chamber. Calibrated, not derived. On the default single at
+ * 0.35, the burn lengthens by about a quarter from full throttle to a manifold at 0.4 bar, and by
+ * three quarters from 1000 to 6000 rpm: 36 to 63 degrees, where a burn taking a fixed time would go
+ * up sixfold.
+ */
+const BURNUP_SHARE = 0.35;
+
+/** Ceiling on the burn duration, deg. A charge that slow is still burning as the exhaust opens. */
+const MAX_BURN_ANGLE = 150;
+
+/**
+ * Wiebe burn duration, deg, for the charge the spark finds: `spec.burnDuration` rescaled from the
+ * reference flame state to this one.
+ *
+ * The burn is the entrainment picture of Blizard and Keck. The flame front sweeps across the chamber
+ * at the turbulence intensity `u'` plus the laminar speed, taking in unburned eddies as it goes, and
+ * each eddy then burns out from its edges at the laminar speed. Front travel takes a time
+ * `∝ 1/(u' + S_L)`; burn-up takes the eddy's size, the Taylor microscale `∝ sqrt(ν/u')`, over `S_L`.
+ * In crank degrees both are multiplied by the crank speed, and `u'` scales with the piston speed.
+ *
+ * What comes out of that is what real engines do. The front's share barely changes with rpm,
+ * because the turbulence rises with it, so the burn in degrees lengthens only slowly as the engine
+ * speeds up — and that is still why the spark needs advancing with rpm. The burn-up share goes as
+ * `1/S_L`, so it is the part that grows at part throttle, with residual gas, and lean.
+ */
+export function burnAngle(
+  spec: EngineSpec,
+  omega: number,
+  p: number,
+  t: number,
+  phi: number,
+  residual: number,
+): number {
+  const pistonSpeed = (spec.stroke * Math.abs(omega)) / Math.PI;
+  const turbulence = Math.max(TURBULENCE_PER_PISTON_SPEED * pistonSpeed, 1e-3);
+  const laminar = Math.max(laminarFlameSpeed(phi, t, p, residual), 1e-3);
+  const front = (REF_TURBULENCE + REF_LAMINAR) / (turbulence + laminar);
+  const burnup =
+    (REF_LAMINAR / laminar) *
+    Math.sqrt((kinematicViscosity(t, p) / REF_VISCOSITY) * (REF_TURBULENCE / turbulence));
+  return (
+    spec.burnDuration *
+    (pistonSpeed / REF_PISTON_SPEED) *
+    ((1 - BURNUP_SHARE) * front + BURNUP_SHARE * burnup)
+  );
+}
 
 /**
  * Wiebe mass-fraction-burned. `a = 5`, `m = 2` gives the usual slow-then-fast-then-slow

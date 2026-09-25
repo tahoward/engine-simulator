@@ -21,6 +21,9 @@
 import {
   CV_REF,
   CV_SLOPE,
+  FUEL_CUT_RPM,
+  FUEL_CUT_THROTTLE,
+  FUEL_RESUME_RPM,
   GAS,
   T_REF,
   PIPE_PRESSURE_TAPS,
@@ -32,6 +35,7 @@ import {
   type PipeSegment,
   displacement,
   exhaustLayoutOf,
+  fuelFractionAt,
   loadTorqueOf,
   ambientSoundSpeed,
   firingPlan,
@@ -41,6 +45,7 @@ import { Delay, Impact, Noise, Resonator, clamp, softClip, wrapCycle } from './d
 import {
   ADVANCE_IO_SIZE,
   CYL_BURNED,
+  CYL_FUEL,
   CYL_PRESSURE,
   CYL_STATE_SIZE,
   CYL_TEMP,
@@ -49,6 +54,7 @@ import {
   IO_EX,
   IO_IN,
   IO_INTAKE_BURNED,
+  IO_INTAKE_FUEL,
   IO_INTAKE_T,
   IO_OMEGA,
   IO_PORT_T,
@@ -79,12 +85,16 @@ const INTAKE_WEIGHT = 5;
 const INTAKE_MDOT = 6;
 const INTAKE_IO_SIZE = 7;
 
-/** Slots of `EngineSim.intakeAcc`: net valve flow, and the back-flow's mass, mass*T and mass*burned. */
+/**
+ * Slots of `EngineSim.intakeAcc`: net valve flow, and the back-flow's mass, mass*T, mass*burned and
+ * mass*fuel.
+ */
 const ACC_FLOW = 0;
 const ACC_BACK_MASS = 1;
 const ACC_BACK_ENERGY = 2;
 const ACC_BACK_BURNED = 3;
-const ACC_SIZE = 4;
+const ACC_BACK_FUEL = 4;
+const ACC_SIZE = 5;
 
 /**
  * Pressure, in pascals, that maps to digital full scale. An open-piped single at
@@ -433,6 +443,8 @@ export class EngineSim {
   private omegaDisplay = 0;
   /** Whether the rev limiter is cutting the spark. Latched, with hysteresis: see `revLimit`. */
   private limiterCut = false;
+  /** Whether the overrun fuel cut has stopped the fuel. Latched, with hysteresis: see `fuelCut`. */
+  private fuelCutActive = false;
   private prevExLift!: Float64Array;
   private prevInLift!: Float64Array;
   private prevAngle!: Float64Array;
@@ -903,6 +915,7 @@ export class EngineSim {
       acc[ACC_BACK_MASS] += m;
       acc[ACC_BACK_ENERGY] += m * this.cylState[s + CYL_TEMP]!;
       acc[ACC_BACK_BURNED] += m * this.cylState[s + CYL_BURNED]!;
+      acc[ACC_BACK_FUEL] += m * this.cylState[s + CYL_FUEL]!;
     }
   }
 
@@ -1174,6 +1187,17 @@ export class EngineSim {
       this.omega = Math.max(this.omegaMean + this.omegaRipple, 1);
     }
 
+    // --- Overrun fuel cut ----------------------------------------------------
+    // Judged on the mean speed, which in fixed-rpm mode is the commanded one: held on a dynamometer
+    // with the throttle shut, the engine is being motored, and the ECU cuts the fuel just the same.
+    if (!spec.fuelCut || spec.throttle > FUEL_CUT_THROTTLE) {
+      this.fuelCutActive = false;
+    } else {
+      const rpmNow = (this.omegaMean * 60) / (2 * Math.PI);
+      if (rpmNow > FUEL_CUT_RPM) this.fuelCutActive = true;
+      else if (rpmNow < FUEL_RESUME_RPM) this.fuelCutActive = false;
+    }
+
     // --- Valves and flows, per bank -----------------------------------------
     const banks = this.cyls.length;
     const valves = this.valveStates;
@@ -1266,6 +1290,7 @@ export class EngineSim {
     const pPlenum = this.plenum.pressure;
     const tPlenum = this.plenum.temp;
     const plenumBurned = this.plenum.burnedFraction;
+    const plenumFuel = this.plenum.fuelFraction;
     // Accumulated over the cylinders, then handed to the plenum once below.
     const intake = this.intakeAcc;
     intake.fill(0);
@@ -1310,6 +1335,7 @@ export class EngineSim {
       io[IO_INTAKE_T] = tPlenum;
       io[IO_PORT_T] = portTemp;
       io[IO_INTAKE_BURNED] = plenumBurned;
+      io[IO_INTAKE_FUEL] = plenumFuel;
       intakeIo[INTAKE_WEIGHT] = 1 / nSub;
       if (inArea > 0) {
         for (let k = 0; k < nSub; k++) {
@@ -1346,6 +1372,8 @@ export class EngineSim {
       backflowMass,
       backflowMass > 0 ? intake[ACC_BACK_ENERGY]! / backflowMass : tPlenum,
       backflowMass > 0 ? intake[ACC_BACK_BURNED]! / backflowMass : 0,
+      backflowMass > 0 ? intake[ACC_BACK_FUEL]! / backflowMass : 0,
+      this.fuelCutActive ? 0 : fuelFractionAt(spec.lambda),
     );
 
     // --- Structure-borne noise ----------------------------------------------
@@ -1467,6 +1495,7 @@ export class EngineSim {
       crankAngle: first.crankAngle,
       rpm: this.rpm,
       limiter: this.limiterCut,
+      fuelCut: this.fuelCutActive,
       cylPressure: first.cylPressure,
       cylTemp: first.cylTemp,
       exLift: first.exLift,
