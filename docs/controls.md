@@ -93,7 +93,11 @@ How to edit:
 - **Drag a blue sphere** to move the end of a segment. How far you drag sets its length. The
   direction sets the angle of the bend. The spheres sit on stalks above the pipe, so the diameter
   rings never hide them.
-- **Drag a ring** to make the pipe wider or narrower. Zoom in for finer control. The ring moves
+- **Turn a selected segment** with the red, green and blue rings round its start. Each turns the
+  segment about one of the engine's axes: red across the engine, green up, blue along the crank.
+  Its length stays the same. Hold <kbd>Shift</kbd> to land on 15-degree steps, measured from the
+  engine's axes, so a segment at an odd angle squares up.
+- **Drag a diameter ring**, the pale blue one hugging the pipe, to make the pipe wider or narrower. Zoom in for finer control. The ring moves
   exactly as far as your pointer does in the scene.
 - **Or type exact sizes** into the panel. A typed value takes effect when you press
   <kbd>Enter</kbd>, leave the field, or use the spinner arrows. The handles and the panel both edit
@@ -112,8 +116,13 @@ Click **Draw a pipe** to switch to draw mode.
 
 1. **Start** from an exhaust port, a junction, the open end of a pipe (to extend it), or the side of
    a pipe (to branch off it).
-2. **Click** to add each corner. Corners snap to neat bend angles. Hold <kbd>Shift</kbd> to place
-   them freely.
+2. **Click** to add each corner. Each segment locks to a direction square to the engine: across it
+   (red), up or down (green), along the crank (blue), or 45 degrees between two of them, drawn in the
+   mix of their colours. It can also carry straight on from the pipe it leaves, drawn in white. Point
+   near the direction you want and the segment snaps to it, in 25 mm steps of length. The panel
+   says which way the next segment runs and how long it is.
+   Hold <kbd>Alt</kbd> to round the bend to 15 degrees off the pipe it leaves instead, or
+   <kbd>Shift</kbd> to place the corner freely.
 3. **Finish** by clicking a junction, a pipe or a pipe end to join onto it. To leave the end open,
    right-click, double-click or press <kbd>Enter</kbd>. Press <kbd>Escape</kbd> to cancel the pipe.
 

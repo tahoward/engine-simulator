@@ -23,6 +23,7 @@ import {
   quantiseLength,
   quantiseTurn,
   routeTip,
+  snapToEngine,
 } from '../src/scene/drawing.js';
 import { layoutGraph, type ExhaustPort } from '../src/scene/exhaustLayout.js';
 import { layoutPipe } from '../src/scene/PipeMesh.js';
@@ -91,6 +92,55 @@ describe('fitting a segment to a clicked point', () => {
     expect(Number.isFinite(seg.yaw)).toBe(true);
     expect(Number.isFinite(seg.pitch)).toBe(true);
     expect(seg.length).toBeLessThan(5);
+  });
+});
+
+describe('locking to the engine', () => {
+  const viewport = { width: 1200, height: 800 };
+  const camera = new THREE.PerspectiveCamera(40, viewport.width / viewport.height, 0.01, 50);
+  camera.position.set(0.85, 0.55, 1.15);
+  camera.lookAt(0, 0, 0);
+  camera.updateMatrixWorld();
+  const tip = new THREE.Vector3(0.1, 0.05, 0.1);
+  const ahead = new THREE.Vector3(1, 0, 0);
+
+  /** Aim the pointer at a world point, nudged by some pixels, and snap. */
+  function snapAt(world: THREE.Vector3, nudge = new THREE.Vector2()) {
+    const ndc = world.clone().project(camera);
+    const pointer = new THREE.Vector2(
+      ndc.x + (nudge.x * 2) / viewport.width,
+      ndc.y + (nudge.y * 2) / viewport.height,
+    );
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(pointer, camera);
+    return snapToEngine(tip, ahead, raycaster.ray, pointer, camera, viewport, 0.025);
+  }
+
+  it.each([
+    ['up', new THREE.Vector3(0, 1, 0)],
+    ['along the crank', new THREE.Vector3(0, 0, -1)],
+    ['down and across', new THREE.Vector3(1, -1, 0).normalize()],
+  ] as Array<[string, THREE.Vector3]>)('locks near %s onto it, at the length pointed to', (name, dir) => {
+    const snapped = snapAt(tip.clone().addScaledVector(dir, 0.3), new THREE.Vector2(6, -4))!;
+    expect(snapped.name).toBe(name);
+    expect(snapped.dir.angleTo(dir)).toBeLessThan(1e-9);
+    expect(snapped.point.distanceTo(tip)).toBeCloseTo(0.3, 6);
+  });
+
+  it('offers straight on, for a pipe leaving at an angle', () => {
+    const angled = new THREE.Vector3(1, 0.3, 0.2).normalize();
+    const ndc = tip.clone().addScaledVector(angled, 0.4).project(camera);
+    const pointer = new THREE.Vector2(ndc.x, ndc.y);
+    const raycaster = new THREE.Raycaster();
+    raycaster.setFromCamera(pointer, camera);
+    const snapped = snapToEngine(tip, angled, raycaster.ray, pointer, camera, viewport, 0.025)!;
+    expect(snapped.name).toBe('straight on');
+    expect(snapped.point.distanceTo(tip)).toBeCloseTo(0.4, 6);
+  });
+
+  it('never folds straight back', () => {
+    const snapped = snapAt(tip.clone().addScaledVector(ahead, -0.3))!;
+    expect(snapped.dir.dot(ahead)).toBeGreaterThan(-0.9);
   });
 });
 

@@ -33,8 +33,8 @@ export const MIN_DRAW_LENGTH = 0.02;
  *
  * Quantising the *turn* rather than the absolute direction is what makes it useful: a hand-drawn route
  * comes out as a sequence of clean 15- or 45-degree bends relative to the pipe it is leaving, which is
- * how exhaust is actually bent. Quantising in world space instead would snap to the world axes and fight
- * whatever angle the port happens to sit at.
+ * how exhaust is actually bent, and it holds whatever angle the port happens to sit at. `snapToEngine` is
+ * the other way to tidy a route: square to the engine rather than to the pipe.
  */
 export function quantiseTurn(
   dir: THREE.Vector3,
@@ -52,6 +52,112 @@ export function quantiseTurn(
   if (axis.lengthSq() < 1e-12) return to;
   axis.normalize();
   return from.applyAxisAngle(axis, snapped).normalize();
+}
+
+/**
+ * A direction a drawn segment can lock to, in the engine's frame.
+ *
+ * The engine sits at the origin with its crank along Z and bank 0 standing along +Y, so its frame is the
+ * world's: X across the engine, Y up, Z along the crank.
+ */
+export interface EngineDirection {
+  dir: THREE.Vector3;
+  /** What to call it, for a readout: "up", "down and across". */
+  name: string;
+}
+
+function engineDirectionName(x: number, y: number, z: number): string {
+  const parts: string[] = [];
+  if (y !== 0) parts.push(y > 0 ? 'up' : 'down');
+  if (x !== 0) parts.push('across');
+  if (z !== 0) parts.push('along the crank');
+  return parts.join(' and ');
+}
+
+/**
+ * The engine's axes and the 45-degree diagonals between each pair: the bends a real system is built from.
+ *
+ * The cube's corner diagonals are left out, because they sit at 35 degrees off every plane and nobody
+ * bends pipe to that.
+ */
+export const ENGINE_DIRECTIONS: readonly EngineDirection[] = (() => {
+  const dirs: EngineDirection[] = [];
+  for (const x of [-1, 0, 1]) {
+    for (const y of [-1, 0, 1]) {
+      for (const z of [-1, 0, 1]) {
+        const nonzero = Math.abs(x) + Math.abs(y) + Math.abs(z);
+        if (nonzero === 0 || nonzero === 3) continue;
+        dirs.push({ dir: new THREE.Vector3(x, y, z).normalize(), name: engineDirectionName(x, y, z) });
+      }
+    }
+  }
+  return dirs;
+})();
+
+/** Closer to straight back than this, a direction is a pipe folding onto itself and is not offered. */
+const MAX_TURN_COS = -0.9;
+
+/**
+ * Lock a segment leaving `tip` to whichever engine direction the pointer is nearest, on screen.
+ *
+ * On screen, because that is the only place the pointer is unambiguous: a point clicked in 3D has no depth,
+ * so snapping "the clicked point" would depend on a plane nobody can see. Each direction is drawn as a ray
+ * from the tip, the one passing closest to the cursor wins, and the length is where that ray comes closest
+ * to the pointer's ray. `ahead` is offered too, so a pipe leaving an angled port can carry straight on.
+ *
+ * `null` when the tip is behind the camera, where no direction can be drawn.
+ */
+export function snapToEngine(
+  tip: THREE.Vector3,
+  ahead: THREE.Vector3,
+  ray: THREE.Ray,
+  pointer: THREE.Vector2,
+  camera: THREE.Camera,
+  viewport: { width: number; height: number },
+  gridM: number,
+): { point: THREE.Vector3; dir: THREE.Vector3; name: string } | null {
+  const view = camera.matrixWorldInverse;
+  const inFront = (p: THREE.Vector3): boolean => p.clone().applyMatrix4(view).z < 0;
+  const toPixels = (p: THREE.Vector3): THREE.Vector2 => {
+    const ndc = p.clone().project(camera);
+    return new THREE.Vector2((ndc.x * viewport.width) / 2, (ndc.y * viewport.height) / 2);
+  };
+  if (!inFront(tip)) return null;
+
+  const cursor = new THREE.Vector2((pointer.x * viewport.width) / 2, (pointer.y * viewport.height) / 2);
+  const from = toPixels(tip);
+  const straight = ahead.clone().normalize();
+  const candidates: EngineDirection[] = [...ENGINE_DIRECTIONS, { dir: straight, name: 'straight on' }];
+
+  let best: { dir: THREE.Vector3; name: string; reach: number } | null = null;
+  let bestDist = Infinity;
+  for (const c of candidates) {
+    if (c.dir.dot(straight) < MAX_TURN_COS) continue;
+    // Shortened until its far end is in front of the camera, where projecting it means something.
+    let reach = MAX_DRAW_LENGTH;
+    while (reach > MIN_DRAW_LENGTH && !inFront(tip.clone().addScaledVector(c.dir, reach))) reach /= 2;
+    const to = toPixels(tip.clone().addScaledVector(c.dir, reach));
+    const span = to.clone().sub(from);
+    // Pointing into the screen: no way to aim along it, and its length would be meaningless.
+    if (span.lengthSq() < 16) continue;
+    const t = THREE.MathUtils.clamp(cursor.clone().sub(from).dot(span) / span.lengthSq(), 0, 1);
+    const dist = from.clone().addScaledVector(span, t).distanceTo(cursor);
+    // Strictly nearer, so where straight on coincides with an engine direction it goes by the engine's name.
+    if (dist < bestDist - 1e-6) {
+      bestDist = dist;
+      best = { dir: c.dir, name: c.name, reach };
+    }
+  }
+  if (!best) return null;
+
+  const onLine = new THREE.Vector3();
+  ray.distanceSqToSegment(tip, tip.clone().addScaledVector(best.dir, best.reach), undefined, onLine);
+  const length = quantiseLength(onLine.distanceTo(tip), gridM);
+  return {
+    point: tip.clone().addScaledVector(best.dir, length),
+    dir: best.dir.clone(),
+    name: best.name,
+  };
 }
 
 /**

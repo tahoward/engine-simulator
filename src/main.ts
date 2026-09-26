@@ -186,6 +186,7 @@ const editor = new PipeEditor(
       panel.setSelected(pick.segment);
     },
     onDrawing: (active) => panel.setDrawingState(active),
+    onAim: (aim) => panel.setDrawAim(aim),
   },
 );
 

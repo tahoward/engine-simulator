@@ -133,6 +133,7 @@ function engineTypeOf(eng: EngineSpec): string {
 
 /** What draw mode says before a route has started. */
 const START_HINT = 'Pick a port, a junction, or a pipe to continue or branch from';
+const ROUTE_HINT = 'Click to add a bend, or a junction or pipe to join it';
 
 export class Panel {
   private readonly listEl: HTMLElement;
@@ -157,6 +158,8 @@ export class Panel {
   private linkRunners = true;
   private drawing = false;
   private drawHint!: HTMLElement;
+  /** Whether a route is in progress, so the hint can show where it is aimed. */
+  private drawingRoute = false;
   private drawBtn!: HTMLButtonElement;
   /** Details of the junction selected in the scene, hidden when none is. */
   private jointEl!: HTMLElement;
@@ -544,8 +547,9 @@ export class Panel {
     this.drawBtn.title =
       'Start from an exhaust port, a junction, the open end of a pipe (to continue it) or the side of a ' +
       'pipe (to branch off it), then click to add bends. Click a junction, a pipe or a pipe end to join ' +
-      'it. Shift draws off the angle grid; Escape abandons; right-click or a double-click finishes in ' +
-      'open air.';
+      'it. Bends lock to the engine: across (red), up (green), along the crank (blue), or 45 degrees ' +
+      'between two of them. Alt rounds the bend off the pipe instead, Shift draws freely; Escape ' +
+      'abandons; right-click or a double-click finishes in open air.';
     this.drawHint = el('span', 'hint', drawRow);
     this.drawBtn.addEventListener('click', () => {
       this.setDrawMode(!this.drawing);
@@ -1620,9 +1624,14 @@ export class Panel {
   /** Tell the user whether a route is in progress, since the 3D preview is easy to miss. */
   setDrawingState(active: boolean): void {
     if (!this.drawing) return;
-    this.drawHint.textContent = active
-      ? 'Click to add a bend, or a junction or pipe to join it'
-      : START_HINT;
+    this.drawingRoute = active;
+    this.drawHint.textContent = active ? ROUTE_HINT : START_HINT;
+  }
+
+  /** Say which way the next segment is aimed, since a direction is hard to judge in perspective. */
+  setDrawAim(aim: string | null): void {
+    if (!this.drawing || !this.drawingRoute) return;
+    this.drawHint.textContent = aim ? `Next segment: ${aim}` : ROUTE_HINT;
   }
 
   /** Show draw mode as on or off, without telling anyone: for when the owner switched it. */
@@ -1630,6 +1639,7 @@ export class Panel {
     this.drawing = on;
     this.drawBtn.classList.toggle('active', on);
     this.drawBtn.textContent = on ? 'Stop drawing' : 'Draw a pipe';
+    this.drawingRoute = false;
     this.drawHint.textContent = on ? START_HINT : '';
   }
 
