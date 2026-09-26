@@ -214,6 +214,13 @@ export interface EngineSpec {
   vvtExhaustLow: number;
   vvtExhaustHigh: number;
   /**
+   * The engine speeds the map's low-speed and high-speed settings hold at, rev/min. Up to the first the
+   * cams take the low-speed settings, from the second the high-speed ones, and between the two a straight
+   * line from one to the other.
+   */
+  vvtLowRpm: number;
+  vvtHighRpm: number;
+  /**
    * One phaser for both cams, as a pushrod engine's single camshaft has: the whole cam moves by the
    * intake's advance, intake and exhaust lobes together, and the exhaust's map is ignored.
    */
@@ -322,6 +329,20 @@ export interface EngineSpec {
   intakeRunnerLength: number;
   /** Bore of each intake runner, m. 0 or less sizes it from the intake valves; see `intakeRunnerOf`. */
   intakeRunnerDia: number;
+  /**
+   * A two-stage intake: the length of each runner's short path, m, which the manifold switches to at
+   * `intakeSwitchRpm` and above. 0 or less is a single-stage intake, with the one runner length.
+   *
+   * A long runner's tuning makes torque low down and a short one's power at the top, and one length is
+   * a compromise between the two. A two-stage manifold has both: below the switch speed each cylinder
+   * breathes through the long runner, `intakeRunnerLength`, and above it a flap opens a shorter path.
+   */
+  intakeRunnerShortLength: number;
+  /**
+   * Engine speed the two-stage intake switches to its short runners at, rev/min. It switches back 150
+   * rev/min lower, so it does not flap back and forth at the switch speed.
+   */
+  intakeSwitchRpm: number;
 
   // --- Operating point ---
   /**
@@ -495,6 +516,8 @@ export interface EngineSnapshot {
   /** How far the phasers have moved the cams from rest, crank degrees: intake advance, exhaust retard. */
   intakeCamAdvance: number;
   exhaustCamRetard: number;
+  /** Whether a two-stage intake is on its short runners right now. */
+  shortRunners: boolean;
   /** Cylinder pressure, Pa. Bank 0. */
   cylPressure: number;
   /** Cylinder gas temperature, K. Bank 0. */
@@ -1233,6 +1256,8 @@ export const DEFAULT_ENGINE: EngineSpec = {
   vvtIntakeHigh: 0,
   vvtExhaustLow: 0,
   vvtExhaustHigh: 0,
+  vvtLowRpm: 2000,
+  vvtHighRpm: 6000,
   vvtLinked: false,
 
   ignition: 695, // 25 deg BTDC
@@ -1249,6 +1274,8 @@ export const DEFAULT_ENGINE: EngineSpec = {
   plenumVolume: 0,
   intakeRunnerLength: 0,
   intakeRunnerDia: 0,
+  intakeRunnerShortLength: 0,
+  intakeSwitchRpm: 5000,
 
   rpm: 3200,
   revLimit: 7000,
@@ -1970,6 +1997,8 @@ const TOYOTA_2GR: Partial<EngineSpec> = {
   ivo: 357,
   ivc: 605,
   vvtIntakeLow: 40,
+  vvtLowRpm: 2000,
+  vvtHighRpm: 5600,
   // Level-matched to the inline four, as the other presets are.
   outputGain: 0.96,
 };
@@ -2025,8 +2054,8 @@ const BOXER_SIX: Partial<EngineSpec> = {
 const LT2_IDLE_THROTTLE = 0.075;
 const LT2_GAIN = 2.1;
 /** The LT6 preset's idle throttle and output gain. See `idling`. */
-const LT6_IDLE_THROTTLE = 0.078;
-const LT6_GAIN = 1.01;
+const LT6_IDLE_THROTTLE = 0.082;
+const LT6_GAIN = 0.93;
 
 export const ENGINE_PRESETS: EnginePreset[] = [
   {
@@ -2142,7 +2171,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'V6, Toyota 2GR',
     description:
-      'The 3.5 litre 60\u00b0 V6 in half of Toyota\u2019s range, from the Camry to the Lotus Evora. A split-pin crank is what lets it fire evenly every 120\u00b0, in the order 1-2-3-4-5-6, despite a vee too narrow for that on shared pins; each bank hears every other firing, 240\u00b0 apart, through a manifold of its own. Its rod, valves, cam and cam map are estimates. Variable intake cam timing keeps its torque curve flat, but the two-stage intake the real one also uses is not modelled.',
+      'The 3.5 litre 60\u00b0 V6 in half of Toyota\u2019s range, from the Camry to the Lotus Evora. A split-pin crank is what lets it fire evenly every 120\u00b0, in the order 1-2-3-4-5-6, despite a vee too narrow for that on shared pins; each bank hears every other firing, 240\u00b0 apart, through a manifold of its own. Its rod, valves, cam and cam map are estimates. Variable intake cam timing keeps its torque curve flat. The real one also has a two-stage intake; here a second set of runners gained it little, so it has one.',
     engine: TOYOTA_2GR,
     pipe: () => fittedExhaust(fullSpec(TOYOTA_2GR)).pipe,
     collector: () => fittedExhaust(fullSpec(TOYOTA_2GR)).collector,
@@ -2278,7 +2307,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'V8, Chevrolet LT6',
     description:
-      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its runners, cam and headers are tuned for the top end, where it makes about 650 hp at 8400 rpm against the real engine’s 670. Below that its variable cam timing, also an estimate, gives back much of the mid-range, but with no second, longer set of runners it makes 555 N·m at 6300 against 624.',
+      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its cam, short runners and headers are tuned for the top end, where it makes about 650 hp at 8400 rpm against the real engine’s 670. Below that its variable cam timing and long runners, also estimates, give back most of the mid-range: 577 N·m at 6300 against 624.',
     engine: {
       cylinders: 8,
       vAngle: 90,
@@ -2307,13 +2336,19 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       evc: 395,
       ivo: 325,
       ivc: 630,
-      // Estimated, and tuned for 8400 rpm. The real manifold switches between two runner lengths; this
-      // is the one for the top end.
-      intakeRunnerLength: 0.33,
-      // Estimated, like the cams: advanced intake and retarded exhaust low down, both at rest by the top,
-      // which gives back the mid-range a cam and runners tuned for 8400 rpm cost it.
+      // Estimated: a two-stage manifold, as the real one has. The short runners are tuned for 8400 rpm; the
+      // long ones fill it better from 4500 to 7800, by up to 50 N·m, and fall behind above that. Of the
+      // lengths tried, 370-440 mm, these give the flattest curve: longer ones peak higher but dip lower.
+      intakeRunnerLength: 0.37,
+      intakeRunnerShortLength: 0.33,
+      intakeSwitchRpm: 8100,
+      // Estimated, like the cams, and tuned on the dyno at full throttle: the intake advanced 40 degrees up
+      // to 4500 rpm, easing back to rest by 7500, which gives back the mid-range a cam tuned for 8400 costs
+      // it. The best advance, found point by point, is about 40 degrees at 4000-5000, 20 at 5500-6500 and
+      // none from 7000. Retarding the exhaust cam, or advancing it, lost torque almost everywhere.
       vvtIntakeLow: 40,
-      vvtExhaustLow: 20,
+      vvtLowRpm: 4500,
+      vvtHighRpm: 7500,
       outputGain: LT6_GAIN,
     },
     // Estimated: equal-length headers, their primaries tuned for 8400 rpm.

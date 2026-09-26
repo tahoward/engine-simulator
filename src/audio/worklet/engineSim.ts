@@ -94,6 +94,9 @@ const PA_PER_FULLSCALE = 250;
  */
 const PHASER_RATE = 250;
 
+/** How far below its switch speed a two-stage intake switches back to its long runners, rev/min. */
+const INTAKE_SWITCH_HYSTERESIS = 150;
+
 /**
  * Longest a finished dyno run waits for the engine to wind down to a held speed, s, before handing
  * the crank back regardless.
@@ -411,8 +414,15 @@ export class EngineSim {
   private valveStates!: ValveState[];
   /** Each cylinder's intake valve, as its runner sees it. Filled every sample. */
   private inValves!: ValveState[];
-  /** The intake runners. See `IntakeRunners`. */
+  /** The intake runners the cylinders breathe through now. See `IntakeRunners`. */
   private intake!: IntakeRunners;
+  /**
+   * A two-stage intake's two sets of runners, long and short, of which `intake` is one; `intakeShort` is
+   * `null` for a single-stage intake. Both are built up front, so switching allocates nothing. See
+   * `updateIntakeStage`.
+   */
+  private intakeLong!: IntakeRunners;
+  private intakeShort: IntakeRunners | null = null;
   /**
    * Where the cam phasers have moved each cam from its rest position, crank degrees, positive later:
    * the intake's is zero or negative (advanced), the exhaust's zero or positive (retarded). See
@@ -518,7 +528,7 @@ export class EngineSim {
     this.plenum = new IntakePlenum(this.spec);
     this.cyls = this.buildCylinders();
     this.allocatePerCylinder();
-    this.intake = this.buildIntake();
+    this.buildIntake();
     this.structure = STRUCTURAL_MODES.map(
       ([hz, q]) => new Resonator(hz, q, sampleRate),
     );
@@ -596,6 +606,7 @@ export class EngineSim {
     const prevCellSize = this.spec.pipeCellSize;
     const prevWallThickness = this.spec.pipeWallThickness;
     const prevRunner = intakeRunnerOf(this.spec);
+    const prevShortRunner = this.spec.intakeRunnerShortLength;
     const prevLayout = this.layoutKey();
     const prevPhase = firingPlan(this.spec).offsets.join(',');
     this.spec = { ...this.spec, ...partial };
@@ -628,6 +639,7 @@ export class EngineSim {
     if (
       runner.length !== prevRunner.length ||
       runner.diameter !== prevRunner.diameter ||
+      this.spec.intakeRunnerShortLength !== prevShortRunner ||
       this.spec.portGasTemp !== prevTemp ||
       this.spec.portLength !== prevPortLength ||
       exhaustPortDiameter(this.spec) !== prevPortDia ||
@@ -676,7 +688,7 @@ export class EngineSim {
   private rebuildPipe(): void {
     this.wg = this.buildExhaust();
     // On the same grid as the exhaust, which the cost budget chose with the runners in it.
-    this.intake = this.buildIntake();
+    this.buildIntake();
     this.lastValveMdot.fill(0);
     // A new mouth diameter means both a new radiation corner and a new plane-wave limit.
     this.refreshFarFields();
@@ -753,7 +765,13 @@ export class EngineSim {
      * for, 35 mm cells fill the cylinder to 105% where 70 mm cells give 97%.
      */
     const runnerCells =
-      this.spec.cylinders * ductCellCount(intakeRunnerOf(this.spec).length, requested, maxCells, minDx);
+      this.spec.cylinders *
+      ductCellCount(
+        Math.max(intakeRunnerOf(this.spec).length, this.spec.intakeRunnerShortLength),
+        requested,
+        maxCells,
+        minDx,
+      );
     if (lengths.length === 0) return requested;
 
     /** Cells at a candidate size: the whole cost, since every duct takes one step per sample. */
@@ -786,23 +804,49 @@ export class EngineSim {
     return best;
   }
 
-  /** One intake runner per cylinder, primed with the plenum's mixture. See `IntakeRunners`. */
-  private buildIntake(): IntakeRunners {
-    const opts = this.buildOptions();
+  /**
+   * One intake runner per cylinder, primed with the plenum's mixture, and for a two-stage intake a second,
+   * short set. See `IntakeRunners` and `updateIntakeStage`.
+   */
+  private buildIntake(): void {
     // The requested cell size, not the one the budget left the exhaust: see `budgetedCellSize`.
-    const runners = new IntakeRunners(this.spec, this.sampleRate, this.cyls.length, {
-      ...opts,
-      cellSize: this.requestedCellSize(),
-    });
-    runners.prime(this.plenum.burnedFraction, 0);
-    return runners;
+    const opts = { ...this.buildOptions(), cellSize: this.requestedCellSize() };
+    const build = (length: number): IntakeRunners => {
+      const runners = new IntakeRunners(this.spec, this.sampleRate, this.cyls.length, opts, length);
+      runners.prime(this.plenum.burnedFraction, 0);
+      return runners;
+    };
+    this.intakeLong = build(intakeRunnerOf(this.spec).length);
+    this.intakeShort = this.spec.intakeRunnerShortLength > 0 ? build(this.spec.intakeRunnerShortLength) : null;
+    const rpm = (this.omegaMean * 60) / (2 * Math.PI);
+    this.intake = this.intakeShort !== null && rpm >= this.spec.intakeSwitchRpm ? this.intakeShort : this.intakeLong;
+  }
+
+  /**
+   * Switch a two-stage intake between its runners: to the short ones at `intakeSwitchRpm`, back to the
+   * long ones `INTAKE_SWITCH_HYSTERESIS` below it. The set switched to takes over the gas in the other
+   * (`IntakeRunners.takeStateFrom`), so the charge in the ports and its flow carry on through the switch,
+   * as they do when a real manifold's flap moves. The pressure waves along the runners are cut short, as
+   * a flap moving across their path cuts them.
+   */
+  private updateIntakeStage(): void {
+    const short = this.intakeShort!;
+    const rpm = (this.omegaMean * 60) / (2 * Math.PI);
+    const onShort = this.intake === short;
+    if (!onShort && rpm >= this.spec.intakeSwitchRpm) {
+      short.takeStateFrom(this.intake);
+      this.intake = short;
+    } else if (onShort && rpm < this.spec.intakeSwitchRpm - INTAKE_SWITCH_HYSTERESIS) {
+      this.intakeLong.takeStateFrom(short);
+      this.intake = this.intakeLong;
+    }
   }
 
   /**
    * Move the cam phasers toward where the ECU's map puts them, at the rate a phaser can turn.
    *
    * The map is the spec's: an intake advance and an exhaust retard at low speed and at high speed, blended
-   * as the engine speed goes from 30% to 85% of the rev limit. It applies in full under load and not at
+   * in a straight line as the engine speed goes from `vvtLowRpm` to `vvtHighRpm`. It applies in full under load and not at
    * all at idle, as production maps do. At a near-vacuum in the manifold, overlap only pushes exhaust back
    * up the intake and the idle turns rough, so there the cams sit at rest, which is least overlap.
    *
@@ -819,7 +863,7 @@ export class EngineSim {
     const throttle = this.dyno ? this.dyno.throttle : spec.throttle;
     const load = clamp((throttle - 0.1) / 0.4, 0, 1);
     const rpm = (this.omegaMean * 60) / (2 * Math.PI);
-    const speed = clamp((rpm / spec.revLimit - 0.3) / 0.55, 0, 1);
+    const speed = clamp((rpm - spec.vvtLowRpm) / Math.max(spec.vvtHighRpm - spec.vvtLowRpm, 1), 0, 1);
     const advance = load * (spec.vvtIntakeLow + (spec.vvtIntakeHigh - spec.vvtIntakeLow) * speed);
     const retard = load * (spec.vvtExhaustLow + (spec.vvtExhaustHigh - spec.vvtExhaustLow) * speed);
     const intakeTarget = -advance;
@@ -1260,6 +1304,7 @@ export class EngineSim {
     ) {
       this.updatePhasers();
     }
+    if (this.intakeShort !== null) this.updateIntakeStage();
 
     // --- Dyno run -------------------------------------------------------------
     // The run drives the throttle; when it is over, and the engine has wound back down to where a
@@ -1591,6 +1636,7 @@ export class EngineSim {
       fuelCut: this.fuelCutActive,
       intakeCamAdvance: -this.intakeShift,
       exhaustCamRetard: this.exhaustShift,
+      shortRunners: this.intake === this.intakeShort,
       dyno: this.dyno && {
         phase: this.dyno.phase,
         gear: this.dyno.gear + 1,

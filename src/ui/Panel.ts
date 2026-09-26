@@ -179,6 +179,8 @@ export class Panel {
   private dynoRunning = false;
   /** Where the phasers have the cams, updated from each snapshot. */
   private camReadout!: HTMLElement;
+  /** Whether a two-stage intake was on its short runners at the last readout. */
+  private shortRunnersNow = false;
   private camText = '';
   /** Rewrites the intake section's tuning readout if anything it shows has changed. */
   private refreshIntake: () => void = () => {};
@@ -764,12 +766,26 @@ export class Panel {
       'How far the ECU advances the intake cam under load at low speed. Advanced, the intake closes ' +
       'earlier, before the slow-moving charge is pushed back out, and opens earlier, into more overlap.';
     vvt('Intake cam, high speed', 'vvtIntakeHigh', 'advanced').row.title =
-      'The same near the rev limit, where a late close lets the runners ram the charge in. The map ' +
-      'blends from the low-speed value at 30% of the rev limit to this one at 85%.';
+      'The same near the rev limit, where a late close lets the runners ram the charge in.';
     vvt('Exhaust cam, low speed', 'vvtExhaustLow', 'retarded').row.title =
       'How far the ECU retards the exhaust cam under load at low speed: the exhaust opens later, ' +
       'getting more work from the expansion, and closes later, into more overlap.';
     vvt('Exhaust cam, high speed', 'vvtExhaustHigh', 'retarded');
+    const mapRpm = (label: string, key: 'vvtLowRpm' | 'vvtHighRpm') =>
+      this.slider(valves, {
+        label,
+        min: 1000,
+        max: 10000,
+        step: 100,
+        value: spec[key],
+        sync: () => this.config.engine[key],
+        format: (v) => `${Math.round(v)} rpm`,
+        onInput: (v) => this.cb.onEngine({ [key]: v }),
+      });
+    mapRpm('Low speed is', 'vvtLowRpm').row.title =
+      'Up to this speed the cams take the low-speed settings. Between it and the high speed the map ' +
+      'blends from one to the other in a straight line.';
+    mapRpm('High speed is', 'vvtHighRpm').row.title = 'From this speed the cams take the high-speed settings.';
     const linked = toggle(valves, 'One phaser for both cams', spec.vvtLinked, (on) =>
       this.cb.onEngine({ vvtLinked: on }),
     );
@@ -788,9 +804,15 @@ export class Panel {
     const showTuned = () => {
       const e = this.config.engine;
       const r = intakeRunnerOf(e);
+      const short = e.intakeRunnerShortLength;
       const text =
-        `Runners ${Math.round(r.length * 1000)} mm × ${(r.diameter * 1000).toFixed(1)} mm, ` +
-        `tuned for about ${formatRpm(runnerTunedRpm(e))} rpm`;
+        short > 0
+          ? `Runners ${Math.round(r.length * 1000)} mm, tuned for about ${formatRpm(runnerTunedRpm(e))} rpm, ` +
+            `and ${Math.round(short * 1000)} mm, for about ` +
+            `${formatRpm(runnerTunedRpm({ ...e, intakeRunnerLength: short }))} rpm, ` +
+            `${(r.diameter * 1000).toFixed(1)} mm bore · on the ${this.shortRunnersNow ? 'short' : 'long'} ones`
+          : `Runners ${Math.round(r.length * 1000)} mm × ${(r.diameter * 1000).toFixed(1)} mm, ` +
+            `tuned for about ${formatRpm(runnerTunedRpm(e))} rpm`;
       if (text === tunedKey) return;
       tunedKey = text;
       tuned.textContent = text;
@@ -818,7 +840,36 @@ export class Panel {
     }).row.title =
       'From the intake valve to the plenum. The air in it rams the charge in after bottom dead ' +
       'centre, most strongly at the speed its length is tuned for: longer for low-rpm torque, ' +
-      'shorter for high-rpm power. At 0 it is tuned to three quarters of the rev limit.';
+      'shorter for high-rpm power. At 0 it is tuned to three quarters of the rev limit. With a ' +
+      'two-stage intake, this is the long runners\u2019 length.';
+    this.slider(intake, {
+      label: 'Short runner length',
+      min: 0,
+      max: 0.9,
+      step: 0.005,
+      value: spec.intakeRunnerShortLength,
+      sync: () => this.config.engine.intakeRunnerShortLength,
+      format: (v) => (v > 0 ? `${Math.round(v * 1000)} mm` : 'single stage'),
+      onInput: (v) => {
+        this.cb.onEngine({ intakeRunnerShortLength: v });
+        showTuned();
+      },
+    }).row.title =
+      'A two-stage intake: each cylinder has a second, shorter path to the plenum, which a flap opens ' +
+      'at the switch speed below. The long runners make the torque low down and the short ones the ' +
+      'power at the top. At 0 there is one runner length.';
+    this.slider(intake, {
+      label: 'Switch to short runners at',
+      min: 1000,
+      max: 10000,
+      step: 100,
+      value: spec.intakeSwitchRpm,
+      sync: () => this.config.engine.intakeSwitchRpm,
+      format: (v) => `${Math.round(v)} rpm`,
+      onInput: (v) => this.cb.onEngine({ intakeSwitchRpm: v }),
+    }).row.title =
+      'Where a two-stage intake switches to its short runners. It switches back 150 rpm lower, so it ' +
+      'does not flap back and forth at the switch speed. Best where the two sets make the same torque.';
     this.slider(intake, {
       label: 'Intake runner bore',
       min: 0,
@@ -1612,6 +1663,7 @@ export class Panel {
 
 
   updateReadouts(s: EngineSnapshot): void {
+    this.shortRunnersNow = s.shortRunners;
     this.refreshIntake();
     const cams =
       Math.abs(s.intakeCamAdvance) < 0.5 && Math.abs(s.exhaustCamRetard) < 0.5

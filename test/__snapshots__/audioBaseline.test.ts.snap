@@ -20,11 +20,11 @@ exports[`audio fingerprint per preset > Parallel twin, 360° 1`] = `"6480b73a  r
 
 exports[`audio fingerprint per preset > Single, megaphone 1`] = `"5693747c  rms 4.359630e-2 peak 0.217606 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > V6, Toyota 2GR 1`] = `"ec39e592  rms 6.084700e-2 peak 0.231507 nonFinite 0"`;
+exports[`audio fingerprint per preset > V6, Toyota 2GR 1`] = `"7376d559  rms 6.085187e-2 peak 0.231777 nonFinite 0"`;
 
 exports[`audio fingerprint per preset > V8, Chevrolet LT2 1`] = `"e69de3e6  rms 7.693888e-2 peak 0.268190 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > V8, Chevrolet LT6 1`] = `"8431d531  rms 4.199012e-2 peak 0.129385 nonFinite 0"`;
+exports[`audio fingerprint per preset > V8, Chevrolet LT6 1`] = `"a323f964  rms 4.273143e-2 peak 0.127488 nonFinite 0"`;
 
 exports[`audio fingerprint per preset > V8, crossplane, manifold per bank 1`] = `"591f3a31  rms 5.472999e-2 peak 0.168580 nonFinite 0"`;
 

@@ -166,7 +166,8 @@ describe('variable valve timing', () => {
   const phase = (sim: EngineSim) => sim.snapshot().intakeCamAdvance;
   const torqueAt = (rpm: number, over: Partial<EngineSpec>) => {
     const sim = build({ freeRunning: false, throttle: 1, rpm, combustionVariability: 0, ...over });
-    sim.render(FS / 2);
+    // The walls and the waves take a couple of seconds to settle at a new speed.
+    sim.render(2 * FS);
     const inner = sim as unknown as { torqueLast: number };
     let t = 0;
     for (let i = 0; i < FS / 2; i++) {
@@ -199,5 +200,65 @@ describe('variable valve timing', () => {
     sim.setEngine({ vvtIntakeLow: 0, vvtExhaustLow: 0 });
     sim.render(FS / 2);
     expect(phase(sim)).toBeCloseTo(0, 9);
+  });
+});
+
+describe('two-stage intake', () => {
+  const lt6 = ENGINE_PRESETS.find((p) => p.name === 'V8, Chevrolet LT6')!;
+  const build = (over: Partial<EngineSpec>) => {
+    const cfg = defaultConfig();
+    cfg.engine = { ...cfg.engine, ...lt6.engine, freeRunning: false, throttle: 1, combustionVariability: 0, ...over } as EngineSpec;
+    cfg.pipe = lt6.pipe();
+    cfg.collector = lt6.collector!();
+    return new EngineSim(FS, cfg);
+  };
+  type Inner = { torqueLast: number; intakeLong: { recoveries: number }; intakeShort: { recoveries: number } };
+  const meanTorque = (sim: EngineSim, samples: number) => {
+    const inner = sim as unknown as Inner;
+    let t = 0;
+    for (let i = 0; i < samples; i++) {
+      sim.render(1);
+      t += inner.torqueLast;
+    }
+    return t / samples;
+  };
+  const torqueAt = (rpm: number, over: Partial<EngineSpec>) => {
+    const sim = build({ rpm, ...over });
+    // The walls and the waves take a couple of seconds to settle at a new speed.
+    sim.render(2 * FS);
+    return meanTorque(sim, FS / 2);
+  };
+  const switchRpm = lt6.engine.intakeSwitchRpm!;
+
+  /** Long runners fill it below the switch speed; above it, it has the short ones'. */
+  it('has the long runners’ torque below its switch speed and the short runners’ above it', () => {
+    const shortOnly = { intakeRunnerLength: 0.33, intakeRunnerShortLength: 0 };
+    expect(torqueAt(7800, {})).toBeGreaterThan(1.05 * torqueAt(7800, shortOnly));
+    expect(torqueAt(8400, {}) / torqueAt(8400, shortOnly)).toBeCloseTo(1, 2);
+  });
+
+  it('switches at its switch speed, back a little below it, and carries on smoothly', () => {
+    const sim = build({ rpm: switchRpm - 100 });
+    sim.render(FS);
+    expect(sim.snapshot().shortRunners).toBe(false);
+    const before = meanTorque(sim, FS / 4);
+
+    sim.setEngine({ rpm: switchRpm + 100 });
+    sim.render(1);
+    expect(sim.snapshot().shortRunners).toBe(true);
+    const across = meanTorque(sim, FS / 4);
+    // Inside the hysteresis band it stays on the short runners.
+    sim.setEngine({ rpm: switchRpm - 100 });
+    sim.render(FS / 10);
+    expect(sim.snapshot().shortRunners).toBe(true);
+    sim.setEngine({ rpm: switchRpm - 200 });
+    sim.render(1);
+    expect(sim.snapshot().shortRunners).toBe(false);
+    sim.render(FS / 4);
+
+    const inner = sim as unknown as Inner;
+    expect(inner.intakeLong.recoveries + inner.intakeShort.recoveries).toBe(0);
+    // Near the switch speed the two sets make about the same torque, so the switch is no jolt.
+    expect(Math.abs(across / before - 1)).toBeLessThan(0.1);
   });
 });
