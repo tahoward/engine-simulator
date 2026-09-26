@@ -94,6 +94,9 @@ const PA_PER_FULLSCALE = 250;
  */
 const PHASER_RATE = 250;
 
+/** How far below its switch speed cam profile switching drops back to the low-speed lobes, rev/min. */
+export const CAM_SWITCH_HYSTERESIS = 150;
+
 /** How far below its switch speed a two-stage intake switches back to its long runners, rev/min. */
 const INTAKE_SWITCH_HYSTERESIS = 150;
 
@@ -424,6 +427,14 @@ export class EngineSim {
   private intakeLong!: IntakeRunners;
   private intakeShort: IntakeRunners | null = null;
   /**
+   * The spec the cylinders and valves run on: `spec` itself, or with cam profile switching engaged,
+   * `highCamSpec`, a copy of it with the high-speed cam's events and lift in place of the low-speed
+   * one's. Copied once per `setEngine` rather than per switch, so switching allocates nothing. See
+   * `updateCamProfile`.
+   */
+  private camSpec!: EngineSpec;
+  private highCamSpec: EngineSpec | null = null;
+  /**
    * Where the cam phasers have moved each cam from its rest position, crank degrees, positive later:
    * the intake's is zero or negative (advanced), the exhaust's zero or positive (retarded). See
    * `updatePhasers`.
@@ -518,6 +529,7 @@ export class EngineSim {
      */
     this.graph = graph ?? config.graph ?? null;
     this.spec = { ...config.engine };
+    this.refreshCamProfiles(false);
     this.injectFraction = fuelFractionAt(this.spec.lambda);
     this.fullChargeKg = (GAS.pAmb * displacement(this.spec)) / (GAS.R * GAS.tAmb);
     this.displacementM3 = displacement(this.spec) * this.spec.cylinders;
@@ -609,7 +621,9 @@ export class EngineSim {
     const prevShortRunner = this.spec.intakeRunnerShortLength;
     const prevLayout = this.layoutKey();
     const prevPhase = firingPlan(this.spec).offsets.join(',');
+    const wasHigh = this.highCamSpec !== null && this.camSpec === this.highCamSpec;
     this.spec = { ...this.spec, ...partial };
+    this.refreshCamProfiles(wasHigh);
     this.injectFraction = fuelFractionAt(this.spec.lambda);
     this.fullChargeKg = (GAS.pAmb * displacement(this.spec)) / (GAS.R * GAS.tAmb);
     this.displacementM3 = displacement(this.spec) * this.spec.cylinders;
@@ -823,6 +837,41 @@ export class EngineSim {
   }
 
   /**
+   * Rebuild `highCamSpec` from the spec, and point `camSpec` at the profile in use: the high-speed one
+   * if `high` and the spec has cam profile switching, otherwise the spec's own.
+   */
+  private refreshCamProfiles(high: boolean): void {
+    const spec = this.spec;
+    this.highCamSpec =
+      spec.camSwitchRpm > 0
+        ? {
+            ...spec,
+            evo: spec.highEvo,
+            evc: spec.highEvc,
+            ivo: spec.highIvo,
+            ivc: spec.highIvc,
+            maxLift: spec.highMaxLift,
+          }
+        : null;
+    this.camSpec = high && this.highCamSpec !== null ? this.highCamSpec : spec;
+  }
+
+  /**
+   * Cam profile switching: onto the high-speed lobes at `camSwitchRpm`, back onto the low-speed ones
+   * `CAM_SWITCH_HYSTERESIS` below it. The switch is at once, as a real one is within a revolution or so:
+   * an oil-driven pin locks each rocker to the high lobe while its valve is shut.
+   */
+  private updateCamProfile(): void {
+    const high = this.highCamSpec!;
+    const rpm = (this.omegaMean * 60) / (2 * Math.PI);
+    if (this.camSpec !== high && rpm >= this.spec.camSwitchRpm) {
+      this.camSpec = high;
+    } else if (this.camSpec === high && rpm < this.spec.camSwitchRpm - CAM_SWITCH_HYSTERESIS) {
+      this.camSpec = this.spec;
+    }
+  }
+
+  /**
    * Switch a two-stage intake between its runners: to the short ones at `intakeSwitchRpm`, back to the
    * long ones `INTAKE_SWITCH_HYSTERESIS` below it. The set switched to takes over the gas in the other
    * (`IntakeRunners.takeStateFrom`), so the charge in the ports and its flow carry on through the switch,
@@ -1021,7 +1070,7 @@ export class EngineSim {
    * four floating-point arguments and its result, twice per cylinder per sample.
    */
   private computeLifts(b: number): void {
-    const spec = this.spec;
+    const spec = this.camSpec;
     const angle = this.cyls[b]!.angle;
     // This cylinder's own cam timing, a degree or two from nominal, and where the phasers have put each cam.
     const exOffset = this.timing[b]! + this.exhaustShift;
@@ -1305,6 +1354,8 @@ export class EngineSim {
       this.updatePhasers();
     }
     if (this.intakeShort !== null) this.updateIntakeStage();
+    if (this.highCamSpec !== null) this.updateCamProfile();
+    const camSpec = this.camSpec;
 
     // --- Dyno run -------------------------------------------------------------
     // The run drives the throttle; when it is over, and the engine has wound back down to where a
@@ -1480,7 +1531,7 @@ export class EngineSim {
       io[IO_PORT_T] = portTemp;
       io[IO_INTAKE_BURNED] = intake.burned[b]!;
       io[IO_INTAKE_FUEL] = intake.inflowFuel[b]!;
-      for (let k = 0; k < nSub; k++) cyl.advanceIo(spec, io);
+      for (let k = 0; k < nSub; k++) cyl.advanceIo(camSpec, io);
       torqueSum += cyl.torque + cyl.inertiaTorque;
       dpdtSum += cyl.dpdt;
       this.prevExLift[b] = this.exLift[b]!;
@@ -1619,12 +1670,13 @@ export class EngineSim {
   snapshot(): EngineSnapshot {
     this.wg.samplePressure(this.tapBuffer);
     const spec = this.spec;
+    const cams = this.camSpec;
     const banks: BankSnapshot[] = this.cyls.map((cyl) => ({
       crankAngle: wrapCycle(cyl.angle),
       cylPressure: cyl.pressure(spec),
       cylTemp: cyl.temp,
-      exLift: valveLift(cyl.angle, spec.evo + this.exhaustShift, spec.evc + this.exhaustShift, spec.maxLift),
-      inLift: valveLift(cyl.angle, spec.ivo + this.intakeShift, spec.ivc + this.intakeShift, spec.maxLift),
+      exLift: valveLift(cyl.angle, cams.evo + this.exhaustShift, cams.evc + this.exhaustShift, cams.maxLift),
+      inLift: valveLift(cyl.angle, cams.ivo + this.intakeShift, cams.ivc + this.intakeShift, cams.maxLift),
     }));
     const first = banks[0]!;
 
@@ -1637,6 +1689,7 @@ export class EngineSim {
       intakeCamAdvance: -this.intakeShift,
       exhaustCamRetard: this.exhaustShift,
       shortRunners: this.intake === this.intakeShort,
+      highCam: this.highCamSpec !== null && this.camSpec === this.highCamSpec,
       dyno: this.dyno && {
         phase: this.dyno.phase,
         gear: this.dyno.gear + 1,

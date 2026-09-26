@@ -10,7 +10,7 @@ exports[`audio fingerprint per preset > Boxer six 1`] = `"4bf70f56  rms 7.301615
 
 exports[`audio fingerprint per preset > Inline five 1`] = `"073a4587  rms 2.438116e-2 peak 0.086278 nonFinite 0"`;
 
-exports[`audio fingerprint per preset > Inline four 1`] = `"57be38f7  rms 5.818518e-2 peak 0.368027 nonFinite 0"`;
+exports[`audio fingerprint per preset > Inline four, Honda F20C 1`] = `"cf7630ba  rms 3.737476e-2 peak 0.188516 nonFinite 0"`;
 
 exports[`audio fingerprint per preset > Inline six 1`] = `"66b65e3a  rms 2.197968e-2 peak 0.093905 nonFinite 0"`;
 

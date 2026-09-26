@@ -96,10 +96,10 @@ export type CrankType = 'shared' | 'flatplane' | 'crossplane' | 'boxer';
 export type ExhaustLayout = 'open' | 'perBank' | 'merged';
 
 /**
- * Accepted layout values, including the twin-only names older configs use.
+ * Accepted layout values, including the names a single or a twin is described by.
  *
  * `single` and `2into2` both mean one pipe per cylinder; `2into1` means one shared collector.
- * Kept so saved links and older configs still load — `exhaustLayoutOf` normalises them.
+ * The twin presets use them, and so may a saved link; `exhaustLayoutOf` normalises them.
  */
 export type ExhaustLayoutSpec = ExhaustLayout | 'single' | '2into2' | '2into1';
 
@@ -203,6 +203,22 @@ export interface EngineSpec {
   ivo: number;
   /** Intake valve closes, deg ATDC. Typically ~570. */
   ivc: number;
+  /**
+   * Cam profile switching, as Honda's VTEC does it: the engine speed at which each valve switches to a
+   * second, high-speed cam lobe, rev/min, or 0 for a single profile. Below it the valves follow the
+   * timing and lift above; from it, the `high*` ones. It switches back `CAM_SWITCH_HYSTERESIS` lower.
+   *
+   * Unlike variable valve timing, which turns the whole cam and so moves a valve's opening and closing
+   * together, a second lobe changes how long the valve is open and how far: a mild lobe for low speed
+   * and a wild one, with more lift and duration, for the top end.
+   */
+  camSwitchRpm: number;
+  /** The high-speed cam's events, deg ATDC, and its peak lift, m. See `camSwitchRpm`. */
+  highEvo: number;
+  highEvc: number;
+  highIvo: number;
+  highIvc: number;
+  highMaxLift: number;
   /**
    * Variable valve timing: the ECU's cam map, crank degrees from the timing above, which is the cams'
    * rest position. How far the intake cam is advanced under load at low speed and at high speed, and
@@ -518,6 +534,8 @@ export interface EngineSnapshot {
   exhaustCamRetard: number;
   /** Whether a two-stage intake is on its short runners right now. */
   shortRunners: boolean;
+  /** Whether cam profile switching has the valves on the high-speed lobes right now. */
+  highCam: boolean;
   /** Cylinder pressure, Pa. Bank 0. */
   cylPressure: number;
   /** Cylinder gas temperature, K. Bank 0. */
@@ -1252,6 +1270,12 @@ export const DEFAULT_ENGINE: EngineSpec = {
   evc: 378,
   ivo: 342,
   ivc: 576,
+  camSwitchRpm: 0,
+  highEvo: 128,
+  highEvc: 378,
+  highIvo: 342,
+  highIvc: 576,
+  highMaxLift: 0.0095,
   vvtIntakeLow: 0,
   vvtIntakeHigh: 0,
   vvtExhaustLow: 0,
@@ -1719,7 +1743,7 @@ export function bankFiringIntervals(spec: EngineSpec, bank: number): number[] {
   });
 }
 
-/** Normalised exhaust layout, accepting the older twin-only names. */
+/** Normalised exhaust layout, accepting the single's and twins' names for it. */
 export function exhaustLayoutOf(spec: EngineSpec): ExhaustLayout {
   const raw = spec.exhaustLayout;
   if (raw === '2into1') return 'merged';
@@ -2050,6 +2074,11 @@ const BOXER_SIX: Partial<EngineSpec> = {
   outputGain: 1.03,
 };
 
+/** The F20C preset's idle throttle, output gain and high-speed cam. See `idling`. */
+const F20C_IDLE_THROTTLE = 0.078;
+/** Level-matched to the single at idle, as the other presets are to this one. */
+const F20C_GAIN = 1.31;
+const F20C_CAM = { evo: 108, evc: 392, ivo: 328, ivc: 625 };
 /** The LT2 preset's idle throttle and output gain. See `idling`. */
 const LT2_IDLE_THROTTLE = 0.075;
 const LT2_GAIN = 2.1;
@@ -2112,36 +2141,56 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     ],
   },
   {
-    name: 'Inline four',
+    name: 'Inline four, Honda F20C',
     description:
-      'Even 180\u00b0 firing on a flat crank, all four gathered by one manifold. Twice the firing frequency of a twin at the same rpm, and no half order at all.',
+      'The 2.0 litre four in the Honda S2000: 87 x 84 mm, 11:1, four valves a cylinder and a 9000 rpm redline. Even 180\u00b0 firing on a flat crank, 1-3-4-2, into equal-length headers: twice the firing frequency of a twin at the same rpm, and no half order at all. It makes about 195 N\u00b7m from 6500 to 8300 rpm and 225 hp at 8300, against the real engine\u2019s 210 N\u00b7m at 7500 and 240 hp at 8300. Its VTEC switches each valve from a mild cam lobe to a wild one at 5500 rpm. Its valves, cams, runners and exhaust are estimates.',
     engine: {
       cylinders: 4,
       vAngle: 0,
       exhaustLayout: 'merged',
-      ...idling(0.079),
-      // A 60 mm stroke is a bike engine's, and revs like one.
-      revLimit: 10500,
-      flywheelInertia: 0.16,
+      exhaustHeaders: true,
+      ...idling(F20C_IDLE_THROTTLE),
+      // Its fuel cut; the redline is 9000.
+      revLimit: 9150,
+      flywheelInertia: 0.14,
       pipeCellSize: 0.035,
-      bore: 0.073,
-      stroke: 0.06,
-      rodLength: 0.11,
-      ...fourValveHead(0.073),
-      maxLift: 0.008,
-      // A silenced system really is 10-15 dB quieter than an open pipe, which is correct and also
-      // makes a preset sound thin next to one. Level-matched to the single instead.
-      outputGain: 2.53,
+      bore: 0.087,
+      stroke: 0.084,
+      rodLength: 0.153,
+      // The North American engine's; the Japanese one's is 11.7.
+      compressionRatio: 11,
+      // Estimated, like the cams and the runners, and tuned with them to put its torque peak near 7500
+      // rpm and its power peak at 8300, where the real engine has them. Valves a little larger than a
+      // typical four-valve head's for the bore: with a typical head's, torque falls away above 7000.
+      exValveCount: 2,
+      exValveDia: 0.032,
+      inValveCount: 2,
+      inValveDia: 0.0376,
+      // VTEC: a mild lobe for low speed, and at 5500 rpm, where the two make about the same torque and
+      // within the 5500-6000 the real engine's ECU switches at, a wild one for the top end. On the high
+      // cam alone it makes 125-140 N·m below 4000; on the low one alone, 145 at 7000.
+      maxLift: 0.009,
+      evo: 128,
+      evc: 372,
+      ivo: 348,
+      ivc: 570,
+      camSwitchRpm: 5500,
+      highMaxLift: 0.013,
+      highEvo: F20C_CAM.evo,
+      highEvc: F20C_CAM.evc,
+      highIvo: F20C_CAM.ivo,
+      highIvc: F20C_CAM.ivc,
+      intakeRunnerLength: 0.33,
+      intakeRunnerDia: 0.04,
+      outputGain: F20C_GAIN,
     },
-    pipe: () => [makeSegment({ kind: 'pipe', length: 0.42, dIn: 0.034 })],
-    // A real exhaust system, not an open header: something over two metres of it, with a
-    // silencer. This is where a road engine's body comes from — measured against a 0.57 m open
-    // collector, this lifts the bottom two octaves by 15-19 dB.
+    // Estimated: equal-length headers into one collector, a pipe and a silencer.
+    pipe: () => [makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.04 })],
     collector: () => [
-      makeSegment({ kind: 'cone', length: 0.14, dIn: 0.05, dOut: 0.058 }),
-      makeSegment({ kind: 'pipe', length: 1.0, dIn: 0.058, yaw: 0.25 }),
-      makeSegment({ kind: 'chamber', length: 0.38, dIn: 0.058, dOut: 0.16 }),
-      makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.052 }),
+      makeSegment({ kind: 'cone', length: 0.14, dIn: 0.05, dOut: 0.06 }),
+      makeSegment({ kind: 'pipe', length: 1.0, dIn: 0.06, yaw: 0.25 }),
+      makeSegment({ kind: 'chamber', length: 0.38, dIn: 0.06, dOut: 0.16 }),
+      makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.055 }),
     ],
   },
   {

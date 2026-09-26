@@ -261,8 +261,8 @@ describe('plumbing', () => {
     expect(open.pipeSolver.collectors).toHaveLength(0);
   });
 
-  it('still honours the old twin-only layout names', () => {
-    // Saved links predate `open`/`merged`.
+  it('accepts the single’s and twins’ layout names', () => {
+    // The twin presets use them, and so may a saved link.
     expect(exhaustLayoutOf(spec({ cylinders: 2, exhaustLayout: '2into1' }))).toBe('merged');
     expect(exhaustLayoutOf(spec({ cylinders: 2, exhaustLayout: '2into2' }))).toBe('open');
     expect(exhaustLayoutOf(spec({ cylinders: 1, exhaustLayout: 'single' }))).toBe('open');

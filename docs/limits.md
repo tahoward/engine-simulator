@@ -21,15 +21,18 @@ Where the model is simplified, and by how much.
     of milliseconds to move, and is part open on the way.
 - **Some effects that make high-output engines strong are missing.** Direct injection cools the
   charge as the fuel evaporates, and a rich mixture at full throttle adds a few percent of power.
-  Neither is modelled. A 6.2 litre V8 in the
-  proportions of a Chevrolet LT2 comes out at about 600 N·m and 460 hp, against the real engine’s
-  637 N·m and 495 hp. The LT6, the 8600 rpm flat-plane V8, comes out at 650 hp at 8400 rpm, against 670,
-  and at 577 N·m at 6300 against 624. Its cam, cam map, rods, runners and headers are estimates,
-  since they are not published.
+  Neither is modelled. A 6.2 litre V8 in the proportions of a Chevrolet LT2 comes out at about 600
+  N·m and 460 hp, against the real engine’s 637 N·m and 495 hp. The Honda F20C makes about 195 N·m
+  and 225 hp, against 210 and 240. The LT6, the 8600 rpm flat-plane V8, comes out at 650 hp at 8400
+  rpm, against 670, and at 577 N·m at 6300 against 624. Their cams, cam maps, rods, runners and
+  headers are estimates where they are not published.
+- **Cam profile switching is on speed alone.** A real VTEC ECU also checks the load, the oil pressure
+  and the road speed before it engages the high-speed lobes; here it switches on engine speed only,
+  and at once.
 - **The variable valve timing map is set by hand.** A production map is calibrated on a dyno, point by
-  point, for torque, economy and emissions together; this one is four cam positions at two speeds, blended in a straight line between them, and
-  moves the cams under load only. What cam timing does to part-load economy and emissions, much of what
-  a real engine uses it for, is not modelled.
+  point, for torque, economy and emissions together; this one is four cam positions at two speeds,
+  blended in a straight line between them, and moves the cams under load only. What cam timing does
+  to part-load economy and emissions, much of what a real engine uses it for, is not modelled.
 - **A sealed cavity has a tiny built-in growth.** In a nearly lossless *sealed* cavity the
   solver has a small [second-order](glossary.md#order-of-accuracy) error that grows at about 1.4 /s. Normal damping is 150 /s,
   about a hundred times larger, so it stays suppressed. It is not zero.

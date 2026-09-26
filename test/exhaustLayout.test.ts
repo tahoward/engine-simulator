@@ -620,7 +620,7 @@ describe('a tee runs through unbroken', () => {
   /**
    * Still recognised as a tee when the branch stops on the skin rather than reaching the axis.
    *
-   * Draw mode aims at the axis, but a route built any other way — an older saved link, say — must not
+   * Draw mode aims at the axis, but a route built any other way — typed into a saved link, say — must not
    * turn into a collector because its branch is one radius short.
    */
   it('recognises a tee even when the branch stops on the skin', () => {

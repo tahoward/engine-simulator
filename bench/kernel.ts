@@ -30,7 +30,7 @@ const REPEATS = Number(process.env.KERNEL_REPEATS ?? 5);
 
 /**
  * Self-time fractions from `node --cpu-prof` on the V-twin preset at 6500 rpm, full
- * throttle, total 56.1% of one core. Used only to project an end-to-end figure from a
+ * throttle, on the TypeScript loops, total 56.1% of one core. Used only to project an end-to-end figure from a
  * measured loop speedup; the projection is labelled as such because it assumes the other
  * 27.6% is untouched, which the kernel does not reach but is still an assumption.
  */
@@ -223,7 +223,7 @@ console.log(
   `mean substep speedup ${s.toFixed(2)}x over ${(HOT_FRACTION * 100).toFixed(1)}% of profiled runtime`,
 );
 console.log(
-  `projected end to end: ${(projected * 100).toFixed(0)}% of current cost ` +
+  `projected end to end: ${(projected * 100).toFixed(0)}% of the TypeScript path's cost ` +
     `(${(1 / projected).toFixed(2)}x), so the V-twin's 56.1% -> ~${(56.1 * projected).toFixed(0)}%`,
 );
-console.log('projection assumes the other 27.6% is unchanged, which this change leaves alone.');
+console.log('projection assumes the other 27.6% is unchanged: the kernel does not run it.');
