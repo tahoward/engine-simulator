@@ -103,6 +103,28 @@ worked out from the runner's own bore and air, using Kirchhoff's formula for a t
 a 49 mm runner. The exhaust's damping is fitted to hot gas in steel pipes and is ten times that. In a
 runner it would damp away the waves that do the ramming.
 
+## Cam profile switching
+
+A cam's lobe is a compromise. A wild one, open long and far, fills the cylinder at the top end, where
+the charge is moving fast enough to keep coming in long after bottom dead centre. Low down, the same
+lobe lets the charge flow back out before the valve shuts. A mild one does the opposite. Honda's VTEC
+gives each valve both: below **Switch to high cam at** it follows the lobe the valve timing sets, and
+from there a second, high-speed lobe with its own lift and timing. It switches back 150 rpm lower, so
+it does not flap back and forth at the switch speed.
+
+That is not the same as variable valve timing, below, which turns the whole cam. Phasing slides a
+valve's opening and closing together; a second lobe changes how long the valve is open and how far.
+
+On the F20C, with a 9 mm lobe closing the intake 30° after bottom dead centre and a 13 mm one closing
+it 85° after, switching at 5500 rpm:
+
+```
+                          2000   3000   4000   5000   6500   7000   8000   8300 rpm   full throttle, N·m
+high cam only              124    134    139    179    194    194    193    192
+low cam only               178    183    190    190    162    146
+switching at 5500          178    183    190    190    194    194    193    192
+```
+
 ## Variable valve timing
 
 The cams can be turned against the crank as the engine runs, as an oil-pressure phaser turns them. The

@@ -179,6 +179,8 @@ export class Panel {
   private dynoRunning = false;
   /** Where the phasers have the cams, updated from each snapshot. */
   private camReadout!: HTMLElement;
+  private lobeReadout!: HTMLElement;
+  private lobeText = '';
   /** Whether a two-stage intake was on its short runners at the last readout. */
   private shortRunnersNow = false;
   private camText = '';
@@ -744,6 +746,58 @@ export class Panel {
       format: (v) => `${Math.round(v - 540)}° ABDC`,
       onInput: (v) => this.cb.onEngine({ ivc: v }),
     });
+
+    // ---- Cam profile switching ---------------------------------------------
+    el('div', 'subhead', valves).textContent = 'Cam profile switching (VTEC)';
+    this.lobeReadout = el('div', 'readout', valves);
+    this.lobeReadout.textContent = 'One cam profile';
+    this.lobeReadout.title = 'Which lobes the valves are following now.';
+    this.slider(valves, {
+      label: 'Switch to high cam at',
+      min: 0,
+      max: 10000,
+      step: 100,
+      value: spec.camSwitchRpm,
+      sync: () => this.config.engine.camSwitchRpm,
+      format: (v) => (v > 0 ? `${Math.round(v)} rpm` : 'one profile'),
+      onInput: (v) => this.cb.onEngine({ camSwitchRpm: v }),
+    }).row.title =
+      'Where each valve switches to a second, high-speed cam lobe, with the lift and timing below. ' +
+      'Unlike variable valve timing, which slides the valve events together, a second lobe opens ' +
+      'the valve for longer and further. It switches back 150 rpm lower. At 0 there is one profile: ' +
+      'the timing above.';
+    this.slider(valves, {
+      label: 'High cam lift',
+      min: 0.002,
+      max: 0.016,
+      step: 0.0001,
+      value: spec.highMaxLift,
+      sync: () => this.config.engine.highMaxLift,
+      scale: MM,
+      unit: 'mm',
+      onInput: (v) => this.cb.onEngine({ highMaxLift: v }),
+    });
+    const highEvent = (
+      label: string,
+      key: 'highEvo' | 'highEvc' | 'highIvo' | 'highIvc',
+      min: number,
+      max: number,
+      format: (v: number) => string,
+    ) =>
+      this.slider(valves, {
+        label,
+        min,
+        max,
+        step: 1,
+        value: spec[key],
+        sync: () => this.config.engine[key],
+        format,
+        onInput: (v) => this.cb.onEngine({ [key]: v }),
+      });
+    highEvent('High cam exhaust opens', 'highEvo', 90, 180, (v) => `${Math.round(180 - v)}° BBDC`);
+    highEvent('High cam exhaust closes', 'highEvc', 340, 430, (v) => `${Math.round(v - 360)}° ATDC`);
+    highEvent('High cam intake opens', 'highIvo', 300, 380, (v) => `${Math.round(360 - v)}° BTDC`);
+    highEvent('High cam intake closes', 'highIvc', 520, 660, (v) => `${Math.round(v - 540)}° ABDC`);
 
     // ---- Variable valve timing ---------------------------------------------
     el('div', 'subhead', valves).textContent = 'Variable valve timing';
@@ -1670,6 +1724,16 @@ export class Panel {
         ? 'Cams at rest'
         : `Intake cam ${Math.round(s.intakeCamAdvance)}° advanced · exhaust ${Math.round(Math.abs(s.exhaustCamRetard))}° ` +
           (s.exhaustCamRetard < 0 ? 'advanced, with it' : 'retarded');
+    const lobes =
+      this.config.engine.camSwitchRpm > 0
+        ? s.highCam
+          ? 'On the high-speed lobes'
+          : 'On the low-speed lobes'
+        : 'One cam profile';
+    if (lobes !== this.lobeText) {
+      this.lobeText = lobes;
+      this.lobeReadout.textContent = lobes;
+    }
     if (cams !== this.camText) {
       this.camText = cams;
       this.camReadout.textContent = cams;

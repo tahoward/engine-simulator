@@ -456,8 +456,13 @@ export class EngineMesh {
 
       const ex = this.exhaustCamRetard;
       const inn = -this.intakeCamAdvance;
-      const exLift = valveLift(snap.crankAngle, s.evo + ex, s.evc + ex, s.maxLift);
-      const inLift = valveLift(snap.crankAngle, s.ivo + inn, s.ivc + inn, s.maxLift);
+      const high = this.highCam;
+      const exLift = high
+        ? valveLift(snap.crankAngle, s.highEvo + ex, s.highEvc + ex, s.highMaxLift)
+        : valveLift(snap.crankAngle, s.evo + ex, s.evc + ex, s.maxLift);
+      const inLift = high
+        ? valveLift(snap.crankAngle, s.highIvo + inn, s.highIvc + inn, s.highMaxLift)
+        : valveLift(snap.crankAngle, s.ivo + inn, s.ivc + inn, s.maxLift);
       for (const v of mesh.exValves) this.poseValve(v, mesh.exhaustSide, exLift);
       for (const v of mesh.inValves) this.poseValve(v, -mesh.exhaustSide, inLift);
 
@@ -496,6 +501,8 @@ export class EngineMesh {
   /** Where the cam phasers have the cams, crank degrees, as the last snapshot reported them. */
   intakeCamAdvance = 0;
   exhaustCamRetard = 0;
+  /** Whether cam profile switching had the valves on the high-speed lobes at the last snapshot. */
+  highCam = false;
 
   get bankCount(): number {
     return this.cyls.length;

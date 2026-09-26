@@ -26,6 +26,11 @@
 - **Valves per cylinder** chooses a two-valve head (one intake, one exhaust) or a four-valve head
   (two of each). The **Exhaust valve** and **Intake valve** sizes are for each valve.
 
+- **Cam profile switching (VTEC)** gives each valve a second, high-speed lobe. **Switch to high cam at**
+  sets where the valves change over to it, and back from 150 rpm lower; at 0 there is one profile. The
+  **High cam** sliders set its lift and timing, and the valve timing above is then the low-speed lobe's.
+  The line above them says which lobes the valves are on. See
+  [Cam profile switching](engine.md#cam-profile-switching).
 - **Variable valve timing** is the ECU's cam map. The timing above it is the cams' rest position.
   **Intake cam** advances the intake cam and **Exhaust cam** retards the exhaust cam, each set for
   low speed and for high speed. **Low speed is** and **High speed is** say where those hold: up to the

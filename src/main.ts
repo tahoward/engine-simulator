@@ -516,6 +516,7 @@ viewer.onFrame((dt) => {
     }));
     engineMesh.intakeCamAdvance = latest.intakeCamAdvance;
     engineMesh.exhaustCamRetard = latest.exhaustCamRetard;
+    engineMesh.highCam = latest.highCam;
     engineMesh.update(
       posed,
       posed.map((b) => glow(b.crankAngle, config.engine.ignition)),
@@ -571,9 +572,9 @@ function loadConfig(): EngineConfig {
     if (parsed.engine) {
       Object.assign(base.engine, parsed.engine);
       // A link may carry the load as a torque in N*m, `loadTorque`, rather than as a fraction.
-      const legacy = (parsed.engine as { loadTorque?: unknown }).loadTorque;
-      if (typeof legacy === 'number' && parsed.engine.load === undefined) {
-        base.engine.load = Math.min(Math.max(legacy / fullLoadTorque(base.engine), 0), 1.5);
+      const loadTorque = (parsed.engine as { loadTorque?: unknown }).loadTorque;
+      if (typeof loadTorque === 'number' && parsed.engine.load === undefined) {
+        base.engine.load = Math.min(Math.max(loadTorque / fullLoadTorque(base.engine), 0), 1.5);
       }
       delete (base.engine as { loadTorque?: unknown }).loadTorque;
       base.engine.freeRunning = true;

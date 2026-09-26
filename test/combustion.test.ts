@@ -158,7 +158,7 @@ describe('advance map', () => {
    * and it sits there making no power whatever the throttle does.
    */
   it('lets a bogged engine pull away', () => {
-    const four = ENGINE_PRESETS.find((p) => p.name === 'Inline four')!;
+    const four = ENGINE_PRESETS.find((p) => p.name === 'Inline four, Honda F20C')!;
     const cfg = defaultConfig();
     cfg.engine = { ...cfg.engine, ...four.engine, freeRunning: true, load: 0.46, throttle: 0.1 };
     cfg.pipe = four.pipe();
