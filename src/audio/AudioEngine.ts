@@ -6,7 +6,7 @@
  */
 
 import type { ExhaustGraph } from '../model/exhaustGraph.js';
-import type { EngineConfig, EngineSnapshot, EngineSpec, PipeSegment } from '../model/spec.js';
+import type { DynoConfig, EngineConfig, EngineSnapshot, EngineSpec, PipeSegment } from '../model/spec.js';
 import { CONTROL_PARAMS } from './worklet/controls.js';
 import type { FromWorklet, ToWorklet } from './worklet/processor.js';
 
@@ -189,6 +189,11 @@ export class AudioEngine {
     this.config.pipe = pipe.map((s) => ({ ...s }));
     if (collector) this.config.collector = collector.map((s) => ({ ...s }));
     this.post({ type: 'pipe', pipe: this.config.pipe, collector: this.config.collector });
+  }
+
+  /** Start a dyno run through `config`, or with `null` end the one in progress. */
+  dyno(config: DynoConfig | null): void {
+    this.post({ type: 'dyno', config });
   }
 
   private post(msg: ToWorklet): void {

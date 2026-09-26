@@ -10,7 +10,7 @@
  * collection and rendering hitches.
  */
 
-import type { EngineConfig, EngineSnapshot, EngineSpec, PipeSegment } from '../../model/spec.js';
+import type { DynoConfig, EngineConfig, EngineSnapshot, EngineSpec, PipeSegment } from '../../model/spec.js';
 import type { ExhaustGraph } from '../../model/exhaustGraph.js';
 import { CONTROL_PARAMS } from './controls.js';
 import { EngineSim } from './engineSim.js';
@@ -20,7 +20,8 @@ export type ToWorklet =
   | { type: 'engine'; engine: Partial<EngineSpec> }
   | { type: 'pipe'; pipe: PipeSegment[]; collector: PipeSegment[] }
   | { type: 'graph'; graph: ExhaustGraph | null }
-  | { type: 'snapshotRate'; hz: number };
+  | { type: 'snapshotRate'; hz: number }
+  | { type: 'dyno'; config: DynoConfig | null };
 
 /** Worklet -> main thread. */
 export type FromWorklet = { type: 'snapshot'; snapshot: EngineSnapshot };
@@ -56,6 +57,11 @@ class EngineProcessor extends AudioWorkletProcessor {
           // paid only when the user edits the pipe, and the simulation ramps back
           // up over ~8 ms to hide the discontinuity.
           this.sim.setPipe(msg.pipe, msg.collector);
+          break;
+        case 'dyno':
+          // `null` ends the run in progress.
+          if (msg.config) this.sim.startDyno(msg.config);
+          else this.sim.stopDyno();
           break;
         case 'snapshotRate':
           this.snapshotInterval = Math.max(1, Math.round(sampleRate / msg.hz));

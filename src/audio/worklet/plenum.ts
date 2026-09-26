@@ -141,6 +141,14 @@ export class IntakePlenum {
     this.fuelMass = this.mass * this.fuelIn;
   }
 
+  /**
+   * Set the throttle to `opening`, 0..1, in place of the spec's: what a dyno run drives it with.
+   * Until the next `setGeometry`, which goes back to the spec's.
+   */
+  setOpening(spec: EngineSpec, opening: number): void {
+    this.area = IntakePlenum.throttleAreaAt(spec, opening);
+  }
+
   /** Rebuild geometry in place, keeping the gas state, so an edit does not click. */
   setGeometry(spec: EngineSpec): void {
     this.area = IntakePlenum.throttleArea(spec);
@@ -189,9 +197,14 @@ export class IntakePlenum {
    * hardware.
    */
   static throttleArea(spec: EngineSpec): number {
+    return IntakePlenum.throttleAreaAt(spec, spec.throttle);
+  }
+
+  /** `throttleArea` at plate position `opening`, 0..1, rather than the spec's. */
+  static throttleAreaAt(spec: EngineSpec, opening: number): number {
     const d = throttleDiaOf(spec);
     const bore = (Math.PI * d * d) / 4;
-    const open = 1 - Math.cos(clamp(spec.throttle, 0, 1) * (Math.PI / 2));
+    const open = 1 - Math.cos(clamp(opening, 0, 1) * (Math.PI / 2));
     const geometric = bore * (IDLE_BYPASS + (1 - IDLE_BYPASS) * open);
     return geometric * (CD_CLOSED + (CD_OPEN - CD_CLOSED) * open);
   }

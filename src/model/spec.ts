@@ -478,6 +478,69 @@ export interface EngineSnapshot {
   substeps: number;
   /** Mean exhaust wall temperature, K. Climbs over tens of seconds from a cold start. */
   wallTemp: number;
+  /** The dyno run in progress, or `null` when none is. */
+  dyno: DynoSnapshot | null;
+}
+
+/** A dyno run's state, sent with each snapshot while it runs. */
+export interface DynoSnapshot {
+  phase: 'pull' | 'shiftOut' | 'shiftIn' | 'cooldown';
+  /** Gear engaged, 1-6. */
+  gear: number;
+  /** Road speed, km/h. */
+  speedKmh: number;
+  /** Seconds since the run started. */
+  elapsed: number;
+  /** Whether the last pull is over, or the run was stopped. The engine may still be winding down. */
+  finished: boolean;
+  /**
+   * The engine cycles recorded since the last snapshot, four values each: rpm, crank torque (N*m),
+   * road speed (km/h) and gear (1-6).
+   */
+  points: Float32Array;
+}
+
+/**
+ * The car and gearbox a dyno run drives through. See `DynoRun` in drivetrain.ts.
+ */
+export interface DynoConfig {
+  /** Gearbox ratios, first to sixth. */
+  ratios: number[];
+  /** Final drive ratio. */
+  finalDrive: number;
+  /** Tyre rolling radius, m. */
+  tyreRadius: number;
+  /** Mass the engine accelerates, kg: the car's, with the dyno's rollers counted in it. */
+  mass: number;
+  /** Engine speed each gear is pulled to before the shift, rev/min. In sixth the run ends there. */
+  shiftRpm: number;
+}
+
+/** A close-ratio six-speed's gears, first to sixth. */
+export const DYNO_RATIOS = [3.36, 2.09, 1.47, 1.1, 0.87, 0.71];
+
+/** How far below the rev limiter a dyno run shifts, rev/min, so the pull never touches the cut. */
+const DYNO_SHIFT_MARGIN = 150;
+
+/**
+ * A car and gearing to suit `spec`, for a dyno run.
+ *
+ * Sized from a rough peak power: the nominal full-throttle torque at 80% of the rev limit. The car
+ * weighs about 9 kg per kW of that, as a quick road car does, held between a light motorcycle and a
+ * heavy saloon. Sixth is geared so that the shift point comes at the speed the car could reach on the
+ * road, where that power meets its air drag. So the gears come out right for the engine: a 500 cc single
+ * tops out near 160 km/h and a 5.5 litre V8 past 300.
+ */
+export function fitDyno(spec: EngineSpec): DynoConfig {
+  const shiftRpm = Math.max(spec.revLimit - DYNO_SHIFT_MARGIN, 1000);
+  const power = fullLoadTorque(spec) * ((0.8 * spec.revLimit * 2 * Math.PI) / 60);
+  const mass = Math.min(Math.max(power / 110, 180), 1900);
+  // Top speed on the road: power against drag, 1/2 rho CdA v^3, for a CdA of 0.6 m^2.
+  const topSpeed = Math.min(Math.max(Math.cbrt((2 * power) / (1.2 * 0.6)), 45), 90);
+  const tyreRadius = 0.31;
+  const top = DYNO_RATIOS[DYNO_RATIOS.length - 1]!;
+  const finalDrive = ((shiftRpm * 2 * Math.PI) / 60) * tyreRadius / (top * topSpeed);
+  return { ratios: [...DYNO_RATIOS], finalDrive, tyreRadius, mass, shiftRpm };
 }
 
 export const PIPE_PRESSURE_TAPS = 128;

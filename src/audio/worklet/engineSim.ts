@@ -32,9 +32,11 @@ import {
   type EngineSnapshot,
   type EngineSpec,
   type BankSnapshot,
+  type DynoConfig,
   type PipeSegment,
   displacement,
   exhaustLayoutOf,
+  fullLoadTorque,
   exhaustPortDiameter,
   fuelFractionAt,
   loadTorqueOf,
@@ -74,6 +76,7 @@ import {
 import { compileLayout, nodeOrder, validateGraph, type ExhaustGraph } from '../../model/exhaustGraph.js';
 import { ExhaustSystem } from './exhaustSystem.js';
 import { IntakePlenum } from './plenum.js';
+import { DynoRun } from './drivetrain.js';
 import { ORIFICE_IO, orificeSolve, VALVE_CD, valveFlowArea, valveLift } from './valve.js';
 
 /** Slots of `EngineSim.intakeIo`. */
@@ -103,6 +106,12 @@ const ACC_SIZE = 5;
  * headroom for someone fitting an absurdly short pipe without the output pinning.
  */
 const PA_PER_FULLSCALE = 250;
+
+/**
+ * Longest a finished dyno run waits for the engine to wind down to a held speed, s, before handing
+ * the crank back regardless.
+ */
+const DYNO_WIND_DOWN = 6;
 
 /** Crank degrees per cylinder sub-step. Keeps the gas integration well resolved at high rpm. */
 const MAX_DEG_PER_SUBSTEP = 0.35;
@@ -446,6 +455,13 @@ export class EngineSim {
   private limiterCut = false;
   /** Whether the overrun fuel cut has stopped the fuel. Latched, with hysteresis: see `fuelCut`. */
   private fuelCutActive = false;
+  /**
+   * The dyno run in progress, or `null`. While it runs it drives the throttle and loads the crank
+   * through the clutch, and the crank is integrated whatever `freeRunning` says.
+   */
+  private dyno: DynoRun | null = null;
+  /** Throttle opening the plenum was last set to by the dyno run; NaN once the spec's is back. */
+  private dynoOpening = NaN;
   private prevExLift!: Float64Array;
   private prevInLift!: Float64Array;
   private prevAngle!: Float64Array;
@@ -555,6 +571,21 @@ export class EngineSim {
     this.loadTorqueNm = loadTorqueOf(spec);
     if (!spec.freeRunning && !this.integratingCrank()) this.omegaMean = (rpm * 2 * Math.PI) / 60;
     this.plenum.setGeometry(spec);
+    this.dynoOpening = NaN;
+  }
+
+  /**
+   * Start a dyno run through `config`'s gearbox, from the engine's present speed. See `DynoRun`.
+   * A run already going is replaced.
+   */
+  startDyno(config: DynoConfig): void {
+    this.dyno = new DynoRun(config, this.omegaMean, fullLoadTorque(this.spec));
+    this.dynoOpening = NaN;
+  }
+
+  /** End the dyno run: the throttle goes back to the spec's once the engine has wound down. */
+  stopDyno(): void {
+    this.dyno?.finish();
   }
 
   setEngine(partial: Partial<EngineSpec>): void {
@@ -582,6 +613,7 @@ export class EngineSim {
     this.refreshMouthPaths();
     this.wg.setTurbulence(this.spec.throatNoise);
     this.plenum.setGeometry(this.spec);
+    this.dynoOpening = NaN;
     // Cheap enough to redo unconditionally, and it must not wait for a pipe rebuild.
     this.makeCylinderVariation(this.spec.cylinders);
     this.tuneStructure();
@@ -597,6 +629,8 @@ export class EngineSim {
       this.layoutKey() !== prevLayout
     ) {
       if (this.layoutKey() !== prevLayout) {
+        // A different engine: a run on the old one means nothing on it.
+        this.dyno = null;
         this.allocatePerCylinder();
         this.cyls = this.buildCylinders();
       }
@@ -1105,7 +1139,7 @@ export class EngineSim {
    * at a speed the rev limiter will not allow.
    */
   private integratingCrank(): boolean {
-    return this.spec.freeRunning || this.spec.rpm >= this.spec.revLimit;
+    return this.spec.freeRunning || this.spec.rpm >= this.spec.revLimit || this.dyno !== null;
   }
 
   /** Instantaneous crank speed, rev/min, ripple included. */
@@ -1142,7 +1176,12 @@ export class EngineSim {
       // a fixed N*m guess does not scale and lets the engine run away.
       const fmep = 0.8e5 + 120 * this.omegaMean;
       const friction = (fmep * this.displacementM3) / (4 * Math.PI);
-      const load = spec.freeRunning ? this.loadTorqueNm : 0;
+      const dyno = this.dyno;
+      const load = dyno
+        ? dyno.step(dt, this.omegaMean, torque - friction, this.cyls[0]!.angle)
+        : spec.freeRunning
+          ? this.loadTorqueNm
+          : 0;
       const net = torque - load - friction;
       this.omegaMean += (net / inertia) * dt;
       const minOmega = (MIN_RPM * 2 * Math.PI) / 60;
@@ -1188,10 +1227,32 @@ export class EngineSim {
       this.omega = Math.max(this.omegaMean + this.omegaRipple, 1);
     }
 
+    // --- Dyno run -------------------------------------------------------------
+    // The run drives the throttle; when it is over, and the engine has wound back down to where a
+    // held speed would put it, the throttle and the crank go back to the spec.
+    let throttle = spec.throttle;
+    const dyno = this.dyno;
+    if (dyno) {
+      throttle = dyno.throttle;
+      if (throttle !== this.dynoOpening) {
+        this.plenum.setOpening(spec, throttle);
+        this.dynoOpening = throttle;
+      }
+      if (
+        dyno.phase === 'cooldown' &&
+        (spec.freeRunning || this.omegaMean <= (spec.rpm * 2 * Math.PI) / 60 || dyno.phaseTime > DYNO_WIND_DOWN)
+      ) {
+        this.dyno = null;
+        this.plenum.setGeometry(spec);
+        this.dynoOpening = NaN;
+        throttle = spec.throttle;
+      }
+    }
+
     // --- Overrun fuel cut ----------------------------------------------------
     // Judged on the mean speed, which in fixed-rpm mode is the commanded one: held on a dynamometer
     // with the throttle shut, the engine is being motored, and the ECU cuts the fuel just the same.
-    if (!spec.fuelCut || spec.throttle > FUEL_CUT_THROTTLE) {
+    if (!spec.fuelCut || throttle > FUEL_CUT_THROTTLE) {
       this.fuelCutActive = false;
     } else {
       const rpmNow = (this.omegaMean * 60) / (2 * Math.PI);
@@ -1497,6 +1558,14 @@ export class EngineSim {
       rpm: this.rpm,
       limiter: this.limiterCut,
       fuelCut: this.fuelCutActive,
+      dyno: this.dyno && {
+        phase: this.dyno.phase,
+        gear: this.dyno.gear + 1,
+        speedKmh: this.dyno.speed * 3.6,
+        elapsed: this.dyno.elapsed,
+        finished: this.dyno.finished,
+        points: this.dyno.takePoints(),
+      },
       cylPressure: first.cylPressure,
       cylTemp: first.cylTemp,
       exLift: first.exLift,
