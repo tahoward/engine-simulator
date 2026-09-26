@@ -17,18 +17,17 @@ Where the model is simplified, and by how much.
     back up a runner comes back spread through it rather than as a slug at the valve.
   - They are solved on the finest grid the sample rate allows. At the lower sample rates that grid is
     coarser, and they ram the charge in less.
-  - Each has one length. A two-stage manifold, which switches between long runners for mid-range torque
-    and short ones for power, is not modelled.
+  - A two-stage intake switches between its two sets of runners at once. A real flap takes a few tens
+    of milliseconds to move, and is part open on the way.
 - **Some effects that make high-output engines strong are missing.** Direct injection cools the
-  charge as the fuel evaporates, variable cam timing moves the cam for each speed, and a rich
-  mixture at full throttle adds a few percent of power. None is modelled. A 6.2 litre V8 in the
+  charge as the fuel evaporates, and a rich mixture at full throttle adds a few percent of power.
+  Neither is modelled. A 6.2 litre V8 in the
   proportions of a Chevrolet LT2 comes out at about 600 N·m and 460 hp, against the real engine’s
   637 N·m and 495 hp. The LT6, the 8600 rpm flat-plane V8, comes out at 650 hp at 8400 rpm, against 670,
-  but at 555 N·m at 6300 against 624: its runners are tuned for the top end, where the real engine's
-  manifold switches to its long runners below it. Its cam, cam map, rods, runners and headers are
-  estimates, since they are not published.
+  and at 577 N·m at 6300 against 624. Its cam, cam map, rods, runners and headers are estimates,
+  since they are not published.
 - **The variable valve timing map is set by hand.** A production map is calibrated on a dyno, point by
-  point, for torque, economy and emissions together; this one is four numbers blended with speed, and
+  point, for torque, economy and emissions together; this one is four cam positions at two speeds, blended in a straight line between them, and
   moves the cams under load only. What cam timing does to part-load economy and emissions, much of what
   a real engine uses it for, is not modelled.
 - **A sealed cavity has a tiny built-in growth.** In a nearly lossless *sealed* cavity the

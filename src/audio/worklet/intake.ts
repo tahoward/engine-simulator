@@ -97,8 +97,12 @@ export class IntakeRunners {
   /** The kernel every runner shares, or `null` where there is none or they did not fit in one. */
   private readonly kernel: EulerKernel | null;
 
-  constructor(spec: EngineSpec, sampleRate: number, count: number, opts: EulerPipeOptions) {
-    const { length, diameter } = intakeRunnerOf(spec);
+  /**
+   * @param length Each runner's length, m. By default the spec's, `intakeRunnerOf`; a two-stage intake
+   *   builds a second set at its short length.
+   */
+  constructor(spec: EngineSpec, sampleRate: number, count: number, opts: EulerPipeOptions, length = intakeRunnerOf(spec).length) {
+    const { diameter } = intakeRunnerOf(spec);
     const segment = [makeSegment({ kind: 'pipe', length, dIn: diameter })];
     const damping = runnerDamping(diameter / 2, speedOfSound(GAS.tAmb, GAS.gammaAir) / (4 * length));
     // Every runner in one shared kernel, stepped together: see `reconstructBatchIo` in
@@ -162,6 +166,32 @@ export class IntakeRunners {
   /** Solver recoveries across all the runners. Should stay zero. */
   get recoveries(): number {
     return this.runners.reduce((a, r) => a + r.recoveries, 0);
+  }
+
+  /**
+   * Take over from `src`, the other set of a two-stage intake, as the manifold switches between them:
+   * each runner takes the gas in `src`'s, laid onto its own length from the valve (`EulerPipe.resampleFrom`),
+   * with its composition and what its injector is owed.
+   */
+  takeStateFrom(src: IntakeRunners): void {
+    for (let b = 0; b < this.runners.length; b++) {
+      const r = this.runners[b]!;
+      r.resampleFrom(src.runners[b]!);
+      const m = r.totalMass();
+      this.mass[b] = m;
+      this.burned[b] = src.burned[b]!;
+      this.fuel[b] = src.fuel[b]!;
+      this.burnedMass[b] = m * src.burned[b]!;
+      this.fuelMass[b] = m * src.fuel[b]!;
+      this.airOwed[b] = src.airOwed[b]!;
+      this.inflowFuel[b] = src.inflowFuel[b]!;
+      this.valveMassFlows[b] = src.valveMassFlows[b]!;
+      this.plenumFlows[b] = src.plenumFlows[b]!;
+      r.readPort(this.port);
+      this.portTemps[b] = this.port[1]!;
+      r.readMouth(this.port);
+      this.plenumTemps[b] = this.port[1]!;
+    }
   }
 
   /**

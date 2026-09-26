@@ -71,6 +71,22 @@ at 6450. **Intake runner length** and **Intake runner bore** set them. Left on a
 the intake valves' area, a little narrowed, and the length is tuned to three quarters of the rev
 limit: its quarter-wave resonance is 2.3 times the crank speed there.
 
+**A two-stage intake has both.** With **Short runner length** set, each cylinder has a second, shorter
+path to the plenum, and the manifold switches to it at **Switch to short runners at**, as a real one's
+flap opens. It switches back 150 rpm lower, so it does not flap back and forth at the switch speed.
+Both sets are solved, on the same grid; the gas in the one being left, measured from the valve, is
+laid onto the other, so the charge in the ports and its flow carry on through the switch. On the LT6,
+with 370 mm runners switching to 330 mm ones at 8100 rpm:
+
+```
+                          3000   4500   5500   6300   7800   8400 rpm      full throttle, N·m
+330 mm runners only        392    531    549    556    520    556
+two-stage                  394    557    563    577    586    556
+```
+
+Longer long runners peak higher on it, 646 N·m at 6300 for 450 mm ones, but dip as far below: 370 mm
+gives the flattest curve.
+
 The runners are solved on the finest grid the sample rate allows, 35 mm at 48 kHz, even where the
 cost budget coarsens the exhaust. A runner is only a few hundred millimetres long, and its ends are a
 good part of it, so its ramming depends on resolution far more than the exhaust's sound does: on 70
@@ -91,9 +107,9 @@ runner it would damp away the waves that do the ramming.
 
 The cams can be turned against the crank as the engine runs, as an oil-pressure phaser turns them. The
 valve timing set in the panel is each cam's rest position. The ECU's map, which you set, advances the
-intake cam and retards the exhaust cam from there, by one amount at low speed and another at high
-speed, blended as the engine speed goes from 30% to 85% of the rev limit. A phaser turns at up to 250
-crank degrees a second, so the cams follow the map smoothly.
+intake cam and retards the exhaust cam from there: one amount up to a low speed, another from a high
+speed, and a straight line between the two. A phaser turns at up to 250 crank degrees a second, so the
+cams follow the map smoothly.
 
 The map applies under load only. With the throttle nearly shut the cams sit at rest, which is least
 overlap: at a near-vacuum in the manifold, overlap only pushes exhaust back up the intake and roughens
@@ -101,12 +117,15 @@ the idle. Load is read from the throttle rather than from the manifold pressure,
 ECU weighs the air by, because the overlap itself raises that pressure at idle. A map reading that as
 load would advance the cam further and stall an engine with a big cam.
 
-What it buys depends on the cam. On the LT6, whose cam and runners are tuned for 8400 rpm:
+What it buys depends on the cam. On the LT6, whose cam is tuned for 8400 rpm, the intake cam is
+advanced 40° up to 4500 rpm and eased back to rest by 7500. That map was found by running the engine
+at a fixed cam position at each speed: the best advance is about 40° at 4000-5000 rpm, 20° at
+5500-6500 and none from 7000. Moving the exhaust cam either way lost torque almost everywhere.
 
 ```
                           3000   4500   6300   8400 rpm      full throttle, N·m
-cam fixed                  382    442    533    552
-intake 40° / exhaust 20°   381    541    554    552          advanced and retarded at low speed
+cam fixed                  391    441    562    556
+intake map                 394    557    577    556
 ```
 
 On the 2GR, the cam rests late, so its runners ram the charge in at the top end, and the phaser
@@ -115,9 +134,9 @@ away:
 
 ```
                           2000   3000   4000   5200   6400 rpm      full throttle, N·m
-cam fixed early            316    322    362    310    273
-cam fixed late             283    291    344    355    328
-intake 40° at low speed    323    319    358    353    328
+cam fixed early            315    325    360    315    286
+cam fixed late             283    292    337    363    342
+intake 40° at low speed    323    321    356    361    342
 ```
 
 ## The flame

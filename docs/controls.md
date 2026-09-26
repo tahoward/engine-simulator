@@ -28,8 +28,9 @@
 
 - **Variable valve timing** is the ECU's cam map. The timing above it is the cams' rest position.
   **Intake cam** advances the intake cam and **Exhaust cam** retards the exhaust cam, each set for
-  low speed and for high speed, and the map blends between them as the engine speed goes from 30%
-  to 85% of the rev limit. It applies under load only: with the throttle under 10% open the cams sit
+  low speed and for high speed. **Low speed is** and **High speed is** say where those hold: up to the
+  first the cams take the low-speed settings, from the second the high-speed ones, and in between the
+  map blends in a straight line. It applies under load only: with the throttle under 10% open the cams sit
   at rest, for a steady idle, and it applies in full from 50%. **One phaser for both cams** moves the
   whole cam by the intake's advance, as on a pushrod engine. The line above the sliders says where
   the cams are now. See [Variable valve timing](engine.md#variable-valve-timing).
@@ -40,8 +41,12 @@
   to its valve. At 0 they are sized for the engine: the bore from the valves, the length tuned to
   three quarters of the rev limit. Longer makes more low-rpm torque, shorter more high-rpm power.
   See [The intake](engine.md#the-intake).
+- **Short runner length** makes it a two-stage intake: a second, shorter set of runners, which the
+  manifold switches to at **Switch to short runners at**, and back from 150 rpm lower. The long runners
+  are then the ones **Intake runner length** sets. At 0 there is one set.
 - The line at the top of the section gives the runners' size and the speed they are tuned for,
-  where they ram the charge in hardest and the torque peaks near.
+  where they ram the charge in hardest and the torque peaks near, and on a two-stage intake which set
+  it is on.
 - **Plenum volume** is the manifold the runners draw from. At 0 it is one and a half times the
   engine's displacement.
 - **Throttle bore** sets the throttle's size. At 0 it is sized for the engine's airflow at full

@@ -782,6 +782,31 @@ export class EulerPipe {
     this.en[i] = p / (GAMMA - 1) + 0.5 * rho * u * u;
   }
 
+  /**
+   * Take on `src`'s gas, laid onto this duct's grid by distance from the inlet: each cell takes the state
+   * at the same distance along `src`, interpolated between its cells. Past `src`'s far end, each takes the
+   * state of its last cell. For a duct that changes length as the engine runs, as a two-stage intake's
+   * runners do, so the column of gas at the valve, and the flow in it, carry on through the change.
+   */
+  resampleFrom(src: EulerPipe): void {
+    const last = src.n - 1;
+    for (let i = 0; i < this.n; i++) {
+      let f = ((i + 0.5) * this.dx) / src.dx - 0.5;
+      f = f < 0 ? 0 : f > last ? last : f;
+      const j = Math.floor(f);
+      const k = j < last ? j + 1 : j;
+      const w = f - j;
+      this.rho[i] = src.rho[j]! + (src.rho[k]! - src.rho[j]!) * w;
+      this.mom[i] = src.mom[j]! + (src.mom[k]! - src.mom[j]!) * w;
+      this.en[i] = src.en[j]! + (src.en[k]! - src.en[j]!) * w;
+      this.uMean[i] = src.uMean[j]! + (src.uMean[k]! - src.uMean[j]!) * w;
+      this.fluxAvg[i] = src.fluxAvg[j]! + (src.fluxAvg[k]! - src.fluxAvg[j]!) * w;
+    }
+    this.mouthPhi = src.mouthPhi;
+    this.mouthCutState = src.mouthCutState;
+    this.lastMaxSpeed = src.lastMaxSpeed;
+  }
+
   pressureAt(i: number): number {
     const r = this.rho[i]!;
     const u = this.mom[i]! / r;
