@@ -16,6 +16,16 @@ import type { FromWorklet, ToWorklet } from './worklet/processor.js';
 import processorUrl from './worklet/processor.ts?worker&url';
 
 export type SnapshotListener = (snapshot: EngineSnapshot) => void;
+/** Called with `true` when the audio stops keeping up with real time, and `false` when it recovers. */
+export type LagListener = (behind: boolean) => void;
+
+/** How often the audio clock is checked against the wall clock, ms. */
+const LAG_WINDOW_MS = 2000;
+/** Share of real time the audio must render over a window to count as keeping up. */
+const LAG_RATIO = 0.98;
+/** Windows in a row that must be late before the lag is reported, and on time before it is cleared. */
+const LAG_WINDOWS_BAD = 2;
+const LAG_WINDOWS_GOOD = 3;
 
 export class AudioEngine {
   private ctx: AudioContext | null = null;
@@ -23,6 +33,13 @@ export class AudioEngine {
   private master: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
   private readonly listeners = new Set<SnapshotListener>();
+  private readonly lagListeners = new Set<LagListener>();
+  private lagTimer: ReturnType<typeof setInterval> | null = null;
+  /** The audio and wall clocks at the start of the current window, s and ms; `null` to start afresh. */
+  private lagMark: { audio: number; wall: number } | null = null;
+  /** Windows in a row on the wrong side of `behind`. */
+  private lagStreak = 0;
+  private behind = false;
   private config: EngineConfig;
   private starting: Promise<void> | null = null;
   private masterGain = 1;
@@ -72,6 +89,7 @@ export class AudioEngine {
     if (!this.ctx) return;
     const wasRunning = this.running;
     const ctx = this.ctx;
+    this.stopLagWatch();
     this.node?.disconnect();
     this.ctx = null;
     this.node = null;
@@ -86,6 +104,7 @@ export class AudioEngine {
   async start(): Promise<void> {
     if (this.node) {
       await this.ctx?.resume();
+      this.lagMark = null;
       return;
     }
     // Guard against double-clicks racing two contexts into existence.
@@ -136,10 +155,73 @@ export class AudioEngine {
     this.analyser = analyser;
 
     await ctx.resume();
+    this.startLagWatch();
   }
 
   async suspend(): Promise<void> {
     await this.ctx?.suspend();
+    // Otherwise the pause would count against the window it fell in.
+    this.lagMark = null;
+  }
+
+  onLag(listener: LagListener): () => void {
+    this.lagListeners.add(listener);
+    return () => this.lagListeners.delete(listener);
+  }
+
+  /**
+   * Watch whether the audio thread keeps up with real time.
+   *
+   * The worklet cannot time itself (see `processor.ts`), but the context's clock only advances by the
+   * blocks actually rendered, so when `process` takes longer than a block lasts it falls behind the
+   * wall clock, and the browser fills the gap with silence: crackle. Measured over whole windows, since
+   * the clock moves in steps of the device's buffer.
+   */
+  private startLagWatch(): void {
+    this.stopLagWatch();
+    this.lagTimer = setInterval(() => this.checkLag(), LAG_WINDOW_MS);
+  }
+
+  private stopLagWatch(): void {
+    if (this.lagTimer !== null) clearInterval(this.lagTimer);
+    this.lagTimer = null;
+    this.lagMark = null;
+    this.lagStreak = 0;
+    this.setBehind(false);
+  }
+
+  private checkLag(): void {
+    const ctx = this.ctx;
+    // A suspended context is meant to stand still; start the next window from wherever it resumes.
+    if (!ctx || ctx.state !== 'running') {
+      this.lagMark = null;
+      return;
+    }
+    // The output timestamp pairs the two clocks at one instant, which `currentTime` read beside
+    // `performance.now()` does not. Not every browser has it.
+    const stamp = ctx.getOutputTimestamp?.();
+    const now =
+      stamp?.contextTime !== undefined && stamp.performanceTime !== undefined
+        ? { audio: stamp.contextTime, wall: stamp.performanceTime }
+        : { audio: ctx.currentTime, wall: performance.now() };
+    const mark = this.lagMark;
+    this.lagMark = now;
+    if (!mark || now.wall <= mark.wall) return;
+    const late = (now.audio - mark.audio) / ((now.wall - mark.wall) / 1000) < LAG_RATIO;
+    if (late === this.behind) {
+      this.lagStreak = 0;
+      return;
+    }
+    if (++this.lagStreak >= (late ? LAG_WINDOWS_BAD : LAG_WINDOWS_GOOD)) {
+      this.lagStreak = 0;
+      this.setBehind(late);
+    }
+  }
+
+  private setBehind(behind: boolean): void {
+    if (behind === this.behind) return;
+    this.behind = behind;
+    for (const l of this.lagListeners) l(behind);
   }
 
   async toggle(): Promise<boolean> {

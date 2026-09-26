@@ -192,6 +192,7 @@ export class Panel {
   private readonly readoutEl: HTMLElement;
   private readonly meterFill: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
+  private readonly rateSel: HTMLSelectElement;
 
   private selected: number | null = null;
   private readonly view: ViewOptions = {
@@ -224,6 +225,7 @@ export class Panel {
     const rateRow = el('div', 'row', transport);
     el('label', '', rateRow).textContent = 'Sample rate';
     const rateSel = el('select', '', rateRow) as HTMLSelectElement;
+    this.rateSel = rateSel;
     for (const [hz, label] of SAMPLE_RATES) rateSel.appendChild(option(String(hz), label));
     rateSel.value = String(sampleRate);
     rateSel.addEventListener('change', () => this.cb.onSampleRate(Number(rateSel.value)));
@@ -1293,6 +1295,11 @@ export class Panel {
   setRunning(running: boolean): void {
     this.startBtn.textContent = running ? 'Stop engine' : 'Start engine';
     this.startBtn.classList.toggle('running', running);
+  }
+
+  /** Show a sample rate chosen somewhere other than the menu. */
+  setSampleRate(hz: number): void {
+    this.rateSel.value = String(hz);
   }
 
   // -------------------------------------------------------------------------
