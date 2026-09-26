@@ -22,7 +22,7 @@ describe('presets idle', () => {
 
     const sim = new EngineSim(FS, cfg);
     sim.render(FS * 3);
-    // Averaged, because an idle hunts: the overcammed V8 misfires a quarter of its cycles.
+    // Averaged, because an idle hunts: the overcammed V8 misfires a fifth of its cycles.
     let sum = 0;
     const reads = 20;
     for (let i = 0; i < reads; i++) {

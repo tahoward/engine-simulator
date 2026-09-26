@@ -18,10 +18,9 @@
  * charge and shows up as less heat release, a cooler exhaust, a slower wave, and a lower
  * note — with nothing fitted anywhere along the way.
  *
- * `fuelMass` is how much is fuel. It is metered in with the air at the throttle, in proportion
- * to it, so the manifold holds the mixture the cylinders will draw. That puts the injector
- * upstream of the plenum rather than in each port, which costs the fuel a cycle or so in transit;
- * a port injector's wall film delays it about as much.
+ * `fuelMass` is how much is fuel. Only air comes in past the throttle: the fuel is injected in each
+ * runner (see `IntakeRunners`), so what fuel the plenum holds is what the cylinders pushed back up
+ * their runners with their own mixture.
  *
  * Thermodynamically this is the same filling-and-emptying model as the cylinder, minus the
  * moving boundary, and it deliberately shares the cylinder's temperature-dependent `cv`
@@ -32,7 +31,6 @@ import {
   GAS,
   type EngineSpec,
   displacement,
-  fuelFractionAt,
   gasEnergy,
   gasEnthalpy,
   gasGamma,
@@ -121,8 +119,6 @@ export class IntakePlenum {
   private burnedMass = 0;
   /** Of `mass`, how much is unburned fuel, kg. */
   private fuelMass = 0;
-  /** Fuel fraction of the charge coming in past the throttle, as last metered. */
-  private fuelIn = 0;
   private volume = 0;
   /**
    * Commanded throttle area, m^2, cached.
@@ -136,9 +132,6 @@ export class IntakePlenum {
     this.area = IntakePlenum.throttleArea(spec);
     this.mass = (GAS.pAmb * this.volume) / (GAS.R * GAS.tAmb);
     this.energy = this.mass * gasEnergy(GAS.tAmb);
-    // Primed with the mixture, so the first cycles do not run on bare air.
-    this.fuelIn = fuelFractionAt(spec.lambda);
-    this.fuelMass = this.mass * this.fuelIn;
   }
 
   /**
@@ -215,8 +208,6 @@ export class IntakePlenum {
    * @param valveFlow Net mass flow to the cylinders, kg/s, positive out of the plenum.
    * @param backflow Of that, the part flowing back *in*, kg/s, 0 or more; `backflowTemp`,
    *   `backflowBurned` and `backflowFuel` describe it.
-   * @param fuelIn Fuel mass fraction of the charge coming in past the throttle: `fuelFractionAt`
-   *   the commanded λ, or 0 with the fuel cut.
    *
    * The two are separate because on a multi-cylinder engine the net hides the back-flow: one
    * cylinder spitting exhaust up its runner while another draws is a small positive net, and taken
@@ -232,13 +223,11 @@ export class IntakePlenum {
     backflowTemp: number,
     backflowBurned: number,
     backflowFuel: number,
-    fuelIn: number,
   ): void {
     const p = this.pressure;
     const t = this.temp;
     const burned = this.burnedFraction;
     const fuel = this.fuelFraction;
-    this.fuelIn = fuelIn;
 
     // --- Throttle ---------------------------------------------------------------
     // Signed, because a plenum above ambient does blow back out past the throttle.
@@ -268,8 +257,8 @@ export class IntakePlenum {
     // arrives carrying the cylinder's.
     const burnedIn = -drawn * burned + backflow * backflowBurned;
     this.burnedMass += burnedIn * dt;
-    // Fuel comes in with the air past the throttle, and leaves with whatever blows back out.
-    const fuelThrottle = throttleFlow >= 0 ? throttleFlow * fuelIn : throttleFlow * fuel;
+    // Fuel arrives only with the back-flow, and leaves with whatever is drawn or blows back out.
+    const fuelThrottle = throttleFlow >= 0 ? 0 : throttleFlow * fuel;
     this.fuelMass += (fuelThrottle - drawn * fuel + backflow * backflowFuel) * dt;
 
     if (this.mass < MIN_MASS) {
@@ -288,6 +277,6 @@ export class IntakePlenum {
     this.mass = (GAS.pAmb * this.volume) / (GAS.R * GAS.tAmb);
     this.energy = this.mass * gasEnergy(GAS.tAmb);
     this.burnedMass = 0;
-    this.fuelMass = this.mass * this.fuelIn;
+    this.fuelMass = 0;
   }
 }

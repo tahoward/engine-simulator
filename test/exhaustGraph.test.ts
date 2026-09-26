@@ -315,7 +315,19 @@ describe('walking the graph for the panel and the URL', () => {
     const spec = specOf({ cylinders: 2, exhaustLayout: '2into1' });
     const graph = compileLayout(spec, [makeSegment({})], [makeSegment({})]);
     const labels = graph.ducts.map((d) => ductLabel(graph, d));
-    expect(labels).toEqual(['Cylinder 1 runner', 'Cylinder 2 runner', 'After junction 1']);
+    expect(labels).toEqual(['Cylinder 1 primary', 'Cylinder 2 primary', 'After junction 1']);
+  });
+
+  it('calls a cylinder’s duct a stub on a manifold and its exhaust when it goes straight out', () => {
+    const four = specOf({ cylinders: 4, vAngle: 0, exhaustLayout: 'merged' });
+    const manifold = compileLayout(four, [makeSegment({})], [makeSegment({})]);
+    const first = manifold.ducts.find((d) => d.from.kind === 'valve' && d.from.cylinder === 0)!;
+    expect(ductLabel(manifold, first)).toBe(first.role === 'stub' ? 'Cylinder 1 stub' : 'Cylinder 1 primary');
+    expect(manifold.ducts.some((d) => ductLabel(manifold, d).endsWith('stub'))).toBe(true);
+
+    const open = specOf({ cylinders: 1, exhaustLayout: 'open' });
+    const single = compileLayout(open, [makeSegment({})], []);
+    expect(ductLabel(single, single.ducts[0]!)).toBe('Cylinder 1 exhaust');
   });
 
   /**

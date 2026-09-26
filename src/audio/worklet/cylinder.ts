@@ -93,6 +93,8 @@ export class Cylinder {
   private chargePhi = 1;
   /** Burned-gas mass fraction of the trapped charge. */
   private chargeResidual = 0;
+  /** Fresh charge, air and fuel, trapped at the last intake valve closing, kg. Exposed for diagnostics. */
+  trappedFresh = 0;
   /**
    * Wiebe duration this cycle burns over, deg: `burnAngle` for the charge as trapped, times the
    * cycle's scatter. Latched at intake valve closing. Exposed for diagnostics.
@@ -398,6 +400,7 @@ export class Cylinder {
       // residual — releases less heat. That is the load mechanism, and it falls
       // out of the mass bookkeeping rather than being applied as a fudge factor.
       const fresh = this.freshMass;
+      this.trappedFresh = fresh;
       const fuel = this.fuelMass;
       const air = Math.max(fresh - fuel, 0);
       const mass = Math.max(this.mass, MIN_MASS);

@@ -20,8 +20,11 @@ import type { DynoConfig } from '../../model/spec.js';
 
 export type DynoPhase = 'pull' | 'shiftOut' | 'shiftIn' | 'cooldown';
 
-/** Values per recorded point in `DynoRun.points`: rpm, crank torque (N*m), road speed (km/h), gear (1-6). */
-export const DYNO_POINT_STRIDE = 4;
+/**
+ * Values per recorded point in `DynoRun.points`: rpm, crank torque (N*m), road speed (km/h), gear (1-6)
+ * and volumetric efficiency (a fraction).
+ */
+export const DYNO_POINT_STRIDE = 5;
 
 /** Points held between snapshots. A snapshot takes them at 60 Hz; a V8 at 8000 rpm makes 67 a second. */
 const POINT_CAPACITY = 256;
@@ -69,6 +72,12 @@ export class DynoRun {
   phaseTime = 0;
   /** Whether the run has finished its last pull, or been stopped. */
   finished = false;
+  /**
+   * The engine's volumetric efficiency as of the last intake valve closings, set by the engine before
+   * each `step`: fresh charge trapped, averaged over the cylinders, as a fraction of a cylinder's swept
+   * volume at ambient density. Recorded with each engine cycle.
+   */
+  volumetricEfficiency = 0;
 
   /** Recorded points not yet taken by a snapshot, `DYNO_POINT_STRIDE` values each. */
   readonly points = new Float32Array(POINT_CAPACITY * DYNO_POINT_STRIDE);
@@ -206,6 +215,7 @@ export class DynoRun {
         this.points[base + 1] = this.cycleTorque / this.cycleTime;
         this.points[base + 2] = this.speed * 3.6;
         this.points[base + 3] = this.gear + 1;
+        this.points[base + 4] = this.volumetricEfficiency;
         this.pointCount++;
       }
       this.cycleTorque = 0;

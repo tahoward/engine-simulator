@@ -35,12 +35,57 @@ Other details of the model:
   one valve of each instead, the boxer four's torque falls by more than a third from 3600 to 6200 rpm. With
   two of each it holds 90-99% volumetric efficiency right up to its rev limit, as do the other
   four-valve presets.
+- **The intake has runners.** Each cylinder draws through its own runner, a duct from the plenum
+  to the intake valve, solved with the same gas dynamics as the exhaust. See [The intake](#the-intake).
 - **Heat loss to the walls** uses the [Woschni](glossary.md#woschni-model) model. This puts the compression curve at a realistic
   [polytropic exponent](glossary.md#polytropic-exponent) near 1.33 (a measure of how pressure rises as gas is squeezed), instead of
   the 1.35 you'd get with no heat loss.
 - **Reverse flow is kept.** Gas can flow from the pipe back into the cylinder during valve overlap.
   That is exactly the effect a tuned exhaust relies on.
 
+
+## The intake
+
+Each cylinder breathes through a runner: a duct from the intake plenum to its intake valve, solved
+with the same gas dynamics as the exhaust. The plenum end is open onto the plenum's gas, the way an
+exhaust mouth is open onto the air outside.
+
+The air in a runner has mass. The falling piston sets it moving, and its momentum keeps it flowing
+into the cylinder after bottom dead centre, even once the cylinder's pressure is above the
+plenum's. Its pressure waves travel up to the plenum and back, arriving in step with the next intake
+stroke at some speeds and out of step at others. Together these *ram* the charge in: at the speed a
+runner is tuned for, the cylinder fills to about 100% of its volume at ambient density. Without them,
+an engine that closes its intake 70° after bottom dead centre just pushes the charge back out.
+
+On a 6.2 litre V8 with that late intake closing, at full throttle:
+
+```
+                          4000   4500   4950   5400   5800 rpm
+tuned 450 mm runner        97%   101%   101%    99%    98%     volumetric efficiency
+80 mm stub                 82%    82%    85%    85%    83%
+```
+
+A runner's length sets where it is tuned. Long ones make torque low down and short ones make power
+at the top, and on that V8 an 800 mm runner makes more torque than a 250 mm one at 3500 rpm and less
+at 6450. **Intake runner length** and **Intake runner bore** set them. Left on auto, the bore passes
+the intake valves' area, a little narrowed, and the length is tuned to three quarters of the rev
+limit: its quarter-wave resonance is 2.3 times the crank speed there.
+
+The runners are solved on the finest grid the sample rate allows, 35 mm at 48 kHz, even where the
+cost budget coarsens the exhaust. A runner is only a few hundred millimetres long, and its ends are a
+good part of it, so its ramming depends on resolution far more than the exhaust's sound does: on 70
+mm cells, at the speed they are tuned for, the LT2 fills two points less and the LT6 eight.
+
+**Headers scavenge.** With **Equal-length headers**, each cylinder's primary runs all the way to one
+merge per collector, instead of joining a manifold along the ports. The wave each exhaust pulse sends
+back from the merge reaches the next cylinder's port as a suction during the overlap, and pulls fresh
+charge through the cylinder after its exhaust. On the LT6, whose cam holds both valves open for 70°,
+450 mm primaries tuned for 8400 rpm fill the cylinder to 109% there, against 104% on a manifold.
+
+A runner's sound dies away through the viscous and thermal boundary layer at its walls. That is
+worked out from the runner's own bore and air, using Kirchhoff's formula for a tube: about 13 /s for
+a 49 mm runner. The exhaust's damping is fitted to hot gas in steel pipes and is ten times that. In a
+runner it would damp away the waves that do the ramming.
 
 ## The flame
 
@@ -91,10 +136,12 @@ throttle and high rpm, and keeps it between top dead centre and 50° before it. 
 
 ### The mixture
 
-Fuel and air are tracked separately, through the manifold and the cylinder. The fuel is metered in
-with the air at the throttle, in proportion to it, at the **Mixture** control's
-[λ](glossary.md#air-fuel-ratio-and-lambda). Gas pushed back up the intake carries its fuel with it,
-and brings it back next cycle.
+Fuel and air are tracked separately, through the manifold, the runners and the cylinder. Each
+cylinder has a port injector in its runner, which meters fuel into the air the runner draws from the
+manifold, in proportion to it, at the **Mixture** control's
+[λ](glossary.md#air-fuel-ratio-and-lambda). So the manifold holds air, and each cylinder's fuel
+arrives with its own charge. Gas pushed back up a runner carries its fuel with it, and brings it back
+next cycle.
 
 - **Lean**, each charge carries less fuel, so it releases less heat, and it burns slower.
 - **Rich**, the oxygen runs out first. The extra fuel goes out unburned, so torque stays level with
@@ -106,7 +153,8 @@ and brings it back next cycle.
 
 **Overrun fuel cut.** With the throttle shut above 1500 rpm the fuel stops, as it does on a
 fuel-injected engine. The engine is then turned over by its load, pumping air. The fuel comes back
-below 1200 rpm or as soon as the throttle opens. The manifold empties of fuel within a cycle or so.
+below 1200 rpm or as soon as the throttle opens. The injectors stop at once; what fuel is left in
+the runners is drawn in over the next cycle or two.
 Turn **Overrun fuel cut** off for a carburettor's behaviour, which keeps feeding fuel with the air
 that leaks past the throttle, so the engine keeps firing weakly.
 
@@ -317,6 +365,7 @@ cylinder by 4%. A twin is never two independent singles, whatever exhaust you fi
 - Cylinder model, Wiebe burn, valve flow and cycle-to-cycle variation:
   [Heywood 2018](references.md#heywood2018).
 - In-cylinder heat loss: [Woschni 1967](references.md#woschni1967).
+- Runner boundary-layer damping: [Pierce 2019](references.md#pierce2019).
 - Laminar burning velocity: [Rhodes and Keck 1985](references.md#rhodes1985), with Heywood's
   gasoline constants; turbulent entrainment and burn-up: [Blizard and Keck 1974](references.md#blizard1974).
 - Junction solve: [Toro 2009](references.md#toro2009).

@@ -41,7 +41,8 @@ src/audio/worklet/
   processor.ts                 thin AudioWorkletProcessor shell
   engineSim.ts                 the per-sample simulation (no audio deps → testable)
   cylinder.ts  valve.ts        thermodynamics, cam lift, compressible orifice flow
-  plenum.ts                    the finite intake plenum
+  plenum.ts  intake.ts         the finite intake plenum, and the runners from it to each valve
+  drivetrain.ts                the dyno run: clutch, six-speed gearbox and car on the rollers
   eulerPipe.ts                 one duct: MUSCL-Hancock + HLLC, walls, thermal, radiation
   exhaustSystem.ts             the exhaust graph: every duct and the junctions between them
   kernel.ts  kernelWasm.ts     loader for the Wasm SIMD kernel, and the kernel itself, base64

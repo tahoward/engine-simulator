@@ -149,6 +149,16 @@ export interface EngineSpec {
    * firing interval puts it.
    */
   exhaustLayout: ExhaustLayoutSpec;
+  /**
+   * Equal-length headers: each cylinder's own primary, `pipe`, all the way to one merge per collector,
+   * instead of a manifold along the ports that each cylinder joins through a short stub.
+   *
+   * A header's primaries are long enough to tune. The pressure wave each exhaust pulse sends back from
+   * the merge arrives at the valve as a suction during the overlap, when both valves are open, and pulls
+   * fresh charge through the cylinder after the exhaust. Tuned for the speed a high-output engine makes its
+   * power at, that is several points of volumetric efficiency a manifold does not give.
+   */
+  exhaustHeaders: boolean;
 
   // --- Geometry ---
   /** Cylinder bore, m. */
@@ -222,9 +232,9 @@ export interface EngineSpec {
    * Air-fuel equivalence ratio λ: the air-fuel ratio as a multiple of stoichiometric. 1 is
    * stoichiometric, below 1 rich, above 1 lean.
    *
-   * The fuel is metered in proportion to the air past the throttle, so this is the mixture the
-   * cylinders draw once the manifold has settled. Lean, every kilogram of charge carries less
-   * fuel and burns slower; rich, the extra fuel has no oxygen to burn with and goes out unburned.
+   * Each cylinder's port injector meters fuel in proportion to the air its runner draws, so this is
+   * the mixture every cylinder traps. Lean, every kilogram of charge carries less fuel and burns
+   * slower; rich, the extra fuel has no oxygen to burn with and goes out unburned.
    */
   lambda: number;
   /**
@@ -284,6 +294,19 @@ export interface EngineSpec {
    * Typically one to two times displacement for a single.
    */
   plenumVolume: number;
+  /**
+   * Length of each intake runner, from the valve seat to the plenum, m: the port and the manifold
+   * runner together. 0 or less sizes it for the engine; see `intakeRunnerOf`.
+   *
+   * The runner is a column of air with momentum and pressure waves in it, solved by the same gas
+   * dynamics as the exhaust. Drawn in by the falling piston, it keeps ramming charge into the cylinder
+   * after bottom dead centre, and its pressure waves arrive back at the valve in step with it at one
+   * speed and out of step at another. That is where an engine's torque peak comes from, and why a long
+   * runner makes low-rpm torque and a short one high-rpm power.
+   */
+  intakeRunnerLength: number;
+  /** Bore of each intake runner, m. 0 or less sizes it from the intake valves; see `intakeRunnerOf`. */
+  intakeRunnerDia: number;
 
   // --- Operating point ---
   /**
@@ -500,8 +523,8 @@ export interface DynoSnapshot {
   /** Whether the last pull is over, or the run was stopped. The engine may still be winding down. */
   finished: boolean;
   /**
-   * The engine cycles recorded since the last snapshot, four values each: rpm, crank torque (N*m),
-   * road speed (km/h) and gear (1-6).
+   * The engine cycles recorded since the last snapshot, five values each: rpm, crank torque (N*m),
+   * road speed (km/h), gear (1-6) and volumetric efficiency (a fraction).
    */
   points: Float32Array;
 }
@@ -719,6 +742,40 @@ export function loadTorqueOf(spec: EngineSpec): number {
  */
 export function exhaustPortDiameter(spec: EngineSpec): number {
   return spec.exValveDia * Math.sqrt(spec.exValveCount);
+}
+
+/**
+ * The intake runner `spec` has, length and bore, m: its own where it states them, and otherwise sized
+ * for the engine.
+ *
+ * The bore passes the intake valves' area, a little narrowed, as a port does. The length is tuned: its
+ * quarter-wave resonance falls at `RUNNER_TUNE_ORDER` times the crank speed at three quarters of the
+ * rev limit, which is where a road engine puts its torque peak. That rule puts the runner of a V8
+ * limited at 6600 rpm at 450 mm and of a four limited at 10,500 at 280, and fills each to about 100%
+ * there: measured across multiples of 1.6 to 3.5, 2.3 is the best on a 6.2 litre V8 and within a
+ * point or two of it on a four and a V6.
+ */
+export function intakeRunnerOf(spec: EngineSpec): { length: number; diameter: number } {
+  const diameter =
+    spec.intakeRunnerDia > 0 ? spec.intakeRunnerDia : 0.9 * spec.inValveDia * Math.sqrt(spec.inValveCount);
+  if (spec.intakeRunnerLength > 0) return { length: spec.intakeRunnerLength, diameter };
+  const tunedHz = RUNNER_TUNE_ORDER * ((0.75 * spec.revLimit) / 60);
+  return { length: speedOfSound(GAS.tAmb, GAS.gammaAir) / (4 * tunedHz), diameter };
+}
+
+/**
+ * Multiple of the crank speed an auto-sized runner's quarter-wave resonance is tuned to. See
+ * `intakeRunnerOf`.
+ */
+const RUNNER_TUNE_ORDER = 2.3;
+
+/**
+ * The engine speed `spec`'s intake runners are tuned for, rev/min: where their quarter-wave resonance
+ * is `RUNNER_TUNE_ORDER` times the crank speed, the rule an auto-sized runner is cut to.
+ */
+export function runnerTunedRpm(spec: EngineSpec): number {
+  const quarterWaveHz = speedOfSound(GAS.tAmb, GAS.gammaAir) / (4 * intakeRunnerOf(spec).length);
+  return (quarterWaveHz / RUNNER_TUNE_ORDER) * 60;
 }
 
 /** Clearance (TDC) volume, m^3. */
@@ -1138,6 +1195,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
   firingOffset: null,
   crankType: 'shared',
   exhaustLayout: 'open',
+  exhaustHeaders: false,
   bore: 0.089,
   stroke: 0.08,
   rodLength: 0.145,
@@ -1166,6 +1224,8 @@ export const DEFAULT_ENGINE: EngineSpec = {
   // A fixed figure here would be a single-cylinder's, and wrong for everything else.
   throttleDia: 0,
   plenumVolume: 0,
+  intakeRunnerLength: 0,
+  intakeRunnerDia: 0,
 
   rpm: 3200,
   revLimit: 7000,
@@ -1818,7 +1878,7 @@ const THREE_CYL: Partial<EngineSpec> = {
   ...fourValveHead(0.072),
   maxLift: 0.0085,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 2.89,
+  outputGain: 2.21,
 };
 
 const FIVE_CYL: Partial<EngineSpec> = {
@@ -1838,7 +1898,7 @@ const FIVE_CYL: Partial<EngineSpec> = {
   ...fourValveHead(0.0825),
   maxLift: 0.0095,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.07,
+  outputGain: 1.02,
 };
 
 const SIX_CYL: Partial<EngineSpec> = {
@@ -1858,7 +1918,7 @@ const SIX_CYL: Partial<EngineSpec> = {
   ...fourValveHead(0.082),
   maxLift: 0.0095,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.32,
+  outputGain: 1.2,
 };
 
 const V6_60: Partial<EngineSpec> = {
@@ -1879,7 +1939,7 @@ const V6_60: Partial<EngineSpec> = {
   ...fourValveHead(0.094),
   maxLift: 0.01,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.25,
+  outputGain: 1.15,
 };
 
 /**
@@ -1905,7 +1965,7 @@ const BOXER_FOUR: Partial<EngineSpec> = {
   ...fourValveHead(0.0995),
   maxLift: 0.0105,
   // Level-matched to the inline four, as the other presets are: RMS over two seconds, each at its own rpm.
-  outputGain: 1.2,
+  outputGain: 0.88,
 };
 
 const BOXER_SIX: Partial<EngineSpec> = {
@@ -1926,15 +1986,22 @@ const BOXER_SIX: Partial<EngineSpec> = {
   ...fourValveHead(0.097),
   maxLift: 0.011,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 0.97,
+  outputGain: 1.03,
 };
+
+/** The LT2 preset's idle throttle and output gain. See `idling`. */
+const LT2_IDLE_THROTTLE = 0.075;
+const LT2_GAIN = 2.1;
+/** The LT6 preset's idle throttle and output gain. See `idling`. */
+const LT6_IDLE_THROTTLE = 0.078;
+const LT6_GAIN = 1.01;
 
 export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'Single, megaphone',
     description: 'The 500 cc thumper this project started as.',
     // A big air-cooled single is out of breath well before 7000.
-    engine: { cylinders: 1, exhaustLayout: 'single', revLimit: 7000, ...idling(0.072) },
+    engine: { cylinders: 1, exhaustLayout: 'single', revLimit: 7000, ...idling(0.072), outputGain: 0.68 },
     pipe: () => PIPE_PRESETS[1]!.build(),
   },
   {
@@ -1951,7 +2018,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       revLimit: 5600,
       flywheelInertia: 0.4,
       // Its own, independent of the default the single uses.
-      outputGain: 0.72,
+      outputGain: 0.55,
     },
     pipe: () => [
       makeSegment({ kind: 'pipe', length: 0.34, dIn: 0.042 }),
@@ -1976,7 +2043,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       revLimit: 9000,
       mouthSpacing: 0.45,
       flywheelInertia: 0.22,
-      outputGain: 0.89,
+      outputGain: 0.81,
     },
     pipe: () => [
       makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.04 }),
@@ -2003,7 +2070,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       maxLift: 0.008,
       // A silenced system really is 10-15 dB quieter than an open pipe, which is correct and also
       // makes a preset sound thin next to one. Level-matched to the single instead.
-      outputGain: 3.15,
+      outputGain: 2.53,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.42, dIn: 0.034 })],
     // A real exhaust system, not an open header: something over two metres of it, with a
@@ -2073,7 +2140,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       exValveDia: 0.041,
       inValveDia: 0.048,
       maxLift: 0.011,
-      outputGain: 2.05,
+      outputGain: 1.6,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.044 })],
     // Bank pipe, silencer, tailpipe — the length is most of why a road V8 sounds deep.
@@ -2087,7 +2154,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'V8, overcammed',
     description:
-      'A small-block with far more cam than the street wants: 300\u00b0 of duration on a tight lobe separation, so both valves hang open together for 90\u00b0 around top dead centre. At idle, exhaust is pushed back up the intake and breathed in again, so the charge is mostly spent gas and the manifold has almost no vacuum. About one cycle in four fails to light, and the rest burn late and unevenly: that is the lope.',
+      'A small-block with far more cam than the street wants: 300\u00b0 of duration on a tight lobe separation, so both valves hang open together for 90\u00b0 around top dead centre. At idle, exhaust is pushed back up the intake and breathed in again, so the charge is mostly spent gas and the manifold has almost no vacuum. About one cycle in five fails to light, and the rest burn late and unevenly: that is the lope.',
     engine: {
       cylinders: 8,
       vAngle: 90,
@@ -2095,9 +2162,9 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       exhaustLayout: 'perBank',
       // Idle is where a big cam is heard. The overlap costs little at wide-open throttle; nearly
       // shut, the manifold is the lowest pressure the exhaust can reach, so it back-flows into the
-      // intake. Measured at 800 rpm on this throttle, against the stock crossplane at the same: 0.80
-      // bar in the manifold rather than 0.31, and 64% of the trapped charge spent gas rather than
-      // 24%. That is past the dilution limit (`DILUTION_ONSET` in cylinder.ts), and a quarter of
+      // intake. Measured at 800 rpm on this throttle, against the stock crossplane at the same: 0.78
+      // bar in the manifold rather than 0.30, and 63% of the trapped charge spent gas rather than
+      // 24%. That is past the dilution limit (`DILUTION_ONSET` in cylinder.ts), and a fifth of
       // cycles misfire where the stock engine misfires none. On 6% it is half, an engine about to
       // stall rather than one with a lope; on 12%, almost none. It needs more air to idle than the
       // stock engine's 7.5%: on this throttle the stock one runs up to 950.
@@ -2124,7 +2191,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       ignition: 690,
       // The crossplane's gain rather than level-matched at idle, so the two V8s compare directly and
       // opening this one up does not clip.
-      outputGain: 2.05,
+      outputGain: 1.6,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.8, dIn: 0.044 })],
     // Long-tube headers into short collectors and a glasspack-sized can: loud, not open.
@@ -2132,6 +2199,93 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       makeSegment({ kind: 'cone', length: 0.16, dIn: 0.062, dOut: 0.076 }),
       makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.076, yaw: 0.18 }),
       makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.076, dOut: 0.13 }),
+      makeSegment({ kind: 'pipe', length: 0.35, dIn: 0.07 }),
+    ],
+  },
+  {
+    name: 'V8, Chevrolet LT2',
+    description:
+      'The 6.2 litre small-block in the mid-engine Corvette: pushrods, two big valves a cylinder, 11.5:1 and a cam that closes the intake late, which only pays off because its long intake runners ram the charge in. Tubular headers into a silencer each side. It makes about 600 N·m and 460 hp here against the real engine’s 637 and 495; see Known Limits for what is missing.',
+    engine: {
+      cylinders: 8,
+      vAngle: 90,
+      crankType: 'crossplane',
+      exhaustLayout: 'perBank',
+      exhaustHeaders: true,
+      ...idling(LT2_IDLE_THROTTLE),
+      revLimit: 6600,
+      mouthSpacing: 1.3,
+      flywheelInertia: 0.9,
+      pipeCellSize: 0.035,
+      // 4.065 x 3.622 in on a 6.125 in rod.
+      bore: 0.10325,
+      stroke: 0.092,
+      rodLength: 0.1556,
+      compressionRatio: 11.5,
+      // 2.13 and 1.59 in valves, one of each.
+      exValveDia: 0.0404,
+      inValveDia: 0.054,
+      maxLift: 0.0145,
+      // About 275 and 280 degrees on a 116-degree lobe separation.
+      evo: 104,
+      evc: 384,
+      ivo: 338,
+      ivc: 614,
+      outputGain: LT2_GAIN,
+    },
+    // Tubular headers, 1-3/4 in primaries. 600 mm is the best of 450 to 900 across the range: its milder
+    // cam has little overlap for them to scavenge through, so they mostly help the low end.
+    pipe: () => [makeSegment({ kind: 'pipe', length: 0.6, dIn: 0.044 })],
+    collector: () => [
+      makeSegment({ kind: 'cone', length: 0.16, dIn: 0.066, dOut: 0.076 }),
+      makeSegment({ kind: 'pipe', length: 1.0, dIn: 0.076, yaw: 0.18 }),
+      makeSegment({ kind: 'chamber', length: 0.45, dIn: 0.076, dOut: 0.2 }),
+      makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.07 }),
+    ],
+  },
+  {
+    name: 'V8, Chevrolet LT6',
+    description:
+      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its runners, cam and headers are tuned for the top end, where it makes about 650 hp at 8400 rpm against the real engine’s 670; with no second, longer set of runners below that, it makes 535 N·m at 6300 against 624.',
+    engine: {
+      cylinders: 8,
+      vAngle: 90,
+      crankType: 'flatplane',
+      exhaustLayout: 'perBank',
+      exhaustHeaders: true,
+      ...idling(LT6_IDLE_THROTTLE),
+      revLimit: 8600,
+      mouthSpacing: 0.6,
+      flywheelInertia: 0.45,
+      pipeCellSize: 0.035,
+      bore: 0.10425,
+      stroke: 0.08,
+      // Estimated, from the stroke and the deck of a small-block.
+      rodLength: 0.15,
+      compressionRatio: 12.5,
+      // 42 mm titanium intakes and 35.5 mm exhausts, two of each.
+      exValveDia: 0.0355,
+      exValveCount: 2,
+      inValveDia: 0.042,
+      inValveCount: 2,
+      // Estimated: a race-bred cam, the intake closing late because the runners and headers are tuned
+      // to ram the charge in after bottom dead centre at the top end. Tuned with them for power at 8400.
+      maxLift: 0.0135,
+      evo: 105,
+      evc: 395,
+      ivo: 325,
+      ivc: 630,
+      // Estimated, and tuned for 8400 rpm. The real manifold switches between two runner lengths; this
+      // is the one for the top end.
+      intakeRunnerLength: 0.33,
+      outputGain: LT6_GAIN,
+    },
+    // Estimated: equal-length headers, their primaries tuned for 8400 rpm.
+    pipe: () => [makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.045 })],
+    collector: () => [
+      makeSegment({ kind: 'cone', length: 0.16, dIn: 0.068, dOut: 0.076 }),
+      makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.076, yaw: 0.15 }),
+      makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.076, dOut: 0.19 }),
       makeSegment({ kind: 'pipe', length: 0.35, dIn: 0.07 }),
     ],
   },
@@ -2157,7 +2311,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       compressionRatio: 12,
       ...fourValveHead(0.094),
       maxLift: 0.0105,
-      outputGain: 0.94,
+      outputGain: 0.82,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.44, dIn: 0.042 })],
     collector: () => [
@@ -2195,7 +2349,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       ...idling(0.074),
       // A modern 1200 cc parallel twin's.
       revLimit: 7500,
-      outputGain: 0.64,
+      outputGain: 0.54,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.04 })],
     collector: () => [

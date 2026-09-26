@@ -10,6 +10,11 @@
  * One instance per duct, all sharing one compiled `WebAssembly.Module`. Instances are cheap
  * (a page of memory each) and this way no duct's allocation can invalidate another duct's
  * views, which is exactly what would happen if a single shared memory had to grow.
+ *
+ * The exception is a set of short ducts stepped together, such as the intake runners: they share one
+ * instance, each at its own offset in the block (`addSegment`), so their cell loops run in one call
+ * (`reconstructBatch`, `updateBatch`). The block never grows: every segment is reserved before any
+ * duct is built on it.
  */
 
 import { KERNEL_WASM_BASE64 } from './kernelWasm.js';
@@ -60,12 +65,16 @@ interface KernelExports {
   ioOffset(): number;
   reconstructIo(n: number, limiter: number): void;
   updateIo(n: number): void;
+  segmentTableOffset(): number;
+  segmentCapacity(): number;
+  reconstructBatchIo(count: number, limiter: number): void;
+  updateBatchIo(count: number): void;
 }
 
 /** Slots of the kernel's scalar I/O block. **Must match the `IO_*` offsets in `kernel/euler.ts`.** */
-const IO_DT = 0;
-const IO_KLIN = 1;
-const IO_DARCY = 2;
+export const IO_DT = 0;
+export const IO_KLIN = 1;
+export const IO_DARCY = 2;
 const IO_MAX_SPEED = 3;
 
 function decode(b64: string): Uint8Array {
@@ -118,8 +127,21 @@ export class EulerKernel {
   /** Slots per field, including the extra face and the alignment slack. */
   readonly stride: number;
   readonly fields: Record<KernelField, Float64Array>;
-  /** The scalars each step passes, through memory: see `ioOffset` in `kernel/euler.ts`. */
-  private readonly io: Float64Array;
+  /**
+   * The scalars each step passes, through memory: see `ioOffset` in `kernel/euler.ts`. A caller of
+   * `reconstructBatch` and `updateBatch` writes them here itself, at `IO_DT`, `IO_KLIN` and
+   * `IO_DARCY`, so that no float crosses a call.
+   */
+  readonly io: Float64Array;
+  /**
+   * The segment table, for ducts packed side by side: per duct its first cell and cell count as i32
+   * at `4k` and `4k + 1`, and its reconstruction's largest `|u| + c` as f64 at `2k + 1` of the f64 view.
+   * See `reconstructBatchIo` in `kernel/euler.ts`.
+   */
+  private readonly segInts: Int32Array;
+  readonly segmentSpeeds: Float64Array;
+  /** Ducts in the segment table. */
+  segments = 0;
 
   private constructor(ex: KernelExports, gamma: number, meanFlowRate: number) {
     this.ex = ex;
@@ -132,7 +154,43 @@ export class EulerKernel {
     }
     this.fields = fields;
     this.io = new Float64Array(buf, ex.ioOffset(), 4);
+    const cap = ex.segmentCapacity();
+    this.segInts = new Int32Array(buf, ex.segmentTableOffset(), cap * 4);
+    this.segmentSpeeds = new Float64Array(buf, ex.segmentTableOffset(), cap * 2);
     ex.setConstants(gamma, meanFlowRate);
+  }
+
+  /**
+   * Reserve room for another duct of `n` cells in this kernel's block, for stepping several short
+   * ducts together (`reconstructBatch`, `updateBatch`). Returns its first cell, or -1 if the block or
+   * the segment table is full.
+   *
+   * Each duct starts on an even cell, so every vector load stays aligned, and is followed by two spare
+   * slots: its face array runs one past its last cell, and the vector loops may touch one more.
+   */
+  addSegment(n: number): number {
+    const k = this.segments;
+    if (k * 4 >= this.segInts.length) return -1;
+    const start = k === 0 ? 0 : this.segInts[(k - 1) * 4]! + this.segInts[(k - 1) * 4 + 1]! + 2;
+    const off = start + (start & 1);
+    if (off + n + 2 > this.stride) return -1;
+    this.segInts[k * 4] = off;
+    this.segInts[k * 4 + 1] = n;
+    this.segments = k + 1;
+    return off;
+  }
+
+  /**
+   * `reconstruct` for every duct in the segment table, in one call, with `dt` from `io`. Each one's
+   * largest `|u| + c` is at `segmentSpeeds[2k + 1]`.
+   */
+  reconstructBatch(limiter: number): void {
+    this.ex.reconstructBatchIo(this.segments, limiter);
+  }
+
+  /** `update` for every duct in the segment table, in one call, with its scalars from `io`. */
+  updateBatch(): void {
+    this.ex.updateBatchIo(this.segments);
   }
 
   /**
@@ -141,6 +199,14 @@ export class EulerKernel {
    * `null` rather than a throw, because the caller has a working TypeScript path and a duct
    * longer than the compiled capacity is a performance problem, not a correctness one.
    */
+  /**
+   * A kernel with nothing in it yet, for several short ducts to be packed into with `addSegment`, or
+   * `null` if this build cannot serve one.
+   */
+  static createShared(gamma: number, meanFlowRate: number): EulerKernel | null {
+    return EulerKernel.create(0, gamma, meanFlowRate);
+  }
+
   static create(n: number, gamma: number, meanFlowRate: number): EulerKernel | null {
     const mod = kernelModule();
     if (mod === null) return null;

@@ -28,7 +28,7 @@ import { ductDirections, freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustP
 import { JointMesh, throughPipe } from './scene/jointMesh.js';
 import {
   carriedGeometry,
-  compileLayout,
+  compileExhaust,
   defaultDuctId,
   disconnectEnd,
   graphFromJson,
@@ -58,7 +58,7 @@ const config: EngineConfig = loadConfig();
  * whatever was drawn meaningless — when the ports move while the exhaust is still as compiled, and when
  * a preset is loaded. `reseedGraph` preserves as much of the drawn geometry as the new topology can carry.
  */
-config.graph ??= compileLayout(config.engine, config.pipe, config.collector);
+config.graph ??= compileExhaust(config.engine, config.pipe, config.collector);
 
 
 /**
@@ -336,6 +336,7 @@ function touchesTopology(partial: Partial<EngineSpec>): boolean {
   return (
     'cylinders' in partial ||
     'exhaustLayout' in partial ||
+    'exhaustHeaders' in partial ||
     'crankType' in partial ||
     'firingOffset' in partial ||
     'vAngle' in partial
@@ -378,7 +379,7 @@ function reseedGraph(fromConfig = false): void {
     if (carried.pipe) config.pipe = carried.pipe;
     if (carried.collector) config.collector = carried.collector;
   }
-  config.graph = compileLayout(config.engine, config.pipe, config.collector);
+  config.graph = compileExhaust(config.engine, config.pipe, config.collector);
   editedDuctId = defaultDuctId(config.graph) ?? editedDuctId;
 }
 

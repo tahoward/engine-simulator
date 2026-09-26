@@ -25,6 +25,7 @@ import {
   collectorGroups,
   crankPins,
   cylinderSpacing,
+  exhaustLayoutOf,
   makeSegment,
   physicalBank,
   segmentDiameter,
@@ -191,9 +192,18 @@ export function valveDucts(graph: ExhaustGraph, cylinders: number): Array<Exhaus
  *
  * Derived rather than stored: a duct's identity is where it starts, and an id like `collector0` is for
  * the code. Nodes are numbered by the order they appear so the labels stay stable as ducts are added.
+ *
+ * A cylinder's own duct is named for what it is: a *primary* where it runs to a merge, as a header's
+ * does, a *stub* where it only joins a manifold along the ports, and the cylinder's *exhaust* where it is
+ * the whole of it, straight to the air. Never a runner, which is the intake's.
  */
 export function ductLabel(graph: ExhaustGraph, duct: ExhaustDuct): string {
-  if (duct.from.kind === 'valve') return `Cylinder ${duct.from.cylinder + 1} runner`;
+  if (duct.from.kind === 'valve') {
+    const n = duct.from.cylinder + 1;
+    if (duct.role === 'stub') return `Cylinder ${n} stub`;
+    if (duct.to.kind === 'mouth') return `Cylinder ${n} exhaust`;
+    return `Cylinder ${n} primary`;
+  }
   const nodes = nodeOrder(graph);
   const at = nodes.indexOf(duct.from.node) + 1;
   const siblings = endsAt(graph, duct.from.node).filter((e) => e.end === 'inlet');
@@ -431,6 +441,16 @@ export function compileLayout(
  * pipes snapping together make; this is kept for anything that needs the symmetric system, which is what
  * the physics tests of cancellation and pulse spacing are about.
  */
+/**
+ * The exhaust `spec` asks for: equal-length headers into one merge per collector where it has
+ * `exhaustHeaders` and something to merge, and a manifold along the ports otherwise.
+ */
+export function compileExhaust(spec: EngineSpec, pipe: PipeSegment[], collector: PipeSegment[]): ExhaustGraph {
+  return spec.exhaustHeaders && exhaustLayoutOf(spec) !== 'open'
+    ? compileCollectorLayout(spec, pipe, collector)
+    : compileLayout(spec, pipe, collector);
+}
+
 export function compileCollectorLayout(
   spec: EngineSpec,
   pipe: PipeSegment[],
