@@ -291,7 +291,7 @@ reasons:
 The level is also kept modest: 10% of the mean flow. That is below the ~15% turbulence
 measured locally in a valve jet, for the same averaging reason.
 
-[`test/timbre.test.ts`](https://github.com/tahoward/engine-simulator/blob/main/test/timbre.test.ts)
+[`crates/engine-sim/tests/timbre.rs`](https://github.com/tahoward/engine-simulator/blob/main/crates/engine-sim/tests/timbre.rs)
 guards all of this.
 
 ## Heat transfer every sample

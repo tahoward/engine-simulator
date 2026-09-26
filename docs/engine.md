@@ -418,8 +418,7 @@ p_J = sum(2 A_k a_k / c_k) / sum(A_k / c_k)
 That estimate is only approximate when big pulses hit the collector from both sides, so it is just
 the starting point. Two [Newton steps](glossary.md#newtons-method) (a standard way to refine an estimate) then balance the mass
 flows, using an [HLLC](glossary.md#hllc) Riemann solve (a fast calculation of how two gas states meet) for each branch.
-Any imbalance left over is reported as a diagnostic rather than corrected. The solve runs in the
-Wasm kernel, with a TypeScript fallback.
+Any imbalance left over is reported as a diagnostic rather than corrected.
 
 It behaves correctly in simple cases: two pipes reduce to a plain change in pipe width, and one pipe
 to a closed end. What it adds is cross-talk. Each cylinder's exhaust pulse reaches the junction, and

@@ -1,7 +1,7 @@
 # Engine Simulator
 
-Hear engines from a single-cylinder to a V8, right in your browser. The sound is **worked out from
-physics**, and you build the exhaust yourself.
+Hear engines from a single-cylinder to a V8, in your browser or in the desktop app. The sound is
+**worked out from physics**, and you build the exhaust yourself.
 
 <!-- These links are absolute, not relative. The app/ folder is only added to the site at deploy
 time, so MkDocs can't see it at build time and a relative link would fail the strict check. This
@@ -34,9 +34,10 @@ to come back. No setting is just mapped to a tone.
   leaving every open end toward a listener standing outside.
 - **Natural variation.** Each combustion cycle is slightly different, the crank speed wobbles, and
   there is mechanical noise from the engine itself. So it doesn't sound like a loop.
-- **Runs in real time on one CPU core.** It runs in an [AudioWorklet](glossary.md#audioworklet) (the browser's dedicated audio
-  thread). The busiest code runs as [Wasm SIMD](glossary.md#simd) (fast compiled code that works on several numbers at
-  once).
+- **Runs in real time on one CPU core.** The simulation is written in [Rust](glossary.md#rust). In the browser it runs as
+  [Wasm](glossary.md#webassembly-wasm) in an [AudioWorklet](glossary.md#audioworklet) (the browser's dedicated audio thread); in the desktop app it
+  runs natively. Both give exactly the same sound. The busiest loops use [SIMD](glossary.md#simd) (instructions that
+  work on several numbers at once).
 
 ## Where to start
 
@@ -45,9 +46,9 @@ that quietly breaks the grid markup. -->
 
 | Page                                                       | What it covers                                                                  |
 | ---------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| :material-play: **[Getting Started](getting-started.md)**  | Install it, run it, test it, benchmark it and build it.                         |
+| :material-play: **[Getting Started](getting-started.md)**  | Install it, run it on the web or the desktop, test it, benchmark it and build it. |
 | :material-gesture-tap: **[Controls](controls.md)**         | Start the engine, edit and draw pipes, select and delete.                       |
-| :material-sitemap: **[Architecture](architecture.md)**     | The two threads, how they talk, and where the code lives.                       |
+| :material-sitemap: **[Architecture](architecture.md)**     | Where the simulation runs in each app, and where the code lives.                |
 | :material-waves: **[Acoustics](acoustics.md)**             | How the gas and sound are simulated, with heat, friction and flow noise.        |
 | :material-engine-outline: **[The Engine](engine.md)**      | The cylinder model, firing orders, what more cylinders do, and pipe joins.      |
 | :material-speedometer: **[Performance](performance.md)**   | How much work it takes, and how it keeps up in real time.                       |

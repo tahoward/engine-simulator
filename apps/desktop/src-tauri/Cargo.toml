@@ -1,0 +1,17 @@
+[package]
+name = "engine-simulator-desktop"
+description = "The engine simulator as a desktop app: the web app's interface, with the simulation running natively"
+version.workspace = true
+edition.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+audio_thread_priority = "0.38"
+cpal = "0.18"
+engine-sim = { path = "../../../crates/engine-sim" }
+rtrb = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["float_roundtrip"] }
+tauri = { version = "2", features = [] }

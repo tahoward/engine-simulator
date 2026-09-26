@@ -1,0 +1,34 @@
+{
+  "name": "@engine-simulator/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Engines from a single to a V8, simulated from physics in the browser, with an exhaust you build yourself",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "bench": "vite build --config bench/vite.config.mjs --logLevel warn && node bench/dist/bench.mjs",
+    "export:presets": "BENCH_ENTRY=export-presets.ts vite build --config bench/vite.config.mjs --logLevel warn && node bench/dist/export-presets.mjs",
+    "build:sim": "node scripts/build-sim.mjs",
+    "dev:desktop": "VITE_TARGET=desktop vite --port 5174 --strictPort",
+    "build:desktop": "tsc --noEmit && VITE_TARGET=desktop vite build --outDir dist-desktop"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.12.0",
+    "three": "^0.186.0"
+  },
+  "devDependencies": {
+    "@types/three": "^0.186.0",
+    "playwright-core": "^1.63.0",
+    "typescript": "^5.9.2",
+    "vite": "^8.3.0",
+    "vitest": "^5.0.1"
+  },
+  "engines": {
+    "node": ">=20.19"
+  }
+}

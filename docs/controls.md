@@ -3,7 +3,7 @@
 ## Starting and choosing an engine
 
 - **Click anywhere on the intro screen**, or click the start button in the panel. Browsers only let
-  sound start after you click or press a key.
+  sound start after you click or press a key. The desktop app starts the engine as it opens.
 - <kbd>Space</kbd> starts and stops the engine.
 - **Engine preset** loads a complete engine: its layout, firing order, sizes and a matching exhaust.
   It starts idling at 800 rpm in neutral, on a throttle opening found for that engine. Open the

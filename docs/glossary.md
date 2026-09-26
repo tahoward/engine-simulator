@@ -509,14 +509,22 @@ A compact, fast compiled code format that browsers run alongside JavaScript.
 ### SIMD
 
 *Single instruction, multiple data*: processor instructions that work on several numbers at once.
-WebAssembly's SIMD works on two 64-bit numbers at a time.
+The solver uses two 64-bit numbers at a time, which every target it runs on has: NEON on Arm, SSE2
+on x86, and WebAssembly's SIMD128.
 [Wikipedia](https://en.wikipedia.org/wiki/Single_instruction,_multiple_data) ·
 [WebAssembly SIMD proposal](https://github.com/WebAssembly/simd)
 
-### AssemblyScript
+### Rust
 
-A TypeScript-like language that compiles to WebAssembly. The solver's kernel is written in it.
-[assemblyscript.org](https://www.assemblyscript.org/)
+The language the simulation is written in. It compiles both to native code, for the desktop app, and
+to WebAssembly, for the web app.
+[rust-lang.org](https://www.rust-lang.org/)
+
+### Tauri
+
+A framework for desktop apps whose interface is a web page in the system's own webview, with the
+rest of the app in Rust. The desktop app is built with it.
+[tauri.app](https://v2.tauri.app/)
 
 ### postMessage and SharedArrayBuffer
 

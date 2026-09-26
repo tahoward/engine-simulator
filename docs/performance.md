@@ -1,37 +1,40 @@
 # Performance
 
-The whole simulation has to keep up with real time on one CPU core, on the browser's audio thread.
-This page covers what it costs, how the pipe grid is sized to stay within that, and what keeps the
-hot code fast.
+The whole simulation has to keep up with real time on one CPU core: the browser's audio thread in
+the web app, a real-time thread of its own in the desktop app. This page covers what it costs, how
+the pipe grid is sized to stay within that, and what keeps the hot code fast.
 
 ## Cost per preset
 
-`npm run bench` measures how much of one CPU core each preset needs, running in Node on V8 (the
-JavaScript engine in Chrome and Node). It runs at full throttle and 6500 rpm, then again at each
-engine's own preset speed. Measured on an Apple M3 Max:
+Each benchmark measures how much of one CPU core each preset needs to make a second of audio, held
+at 6500 rpm at full throttle, the solver's worst case. The simulation is the same in both; only the
+build differs:
+
+- `cargo run --release -p engine-sim --example bench` measures the native build, as the desktop app
+  runs it.
+- `npm run bench` in `apps/web` measures the Wasm build, as the web app runs it, in Node's V8 (the
+  JavaScript engine in Chrome), rendered in blocks of 128 as the worklet renders.
+
+Measured on an Apple M3 Max:
 
 ```
-preset                             cells  steps  % of one core @ 6500 rpm
-Open header, single                   19      1        8.5%
-Megaphone, single                     26      1        9.0%
-Tuned expansion chamber, single       31      1        9.5%
-Street muffler, single                37      1       10.0%
-Long tuned pipe, single               44      1       10.9%
-45° V-twin, 2-into-1                  46      1       17.4%
-90° V-twin, 2-into-2                  46      1       13.9%
-Parallel twin, 360°                   33      1       15.3%
-Inline three                          73      1       27.3%
-Boxer four                            85      1       35.7%
-Inline five                           88      1       44.1%
-Inline six                            94      1       53.3%
-Inline four, Honda F20C              112      1       32.8%
-V6, Toyota 2GR                       148      1       57.3%
-Boxer six                            150      1       55.5%
-V8, Chevrolet LT6                    216      1       66.7%
-V8, flatplane, manifold per bank     122      1       68.9%
-V8, Chevrolet LT2                    234      1       71.0%
-V8, crossplane, manifold per bank    134      1       72.5%
-V8, overcammed                       142      1       73.1%
+preset                              cells   native     Wasm
+Single, megaphone                      26     5.1%     6.1%
+45° V-twin, 2-into-1                   46    10.0%    11.8%
+90° V-twin, 2-into-2                   46     9.2%    11.4%
+Parallel twin, 360°                    33    10.9%    11.5%
+Inline three                           73    17.3%    20.2%
+Inline four, Honda F20C               112    20.9%    24.5%
+Boxer four                             85    22.3%    25.4%
+Inline five                            88    26.3%    30.2%
+Inline six                             94    31.6%    35.7%
+Boxer six                             150    33.5%    39.0%
+V6, Toyota 2GR                        148    34.3%    39.9%
+V8, flatplane, manifold per bank      122    39.4%    44.0%
+V8, overcammed                        142    41.2%    47.5%
+V8, Chevrolet LT6                     216    41.5%    46.7%
+V8, crossplane, manifold per bank     134    41.6%    48.6%
+V8, Chevrolet LT2                     234    43.8%    51.8%
 ```
 
 `cells` counts the exhaust's. Each cylinder also has an intake runner, always on the finest grid
@@ -41,18 +44,17 @@ cells instead. The crossplane V8, with eight junctions along its manifolds, has 
 cells where it would otherwise have 182. Engines with headers have two junctions rather than eight,
 which leaves room for the long primaries.
 
-The runners share one kernel instance, packed side by side in its memory, and every runner's cell
-loops run in one call per step. A runner is only a few cells long, so a call into the kernel for
-each one would cost as much as the cells it steps. Each runner solves its own boundaries and valve
-in TypeScript, and that is most of what they cost.
-
 Speed barely matters: every preset costs within about a point of the same at its own rpm. What
 matters is what the engine is made of — cylinders, junctions and pipe cells.
 
+The desktop app has headroom the web app does not, beyond the table: its render thread keeps two
+device buffers of audio ready ahead of the device, so an occasional slow block goes unheard, where
+the browser has to finish every 128-sample block before the device needs it.
+
 !!! warning "Measuring small effects"
 
-    Single timed runs on a warm laptop drift by a few points over a few minutes. The bench takes
-    the best of several runs and reports the spread; compare before/after runs back to back.
+    Single timed runs on a warm laptop drift by a few points over a few minutes. The benchmarks take
+    the best of several runs and report the spread; compare before/after runs back to back.
 
 ## One step per audio sample
 
@@ -107,25 +109,35 @@ the limiting factor.
 
 ## What keeps it fast
 
-- **A [Wasm SIMD](glossary.md#simd) kernel.** The two cell loops of the solver (reconstruction and update) and the
-  junction solve run as WebAssembly with SIMD, which works on two numbers at once. It is written in
-  [AssemblyScript](glossary.md#assemblyscript) in `kernel/euler.ts`. The cell loops give bit-identical results to the TypeScript
-  path, which the tests check.
-- **Almost no garbage on the audio path.** Very little allocates per sample. Numbers that cross a function call
-  too large for V8 to inline are passed through preallocated typed arrays or object fields, because
-  V8 would otherwise wrap each one in a new heap object. Every numeric class field starts with a
-  number, so V8 stores it in place.
-- **One trigonometry pass per crank angle.** `crankAt` works out piston position, both its
-  derivatives and the cylinder volume from one `sin`, `cos` and `sqrt`. A test checks it against the
-  separate functions so the maths cannot drift apart.
-- **Multiplies instead of divides.** Constants such as `1/(γ-1)` are precomputed, because V8 does not
-  turn a division by a constant into a multiply.
+- **[SIMD](glossary.md#simd) cell loops.** The solver's cell loops — the reconstruction, the
+  [HLLC](glossary.md#hllc) face fluxes, the conservative update and the gas-to-wall heat transfer — work on
+  two cells at once (`simd.rs`): NEON on Arm, SSE2 on x86, SIMD128 in the Wasm build. Each lane
+  does exactly the arithmetic one cell alone would, so the results are the same bits as a plain
+  loop's. Branches become selects that compute both sides and keep the one the plain loop would
+  have taken.
+- **A table-driven `pow` and `exp`.** The simulation takes a few hundred powers every sample: the
+  cylinders' heat transfer, the valves' and throttle's orifice flow, the open ends and the junctions.
+  `pow.rs` is Arm's optimized-routines algorithm, as musl ships it: about twice as fast as the classic
+  fdlibm one and slightly more accurate.
+- **The same maths everywhere.** Every transcendental function is a software implementation in
+  the crate rather than the platform's C library, and nothing is fused into multiply-adds, so the
+  native and Wasm builds compute identical results on every machine.
+- **Each crank angle once.** The cylinder evaluates the crank, one `sin`, `cos` and `sqrt` for
+  position, both its derivatives and the volume, at each angle only once: a sub-step ends where the
+  next begins, and the result is kept.
+- **Nothing allocated per sample.** Every buffer the per-sample path uses is made when the engine or
+  exhaust is built.
 
-## Why the HUD shows cells, not CPU %
+## Keeping up with real time
 
-The audio thread cannot time itself. `performance` is not available in the [AudioWorklet](glossary.md#audioworklet) (confirmed
-missing in Chrome), and `currentTime` only moves once per block. So the HUD shows cells and steps,
-which cost is proportional to, rather than a percentage it would have to make up.
+In the browser, the audio thread cannot time itself. `performance` is not available in the
+[AudioWorklet](glossary.md#audioworklet), and `currentTime` only moves once per block. So the HUD shows cells and steps, which
+cost is proportional to, and the app judges whether the audio is keeping up from the audio clock
+against the wall clock, over two-second windows.
+
+The desktop app's render thread times every block it renders, and also counts the times the device
+found the ring buffer empty. Either one, over the same two-second windows, raises the same notice
+the web app does.
 
 ## Sources
 

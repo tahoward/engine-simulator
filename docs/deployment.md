@@ -17,8 +17,8 @@ One Pages deployment serves both. The workflow builds each one separately, then 
 into one upload:
 
 1. **Build the docs.** `mkdocs build --strict` writes to `site/`.
-2. **Build the app.** `npm run build` checks types and writes to `dist/`.
-3. **Put them together.** `dist/` is moved to `site/app/`, and `site/` is uploaded to Pages.
+2. **Build the app.** `npm run build` checks types and writes to `apps/web/dist/`.
+3. **Put them together.** `apps/web/dist/` is moved to `site/app/`, and `site/` is uploaded to Pages.
 
 Neither build reads the other's files. They only meet in step 3.
 
@@ -31,7 +31,7 @@ That makes every URL in the build relative:
 - The [AudioWorklet](glossary.md#audioworklet) code is loaded with `new URL(…, import.meta.url)`, relative to the file that
   loads it.
 
-So the same `dist/` works at `/`, at `/engine-simulator/app/`, or anywhere else. You can rename the
+So the same build works at `/`, at `/engine-simulator/app/`, or anywhere else. You can rename the
 repository or move the app without rebuilding.
 
 !!! warning "Keep the base relative"
@@ -51,11 +51,11 @@ To build the same thing CI publishes:
 # Docs to site/
 mkdocs build --strict
 
-# App to dist/
+# App to apps/web/dist/
 npm run build
 
 # Put them together
-mv dist site/app
+mv apps/web/dist site/app
 
 # Serve the result
 python3 -m http.server -d site 8080
@@ -81,9 +81,10 @@ The workflow uses `actions/configure-pages`, `actions/upload-pages-artifact` and
 
 ## What the workflow does not run
 
-The deploy doesn't run the tests. Each test renders seconds of audio, so the suite takes a few
-minutes. The tests are there to protect the physics, not the publishing. Run `npm test` yourself
-before pushing. The build does check types, so a type error still stops a deploy.
+The deploy doesn't run the tests, and doesn't build the simulation: it has no Rust toolchain. The
+tests are there to protect the physics, not the publishing. Run `cargo test --release -p engine-sim`
+and `npm test` yourself before pushing. The build does check types, so a type error still stops a
+deploy.
 
 ## Cache and pinning
 
@@ -93,10 +94,18 @@ before pushing. The build does check types, so a type error still stops a deploy
 - The docs tools are pinned to minor versions in
   [`requirements-docs.txt`](https://github.com/tahoward/engine-simulator/blob/main/requirements-docs.txt).
   So a CI run months from now builds the same site you checked locally.
-- The built Wasm kernel is committed as `src/audio/worklet/kernelWasm.ts`, so CI doesn't need
-  AssemblyScript.
+- The built Wasm simulation is committed as `apps/web/src/audio/worklet/simWasm.ts`, so CI doesn't
+  need Rust. Rebuild it with `npm run build:sim` whenever the simulation changes.
 
 ## Build outputs are not committed
 
-`dist/` and `site/` are both in `.gitignore`. Nothing built is checked in, except the kernel above.
+`dist/` and `site/` are both in `.gitignore`. Nothing built is checked in, except the simulation above.
 Only the workflow produces what gets published.
+
+## The desktop app
+
+The desktop app is not published by the workflow. `npm run desktop:build` builds it for the machine
+it runs on, with Tauri's bundler: an app bundle and a disk image on macOS, an installer on Windows,
+packages on Linux. A signed macOS build needs an Apple developer certificate, configured as the
+[Tauri documentation](https://v2.tauri.app/distribute/sign/macos/) describes; unsigned, it runs on
+the machine that built it.

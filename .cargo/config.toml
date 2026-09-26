@@ -1,0 +1,4 @@
+# The web app's AudioWorklet runs the simulation as Wasm, and its gas solver's cell loops are
+# written for two SIMD lanes. Every browser the app supports has SIMD128.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "target-feature=+simd128"]

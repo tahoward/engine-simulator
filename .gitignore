@@ -1,9 +1,11 @@
 .claude/settings.json
 node_modules
 dist
+dist-desktop
+target
 .DS_Store
 *.log
-bench/dist
+apps/web/bench/dist
 *.cpuprofile
 
 # Docs

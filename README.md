@@ -1,7 +1,8 @@
 # engine-simulator
 
 A single, a twin, an inline three, four, five or six, a V6, a V8 or a flat four or six whose sound is
-**simulated from physics**, in the browser, with an exhaust system you build yourself.
+**simulated from physics**, in the browser or as a desktop app, with an exhaust system you build
+yourself.
 
 **[Live Demo](https://tahoward.github.io/engine-simulator/app/)** · **[Documentation](https://tahoward.github.io/engine-simulator/)**
 
@@ -21,19 +22,25 @@ filter cutoff.
   what is solved
 - Nonlinear gas dynamics with wall heat transfer, friction and radiation to an outdoor listener
 - Combustion scatter, crank speed ripple and structure-borne mechanical noise
-- Real time on one core, in an AudioWorklet, with the hot loops in a Wasm SIMD kernel
+- Real time on one core: one Rust simulation, run natively in the desktop app and as Wasm in the
+  browser's AudioWorklet, sample for sample the same in both
 
 ## Quick Start
 
 ```bash
 npm install
-npm run dev      # then click to start audio (browsers require a gesture)
-npm test         # physics validated against closed-form acoustics
-npm run bench    # real-time cost of every preset
-npm run build    # static output in dist/, deployable anywhere
+npm run dev              # the web app; click to start audio (browsers require a gesture)
+npm run desktop:dev      # the desktop app, with the simulation running natively
+npm test                 # the interface, and the Wasm build against the reference renders
+npm run build            # the web app, as static output in apps/web/dist/, deployable anywhere
+
+cargo test --release -p engine-sim                    # the physics, validated against closed-form acoustics
+cargo run --release -p engine-sim --example bench     # real-time cost of every preset
 ```
 
-Node 20.19 or newer.
+Node 20.19 or newer. Rust (via [rustup](https://rustup.rs)) for the simulation and the desktop app;
+the web app alone runs without it. See
+[Getting Started](https://tahoward.github.io/engine-simulator/getting-started/).
 
 ## Controls
 
@@ -65,6 +72,8 @@ site root, the simulator under `/app/`. See `docs/deployment.md`.
 
 ## Tech Stack
 
-- TypeScript, three.js and the Web Audio API's AudioWorklet
-- A Wasm SIMD kernel written in AssemblyScript
-- Vite for development and building, Vitest for the physics tests
+- The simulation in Rust (`crates/engine-sim`), with SIMD cell loops, compiled natively and to Wasm
+- The interface in TypeScript and three.js (`apps/web`), with the Web Audio API's AudioWorklet in the
+  browser
+- Tauri for the desktop app (`apps/desktop`), with cpal for its audio
+- Vite for development and building, Vitest for the interface tests, `cargo test` for the physics
