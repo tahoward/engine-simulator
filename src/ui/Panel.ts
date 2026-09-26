@@ -25,10 +25,12 @@ import {
   exhaustLayoutOf,
   firingOffsetDeg,
   firingPlan,
+  fitDyno,
   fullLoadTorque,
   isBoxer,
   presetEngine,
   type ExhaustLayout,
+  type DynoConfig,
   type EngineConfig,
   type EngineSnapshot,
   type EngineSpec,
@@ -62,6 +64,8 @@ export interface PanelCallbacks {
   onSampleRate: (hz: number) => void;
   onView: (view: ViewOptions) => void;
   onResetView: () => void;
+  /** Start a dyno run through `config`, or with `null` stop the one in progress. */
+  onDyno: (config: DynoConfig | null) => void;
 }
 
 export interface ViewOptions {
@@ -165,6 +169,11 @@ export class Panel {
   private readonly resyncers: Resync[] = [];
   private readonly statsEl: HTMLElement;
   private readonly rpmEl: HTMLElement;
+  private readonly dynoBtn: HTMLButtonElement;
+  /** The dyno run's shift point and car mass where the user has set them; `null` fits them to the engine. */
+  private dynoShift: number | null = null;
+  private dynoMass: number | null = null;
+  private dynoRunning = false;
   private readonly readoutEl: HTMLElement;
   private readonly meterFill: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
@@ -300,6 +309,52 @@ export class Panel {
       showFree(this.config.engine.freeRunning);
     });
 
+    // ---- Dyno ------------------------------------------------------------
+    const dyno = section(root, 'Dyno run', false);
+    this.dynoBtn = el('button', 'primary', dyno) as HTMLButtonElement;
+    this.dynoBtn.textContent = 'Start dyno run';
+    this.dynoBtn.title =
+      'Full throttle through a six-speed on an inertia chassis dyno, from the present speed, ' +
+      'shifting near the rev limiter. The run drives the throttle; the sheet plots crank power ' +
+      'and torque against rpm.';
+    this.dynoBtn.addEventListener('click', () => {
+      if (this.dynoRunning) {
+        this.cb.onDyno(null);
+        return;
+      }
+      const eng = this.config.engine;
+      const fit = fitDyno(eng);
+      this.cb.onDyno({
+        ...fit,
+        shiftRpm: Math.min(this.dynoShift ?? fit.shiftRpm, eng.revLimit - 50),
+        mass: this.dynoMass ?? fit.mass,
+      });
+    });
+    this.slider(dyno, {
+      label: 'Shift at',
+      min: 1500,
+      max: 12000,
+      step: 50,
+      value: fitDyno(spec).shiftRpm,
+      sync: () => this.dynoShift ?? fitDyno(this.config.engine).shiftRpm,
+      format: (v) => `${Math.round(v)} rpm${this.dynoShift === null ? ' (auto)' : ''}`,
+      onInput: (v) => (this.dynoShift = v),
+    }).row.title =
+      'Engine speed each gear is pulled to before the next goes in. Auto is just under the rev ' +
+      'limiter. A setting past the limiter shifts just under it.';
+    this.slider(dyno, {
+      label: 'Car mass',
+      min: 100,
+      max: 2500,
+      step: 10,
+      value: fitDyno(spec).mass,
+      sync: () => this.dynoMass ?? fitDyno(this.config.engine).mass,
+      format: (v) => `${Math.round(v)} kg${this.dynoMass === null ? ' (auto)' : ''}`,
+      onInput: (v) => (this.dynoMass = v),
+    }).row.title =
+      "What the engine accelerates on the rollers, the dyno's own inertia included. Auto sizes a " +
+      'car to the engine, about 9 kg per kW. Lighter makes a quicker run.';
+
     // ---- Engine preset ---------------------------------------------------
     // Whole-engine presets, because a V-twin is a layout as well as a pipe.
     const enginePresetRow = el('div', 'row', transport);
@@ -323,6 +378,9 @@ export class Panel {
        * so going crossplane to flatplane and back would come out with a different exhaust each time. And the
        * collector is always replaced — emptied if the preset has none — so no preset inherits one.
        */
+      // A different engine gets a car fitted to it.
+      this.dynoShift = null;
+      this.dynoMass = null;
       this.cb.onEngine(presetEngine(preset, this.config.engine));
       this.config.pipe.length = 0;
       this.config.pipe.push(...preset.pipe());
@@ -1449,6 +1507,12 @@ export class Panel {
 
 
   updateReadouts(s: EngineSnapshot): void {
+    const running = s.dyno !== null;
+    if (running !== this.dynoRunning) {
+      this.dynoRunning = running;
+      this.dynoBtn.textContent = running ? 'Stop dyno run' : 'Start dyno run';
+      this.dynoBtn.classList.toggle('running', running);
+    }
     this.rpmEl.textContent =
       `${Math.round(s.rpm)} rpm${s.limiter ? ' · limiter' : ''}${s.fuelCut ? ' · fuel cut' : ''}`;
     const stroke = strokeName(s.crankAngle);
@@ -1554,8 +1618,9 @@ function slider(
 
   input.addEventListener('input', () => {
     const v = Number(input.value);
-    render(v);
+    // Handled first, so a label that reads the state it sets is up to date.
     o.onInput(v);
+    render(v);
   });
 
   return {

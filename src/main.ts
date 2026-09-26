@@ -39,6 +39,7 @@ import {
 import { Viewer } from './scene/Viewer.js';
 import { Panel, SAMPLE_RATES, type ViewOptions } from './ui/Panel.js';
 import { Scope } from './ui/Scope.js';
+import { DynoSheet } from './ui/DynoSheet.js';
 
 const viewportEl = must<HTMLElement>('#viewport');
 const panelEl = must<HTMLElement>('#panel');
@@ -286,6 +287,23 @@ const panel = new Panel(panelEl, config, {
       overlayEl.classList.toggle('hidden', running);
     });
   },
+  onDyno: (dynoConfig) => {
+    if (!dynoConfig) {
+      audio.dyno(null);
+      return;
+    }
+    // A run needs the engine running; starting it is what the button asks for.
+    const ready = audio.running
+      ? Promise.resolve()
+      : audio.start().then(() => {
+          panel.setRunning(true);
+          overlayEl.classList.add('hidden');
+        });
+    void ready.then(() => {
+      dynoSheet.begin(dynoConfig, latest?.rpm ?? config.engine.rpm);
+      audio.dyno(dynoConfig);
+    });
+  },
   onSampleRate: (hz) => {
     try {
       localStorage.setItem(SAMPLE_RATE_KEY, String(hz));
@@ -299,6 +317,7 @@ const panel = new Panel(panelEl, config, {
 }, sampleRate);
 
 const scope = new Scope(scopeEl, audio);
+const dynoSheet = new DynoSheet(must<HTMLElement>('#stage'));
 
 // ---------------------------------------------------------------------------
 // Geometry sync
@@ -474,6 +493,7 @@ audio.onSnapshot((s) => {
   // indicative field rather than their own.
   for (const m of pipeMeshes) m.update(s.pipePressure);
   scope.onSnapshot(s);
+  dynoSheet.onSnapshot(s.dyno);
   panel.updateReadouts(s);
   hudEl.textContent =
     `${Math.round(s.rpm)} rpm · ${(s.cylPressure / 1e5).toFixed(1)} bar · ` +
@@ -497,6 +517,7 @@ viewer.onFrame((dt) => {
     );
   }
   scope.draw();
+  dynoSheet.draw();
 });
 
 /** Wraps to (-360, 360]. */
