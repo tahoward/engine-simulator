@@ -555,21 +555,19 @@ export class EngineSim {
   // -------------------------------------------------------------------------
 
   /**
-   * The operating point alone: throttle, commanded speed and load.
+   * The operating point alone: throttle and load.
    *
-   * What the worklet calls every audio block, so it does only what these three reach and allocates
+   * What the worklet calls every audio block, so it does only what these two reach and allocates
    * nothing. `setEngine` redoes the mouth paths, the structural modes and the firing plan, and makes
    * new arrays — fine for an edit, but not for every frame of a throttle drag on a thread with no time
-   * to spare. Same effect as `setEngine({ throttle, rpm, load })`.
+   * to spare. Same effect as `setEngine({ throttle, load })`.
    */
-  setControls(throttle: number, rpm: number, load: number): void {
+  setControls(throttle: number, load: number): void {
     const spec = this.spec;
-    if (throttle === spec.throttle && rpm === spec.rpm && load === spec.load) return;
+    if (throttle === spec.throttle && load === spec.load) return;
     spec.throttle = throttle;
-    spec.rpm = rpm;
     spec.load = load;
     this.loadTorqueNm = loadTorqueOf(spec);
-    if (!spec.freeRunning && !this.integratingCrank()) this.omegaMean = (rpm * 2 * Math.PI) / 60;
     this.plenum.setGeometry(spec);
     this.dynoOpening = NaN;
   }
@@ -600,8 +598,8 @@ export class EngineSim {
     this.displacementM3 = displacement(this.spec) * this.spec.cylinders;
     this.loadTorqueNm = loadTorqueOf(this.spec);
     if (!this.spec.freeRunning) {
-      // Fixed-rpm mode follows the slider directly, until it reaches the limiter; from there the crank
-      // runs on from wherever it is. See `integratingCrank`.
+      // A held speed follows `rpm` directly, until it reaches the limiter; from there the crank runs
+      // on from wherever it is. See `integratingCrank`.
       if (!this.integratingCrank()) this.omegaMean = (this.spec.rpm * 2 * Math.PI) / 60;
     }
     this.listener.setGeometry({

@@ -9,5 +9,5 @@
  * A module of its own because both threads need it, and importing `processor.ts` on the main thread
  * would run its `registerProcessor`.
  */
-export const CONTROL_PARAMS = ['throttle', 'rpm', 'load'] as const;
+export const CONTROL_PARAMS = ['throttle', 'load'] as const;
 export type ControlParam = (typeof CONTROL_PARAMS)[number];

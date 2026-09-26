@@ -177,9 +177,6 @@ export class Panel {
   private readonly readoutEl: HTMLElement;
   private readonly meterFill: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
-  private readonly rpmSlider: HTMLInputElement;
-  private readonly rpmRow: HTMLElement;
-  private readonly loadRow: HTMLElement;
 
   private selected: number | null = null;
   private readonly view: ViewOptions = {
@@ -222,19 +219,6 @@ export class Panel {
 
     // ---- Operating point -------------------------------------------------
     const op = section(root, 'Operating point', false);
-    const rpmSlider = this.slider(op, {
-      label: 'Engine speed',
-      min: 600,
-      max: 10000,
-      step: 25,
-      value: spec.rpm,
-      sync: () => this.config.engine.rpm,
-      unit: 'rpm',
-      onInput: (v) => this.cb.onEngine({ rpm: v }),
-    });
-    this.rpmSlider = rpmSlider.input;
-    this.rpmRow = rpmSlider.row;
-
     const revLimit = this.slider(op, {
       label: 'Rev limiter',
       min: 2000,
@@ -247,7 +231,7 @@ export class Panel {
     });
     revLimit.row.title =
       'The spark is cut above this and returns once the crank has dropped back, so the engine ' +
-      'bounces off it. An engine speed set at or past it revs freely into the limiter.';
+      'bounces off it.';
 
     this.slider(op, {
       label: 'Throttle',
@@ -258,22 +242,11 @@ export class Panel {
       sync: () => this.config.engine.throttle,
       format: (v) => `${Math.round(v * 100)}%`,
       onInput: (v) => this.cb.onEngine({ throttle: v }),
-    });
+    }).row.title =
+      'The engine speed follows from this and the load: the crank is driven by the gas torque ' +
+      'against friction and the load, so the exhaust tuning moves it too.';
 
-    const free = toggle(op, 'Free-running crank', spec.freeRunning, (on) => {
-      this.cb.onEngine({ freeRunning: on });
-      this.rpmRow.classList.toggle('disabled', on);
-      this.rpmSlider.disabled = on;
-      this.loadRow.classList.toggle('hidden', !on);
-    });
-    free.title =
-      'Integrate crank speed from gas torque, inertia and load instead of holding it fixed. ' +
-      'The exhaust tuning then affects the speed the engine settles at.';
-
-    const loadWrap = el('div', 'subgroup', op);
-    this.loadRow = loadWrap;
-    loadWrap.classList.toggle('hidden', !spec.freeRunning);
-    const load = this.slider(loadWrap, {
+    const load = this.slider(op, {
       label: 'Load',
       min: 0,
       // Past full throttle's worth, so the engine can be bogged down and stalled.
@@ -288,7 +261,7 @@ export class Panel {
       'Braking torque at the crank, as a share of what this engine makes at full throttle, ' +
       'so the same setting loads a single and a V8 alike.';
     // Also redraws the N·m figure, which follows the engine's size.
-    this.slider(loadWrap, {
+    this.slider(op, {
       label: 'Flywheel inertia',
       min: 0.02,
       max: 1.2,
@@ -297,16 +270,6 @@ export class Panel {
       sync: () => this.config.engine.flywheelInertia,
       unit: 'kg·m²',
       onInput: (v) => this.cb.onEngine({ flywheelInertia: v }),
-    });
-    const showFree = (on: boolean) => {
-      this.rpmRow.classList.toggle('disabled', on);
-      this.rpmSlider.disabled = on;
-      this.loadRow.classList.toggle('hidden', !on);
-    };
-    showFree(spec.freeRunning);
-    this.resyncers.push(() => {
-      checkbox(free).checked = this.config.engine.freeRunning;
-      showFree(this.config.engine.freeRunning);
     });
 
     // ---- Dyno ------------------------------------------------------------

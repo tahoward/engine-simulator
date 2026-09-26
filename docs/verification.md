@@ -72,7 +72,8 @@ why it matters.
   frequency and resonances are all correct but whose tonal balance is wrong.
 - **Realism.** Consecutive cycles must differ by more than 24% [RMS](glossary.md#rms), and by 1.4x more with
   combustion scatter on than off. Scatter must grow as load falls. Crank speed must ripple
-  within each cycle *and* still hold the set average speed to 1% at every throttle.
+  within each cycle *and*, held at a set speed as a dynamometer holds it, keep that average
+  speed to 1% at every throttle.
   Reciprocating inertia must add up to zero work over a cycle. The ground reflection must
   cancel at the frequencies the path-length difference predicts. Cycle-to-cycle *correlation*
   is deliberately not used: it ignores amplitude, so turning scatter on only moves it

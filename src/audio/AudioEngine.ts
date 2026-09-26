@@ -106,8 +106,8 @@ export class AudioEngine {
       outputChannelCount: [1],
       processorOptions: this.config,
       // Without these the parameters start at their default of 0, and the first block would drop the
-      // engine to zero throttle and zero rpm.
-      parameterData: { throttle: eng.throttle, rpm: eng.rpm, load: eng.load },
+      // engine to zero throttle and zero load.
+      parameterData: { throttle: eng.throttle, load: eng.load },
     });
     node.port.onmessage = (e: MessageEvent<FromWorklet>) => {
       if (e.data.type === 'snapshot') {
