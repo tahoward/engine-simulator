@@ -38,6 +38,7 @@ import {
   quantiseLength,
   quantiseTurn,
   routeTip,
+  snapToEngine,
   type SnapTarget,
 } from './drawing.js';
 
@@ -57,14 +58,26 @@ const HANDLE_LIFT = 0.035;
 /** Live geometry edits are cheap to draw but force a waveguide rebuild, so throttle those. */
 const AUDIO_COMMIT_MS = 200;
 
-type HandleKind = 'end' | 'ring' | 'inlet';
+type HandleKind = 'end' | 'ring' | 'inlet' | 'rotate';
 
 interface HandleData {
   kind: HandleKind;
   segment: number;
   /** Displacement from the point the handle controls to the handle itself. */
   dragOffset?: THREE.Vector3;
+  /** For a rotation ring, the engine axis it turns the segment about: 0 X, 1 Y, 2 Z. */
+  axis?: number;
 }
+
+/** Radius of the rotation rings round the selected segment's start, m. */
+const ROTATE_RADIUS = 0.11;
+/** What a rotation ring snaps to with shift held, degrees. */
+const ROTATE_STEP_DEG = 15;
+/**
+ * Below this, the pointer's ray is too close to edge-on to a rotation ring's plane to meet it cleanly, and
+ * the drag falls back to a camera-facing plane.
+ */
+const MIN_RING_FACING = 0.2;
 
 /** Something in the exhaust a click picked out, outside draw mode. */
 export type ScenePick =
@@ -83,6 +96,43 @@ export interface PipeEditorCallbacks {
   onPick?: (pick: ScenePick | null) => void;
   /** A route was started or finished, so the UI can show whether drawing is in progress. */
   onDrawing?: (active: boolean) => void;
+  /** Where the next segment is aimed, in words — "up, 250 mm" — or `null` when nothing is. */
+  onAim?: (aim: string | null) => void;
+}
+
+/**
+ * How a free click is tidied while drawing.
+ *
+ * `engine` locks the segment to the engine's axes and the diagonals between them, which is what makes a
+ * route readable in a perspective view; `turn` rounds the bend off the pipe being left instead; `free`
+ * takes the point as clicked.
+ */
+type DrawSnap = 'engine' | 'turn' | 'free';
+
+function drawSnapOf(e: { shiftKey: boolean; altKey: boolean }): DrawSnap {
+  if (e.shiftKey) return 'free';
+  return e.altKey ? 'turn' : 'engine';
+}
+
+/**
+ * Colours for the engine's axes, the usual X red, Y green, Z blue, so a locked segment says which way it runs.
+ * A diagonal mixes the two it lies between.
+ */
+const AXIS_COLOURS = [new THREE.Color(0xff6b6b), new THREE.Color(0x7be07b), new THREE.Color(0x6ba6ff)];
+const ENGINE_AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+/** A segment carrying straight on in a direction that is none of the engine's. */
+const STRAIGHT_ON_COLOUR = new THREE.Color(0xffffff);
+/** A segment not locked to a direction. */
+const PREVIEW_COLOUR = 0x8cff9e;
+/** How far the guide along a locked direction runs on past the segment's end, m. */
+const GUIDE_REACH = 0.6;
+
+function axisColour(dir: THREE.Vector3): THREE.Color {
+  const c = new THREE.Color(0, 0, 0);
+  const weights = [Math.abs(dir.x), Math.abs(dir.y), Math.abs(dir.z)];
+  const total = weights[0]! + weights[1]! + weights[2]!;
+  weights.forEach((w, i) => c.add(AXIS_COLOURS[i]!.clone().multiplyScalar(w / total)));
+  return c;
 }
 
 /** What the editor needs to know about the scene to draw into it. */
@@ -98,8 +148,9 @@ export interface DrawContext {
 
 /** How close, in pixels, the pointer has to be for a snap target to take. */
 const SNAP_PIXELS = 14;
-/** Turn and length quantisation while drawing. Hold shift to draw freely. */
+/** Turn quantisation while drawing with alt held, degrees. */
 const TURN_STEP_DEG = 15;
+/** Length quantisation, m. */
 const LENGTH_GRID_M = 0.025;
 
 export class PipeEditor {
@@ -125,6 +176,19 @@ export class PipeEditor {
     /** A point on, and the direction of, the pipe axis at the dragged joint. */
     axisPoint: THREE.Vector3;
     axisDir: THREE.Vector3;
+    /** For a rotation ring: what it turns about, and how far it has turned so far. */
+    rotate?: {
+      axis: THREE.Vector3;
+      /** Two directions spanning the ring's plane, for measuring angles in it. */
+      u: THREE.Vector3;
+      v: THREE.Vector3;
+      /** The segment's direction when the drag began. */
+      dir0: THREE.Vector3;
+      /** Angle of the pointer round the ring at the last move, radians. */
+      lastAngle: number;
+      /** How far the pointer has turned since the drag began, radians. */
+      turned: number;
+    };
     lastCommit: number;
   } | null = null;
 
@@ -159,6 +223,15 @@ export class PipeEditor {
   snapped: SnapTarget | null = null;
   private readonly preview: THREE.Line;
   private readonly previewGeom = new THREE.BufferGeometry();
+  private readonly previewMat = new THREE.LineDashedMaterial({
+    color: PREVIEW_COLOUR,
+    dashSize: 0.02,
+    gapSize: 0.012,
+  });
+  /** A faint line through the tip along the locked direction, so its orientation reads in 3D. */
+  private readonly guide: THREE.Line;
+  private readonly guideGeom = new THREE.BufferGeometry();
+  private readonly guideMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.35 });
   private readonly marker: THREE.Mesh;
 
   private readonly matNormal = new THREE.MeshBasicMaterial({ color: 0x4fd1ff });
@@ -169,6 +242,10 @@ export class PipeEditor {
     transparent: true,
     opacity: 0.6,
   });
+  /** One per engine axis, in the same colours the drawing preview uses. */
+  private readonly matRotate = AXIS_COLOURS.map(
+    (color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }),
+  );
   private readonly matStalk = new THREE.LineBasicMaterial({
     color: 0x4fd1ff,
     transparent: true,
@@ -191,13 +268,16 @@ export class PipeEditor {
     dom.addEventListener('contextmenu', this.onContextMenu);
 
     this.previewGeom.setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-    this.preview = new THREE.Line(
-      this.previewGeom,
-      new THREE.LineDashedMaterial({ color: 0x8cff9e, dashSize: 0.02, gapSize: 0.012 }),
-    );
+    this.preview = new THREE.Line(this.previewGeom, this.previewMat);
     this.preview.visible = false;
     this.preview.renderOrder = 12;
     this.group.add(this.preview);
+
+    this.guideGeom.setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+    this.guide = new THREE.Line(this.guideGeom, this.guideMat);
+    this.guide.visible = false;
+    this.guide.renderOrder = 11;
+    this.group.add(this.guide);
 
     this.marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.016, 16, 12),
@@ -286,8 +366,42 @@ export class PipeEditor {
 
   private hidePreview(): void {
     this.preview.visible = false;
+    this.guide.visible = false;
     this.marker.visible = false;
     this.snapped = null;
+    this.cb.onAim?.(null);
+  }
+
+  /**
+   * Where a segment from `tip` towards `target` actually ends, tidied as `snap` says.
+   *
+   * Only a free point is tidied: one that connects to something has to land on it. `dir` is set when the
+   * segment is locked to an engine direction.
+   */
+  private aim(
+    tip: { point: THREE.Vector3; dir: THREE.Vector3 },
+    target: SnapTarget,
+    snap: DrawSnap,
+  ): { point: THREE.Vector3; dir?: THREE.Vector3; name?: string } {
+    const point = target.point.clone();
+    if (target.kind !== 'free' || snap === 'free') return { point };
+    if (snap === 'engine') {
+      const rect = this.dom.getBoundingClientRect();
+      const locked = snapToEngine(
+        tip.point,
+        tip.dir,
+        this.raycaster.ray,
+        this.pointer,
+        this.camera,
+        { width: rect.width, height: rect.height },
+        LENGTH_GRID_M,
+      );
+      if (locked) return locked;
+    }
+    // Quantise the turn and the length so a hand-drawn route comes out tidy.
+    const dir = quantiseTurn(point.clone().sub(tip.point), tip.dir, TURN_STEP_DEG);
+    const len = quantiseLength(point.distanceTo(tip.point), LENGTH_GRID_M);
+    return { point: tip.point.clone().addScaledVector(dir, len) };
   }
 
   /** Handles are a nuisance while drawing: they sit exactly where the route is being aimed. */
@@ -461,7 +575,7 @@ export class PipeEditor {
   }
 
   /** Extend the route to a point, or connect it to whatever the point belongs to. */
-  private extendRoute(target: SnapTarget, free: boolean): void {
+  private extendRoute(target: SnapTarget, snap: DrawSnap): void {
     const ctx = this.context;
     if (!ctx || !this.route) return;
     const duct = ctx.graph.ducts.find((d) => d.id === this.route!.ductId);
@@ -473,13 +587,7 @@ export class PipeEditor {
       this.startingDiameter(duct),
     );
 
-    let point = target.point.clone();
-    if (target.kind === 'free' && !free) {
-      // Quantise the turn and the length so a hand-drawn route comes out tidy.
-      const dir = quantiseTurn(point.clone().sub(tip.point), tip.dir, TURN_STEP_DEG);
-      const len = quantiseLength(point.distanceTo(tip.point), LENGTH_GRID_M);
-      point = tip.point.clone().addScaledVector(dir, len);
-    }
+    const { point } = this.aim(tip, target, snap);
 
     if (duct.segments.length === 0) {
       /**
@@ -572,8 +680,11 @@ export class PipeEditor {
   }
 
   select(index: number | null): void {
+    const moved = index !== this.selected;
     this.selected = index;
-    this.applyHandleColours();
+    // The rotation rings sit on the selected segment, so they have to move with the selection.
+    if (moved) this.rebuildHandles();
+    else this.applyHandleColours();
   }
 
   setHandlesVisible(on: boolean): void {
@@ -634,6 +745,20 @@ export class PipeEditor {
       this.addRing(p, d, r, { kind: 'ring', segment: i });
     }
 
+    const sel = this.selected;
+    if (sel !== null && sel < layout.joints.length) {
+      const start = sel === 0 ? this.origin : layout.joints[sel - 1]!;
+      ENGINE_AXES.forEach((axis, a) => {
+        const ring = new THREE.Mesh(new THREE.TorusGeometry(ROTATE_RADIUS, 0.006, 8, 96), this.matRotate[a]);
+        ring.position.copy(start);
+        ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+        ring.userData = { kind: 'rotate', segment: sel, axis: a } satisfies HandleData;
+        ring.renderOrder = 10;
+        this.handles.push(ring);
+        this.group.add(ring);
+      });
+    }
+
     this.applyHandleColours();
     // Rebuilt handles come back visible, so draw mode has to hide them again.
     this.applyHandleVisibility();
@@ -663,6 +788,7 @@ export class PipeEditor {
       const data = h.userData as HandleData;
       const isRing = data.kind !== 'end';
       if (h === this.hovered) h.material = this.matHover;
+      else if (data.kind === 'rotate') h.material = this.matRotate[data.axis ?? 0]!;
       else if (data.segment === this.selected) h.material = this.matSelected;
       else h.material = isRing ? this.matRing : this.matNormal;
     }
@@ -781,7 +907,76 @@ export class PipeEditor {
     ).normalize();
 
     this.drag = { handle, data, start, heading, plane, axisPoint, axisDir, lastCommit: 0 };
+    if (data.kind === 'rotate') {
+      const a = data.axis ?? 0;
+      const axis = ENGINE_AXES[a]!.clone();
+      // A right-handed pair in the ring's plane, so a positive angle is a positive turn about the axis.
+      const u = ENGINE_AXES[(a + 1) % 3]!.clone();
+      const v = axis.clone().cross(u);
+      const dir0 = layout.joints[i]!.clone().sub(start).normalize();
+      this.drag.rotate = { axis, u, v, dir0, lastAngle: 0, turned: 0 };
+      this.drag.rotate.lastAngle = this.ringAngle() ?? 0;
+    }
     this.controls.enabled = false;
+  }
+
+  /**
+   * Where the pointer is round the rotation ring being dragged, as an angle in its plane.
+   *
+   * Straight onto the ring's plane where the view allows, so the angle is exactly where the pointer is on
+   * the ring. Seen nearly edge-on, that intersection runs off to infinity, so the pointer is taken on a
+   * plane facing the camera instead and flattened onto the ring's.
+   */
+  private ringAngle(): number | null {
+    const drag = this.drag;
+    const rot = drag?.rotate;
+    if (!drag || !rot) return null;
+    const ray = this.raycaster.ray;
+    const point = new THREE.Vector3();
+    const facing = Math.abs(ray.direction.dot(rot.axis));
+    const plane =
+      facing > MIN_RING_FACING
+        ? new THREE.Plane().setFromNormalAndCoplanarPoint(rot.axis, drag.start)
+        : new THREE.Plane().setFromNormalAndCoplanarPoint(
+            this.camera.getWorldDirection(new THREE.Vector3()),
+            drag.start,
+          );
+    if (!ray.intersectPlane(plane, point)) return null;
+    const rel = point.sub(drag.start);
+    const x = rel.dot(rot.u);
+    const y = rel.dot(rot.v);
+    if (Math.hypot(x, y) < 1e-6) return null;
+    return Math.atan2(y, x);
+  }
+
+  /**
+   * Turn a segment about one of the engine's axes, keeping its length.
+   *
+   * With shift held the segment lands on a multiple of 15 degrees round that axis, measured in the engine's
+   * frame rather than from where it started, so a pipe that was drawn at an odd angle squares up.
+   */
+  private dragRotate(seg: PipeSegment, snap: boolean): void {
+    const drag = this.drag!;
+    const rot = drag.rotate!;
+    const angle = this.ringAngle();
+    if (angle === null) return;
+    // Accumulated a step at a time, so a drag past half a turn does not wrap back.
+    let step = angle - rot.lastAngle;
+    if (step > Math.PI) step -= 2 * Math.PI;
+    else if (step < -Math.PI) step += 2 * Math.PI;
+    rot.turned += step;
+    rot.lastAngle = angle;
+
+    let turn = rot.turned;
+    if (snap) {
+      const from = Math.atan2(rot.dir0.dot(rot.v), rot.dir0.dot(rot.u));
+      const grid = (ROTATE_STEP_DEG * Math.PI) / 180;
+      turn = Math.round((from + turn) / grid) * grid - from;
+    }
+    const dir = rot.dir0.clone().applyAxisAngle(rot.axis, turn);
+    const { yaw, pitch } = turnBetween(drag.heading, dir);
+    seg.yaw = yaw;
+    seg.pitch = pitch;
   }
 
   /**
@@ -807,11 +1002,11 @@ export class PipeEditor {
     const duct = ctx.graph.ducts.find((d) => d.id === this.route!.ductId);
     const tip = duct ? routeTip(duct.segments, this.route.place) : { point: this.origin, dir: this.heading };
     const target = this.resolveSnap(tip.point);
-    if (target) this.extendRoute(target, e.shiftKey);
+    if (target) this.extendRoute(target, drawSnapOf(e));
   }
 
   /** Ghost the segment the next click would add, and mark what it would snap to. */
-  private updateDrawPreview(shift: boolean): void {
+  private updateDrawPreview(snap: DrawSnap): void {
     const ctx = this.context;
     if (!this.drawMode || !ctx) {
       this.hidePreview();
@@ -837,16 +1032,25 @@ export class PipeEditor {
       return;
     }
 
-    let point = target.point.clone();
-    if (target.kind === 'free' && !shift) {
-      const dir = quantiseTurn(point.clone().sub(tip.point), tip.dir, TURN_STEP_DEG);
-      const len = quantiseLength(point.distanceTo(tip.point), LENGTH_GRID_M);
-      point = tip.point.clone().addScaledVector(dir, len);
-    }
+    const { point, dir, name } = this.aim(tip, target, snap);
 
     this.previewGeom.setFromPoints([tip.point, point]);
     this.preview.computeLineDistances();
     this.preview.visible = true;
+    if (dir) {
+      this.previewMat.color.copy(name === 'straight on' ? STRAIGHT_ON_COLOUR : axisColour(dir));
+      this.guideMat.color.copy(this.previewMat.color);
+      this.guideGeom.setFromPoints([
+        tip.point,
+        tip.point.clone().addScaledVector(dir, point.distanceTo(tip.point) + GUIDE_REACH),
+      ]);
+      this.guide.visible = true;
+    } else {
+      this.previewMat.color.set(PREVIEW_COLOUR);
+      this.guide.visible = false;
+    }
+    const length = `${Math.round(point.distanceTo(tip.point) * 1000)} mm`;
+    this.cb.onAim?.(target.kind === 'free' ? `${name ? `${name}, ` : ''}${length}` : null);
     // Marked only when it would *connect*, so the highlight means something.
     this.marker.visible = target.kind !== 'free';
     this.marker.position.copy(point);
@@ -856,7 +1060,7 @@ export class PipeEditor {
   private onPointerMove = (e: PointerEvent): void => {
     if (this.drawMode && !this.drag) {
       this.updatePointer(e);
-      this.updateDrawPreview(e.shiftKey);
+      this.updateDrawPreview(drawSnapOf(e));
       return;
     }
     this.updatePointer(e);
@@ -873,14 +1077,17 @@ export class PipeEditor {
       return;
     }
 
-    const point = new THREE.Vector3();
-    if (!this.raycaster.ray.intersectPlane(this.drag.plane, point)) return;
-
     const seg = this.pipe[this.drag.data.segment];
     if (!seg) return;
 
-    if (this.drag.data.kind === 'end') this.dragEnd(seg, point);
-    else this.dragRadius(seg, point);
+    if (this.drag.data.kind === 'rotate') {
+      this.dragRotate(seg, e.shiftKey);
+    } else {
+      const point = new THREE.Vector3();
+      if (!this.raycaster.ray.intersectPlane(this.drag.plane, point)) return;
+      if (this.drag.data.kind === 'end') this.dragEnd(seg, point);
+      else this.dragRadius(seg, point);
+    }
 
     const now = performance.now();
     const commit = now - this.drag.lastCommit > AUDIO_COMMIT_MS;
@@ -964,12 +1171,17 @@ export class PipeEditor {
     window.removeEventListener('pointerup', this.onPointerUp);
     for (const h of this.handles) h.geometry.dispose();
     for (const s of this.stalks) s.geometry.dispose();
+    this.previewGeom.dispose();
+    this.guideGeom.dispose();
     for (const m of [
       this.matNormal,
       this.matHover,
       this.matSelected,
       this.matRing,
       this.matStalk,
+      this.previewMat,
+      this.guideMat,
+      ...this.matRotate,
     ]) {
       m.dispose();
     }
