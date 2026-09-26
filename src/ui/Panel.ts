@@ -27,6 +27,8 @@ import {
   firingPlan,
   fitDyno,
   fullLoadTorque,
+  intakeRunnerOf,
+  runnerTunedRpm,
   isBoxer,
   presetEngine,
   type ExhaustLayout,
@@ -43,6 +45,7 @@ import {
   speedOfSound,
   totalPipeLength,
 } from '../model/spec.js';
+import { plenumVolumeOf, throttleDiaOf } from '../audio/worklet/plenum.js';
 
 export interface PanelCallbacks {
   onEngine: (partial: Partial<EngineSpec>) => void;
@@ -174,6 +177,8 @@ export class Panel {
   private dynoShift: number | null = null;
   private dynoMass: number | null = null;
   private dynoRunning = false;
+  /** Rewrites the intake section's tuning readout if anything it shows has changed. */
+  private refreshIntake: () => void = () => {};
   private readonly readoutEl: HTMLElement;
   private readonly meterFill: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
@@ -405,6 +410,16 @@ export class Panel {
       this.rebuildPipeList();
       this.syncStats();
     });
+    const headers = toggle(multiWrap, 'Equal-length headers', spec.exhaustHeaders, (on) => {
+      this.cb.onEngine({ exhaustHeaders: on });
+      this.rebuildPipeList();
+    });
+    headers.title =
+      'Each cylinder\u2019s own primary all the way to one merge per collector, instead of a manifold ' +
+      'along the ports. The primaries are long enough to tune: the wave each pulse sends back from ' +
+      'the merge pulls fresh charge through the cylinder during the overlap, at the speed their ' +
+      'length is tuned for. Has no effect with separate pipes.';
+    this.resyncers.push(() => (checkbox(headers).checked = this.config.engine.exhaustHeaders));
     layoutRow.title =
       'A shared collector lets each cylinder\u2019s pulse travel up the other primaries, where it ' +
       'either helps scavenge those cylinders or blocks them. That cross-talk is most of what ' +
@@ -545,8 +560,8 @@ export class Panel {
     linkBox.checked = this.linkRunners;
     linkLabel.append(' Apply to every cylinder');
     linkLabel.title =
-      'Keeps all the runners identical, as a symmetric engine has them. Turn it off to build ' +
-      'unequal-length headers.';
+      'Keeps every cylinder\u2019s primary identical, as a symmetric engine has them. Turn it off ' +
+      'to build unequal-length headers.';
     linkBox.addEventListener('change', () => {
       this.linkRunners = linkBox.checked;
       if (this.linkRunners) this.commit();
@@ -724,6 +739,93 @@ export class Panel {
       format: (v) => `${Math.round(v - 540)}° ABDC`,
       onInput: (v) => this.cb.onEngine({ ivc: v }),
     });
+
+    // ---- Intake ------------------------------------------------------------
+    const intake = section(root, 'Intake', true);
+    const tuned = el('div', 'readout', intake);
+    let tunedKey = '';
+    // The auto runner follows the rev limit and the intake valves as well as its own sliders, so this
+    // is checked on every readout and rewritten only when something it shows has moved.
+    const showTuned = () => {
+      const e = this.config.engine;
+      const r = intakeRunnerOf(e);
+      const text =
+        `Runners ${Math.round(r.length * 1000)} mm × ${(r.diameter * 1000).toFixed(1)} mm, ` +
+        `tuned for about ${formatRpm(runnerTunedRpm(e))} rpm`;
+      if (text === tunedKey) return;
+      tunedKey = text;
+      tuned.textContent = text;
+    };
+    showTuned();
+    this.refreshIntake = showTuned;
+    tuned.title =
+      'The speed at which the runners ram the charge in hardest: where their quarter-wave ' +
+      'resonance is 2.3 times the crank speed. Torque peaks near it.';
+    this.slider(intake, {
+      label: 'Intake runner length',
+      min: 0,
+      max: 0.9,
+      step: 0.005,
+      value: spec.intakeRunnerLength,
+      sync: () => this.config.engine.intakeRunnerLength,
+      format: (v) =>
+        v > 0
+          ? `${Math.round(v * 1000)} mm`
+          : `auto (${Math.round(intakeRunnerOf(this.config.engine).length * 1000)} mm)`,
+      onInput: (v) => {
+        this.cb.onEngine({ intakeRunnerLength: v });
+        showTuned();
+      },
+    }).row.title =
+      'From the intake valve to the plenum. The air in it rams the charge in after bottom dead ' +
+      'centre, most strongly at the speed its length is tuned for: longer for low-rpm torque, ' +
+      'shorter for high-rpm power. At 0 it is tuned to three quarters of the rev limit.';
+    this.slider(intake, {
+      label: 'Intake runner bore',
+      min: 0,
+      max: 0.08,
+      step: 0.0005,
+      value: spec.intakeRunnerDia,
+      sync: () => this.config.engine.intakeRunnerDia,
+      format: (v) =>
+        v > 0
+          ? `${(v * 1000).toFixed(1)} mm`
+          : `auto (${(intakeRunnerOf(this.config.engine).diameter * 1000).toFixed(1)} mm)`,
+      onInput: (v) => {
+        this.cb.onEngine({ intakeRunnerDia: v });
+        showTuned();
+      },
+    }).row.title =
+      'At 0 it passes the intake valves\' area, a little narrowed, as a port does. Narrower ' +
+      'speeds the air up and rams harder at low rpm; wider breathes better at the top.';
+    this.slider(intake, {
+      label: 'Plenum volume',
+      min: 0,
+      max: 0.02,
+      step: 0.0001,
+      value: spec.plenumVolume,
+      sync: () => this.config.engine.plenumVolume,
+      format: (v) =>
+        v > 0 ? `${(v * 1000).toFixed(1)} L` : `auto (${(plenumVolumeOf(this.config.engine) * 1000).toFixed(1)} L)`,
+      onInput: (v) => this.cb.onEngine({ plenumVolume: v }),
+    }).row.title =
+      'The manifold the runners draw from, downstream of the throttle. It holds what the cylinders ' +
+      'push back up their runners and hands it back next cycle. At 0 it is one and a half times ' +
+      'the engine\u2019s displacement.';
+    this.slider(intake, {
+      label: 'Throttle bore',
+      min: 0,
+      max: 0.12,
+      step: 0.0005,
+      value: spec.throttleDia,
+      sync: () => this.config.engine.throttleDia,
+      format: (v) =>
+        v > 0 ? `${(v * 1000).toFixed(1)} mm` : `auto (${(throttleDiaOf(this.config.engine) * 1000).toFixed(1)} mm)`,
+      onInput: (v) => this.cb.onEngine({ throttleDia: v }),
+    }).row.title =
+      'At 0 it is sized so the engine can breathe at full throttle and 7000 rpm, with the air at ' +
+      '25 m/s through it. Smaller chokes the top end; larger makes the throttle touchier at small ' +
+      'openings.';
 
     // ---- Combustion ------------------------------------------------------
     const comb = section(root, 'Combustion', true);
@@ -906,7 +1008,8 @@ export class Panel {
       onInput: (v) => this.cb.onEngine({ cylinderSpread: v }),
     });
     spreadRow.row.title =
-      'How unequally the cylinders breathe, as a spread in runner pressure. No two cylinders of ' +
+      'How unequally the cylinders breathe, as a spread in the pressure each intake runner opens ' +
+      'onto. No two cylinders of ' +
       'a real engine are matched, and that is what stops the firing orders cancelling perfectly. ' +
       'At zero an inline four is a pure tone on one frequency with no rumble under it; at 4% the ' +
       'low orders sit 35 dB down, where real engines measure 20 to 35.';
@@ -1470,6 +1573,7 @@ export class Panel {
 
 
   updateReadouts(s: EngineSnapshot): void {
+    this.refreshIntake();
     const running = s.dyno !== null;
     if (running !== this.dynoRunning) {
       this.dynoRunning = running;
@@ -1703,4 +1807,9 @@ function firingNote(eng: EngineSpec): string {
   const per = bankFiringIntervals(eng, 0).join('-');
   const even = new Set(bankFiringIntervals(eng, 0)).size === 1;
   return `${base} · each bank ${per}${even ? ' (even)' : ' (uneven)'}`;
+}
+
+/** An engine speed rounded to the nearest 50, with a thousands separator. */
+function formatRpm(rpm: number): string {
+  return (Math.round(rpm / 50) * 50).toLocaleString('en-US');
 }

@@ -28,7 +28,8 @@ describe('closed throttle must not run away', () => {
         `  ${p.name.padEnd(34)} ${marks.join(' ')}   ${(sum / 2000 / GAS.pAmb).toFixed(2)}bar`,
       );
     }
-  });
+    // Twelve seconds of every preset, which runs past the suite's default timeout.
+  }, 300_000);
 
   it('and a mid-throttle hold is stable too', () => {
     console.log('');

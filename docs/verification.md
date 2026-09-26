@@ -40,6 +40,16 @@ why it matters.
   Lean mixtures must release less heat, rich ones no more than stoichiometric, and λ 2 must
   misfire. With the fuel cut, a shut throttle at 3200 rpm must leave no fuel in the manifold and
   fire no cycles, and opening the throttle must bring every cycle back.
+- **Intake runners.** Runners stepped together in one shared kernel must render bit for bit as they
+  do on the TypeScript path. Left on auto, a runner's bore must follow the valves and its length the rev
+  limit, and set values must be used as given. On a 6.2 litre V8, the tuned runner must fill the
+  cylinder to over 95% at its tuned speed. That must be more than 10 points above an 80 mm stub, and
+  more than it fills either side of that speed. An 800 mm runner must make more torque than a 250 mm
+  one at 3500 rpm and less at 6450.
+- **Headers.** On the LT6 at 8400 rpm, equal-length headers must fill the cylinder more than 3
+  points past a manifold along the ports.
+- **Port injection.** With the fuel cut, neither the manifold nor a runner may hold more than a
+  hundredth of a stoichiometric charge's fuel.
 - **Valves per cylinder.** The boxer four's torque at full throttle must hold from 3600 to 6200
   rpm on its four-valve head, and fall well away with one valve of each. Each valve must open along
   its own stem in the 3D view, with two per side on a four-valve head.

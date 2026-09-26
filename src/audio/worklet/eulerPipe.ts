@@ -81,6 +81,15 @@ const AMBIENT_RHO = GAS.pAmb / (GAS.R * GAS.tAmb);
  * low ka. See `mouthBoundary`.
  */
 const MOUTH_RESISTANCE = 4 * 0.6133 * 0.6133 * AMBIENT_RHO * ambientSoundSpeed();
+/** Slots of the array `EulerPipe.setReservoir` reads. */
+export const RES_P = 0;
+export const RES_RHO = 1;
+export const RES_C = 2;
+export const RES_SIZE = 3;
+
+/** `4 * 0.6133^2`: the mouth's radiation resistance per unit `rho c` of the gas it opens into. */
+const RESISTANCE_PER_RHO_C = 4 * 0.6133 * 0.6133;
+
 /**
  * Default cell length, m, and cell cap.
  *
@@ -274,6 +283,13 @@ export interface EulerPipeOptions {
   /** False terminates the pipe with a closed wall — used by tests. */
   radiate?: boolean;
   /**
+   * Put this duct's fields in a shared kernel, at a segment reserved there with `addSegment`, instead
+   * of in a kernel of its own. Its owner then steps every duct in that kernel together, with
+   * `reconstructBatch` before their `beginStep`s and `updateBatch` before their `endStepSet`s, and the
+   * duct does not call the kernel itself. See `IntakeRunners`.
+   */
+  kernelSegment?: { kernel: EulerKernel; offset: number; index: number };
+  /**
    * What sits at each end.
    *
    * `valve` is a solid wall with the cylinder entering as a source term in the first cell;
@@ -415,9 +431,13 @@ export class EulerPipe {
    * ~50 array accesses per cell, which a wasm linear-memory load does not pay.
    */
   private readonly kernel: EulerKernel | null;
+  /** Whether the kernel is shared, and stepped by the owner for every duct in it. See `kernelSegment`. */
+  private readonly batched: boolean;
+  /** Where this duct's largest `|u| + c` lands in a shared kernel's `segmentSpeeds`. */
+  private readonly segmentSlot: number;
 
   // Options.
-  private readonly limiterCode: Limiter;
+  readonly limiterCode: Limiter;
   readonly cfl: number;
   readonly maxSubsteps: number;
   /** Wall temperature per cell, K — a solved field, not a constant. */
@@ -443,8 +463,8 @@ export class EulerPipe {
   private readonly qBanked: Float64Array;
   /** 1/(wall heat capacity), precomputed to keep a divide out of the batch. */
   private readonly invWallHeatCapacity: Float64Array;
-  private readonly linearDamping: number;
-  private readonly darcy: number;
+  readonly linearDamping: number;
+  readonly darcy: number;
   private readonly radiate: boolean;
   readonly inletKind: 'valve' | 'junction';
   readonly outletKind: 'mouth' | 'junction';
@@ -467,6 +487,15 @@ export class EulerPipe {
   /** Throat static over cylinder stagnation temperature at the last outflow solve, for the jet. */
   private valveThroatT = 1;
   private mouthFlowOut = 0;
+  /** Mass flow leaving the mouth at the last boundary solve, kg/s. */
+  mouthMassFlow = 0;
+  /**
+   * What the mouth opens into: its pressure, Pa, and density, kg/m^3, and the resistance of the
+   * radiation load, Pa s/m, which is that gas's. The atmosphere, unless `setReservoir` says otherwise.
+   */
+  private resP: number = GAS.pAmb;
+  private resRho: number = AMBIENT_RHO;
+  private resResistance: number = MOUTH_RESISTANCE;
   /**
    * One-pole coefficient at the plane-wave cut-on, applied to the wave arriving at the mouth,
    * recomputed from the *substep* duration rather than the audio sample period, because
@@ -572,11 +601,18 @@ export class EulerPipe {
      * capacity it was compiled for. The TypeScript loops below are then used unchanged, and
      * `test/kernel.test.ts` asserts the two paths are bit-identical rather than merely close.
      */
-    const kernel =
-      opts.useKernel === false ? null : EulerKernel.create(this.n, GAMMA, MEAN_FLOW_RATE);
+    const segment = opts.kernelSegment;
+    const kernel = segment
+      ? segment.kernel
+      : opts.useKernel === false
+        ? null
+        : EulerKernel.create(this.n, GAMMA, MEAN_FLOW_RATE);
     this.kernel = kernel;
+    this.batched = segment !== undefined;
+    this.segmentSlot = segment ? 2 * segment.index + 1 : 0;
+    const base = segment ? segment.offset : 0;
     const field = (name: KernelField, len: number): Float64Array =>
-      kernel !== null ? kernel.fields[name].subarray(0, len) : new Float64Array(len);
+      kernel !== null ? kernel.fields[name].subarray(base, base + len) : new Float64Array(len);
     const cell = (name: KernelField) => field(name, this.n);
     const face = (name: KernelField) => field(name, this.n + 1);
 
@@ -713,6 +749,33 @@ export class EulerPipe {
   // State access
   // -------------------------------------------------------------------------
 
+  /**
+   * Open the mouth into a reservoir rather than the atmosphere: an intake runner's end in the
+   * manifold. The boundary is the same open end, with that gas in place of the outside air's. Read
+   * from `io`: pressure (Pa), density (kg/m^3) and sound speed (m/s) at `RES_P`, `RES_RHO` and `RES_C`.
+   * Held until the next call.
+   *
+   * Through an array rather than arguments, because this runs for every runner every sample from a
+   * loop too big to inline it, and a float argument to a call that is not inlined is boxed.
+   */
+  setReservoir(io: Float64Array): void {
+    const rho = io[RES_RHO]!;
+    this.resP = io[RES_P]!;
+    this.resRho = rho;
+    this.resResistance = RESISTANCE_PER_RHO_C * rho * io[RES_C]!;
+  }
+
+  /**
+   * `valveFluxFor`, into `valveFluxOut` rather than returned, for a caller that cannot count on
+   * inlining it: a float returned from a call that is not inlined is boxed.
+   */
+  computeValveFlux(valve: ValveState): void {
+    this.valveFluxOut = this.valveFlux(valve);
+  }
+
+  /** What `computeValveFlux` last found, kg/s, positive out of the cylinder. */
+  valveFluxOut = 0;
+
   setPrimitive(i: number, rho: number, u: number, p: number): void {
     this.rho[i] = rho;
     this.mom[i] = rho * u;
@@ -754,6 +817,14 @@ export class EulerPipe {
     out[0] = this.pressureAt(0);
     out[1] = this.temperatureAt(0);
     out[2] = this.areaCell[0]!;
+  }
+
+  /** The mouth cell's pressure, temperature and area, into `out[0..2]`, as `readPort` does the inlet's. */
+  readMouth(out: Float64Array): void {
+    const last = this.n - 1;
+    out[0] = this.pressureAt(last);
+    out[1] = this.temperatureAt(last);
+    out[2] = this.areaCell[last]!;
   }
 
   get inletArea(): number {
@@ -889,9 +960,16 @@ export class EulerPipe {
       this.valveThroatT = io[6]! > 0 ? io[8]! : 1;
       return io[6]!;
     }
+    // Flowing back into the cylinder, the gas arrives at the valve moving: what drives it through is
+    // its total pressure, the static pressure plus what its motion toward the valve recovers, and its
+    // total temperature. An intake runner's column reaches 60-70 m/s at the port at high rpm, which is
+    // 2-3 kPa of pressure that the static value leaves out — and that ramming is what fills the cylinder.
+    const r0 = this.rho[0]!;
+    const u0 = this.mom[0]! / r0;
+    const toward = u0 < 0 ? -u0 : 0;
     io[5] = GAMMA;
-    io[2] = pPort;
-    io[3] = port[1]!;
+    io[2] = pPort + 0.5 * r0 * toward * toward;
+    io[3] = port[1]! + (toward * toward) / (2 * CP);
     io[4] = valve.cylPressure;
     orificeSolve(io);
     return -io[6]!;
@@ -1069,7 +1147,10 @@ export class EulerPipe {
   private reconstruct(dt: number): void {
     const kernel = this.kernel;
     if (kernel !== null) {
-      const maxSpeed = kernel.reconstruct(this.n, dt, this.limiterCode);
+      // A shared kernel has already been stepped for every duct in it.
+      const maxSpeed = this.batched
+        ? kernel.segmentSpeeds[this.segmentSlot]!
+        : kernel.reconstruct(this.n, dt, this.limiterCode);
       this.lastMaxSpeed = Number.isFinite(maxSpeed) ? Math.max(maxSpeed, 1) : 1e5;
       return;
     }
@@ -1212,8 +1293,9 @@ export class EulerPipe {
    */
   private update(valve: ValveState): void {
     const kernel = this.kernel;
-    if (kernel !== null) kernel.update(this.n, this.boundaryDt, this.linearDamping, this.darcy);
-    else this.updateCellsTs(this.boundaryDt);
+    if (kernel !== null) {
+      if (!this.batched) kernel.update(this.n, this.boundaryDt, this.linearDamping, this.darcy);
+    } else this.updateCellsTs(this.boundaryDt);
     this.applyValveSource(valve);
     const cross = this.crossModes;
     if (cross !== null) {
@@ -1392,6 +1474,7 @@ export class EulerPipe {
       // Closed wall: mirror the state so no mass or energy crosses.
       hllc(r, u, p, r, -u, p, n, this.f0, this.f1, this.f2, this.fp);
       this.mouthFlowOut = 0;
+      this.mouthMassFlow = 0;
       return;
     }
 
@@ -1415,12 +1498,15 @@ export class EulerPipe {
     if (u >= c) {
       this.supersonicFaces++;
       hllc(r, u, p, r, u, p, n, this.f0, this.f1, this.f2, this.fp);
-      this.mouthFlowOut = (this.f0[n]! * this.areaFace[n]!) / r;
+      this.mouthMassFlow = this.f0[n]! * this.areaFace[n]!;
+      this.mouthFlowOut = this.mouthMassFlow / r;
       return;
     }
 
     const zc = r * c;
-    const pPrime = p - GAS.pAmb;
+    const resP = this.resP;
+    const resRho = this.resRho;
+    const pPrime = p - resP;
     // Split into travelling components about the local state.
     const pPlus = 0.5 * (pPrime + zc * u);
 
@@ -1444,15 +1530,15 @@ export class EulerPipe {
     // zc / (2 w_pw); it is taken out of the load's so the end correction is counted once.
     const a = this.mouthRadius;
     const inertance = Math.max(
-      AMBIENT_RHO * OPEN_END_FACTOR * a - (0.5 * zc) / this.planeWaveCutoffRad,
-      1e-3 * AMBIENT_RHO * a,
+      resRho * OPEN_END_FACTOR * a - (0.5 * zc) / this.planeWaveCutoffRad,
+      1e-3 * resRho * a,
     );
     const pLoad =
-      ((2 * pIn) / zc - this.mouthPhi) / (1 / zc + 1 / MOUTH_RESISTANCE + dt / inertance);
+      ((2 * pIn) / zc - this.mouthPhi) / (1 / zc + 1 / this.resResistance + dt / inertance);
     this.mouthPhi += (dt * pLoad) / inertance;
     const pMinus = pLoad - pIn;
 
-    const pGhost = Math.max(GAS.pAmb + pPlus + pMinus, 1e-3);
+    const pGhost = Math.max(resP + pPlus + pMinus, 1e-3);
 
     /**
      * Ghost velocity from the outgoing Riemann invariant, not from the linear impedance.
@@ -1525,13 +1611,14 @@ export class EulerPipe {
        * the linear limit the invariant form and the acoustic `(pPlus - pMinus) / zc` agree, which
        * is what keeps `|R|` right. Only the entropy is imposed from outside.
        */
-      rGhost = Math.max(AMBIENT_RHO * Math.pow(pGhost / GAS.pAmb, INV_GAMMA), 1e-7);
+      rGhost = Math.max(resRho * Math.pow(pGhost / resP, INV_GAMMA), 1e-7);
     }
 
     hllc(r, u, p, rGhost, uGhost, pGhost, n, this.f0, this.f1, this.f2, this.fp);
 
     // Volume flow leaving the mouth, from the mass flux the Riemann solver produced.
-    this.mouthFlowOut = (this.f0[n]! * this.areaFace[n]!) / r;
+    this.mouthMassFlow = this.f0[n]! * this.areaFace[n]!;
+    this.mouthFlowOut = this.mouthMassFlow / r;
   }
 
   /**
@@ -2090,6 +2177,14 @@ const MIN_DUCT_CELLS = 3;
  * assumed `dx === cellSize` could pick a grid one rounding step below a substep threshold and
  * silently pay double. See `budgetedCellSize`.
  */
+/**
+ * A kernel for several short ducts to share, with this solver's constants, or `null` where there is no
+ * kernel. See `EulerPipeOptions.kernelSegment`.
+ */
+export function createSharedKernel(): EulerKernel | null {
+  return EulerKernel.createShared(GAMMA, MEAN_FLOW_RATE);
+}
+
 export function ductCellCount(
   length: number,
   cellSize: number,

@@ -99,6 +99,50 @@ export function updateIo(n: i32): void {
   update(n, load<f64>(IO + IO_DT), load<f64>(IO + IO_KLIN), load<f64>(IO + IO_DARCY));
 }
 
+/**
+ * Several short ducts in one block, stepped by one call each for the reconstruction and the update.
+ *
+ * A duct a few cells long spends most of a call on the call itself and on setting up its loops, and
+ * a set of them, one per cylinder, pays that once per duct per step. Packed side by side in one
+ * block, each at its own offset, they are stepped here in a loop inside the module instead.
+ *
+ * The table holds, per duct, its first cell (i32, even, so every vector load stays aligned) and its
+ * cell count (i32), and receives the reconstruction's largest `|u| + c` (f64): 16 bytes each.
+ */
+const SEG_CAP: i32 = 16;
+const SEG_TABLE: usize = memory.data(SEG_CAP * 16, 16);
+
+export function segmentTableOffset(): usize {
+  return SEG_TABLE;
+}
+export function segmentCapacity(): i32 {
+  return SEG_CAP;
+}
+
+/** `reconstruct` over the first `count` ducts of the segment table, `dt` from the I/O block. */
+export function reconstructBatchIo(count: i32, limiter: i32): void {
+  const dt = load<f64>(IO + IO_DT);
+  for (let k = 0; k < count; k++) {
+    const e = SEG_TABLE + <usize>k * 16;
+    SEG = <usize>load<i32>(e) * 8;
+    store<f64>(e + 8, reconstruct(load<i32>(e + 4), dt, limiter));
+  }
+  SEG = 0;
+}
+
+/** `update` over the first `count` ducts of the segment table, its scalars from the I/O block. */
+export function updateBatchIo(count: i32): void {
+  const dt = load<f64>(IO + IO_DT);
+  const kLin = load<f64>(IO + IO_KLIN);
+  const darcy = load<f64>(IO + IO_DARCY);
+  for (let k = 0; k < count; k++) {
+    const e = SEG_TABLE + <usize>k * 16;
+    SEG = <usize>load<i32>(e) * 8;
+    update(load<i32>(e + 4), dt, kLin, darcy);
+  }
+  SEG = 0;
+}
+
 // Field indices. The TypeScript loader builds its views in this order.
 const I_RHO: i32 = 0;
 const I_MOM: i32 = 1;
@@ -126,9 +170,17 @@ const I_CONTRACTIONK: i32 = 22;
 const I_UMEAN: i32 = 23;
 
 // @ts-ignore: AssemblyScript decorator
+/**
+ * Byte offset, within every field, of the duct being stepped.
+ *
+ * Zero for a duct with the kernel to itself. Nonzero only while `reconstructBatchIo` or
+ * `updateBatchIo` steps one of several short ducts packed side by side in the same block.
+ */
+let SEG: usize = 0;
+
 @inline
 function fld(k: i32): usize {
-  return BASE + <usize>k * STRIDE8;
+  return BASE + <usize>k * STRIDE8 + SEG;
 }
 
 // ---------------------------------------------------------------------------

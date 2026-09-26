@@ -35,6 +35,7 @@ import {
   type DynoConfig,
   type PipeSegment,
   displacement,
+  intakeRunnerOf,
   exhaustLayoutOf,
   fullLoadTorque,
   exhaustPortDiameter,
@@ -47,8 +48,6 @@ import {
 import { Delay, Impact, Noise, Resonator, clamp, softClip, wrapCycle } from './dsp.js';
 import {
   ADVANCE_IO_SIZE,
-  CYL_BURNED,
-  CYL_FUEL,
   CYL_PRESSURE,
   CYL_STATE_SIZE,
   CYL_TEMP,
@@ -73,32 +72,14 @@ import {
   type EulerPipeOptions,
   type ValveState,
 } from './eulerPipe.js';
-import { compileLayout, nodeOrder, validateGraph, type ExhaustGraph } from '../../model/exhaustGraph.js';
+import { compileExhaust, nodeOrder, validateGraph, type ExhaustGraph } from '../../model/exhaustGraph.js';
 import { ExhaustSystem } from './exhaustSystem.js';
 import { IntakePlenum } from './plenum.js';
 import { DynoRun } from './drivetrain.js';
-import { ORIFICE_IO, orificeSolve, VALVE_CD, valveFlowArea, valveLift } from './valve.js';
+import { valveFlowArea, valveLift } from './valve.js';
+import { IntakeRunners, RUN_BURNED, RUN_DT, RUN_FUEL, RUN_INJECT, RUN_IO_SIZE, RUN_P, RUN_RHO } from './intake.js';
 
-/** Slots of `EngineSim.intakeIo`. */
-const INTAKE_P_PLENUM = 0;
-const INTAKE_T_PLENUM = 1;
-const INTAKE_GAMMA_PLENUM = 2;
-const INTAKE_AREA = 3;
-const INTAKE_BREATHING = 4;
-const INTAKE_WEIGHT = 5;
-const INTAKE_MDOT = 6;
-const INTAKE_IO_SIZE = 7;
 
-/**
- * Slots of `EngineSim.intakeAcc`: net valve flow, and the back-flow's mass, mass*T, mass*burned and
- * mass*fuel.
- */
-const ACC_FLOW = 0;
-const ACC_BACK_MASS = 1;
-const ACC_BACK_ENERGY = 2;
-const ACC_BACK_BURNED = 3;
-const ACC_BACK_FUEL = 4;
-const ACC_SIZE = 5;
 
 /**
  * Pressure, in pascals, that maps to digital full scale. An open-piped single at
@@ -363,10 +344,6 @@ export class EngineSim {
   private liftNow: Float64Array = new Float64Array(3);
   /** Inputs to `Cylinder.advanceIo`, reused for every cylinder. */
   private readonly cylIo = new Float64Array(ADVANCE_IO_SIZE);
-  /** Inputs and output of `intakeFlowNow`, at the `INTAKE_*` slots. */
-  private readonly intakeIo = new Float64Array(INTAKE_IO_SIZE);
-  /** What the plenum is handed this sample, at the `ACC_*` slots. */
-  private readonly intakeAcc = new Float64Array(ACC_SIZE);
   /** Each cylinder's pressure, temperature and burned fraction at the start of this sample. See `Cylinder.readState`. */
   private cylState: Float64Array = new Float64Array(CYL_STATE_SIZE);
   /** The exhaust port's pressure, temperature and area, read through `EulerPipe.readPort`. */
@@ -426,6 +403,16 @@ export class EngineSim {
   private lastValveMdot!: Float64Array;
   /** Reused valve-state objects, so the hot path allocates nothing. */
   private valveStates!: ValveState[];
+  /** Each cylinder's intake valve, as its runner sees it. Filled every sample. */
+  private inValves!: ValveState[];
+  /** The intake runners. See `IntakeRunners`. */
+  private intake!: IntakeRunners;
+  /** Fuel mass fraction the port injectors bring the charge to: `fuelFractionAt` the spec's λ. */
+  private injectFraction = 0;
+  /** One cylinder's swept volume of ambient air, kg: what a volumetric efficiency of 1 traps. */
+  private fullChargeKg = 1;
+  /** The scalars `IntakeRunners.advance` is handed, at the `RUN_*` slots. */
+  private readonly runIo = new Float64Array(RUN_IO_SIZE);
   /** Summed gas + inertia torque from the previous sample, N*m. */
   private torqueLast = 0;
   /** Per-bank scratch, sized to the cylinder count. */
@@ -508,6 +495,8 @@ export class EngineSim {
      */
     this.graph = graph ?? config.graph ?? null;
     this.spec = { ...config.engine };
+    this.injectFraction = fuelFractionAt(this.spec.lambda);
+    this.fullChargeKg = (GAS.pAmb * displacement(this.spec)) / (GAS.R * GAS.tAmb);
     this.displacementM3 = displacement(this.spec) * this.spec.cylinders;
     this.loadTorqueNm = loadTorqueOf(this.spec);
     this.pipe = config.pipe.map((s) => ({ ...s }));
@@ -516,6 +505,7 @@ export class EngineSim {
     this.plenum = new IntakePlenum(this.spec);
     this.cyls = this.buildCylinders();
     this.allocatePerCylinder();
+    this.intake = this.buildIntake();
     this.structure = STRUCTURAL_MODES.map(
       ([hz, q]) => new Resonator(hz, q, sampleRate),
     );
@@ -592,9 +582,12 @@ export class EngineSim {
     const prevPortDia = exhaustPortDiameter(this.spec);
     const prevCellSize = this.spec.pipeCellSize;
     const prevWallThickness = this.spec.pipeWallThickness;
+    const prevRunner = intakeRunnerOf(this.spec);
     const prevLayout = this.layoutKey();
     const prevPhase = firingPlan(this.spec).offsets.join(',');
     this.spec = { ...this.spec, ...partial };
+    this.injectFraction = fuelFractionAt(this.spec.lambda);
+    this.fullChargeKg = (GAS.pAmb * displacement(this.spec)) / (GAS.R * GAS.tAmb);
     this.displacementM3 = displacement(this.spec) * this.spec.cylinders;
     this.loadTorqueNm = loadTorqueOf(this.spec);
     if (!this.spec.freeRunning) {
@@ -617,8 +610,11 @@ export class EngineSim {
     this.tuneStructure();
     // Port temperature sets the speed of sound, and the port itself is the first
     // length of the duct, so any of these changes the discretisation — as do the cell
-    // size, the wall and the layout.
+    // size, the wall and the layout, and the intake runners, which share the grid.
+    const runner = intakeRunnerOf(this.spec);
     if (
+      runner.length !== prevRunner.length ||
+      runner.diameter !== prevRunner.diameter ||
       this.spec.portGasTemp !== prevTemp ||
       this.spec.portLength !== prevPortLength ||
       exhaustPortDiameter(this.spec) !== prevPortDia ||
@@ -666,6 +662,8 @@ export class EngineSim {
    */
   private rebuildPipe(): void {
     this.wg = this.buildExhaust();
+    // On the same grid as the exhaust, which the cost budget chose with the runners in it.
+    this.intake = this.buildIntake();
     this.lastValveMdot.fill(0);
     // A new mouth diameter means both a new radiation corner and a new plane-wave limit.
     this.refreshFarFields();
@@ -725,7 +723,7 @@ export class EngineSim {
      * CPU is spent on cylinders and cells rather than on repeating the same cells.
      */
     const minDx = singleStepDx(this.sampleRate, cfl);
-    const requested = Math.max(this.spec.pipeCellSize, minDx, 1e-4);
+    const requested = this.requestedCellSize();
 
     // The ducts that will actually be built, with the lengths the discretiser will see.
     const port = { length: this.spec.portLength, diameter: exhaustPortDiameter(this.spec) };
@@ -733,14 +731,24 @@ export class EngineSim {
     const lengths = graph.ducts.map((d) =>
       ductGridLength(d.segments, d.from.kind === 'valve' ? port : undefined),
     );
+    /**
+     * The intake runners, one per cylinder, always on the requested grid and charged as a fixed cost.
+     *
+     * Not coarsened with the exhaust, because what a runner does depends on its resolution far more than
+     * an exhaust's sound does: a runner is a few hundred millimetres long, and on 70 mm cells it is five
+     * of them, two of which are its ends. Measured on a 5.5 litre V8 at the speed its runners are tuned
+     * for, 35 mm cells fill the cylinder to 105% where 70 mm cells give 97%.
+     */
+    const runnerCells =
+      this.spec.cylinders * ductCellCount(intakeRunnerOf(this.spec).length, requested, maxCells, minDx);
     if (lengths.length === 0) return requested;
 
     /** Cells at a candidate size: the whole cost, since every duct takes one step per sample. */
     const cellsAt = (cellSize: number): number =>
       lengths.reduce((a, l) => a + ductCellCount(l, cellSize, maxCells, minDx), 0);
 
-    /** Budget for the grid, after the cylinders and junctions it cannot avoid. */
-    const budgetFor = gridBudgetCells(this.spec.cylinders, nodeOrder(graph).length);
+    /** Budget for the grid, after the cylinders, the junctions and the intake runners. */
+    const budgetFor = gridBudgetCells(this.spec.cylinders, nodeOrder(graph).length) - runnerCells;
 
     /**
      * Scan coarser sizes and take the finest that fits.
@@ -763,6 +771,24 @@ export class EngineSim {
       }
     }
     return best;
+  }
+
+  /** One intake runner per cylinder, primed with the plenum's mixture. See `IntakeRunners`. */
+  private buildIntake(): IntakeRunners {
+    const opts = this.buildOptions();
+    // The requested cell size, not the one the budget left the exhaust: see `budgetedCellSize`.
+    const runners = new IntakeRunners(this.spec, this.sampleRate, this.cyls.length, {
+      ...opts,
+      cellSize: this.requestedCellSize(),
+    });
+    runners.prime(this.plenum.burnedFraction, 0);
+    return runners;
+  }
+
+  /** The cell size asked for, m: `pipeCellSize`, no finer than one step per sample allows. */
+  private requestedCellSize(): number {
+    const minDx = singleStepDx(this.sampleRate, this.wgOptions.cfl ?? DEFAULT_CFL);
+    return Math.max(this.spec.pipeCellSize, minDx, 1e-4);
   }
 
   /** Solver options with the cylinder-head port prepended to the user's geometry. */
@@ -854,6 +880,12 @@ export class EngineSim {
       cylGamma: GAS.gammaExh,
       extraMassFlow: 0,
     }));
+    this.inValves = Array.from({ length: n }, () => ({
+      throatArea: 0,
+      cylPressure: GAS.pAmb,
+      cylTemp: GAS.tAmb,
+      cylGamma: GAS.gammaExh,
+    }));
   }
 
   /**
@@ -890,65 +922,6 @@ export class EngineSim {
       const u = spreadOf(b, n, 3, 2);
       this.clack[b]!.set(CLACK_MODE[0] * valve * (1 + LOCAL_MODE_DETUNE * t), CLACK_MODE[1], this.sampleRate);
       this.slap[b]!.set(SLAP_MODE[0] * bore * (1 + LOCAL_MODE_DETUNE * u), SLAP_MODE[1], this.sampleRate);
-    }
-  }
-
-  /**
-   * Intake valve mass flow of cylinder `b`, kg/s, positive into the cylinder, into
-   * `intakeIo[INTAKE_MDOT]`, from the plenum state and valve area in `intakeIo` and the cylinder
-   * state in `cylState`.
-   *
-   * The orifice equation takes the upstream gas's gamma: the plenum's charge on the way in, the
-   * cylinder's own mixture on the way back out.
-   */
-  private intakeFlowNow(b: number): void {
-    const io = this.intakeIo;
-    const s = b * CYL_STATE_SIZE;
-    const pRunner = io[INTAKE_P_PLENUM]! * io[INTAKE_BREATHING]!;
-    const pCyl = this.cylState[s + CYL_PRESSURE]!;
-    const orifice = ORIFICE_IO;
-    orifice[0] = io[INTAKE_AREA]!;
-    orifice[1] = VALVE_CD;
-    if (orifice[0] <= 0 || pRunner === pCyl) {
-      io[INTAKE_MDOT] = 0;
-      return;
-    }
-    if (pRunner > pCyl) {
-      orifice[2] = pRunner;
-      orifice[3] = io[INTAKE_T_PLENUM]!;
-      orifice[4] = pCyl;
-      orifice[5] = io[INTAKE_GAMMA_PLENUM]!;
-      orificeSolve(orifice);
-      io[INTAKE_MDOT] = orifice[6]!;
-      return;
-    }
-    orifice[2] = pCyl;
-    orifice[3] = this.cylState[s + CYL_TEMP]!;
-    orifice[4] = pRunner;
-    orifice[5] = 1 + GAS.R / (CV_REF + CV_SLOPE * (orifice[3] - T_REF));
-    orificeSolve(orifice);
-    io[INTAKE_MDOT] = -orifice[6]!;
-  }
-
-  /**
-   * Add one substep's intake flow of cylinder `b` to what the plenum is handed, weighted so the
-   * sum over the substeps is the sample average.
-   */
-  private accumulateIntake(b: number): void {
-    const io = this.intakeIo;
-    const acc = this.intakeAcc;
-    const s = b * CYL_STATE_SIZE;
-    const w = io[INTAKE_WEIGHT]!;
-    const inMdot = io[INTAKE_MDOT]!;
-    acc[ACC_FLOW] += inMdot * w;
-    if (inMdot < 0) {
-      // Back-flow up the runner. Mass-weight its temperature and composition so several
-      // cylinders spitting at once are averaged rather than the last one winning.
-      const m = -inMdot * w;
-      acc[ACC_BACK_MASS] += m;
-      acc[ACC_BACK_ENERGY] += m * this.cylState[s + CYL_TEMP]!;
-      acc[ACC_BACK_BURNED] += m * this.cylState[s + CYL_BURNED]!;
-      acc[ACC_BACK_FUEL] += m * this.cylState[s + CYL_FUEL]!;
     }
   }
 
@@ -1046,7 +1019,7 @@ export class EngineSim {
 
   /** Everything that forces a full rebuild of cylinders and ducts when it changes. */
   private layoutKey(): string {
-    return `${this.spec.cylinders}/${exhaustLayoutOf(this.spec)}/${this.spec.crankType}`;
+    return `${this.spec.cylinders}/${exhaustLayoutOf(this.spec)}/${this.spec.crankType}/${this.spec.exhaustHeaders}`;
   }
 
   /**
@@ -1100,7 +1073,7 @@ export class EngineSim {
           'using the layout until a new one arrives',
       );
     }
-    return compileLayout(this.spec, this.pipe, this.collectorPipe);
+    return compileExhaust(this.spec, this.pipe, this.collectorPipe);
   }
 
   private buildExhaust(): ExhaustSystem {
@@ -1175,6 +1148,11 @@ export class EngineSim {
       const fmep = 0.8e5 + 120 * this.omegaMean;
       const friction = (fmep * this.displacementM3) / (4 * Math.PI);
       const dyno = this.dyno;
+      if (dyno) {
+        let fresh = 0;
+        for (let b = 0; b < this.cyls.length; b++) fresh += this.cyls[b]!.trappedFresh;
+        dyno.volumetricEfficiency = fresh / this.cyls.length / this.fullChargeKg;
+      }
       const load = dyno
         ? dyno.step(dt, this.omegaMean, torque - friction, this.cyls[0]!.angle)
         : spec.freeRunning
@@ -1322,6 +1300,11 @@ export class EngineSim {
       // `gasGamma`, written out: a call here would box its argument and result.
       valves[b]!.cylGamma = 1 + GAS.R / (CV_REF + CV_SLOPE * (tCyl - T_REF));
       valves[b]!.extraMassFlow = extraMassFlow;
+      const inValve = this.inValves[b]!;
+      inValve.throatArea = valveFlowArea(inLift, spec.inValveDia) * spec.inValveCount;
+      inValve.cylPressure = pCyl;
+      inValve.cylTemp = tCyl;
+      inValve.cylGamma = valves[b]!.cylGamma;
 
       this.exLift[b] = exLift;
       this.inLift[b] = inLift;
@@ -1345,33 +1328,29 @@ export class EngineSim {
     const pipeResult = this.wg.advance(dt, valves);
     this.substeps = pipeResult.substeps;
 
-    // --- Cylinder gas state, sub-stepped ------------------------------------
-    // Manifold pressure is solved by the plenum rather than mapped from the throttle.
+    // --- Intake runners, all in lockstep --------------------------------------
+    // The manifold feeds the runners and the runners feed the valves; see `IntakeRunners`.
     const pPlenum = this.plenum.pressure;
     const tPlenum = this.plenum.temp;
     const plenumBurned = this.plenum.burnedFraction;
     const plenumFuel = this.plenum.fuelFraction;
-    // Accumulated over the cylinders, then handed to the plenum once below.
-    const intake = this.intakeAcc;
-    intake.fill(0);
-    const intakeIo = this.intakeIo;
-    intakeIo[INTAKE_P_PLENUM] = pPlenum;
-    intakeIo[INTAKE_T_PLENUM] = tPlenum;
-    // `gasGamma`, written out: a call here would box its argument and result.
-    intakeIo[INTAKE_GAMMA_PLENUM] = 1 + GAS.R / (CV_REF + CV_SLOPE * (tPlenum - T_REF));
+    const intake = this.intake;
+    const runIo = this.runIo;
+    runIo[RUN_DT] = dt;
+    runIo[RUN_P] = pPlenum;
+    runIo[RUN_RHO] = pPlenum / (GAS.R * tPlenum);
+    runIo[RUN_BURNED] = plenumBurned;
+    runIo[RUN_FUEL] = plenumFuel;
+    runIo[RUN_INJECT] = this.fuelCutActive ? 0 : this.injectFraction;
+    intake.advance(runIo, this.inValves, this.breathing, this.cylState);
 
+    // --- Cylinder gas state, sub-stepped ------------------------------------
     for (let b = 0; b < banks; b++) {
       const cyl = this.cyls[b]!;
       const exMdot = pipeResult.valveMassFlows[b]!;
       this.lastValveMdot[b] = exMdot;
-      const inArea = valveFlowArea(this.inLift[b]!, spec.inValveDia) * spec.inValveCount;
-      intakeIo[INTAKE_AREA] = inArea;
-      // Each cylinder sees a slightly different runner pressure — see `breathing`.
-      intakeIo[INTAKE_BREATHING] = this.breathing[b]!;
-      // A first estimate from the state the first loop read, only to choose the substep count;
-      // the flow actually integrated is recomputed from the cylinder's own state every substep.
-      this.intakeFlowNow(b);
-      const inMdot = intakeIo[INTAKE_MDOT]!;
+      // The runner's valve flow is positive out of the cylinder; the cylinder's is positive in.
+      const inMdot = -intake.valveMassFlows[b]!;
       this.wg.primaries[b]!.readPort(this.portState);
       const portTemp = this.portState[1]!;
 
@@ -1392,48 +1371,43 @@ export class EngineSim {
       io[IO_DT] = subDt;
       io[IO_OMEGA] = this.omega;
       io[IO_EX] = exMdot;
-      io[IO_INTAKE_T] = tPlenum;
+      io[IO_IN] = inMdot;
+      io[IO_INTAKE_T] = intake.portTemps[b]!;
       io[IO_PORT_T] = portTemp;
-      io[IO_INTAKE_BURNED] = plenumBurned;
-      io[IO_INTAKE_FUEL] = plenumFuel;
-      intakeIo[INTAKE_WEIGHT] = 1 / nSub;
-      if (inArea > 0) {
-        for (let k = 0; k < nSub; k++) {
-          // The intake valve sees the cylinder pressure as it evolves through the sample. Held at
-          // the start-of-sample value it keeps flowing after the pressures have crossed.
-          if (k > 0) {
-            const end = cyl.endState;
-            const st = this.cylState;
-            const s = b * CYL_STATE_SIZE;
-            st[s + CYL_PRESSURE] = end[CYL_PRESSURE]!;
-            st[s + CYL_TEMP] = end[CYL_TEMP]!;
-            st[s + CYL_BURNED] = end[CYL_BURNED]!;
-            this.intakeFlowNow(b);
-          }
-          io[IO_IN] = intakeIo[INTAKE_MDOT]!;
-          this.accumulateIntake(b);
-          cyl.advanceIo(spec, io);
-        }
-      } else {
-        io[IO_IN] = 0;
-        for (let k = 0; k < nSub; k++) cyl.advanceIo(spec, io);
-      }
+      io[IO_INTAKE_BURNED] = intake.burned[b]!;
+      io[IO_INTAKE_FUEL] = intake.inflowFuel[b]!;
+      for (let k = 0; k < nSub; k++) cyl.advanceIo(spec, io);
       torqueSum += cyl.torque + cyl.inertiaTorque;
       dpdtSum += cyl.dpdt;
       this.prevExLift[b] = this.exLift[b]!;
       this.prevInLift[b] = this.inLift[b]!;
     }
 
-    // The plenum sees the sum of the valve flows, and takes back whatever was spat at it.
-    const backflowMass = intake[ACC_BACK_MASS]!;
+    // --- Plenum -------------------------------------------------------------
+    // It sees the sum of what the runners draw, and takes back whatever they return, at their
+    // plenum ends' temperature and composition.
+    let drawn = 0;
+    let back = 0;
+    let backT = 0;
+    let backBurned = 0;
+    let backFuel = 0;
+    for (let b = 0; b < banks; b++) {
+      const f = intake.plenumFlows[b]!;
+      drawn -= f;
+      if (f > 0) {
+        back += f;
+        backT += f * intake.plenumTemps[b]!;
+        backBurned += f * intake.burned[b]!;
+        backFuel += f * intake.fuel[b]!;
+      }
+    }
     this.plenum.step(
       dt,
-      intake[ACC_FLOW]!,
-      backflowMass,
-      backflowMass > 0 ? intake[ACC_BACK_ENERGY]! / backflowMass : tPlenum,
-      backflowMass > 0 ? intake[ACC_BACK_BURNED]! / backflowMass : 0,
-      backflowMass > 0 ? intake[ACC_BACK_FUEL]! / backflowMass : 0,
-      this.fuelCutActive ? 0 : fuelFractionAt(spec.lambda),
+      drawn,
+      back,
+      back > 0 ? backT / back : tPlenum,
+      back > 0 ? backBurned / back : 0,
+      back > 0 ? backFuel / back : 0,
     );
 
     // --- Structure-borne noise ----------------------------------------------
@@ -1571,7 +1545,7 @@ export class EngineSim {
       torque: this.torqueLast,
       pipePressure: this.tapBuffer.slice(),
       peak: this.peak,
-      pipeCells: this.wg.cells,
+      pipeCells: this.wg.cells + this.intake.cells,
       substeps: this.substeps,
       wallTemp: this.wg.meanWallTemp(),
     };

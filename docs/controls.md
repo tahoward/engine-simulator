@@ -8,6 +8,9 @@
 - **Engine preset** loads a complete engine: its layout, firing order, sizes and a matching exhaust.
   It starts idling at 800 rpm in neutral, on a throttle opening found for that engine. Open the
   throttle and add load to go from there.
+- **Layout → Equal-length headers** gives each cylinder its own primary all the way to one merge
+  per collector, instead of a manifold along the ports. The primary length then tunes the engine:
+  see [Headers scavenge](engine.md#the-intake).
 - **Layout → Cylinders** changes only the layout: single, twin, inline three to six, V6, V8, or a
   four- or six-cylinder boxer. It also builds an exhaust to suit. The **Exhaust** menu below it
   picks the pipe style: separate pipes, one collector per bank, or one collector for all cylinders.
@@ -22,6 +25,19 @@
 
 - **Valves per cylinder** chooses a two-valve head (one intake, one exhaust) or a four-valve head
   (two of each). The **Exhaust valve** and **Intake valve** sizes are for each valve.
+
+## Intake
+
+- **Intake runner length** and **Intake runner bore** size each cylinder's runner from the plenum
+  to its valve. At 0 they are sized for the engine: the bore from the valves, the length tuned to
+  three quarters of the rev limit. Longer makes more low-rpm torque, shorter more high-rpm power.
+  See [The intake](engine.md#the-intake).
+- The line at the top of the section gives the runners' size and the speed they are tuned for,
+  where they ram the charge in hardest and the torque peaks near.
+- **Plenum volume** is the manifold the runners draw from. At 0 it is one and a half times the
+  engine's displacement.
+- **Throttle bore** sets the throttle's size. At 0 it is sized for the engine's airflow at full
+  throttle and 7000 rpm.
 
 ## Combustion
 

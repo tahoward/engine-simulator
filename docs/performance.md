@@ -12,24 +12,39 @@ engine's own preset speed. Measured on an Apple M3 Max:
 
 ```
 preset                             cells  steps  % of one core @ 6500 rpm
-Open header, single                   19      1        5.8%
-Megaphone, single                     27      1        6.6%
-Tuned expansion chamber, single       32      1        7.0%
-Street muffler, single                37      1        7.5%
-Long tuned pipe, single               45      1        8.3%
-45° V-twin, 2-into-1                  46      1       11.5%
-90° V-twin, 2-into-2                  48      1       10.9%
-Parallel twin, 360°                   34      1       11.6%
-Inline three                          73      1       19.9%
-Inline four                           82      1       24.8%
-Boxer four                            89      1       25.2%
-Inline five                           88      1       30.9%
-Inline six                            95      1       36.9%
-V6, 60°, manifold per bank           150      1       40.5%
-Boxer six                            152      1       40.9%
-V8, flatplane, manifold per bank     128      1       53.9%
-V8, crossplane, manifold per bank    192      1       56.2%
+Open header, single                   19      1        8.5%
+Megaphone, single                     26      1        9.0%
+Tuned expansion chamber, single       31      1        9.5%
+Street muffler, single                37      1       10.0%
+Long tuned pipe, single               44      1       10.9%
+45° V-twin, 2-into-1                  46      1       17.4%
+90° V-twin, 2-into-2                  46      1       13.9%
+Parallel twin, 360°                   33      1       15.3%
+Inline three                          73      1       27.3%
+Inline four                           81      1       34.1%
+Boxer four                            85      1       35.7%
+Inline five                           88      1       44.1%
+Inline six                            94      1       53.3%
+V6, 60°, manifold per bank           148      1       55.3%
+Boxer six                            150      1       55.5%
+V8, Chevrolet LT6                    216      1       66.7%
+V8, flatplane, manifold per bank     122      1       68.9%
+V8, Chevrolet LT2                    234      1       71.0%
+V8, crossplane, manifold per bank    134      1       72.5%
+V8, overcammed                       142      1       73.1%
 ```
+
+`cells` counts the exhaust's. Each cylinder also has an intake runner, always on the finest grid
+the sample rate allows, and the budget charges those cells first: see [The intake](engine.md#the-intake)
+for why the runners are not coarsened. So on an engine whose budget is tight, the exhaust gives up
+cells instead. The crossplane V8, with eight junctions along its manifolds, has its exhaust at 134
+cells where it would otherwise have 182. Engines with headers have two junctions rather than eight,
+which leaves room for the long primaries.
+
+The runners share one kernel instance, packed side by side in its memory, and every runner's cell
+loops run in one call per step. A runner is only a few cells long, so a call into the kernel for
+each one would cost as much as the cells it steps. Each runner solves its own boundaries and valve
+in TypeScript, and that is most of what they cost.
 
 Speed barely matters: every preset costs within about a point of the same at its own rpm. What
 matters is what the engine is made of — cylinders, junctions and pipe cells.

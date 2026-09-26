@@ -531,6 +531,8 @@ button.tool:hover {
   border: 1px solid var(--line);
   background: var(--panel);
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  max-height: calc(100% - 24px);
+  overflow-y: auto;
 }
 
 .dyno-head {
@@ -562,7 +564,7 @@ button.tool:hover {
 .dyno-plot canvas {
   display: block;
   width: 100%;
-  height: 300px;
+  height: 640px;
   cursor: crosshair;
 }
 
@@ -638,6 +640,6 @@ button.tool:hover {
 
 @media (max-width: 900px) {
   .dyno-plot canvas {
-    height: 220px;
+    height: 460px;
   }
 }

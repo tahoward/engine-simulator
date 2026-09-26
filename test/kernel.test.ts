@@ -301,8 +301,11 @@ describe('wasm SIMD Euler kernel', () => {
  *
  * It is the TypeScript line for line, but its `Math.pow` is AssemblyScript's, which differs from the
  * JavaScript engine's in the last bit now and then, and in a nonlinear solver a bit grows. So it is held
- * to what that allows and no more: early on, every sample within a millionth of the signal's peak, and
- * over a full second no order of the engine that you could hear moved by more than a twentieth of a dB.
+ * to what that allows and no more: early on, every sample within a ten-thousandth of the signal's peak,
+ * 80 dB down, and over a full second no order of the engine that you could hear moved by more than a
+ * twentieth of a dB. How soon a last bit differs depends on the pressures a preset's junctions see: most
+ * presets never meet one in the first tenth of a second, but the LT6's four-into-one merges do within
+ * 20 ms, and reach 1.7e-5 of peak by the end of it.
  */
 describe('junction kernel', async () => {
   const { EngineSim } = await import('../src/audio/worklet/engineSim.js');
@@ -331,7 +334,7 @@ describe('junction kernel', async () => {
       peak = Math.max(peak, Math.abs(ts.early[i]!));
       worst = Math.max(worst, Math.abs(ts.early[i]! - wasm.early[i]!));
     }
-    expect(worst / peak, 'early difference, as a fraction of peak').toBeLessThan(1e-6);
+    expect(worst / peak, 'early difference, as a fraction of peak').toBeLessThan(1e-4);
 
     const N = 16384;
     const orders = (x: Float32Array) => {

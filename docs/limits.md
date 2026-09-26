@@ -6,10 +6,27 @@ Where the model is simplified, and by how much.
   near sharp jumps). It spreads a shock over two or three cells, about 70-105 mm at the
   default 35 mm cells. A real shock is microns thick. The steepening and the harmonics it
   creates are real, but the sharpest edge of an exhaust pulse is blunter than in reality.
-- **The intake is a single volume, not a pipe.** It holds gas that flows back during valve
-  overlap and returns it later, so leftover exhaust in the cylinder is tracked correctly.
-  Intake runners and an airbox could use the same duct solver as the exhaust. Until they do,
-  there is no intake roar.
+- **The intake runners are simplified.** Each is one straight duct, solved like the exhaust but
+  with some things left out:
+  - The runners' pressure is not radiated, so there is no intake roar.
+  - Their walls exchange no heat, so the charge is not warmed on its way in, as a hot port warms a
+    real one.
+  - The solver carries a single gamma, 1.33, where cool air's is 1.40, so the air in them carries
+    sound about 3% slower and their tuning sits about 3% low.
+  - Their spent gas and fuel are each tracked as one well-mixed fraction per runner, so gas pushed
+    back up a runner comes back spread through it rather than as a slug at the valve.
+  - They are solved on the finest grid the sample rate allows. At the lower sample rates that grid is
+    coarser, and they ram the charge in less.
+  - Each has one length. A two-stage manifold, which switches between long runners for mid-range torque
+    and short ones for power, is not modelled.
+- **Some effects that make high-output engines strong are missing.** Direct injection cools the
+  charge as the fuel evaporates, variable cam timing moves the cam for each speed, and a rich
+  mixture at full throttle adds a few percent of power. None is modelled. A 6.2 litre V8 in the
+  proportions of a Chevrolet LT2 comes out at about 600 N·m and 460 hp, against the real engine’s
+  637 N·m and 495 hp. The LT6, the 8600 rpm flat-plane V8, comes out at 650 hp at 8400 rpm, against 670,
+  but at 535 N·m at 6300 against 624: its runners are tuned for the top end, where the real engine's
+  manifold switches to its long runners below it. Its cam, rods, runners and headers are estimates,
+  since they are not published.
 - **A sealed cavity has a tiny built-in growth.** In a nearly lossless *sealed* cavity the
   solver has a small [second-order](glossary.md#order-of-accuracy) error that grows at about 1.4 /s. Normal damping is 150 /s,
   about a hundred times larger, so it stays suppressed. It is not zero.
@@ -55,9 +72,10 @@ Where the model is simplified, and by how much.
 - **The exhaust carries no chemistry.** Unburned fuel from a rich mixture, a misfire or the rev
   limiter goes down the pipe as ordinary exhaust gas. So there is no afterfire or popping on the
   overrun.
-- **The fuel is metered at the throttle, not in each port.** It reaches the cylinders through
-  the manifold, a cycle or so later. A port injector's fuel film on the port walls delays it about
-  as much. There is no knock model, so an over-advanced spark just loses power.
+- **Port injection only, and no fuel film.** The fuel is injected in each runner as vapour, straight
+  into the air it draws. A real port injector wets the port walls, and that film takes a few cycles
+  to follow a change of throttle. Direct injection, into the cylinder, is not modelled either. There
+  is no knock model, so an over-advanced spark just loses power.
 
 ## Sources
 

@@ -195,8 +195,11 @@ describe('overrun fuel cut', () => {
     const cut = watch(sim, 1);
     expect(cut.fired).toBe(0);
     expect(sim.snapshot().fuelCut).toBe(true);
-    const plenum = (sim as unknown as { plenum: { fuelFraction: number } }).plenum;
-    expect(plenum.fuelFraction).toBeLessThan(1e-4);
+    // The injectors are off, so neither the manifold nor the runners hold any fuel worth the name:
+    // under 1% of a stoichiometric charge's.
+    const inner = sim as unknown as { plenum: { fuelFraction: number }; intake: { fuel: Float64Array } };
+    expect(inner.plenum.fuelFraction).toBeLessThan(6e-4);
+    expect(inner.intake.fuel[0]!).toBeLessThan(6e-4);
   });
 
   it('keeps firing weakly on the throttle leak when it is off', () => {
@@ -239,13 +242,14 @@ describe('valves per cylinder', () => {
   }
 
   /**
-   * A four-valve engine breathes to its rev limit. The same valves, one of each, choke it: the cylinder
-   * cannot empty through them, and torque falls away long before the limit.
+   * A four-valve engine keeps most of its torque to near its rev limit, falling off past the speed its
+   * intake runners are tuned for. The same valves, one of each, choke it: the cylinder cannot empty
+   * through them, and torque halves long before the limit.
    */
   it('lets a four-valve head breathe at high rpm, where one valve of each chokes', () => {
     const four = boxerTorque(6200) / boxerTorque(3600);
     const two = boxerTorque(6200, { exValveCount: 1, inValveCount: 1 }) / boxerTorque(3600, { exValveCount: 1, inValveCount: 1 });
-    expect(four).toBeGreaterThan(0.9);
-    expect(two).toBeLessThan(four - 0.15);
+    expect(four).toBeGreaterThan(0.75);
+    expect(two).toBeLessThan(four - 0.2);
   });
 });
