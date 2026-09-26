@@ -42,6 +42,7 @@ import { Viewer } from './scene/Viewer.js';
 import { Panel, SAMPLE_RATES, type ViewOptions } from './ui/Panel.js';
 import { Scope } from './ui/Scope.js';
 import { DynoSheet } from './ui/DynoSheet.js';
+import { LagNotice } from './ui/LagNotice.js';
 
 const viewportEl = must<HTMLElement>('#viewport');
 const panelEl = must<HTMLElement>('#panel');
@@ -307,17 +308,25 @@ const panel = new Panel(panelEl, config, {
       audio.dyno(dynoConfig);
     });
   },
-  onSampleRate: (hz) => {
-    try {
-      localStorage.setItem(SAMPLE_RATE_KEY, String(hz));
-    } catch {
-      // Storage can be off (private browsing); the choice then lasts until reload.
-    }
-    void audio.setSampleRate(hz);
-  },
+  onSampleRate: changeSampleRate,
   onView: applyView,
   onResetView: () => viewer.frameBounds(sceneBounds()),
 }, sampleRate);
+
+const lagNotice = new LagNotice(must<HTMLElement>('#stage'), (hz) => {
+  panel.setSampleRate(hz);
+  changeSampleRate(hz);
+});
+audio.onLag((behind) => lagNotice.update(behind, audio.sampleRate));
+
+function changeSampleRate(hz: number): void {
+  try {
+    localStorage.setItem(SAMPLE_RATE_KEY, String(hz));
+  } catch {
+    // Storage can be off (private browsing); the choice then lasts until reload.
+  }
+  void audio.setSampleRate(hz);
+}
 
 const scope = new Scope(scopeEl, audio);
 const dynoSheet = new DynoSheet(must<HTMLElement>('#stage'));
