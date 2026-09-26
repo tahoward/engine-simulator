@@ -104,8 +104,27 @@ Only the workflow produces what gets published.
 
 ## The desktop app
 
-The desktop app is not published by the workflow. `npm run desktop:build` builds it for the machine
-it runs on, with Tauri's bundler: an app bundle and a disk image on macOS, an installer on Windows,
-packages on Linux. A signed macOS build needs an Apple developer certificate, configured as the
-[Tauri documentation](https://v2.tauri.app/distribute/sign/macos/) describes; unsigned, it runs on
-the machine that built it.
+Pushing a version tag releases the desktop app:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+[`.github/workflows/release.yml`](https://github.com/tahoward/engine-simulator/blob/main/.github/workflows/release.yml)
+then:
+
+1. **Runs the physics tests** (`cargo test --release -p engine-sim`). A failure stops the release.
+2. **Builds the app on macOS and on Windows**, each on its own runner, with Tauri's own action. The
+   macOS build is universal, one app for Apple silicon and Intel. The tag sets the version, so
+   nothing in the repository needs bumping first.
+3. **Publishes a GitHub release** named after the tag, with the macOS `.dmg` and the Windows `.exe`
+   and `.msi` installers attached.
+
+The builds are not signed, which needs a paid Apple developer certificate and a Windows
+code-signing certificate. Unsigned, macOS asks for a right-click and **Open** the first time the app
+runs, and Windows SmartScreen asks for **More info** and **Run anyway**. The release notes say so.
+Signing can be added to the workflow as the
+[Tauri documentation](https://v2.tauri.app/distribute/sign/macos/) describes.
+
+To build the app locally instead, `npm run desktop:build` builds it for the machine it runs on.

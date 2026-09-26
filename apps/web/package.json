@@ -12,10 +12,10 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "bench": "vite build --config bench/vite.config.mjs --logLevel warn && node bench/dist/bench.mjs",
-    "export:presets": "BENCH_ENTRY=export-presets.ts vite build --config bench/vite.config.mjs --logLevel warn && node bench/dist/export-presets.mjs",
+    "export:presets": "vite build --config bench/vite.config.mjs --logLevel warn --mode export-presets && node bench/dist/export-presets.mjs",
     "build:sim": "node scripts/build-sim.mjs",
-    "dev:desktop": "VITE_TARGET=desktop vite --port 5174 --strictPort",
-    "build:desktop": "tsc --noEmit && VITE_TARGET=desktop vite build --outDir dist-desktop"
+    "dev:desktop": "vite --mode desktop --port 5174 --strictPort",
+    "build:desktop": "tsc --noEmit && vite build --mode desktop --outDir dist-desktop"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.12.0",

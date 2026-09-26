@@ -1,0 +1,104 @@
+name: Release the desktop app
+
+# Pushing a tag such as v0.2.0 builds the desktop app for macOS and Windows and publishes both in a
+# GitHub release named after the tag. The tag sets the app's version, so nothing in the repository
+# needs bumping first. See docs/deployment.md.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  # The physics tests gate the release: a build that sounds wrong is not worth publishing.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+
+      - name: Physics tests
+        run: cargo test --release -p engine-sim
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # One app for both Apple silicon and Intel Macs.
+          - platform: macos-latest
+            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            args: --target universal-apple-darwin
+          - platform: windows-latest
+            rust-targets: ''
+            args: ''
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Vite 8 needs Node 20.19 or newer.
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-targets }}
+
+      - name: Cache Rust builds
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.platform }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The version in tauri.conf.json becomes the tag's, without its leading "v".
+      - name: Set the version from the tag
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          node -e "
+            const fs = require('fs');
+            const path = 'apps/desktop/src-tauri/tauri.conf.json';
+            const conf = JSON.parse(fs.readFileSync(path, 'utf8'));
+            conf.version = process.argv[1];
+            fs.writeFileSync(path, JSON.stringify(conf, null, 2) + '\n');
+          " "$version"
+
+      # Builds the interface (beforeBuildCommand in tauri.conf.json) and the app, then uploads the
+      # bundles to the release, creating it if the other platform has not yet.
+      - name: Build and upload
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: npx tauri
+          args: ${{ matrix.args }}
+          tagName: ${{ github.ref_name }}
+          releaseName: Engine Simulator ${{ github.ref_name }}
+          releaseBody: |
+            The engine simulator as a desktop app, with the simulation running natively.
+
+            - **macOS** (Apple silicon and Intel): the `.dmg`. The app is not signed, so the first time,
+              right-click it in Applications and choose **Open**.
+            - **Windows**: the `.exe` installer (or the `.msi`). The installer is not signed, so
+              SmartScreen may ask you to confirm: **More info**, then **Run anyway**.
+
+            The web version is at https://tahoward.github.io/engine-simulator/app/.
+          releaseDraft: false
+          prerelease: false
