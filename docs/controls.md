@@ -26,6 +26,14 @@
 - **Valves per cylinder** chooses a two-valve head (one intake, one exhaust) or a four-valve head
   (two of each). The **Exhaust valve** and **Intake valve** sizes are for each valve.
 
+- **Variable valve timing** is the ECU's cam map. The timing above it is the cams' rest position.
+  **Intake cam** advances the intake cam and **Exhaust cam** retards the exhaust cam, each set for
+  low speed and for high speed, and the map blends between them as the engine speed goes from 30%
+  to 85% of the rev limit. It applies under load only: with the throttle under 10% open the cams sit
+  at rest, for a steady idle, and it applies in full from 50%. **One phaser for both cams** moves the
+  whole cam by the intake's advance, as on a pushrod engine. The line above the sliders says where
+  the cams are now. See [Variable valve timing](engine.md#variable-valve-timing).
+
 ## Intake
 
 - **Intake runner length** and **Intake runner bore** size each cylinder's runner from the plenum

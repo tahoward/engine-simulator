@@ -25,7 +25,7 @@ Inline four                           81      1       34.1%
 Boxer four                            85      1       35.7%
 Inline five                           88      1       44.1%
 Inline six                            94      1       53.3%
-V6, 60°, manifold per bank           148      1       55.3%
+V6, Toyota 2GR                       148      1       55.3%
 Boxer six                            150      1       55.5%
 V8, Chevrolet LT6                    216      1       66.7%
 V8, flatplane, manifold per bank     122      1       68.9%

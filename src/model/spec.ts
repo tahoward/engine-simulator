@@ -203,6 +203,21 @@ export interface EngineSpec {
   ivo: number;
   /** Intake valve closes, deg ATDC. Typically ~570. */
   ivc: number;
+  /**
+   * Variable valve timing: the ECU's cam map, crank degrees from the timing above, which is the cams'
+   * rest position. How far the intake cam is advanced under load at low speed and at high speed, and
+   * how far the exhaust cam is retarded. All zero is a fixed cam. See `EngineSim.updatePhasers` for how
+   * they are blended with speed and load.
+   */
+  vvtIntakeLow: number;
+  vvtIntakeHigh: number;
+  vvtExhaustLow: number;
+  vvtExhaustHigh: number;
+  /**
+   * One phaser for both cams, as a pushrod engine's single camshaft has: the whole cam moves by the
+   * intake's advance, intake and exhaust lobes together, and the exhaust's map is ignored.
+   */
+  vvtLinked: boolean;
 
   // --- Combustion ---
   /**
@@ -477,6 +492,9 @@ export interface EngineSnapshot {
   limiter: boolean;
   /** Whether the overrun fuel cut has stopped the fuel right now. */
   fuelCut: boolean;
+  /** How far the phasers have moved the cams from rest, crank degrees: intake advance, exhaust retard. */
+  intakeCamAdvance: number;
+  exhaustCamRetard: number;
   /** Cylinder pressure, Pa. Bank 0. */
   cylPressure: number;
   /** Cylinder gas temperature, K. Bank 0. */
@@ -1211,6 +1229,11 @@ export const DEFAULT_ENGINE: EngineSpec = {
   evc: 378,
   ivo: 342,
   ivc: 576,
+  vvtIntakeLow: 0,
+  vvtIntakeHigh: 0,
+  vvtExhaustLow: 0,
+  vvtExhaustHigh: 0,
+  vvtLinked: false,
 
   ignition: 695, // 25 deg BTDC
   burnDuration: 55,
@@ -1921,25 +1944,34 @@ const SIX_CYL: Partial<EngineSpec> = {
   outputGain: 1.2,
 };
 
-const V6_60: Partial<EngineSpec> = {
+const TOYOTA_2GR: Partial<EngineSpec> = {
   cylinders: 6,
   vAngle: 60,
   exhaustLayout: 'perBank',
-  ...idling(0.075),
-  // The GM 3.6's.
-  revLimit: 7000,
+  ...idling(0.078),
+  // Its fuel cut.
+  revLimit: 6600,
   flywheelInertia: 0.5,
   mouthSpacing: 1.0,
   pipeCellSize: 0.035,
-  // A 3.6 litre 60-degree V6.
+  // The 3.5 litre 2GR-FE: 94.0 x 83.0 mm, 10.8:1.
   bore: 0.094,
-  stroke: 0.0856,
-  rodLength: 0.1545,
-  compressionRatio: 10.5,
+  stroke: 0.083,
+  // Estimated: its published figures do not include the rod.
+  rodLength: 0.155,
+  compressionRatio: 10.8,
+  // Twin cams and four valves a cylinder, sized as a typical four-valve head's for the bore.
   ...fourValveHead(0.094),
   maxLift: 0.01,
+  // Estimated. The intake cam rests late, closing 65 degrees after bottom dead centre, which lets the
+  // runners ram the charge in at the top end; below that its phaser advances it up to 40 degrees, so it
+  // closes before the charge flows back out. With the cam fixed at either end, torque falls by a tenth
+  // to a sixth somewhere in the range: above 5000 rpm with it early, at 3000 and below with it late.
+  ivo: 357,
+  ivc: 605,
+  vvtIntakeLow: 40,
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.15,
+  outputGain: 0.96,
 };
 
 /**
@@ -2108,12 +2140,12 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     collector: () => fittedExhaust(fullSpec(SIX_CYL)).collector,
   },
   {
-    name: 'V6, 60\u00b0, manifold per bank',
+    name: 'V6, Toyota 2GR',
     description:
-      'A 60\u00b0 V6 on a split-pin crank, which is what lets it fire evenly every 120\u00b0 despite a vee too narrow for that on shared pins. Each bank hears every other firing, 240\u00b0 apart.',
-    engine: V6_60,
-    pipe: () => fittedExhaust(fullSpec(V6_60)).pipe,
-    collector: () => fittedExhaust(fullSpec(V6_60)).collector,
+      'The 3.5 litre 60\u00b0 V6 in half of Toyota\u2019s range, from the Camry to the Lotus Evora. A split-pin crank is what lets it fire evenly every 120\u00b0, in the order 1-2-3-4-5-6, despite a vee too narrow for that on shared pins; each bank hears every other firing, 240\u00b0 apart, through a manifold of its own. Its rod, valves, cam and cam map are estimates. Variable intake cam timing keeps its torque curve flat, but the two-stage intake the real one also uses is not modelled.',
+    engine: TOYOTA_2GR,
+    pipe: () => fittedExhaust(fullSpec(TOYOTA_2GR)).pipe,
+    collector: () => fittedExhaust(fullSpec(TOYOTA_2GR)).collector,
   },
   {
     name: 'V8, crossplane, manifold per bank',
@@ -2246,7 +2278,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'V8, Chevrolet LT6',
     description:
-      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its runners, cam and headers are tuned for the top end, where it makes about 650 hp at 8400 rpm against the real engine’s 670; with no second, longer set of runners below that, it makes 535 N·m at 6300 against 624.',
+      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its runners, cam and headers are tuned for the top end, where it makes about 650 hp at 8400 rpm against the real engine’s 670. Below that its variable cam timing, also an estimate, gives back much of the mid-range, but with no second, longer set of runners it makes 555 N·m at 6300 against 624.',
     engine: {
       cylinders: 8,
       vAngle: 90,
@@ -2278,6 +2310,10 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       // Estimated, and tuned for 8400 rpm. The real manifold switches between two runner lengths; this
       // is the one for the top end.
       intakeRunnerLength: 0.33,
+      // Estimated, like the cams: advanced intake and retarded exhaust low down, both at rest by the top,
+      // which gives back the mid-range a cam and runners tuned for 8400 rpm cost it.
+      vvtIntakeLow: 40,
+      vvtExhaustLow: 20,
       outputGain: LT6_GAIN,
     },
     // Estimated: equal-length headers, their primaries tuned for 8400 rpm.

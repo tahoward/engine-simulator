@@ -153,3 +153,51 @@ describe('runners in one shared kernel', () => {
     expect(render(true)).toEqual(render(false));
   });
 });
+
+describe('variable valve timing', () => {
+  const lt6 = ENGINE_PRESETS.find((p) => p.name === 'V8, Chevrolet LT6')!;
+  const build = (over: Partial<EngineSpec>) => {
+    const cfg = defaultConfig();
+    cfg.engine = { ...cfg.engine, ...lt6.engine, ...over } as EngineSpec;
+    cfg.pipe = lt6.pipe();
+    cfg.collector = lt6.collector!();
+    return new EngineSim(FS, cfg);
+  };
+  const phase = (sim: EngineSim) => sim.snapshot().intakeCamAdvance;
+  const torqueAt = (rpm: number, over: Partial<EngineSpec>) => {
+    const sim = build({ freeRunning: false, throttle: 1, rpm, combustionVariability: 0, ...over });
+    sim.render(FS / 2);
+    const inner = sim as unknown as { torqueLast: number };
+    let t = 0;
+    for (let i = 0; i < FS / 2; i++) {
+      sim.render(1);
+      t += inner.torqueLast;
+    }
+    return t / (FS / 2);
+  };
+
+  /** A cam tuned for 8400 rpm gives up the mid-range; advancing it there gives it back. */
+  it('lifts the mid-range of an engine cammed for the top end', () => {
+    const fixed = { vvtIntakeLow: 0, vvtExhaustLow: 0 };
+    expect(torqueAt(4500, {})).toBeGreaterThan(1.1 * torqueAt(4500, fixed));
+    // At the top the map has the cams at rest, so it changes nothing there.
+    expect(torqueAt(8400, {}) / torqueAt(8400, fixed)).toBeCloseTo(1, 2);
+  });
+
+  it('keeps the cams at rest at idle, and moves them under load', () => {
+    const idle = build({ freeRunning: true });
+    idle.render(FS * 2);
+    expect(phase(idle)).toBeCloseTo(0, 9);
+    const pulling = build({ freeRunning: false, throttle: 1, rpm: 3000 });
+    pulling.render(FS / 2);
+    expect(phase(pulling)).toBeGreaterThan(30);
+  });
+
+  it('brings a cam back to rest when its map is set to nothing', () => {
+    const sim = build({ freeRunning: false, throttle: 1, rpm: 3000 });
+    sim.render(FS / 2);
+    sim.setEngine({ vvtIntakeLow: 0, vvtExhaustLow: 0 });
+    sim.render(FS / 2);
+    expect(phase(sim)).toBeCloseTo(0, 9);
+  });
+});

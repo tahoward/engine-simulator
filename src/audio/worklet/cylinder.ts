@@ -113,10 +113,12 @@ export class Cylinder {
    */
   sparkCut = false;
   /**
-   * This cylinder's cam timing offset from nominal, crank degrees. Its valves open and close
-   * this much late, so its charge is committed this much late too.
+   * This cylinder's cam timing offsets from nominal, crank degrees, intake and exhaust: its valves open
+   * and close this much late, so its charge is committed this much late too. They carry its own small
+   * spread and whatever the variable valve timing has moved each cam by.
    */
-  camOffset = 0;
+  intakeCamOffset = 0;
+  exhaustCamOffset = 0;
 
   /** Instantaneous gas torque at the crank, N*m. Updated by `advance`. */
   torque = 0;
@@ -376,12 +378,19 @@ export class Cylinder {
   private updateCombustionLatches(spec: EngineSpec): void {
     const nextAngle = this.nextAngle;
     // Valve events for this cylinder's cam timing, wrapped once rather than every substep.
-    if (spec !== this.eventSpec || this.camOffset !== this.eventOffset) {
+    if (
+      spec !== this.eventSpec ||
+      this.intakeCamOffset !== this.eventIntakeOffset ||
+      this.exhaustCamOffset !== this.eventExhaustOffset
+    ) {
       this.eventSpec = spec;
-      this.eventOffset = this.camOffset;
-      this.evoAt = wrapCycle(spec.evo + this.camOffset);
-      this.ivcAt = wrapCycle(spec.ivc + this.camOffset);
-      this.exchanging = windowPhase(this.angle, spec.evo + this.camOffset, spec.ivc + this.camOffset) >= 0;
+      this.eventIntakeOffset = this.intakeCamOffset;
+      this.eventExhaustOffset = this.exhaustCamOffset;
+      const evo = spec.evo + this.exhaustCamOffset;
+      const ivc = spec.ivc + this.intakeCamOffset;
+      this.evoAt = wrapCycle(evo);
+      this.ivcAt = wrapCycle(ivc);
+      this.exchanging = windowPhase(this.angle, evo, ivc) >= 0;
     }
     if (crossed(this.angle, nextAngle, this.evoAt)) this.exchanging = true;
     if (crossed(this.angle, nextAngle, this.ivcAt)) {
@@ -605,9 +614,10 @@ export class Cylinder {
   private refMassR = 1;
   /** Woschni's combustion-term coefficient from that state, m/(s Pa). */
   private combustionVelocity = 0;
-  /** Valve events at this cylinder's cam timing, and the spec and offset they were wrapped for. */
+  /** Valve events at this cylinder's cam timing, and the spec and offsets they were wrapped for. */
   private eventSpec: EngineSpec | null = null;
-  private eventOffset = 0;
+  private eventIntakeOffset = 0;
+  private eventExhaustOffset = 0;
   private evoAt = 0;
   private ivcAt = 0;
   /** Whether a valve is exchanging gas: between exhaust valve opening and intake valve closing. */
