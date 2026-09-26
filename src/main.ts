@@ -514,6 +514,8 @@ viewer.onFrame((dt) => {
       crankAngle:
         (displayAngle + (b.crankAngle - latest!.banks[0]!.crankAngle) + 1440) % 720,
     }));
+    engineMesh.intakeCamAdvance = latest.intakeCamAdvance;
+    engineMesh.exhaustCamRetard = latest.exhaustCamRetard;
     engineMesh.update(
       posed,
       posed.map((b) => glow(b.crankAngle, config.engine.ignition)),

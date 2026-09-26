@@ -643,3 +643,10 @@ button.tool:hover {
     height: 460px;
   }
 }
+
+.subhead {
+  margin-top: 6px;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 12px;
+}

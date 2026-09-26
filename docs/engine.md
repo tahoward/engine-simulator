@@ -87,6 +87,39 @@ worked out from the runner's own bore and air, using Kirchhoff's formula for a t
 a 49 mm runner. The exhaust's damping is fitted to hot gas in steel pipes and is ten times that. In a
 runner it would damp away the waves that do the ramming.
 
+## Variable valve timing
+
+The cams can be turned against the crank as the engine runs, as an oil-pressure phaser turns them. The
+valve timing set in the panel is each cam's rest position. The ECU's map, which you set, advances the
+intake cam and retards the exhaust cam from there, by one amount at low speed and another at high
+speed, blended as the engine speed goes from 30% to 85% of the rev limit. A phaser turns at up to 250
+crank degrees a second, so the cams follow the map smoothly.
+
+The map applies under load only. With the throttle nearly shut the cams sit at rest, which is least
+overlap: at a near-vacuum in the manifold, overlap only pushes exhaust back up the intake and roughens
+the idle. Load is read from the throttle rather than from the manifold pressure, which is what a real
+ECU weighs the air by, because the overlap itself raises that pressure at idle. A map reading that as
+load would advance the cam further and stall an engine with a big cam.
+
+What it buys depends on the cam. On the LT6, whose cam and runners are tuned for 8400 rpm:
+
+```
+                          3000   4500   6300   8400 rpm      full throttle, N·m
+cam fixed                  382    442    533    552
+intake 40° / exhaust 20°   381    541    554    552          advanced and retarded at low speed
+```
+
+On the 2GR, the cam rests late, so its runners ram the charge in at the top end, and the phaser
+advances it 40° at low speed. With the cam fixed at either end of that range, a band of the curve falls
+away:
+
+```
+                          2000   3000   4000   5200   6400 rpm      full throttle, N·m
+cam fixed early            316    322    362    310    273
+cam fixed late             283    291    344    355    328
+intake 40° at low speed    323    319    358    353    328
+```
+
 ## The flame
 
 ### How long the burn takes

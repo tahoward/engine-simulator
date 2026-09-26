@@ -177,6 +177,9 @@ export class Panel {
   private dynoShift: number | null = null;
   private dynoMass: number | null = null;
   private dynoRunning = false;
+  /** Where the phasers have the cams, updated from each snapshot. */
+  private camReadout!: HTMLElement;
+  private camText = '';
   /** Rewrites the intake section's tuning readout if anything it shows has changed. */
   private refreshIntake: () => void = () => {};
   private readonly readoutEl: HTMLElement;
@@ -739,6 +742,42 @@ export class Panel {
       format: (v) => `${Math.round(v - 540)}° ABDC`,
       onInput: (v) => this.cb.onEngine({ ivc: v }),
     });
+
+    // ---- Variable valve timing ---------------------------------------------
+    el('div', 'subhead', valves).textContent = 'Variable valve timing';
+    this.camReadout = el('div', 'readout', valves);
+    this.camReadout.textContent = 'Cams at rest';
+    this.camReadout.title =
+      'Where the phasers have the cams now, from the timing above, which is their rest position.';
+    const vvt = (label: string, key: 'vvtIntakeLow' | 'vvtIntakeHigh' | 'vvtExhaustLow' | 'vvtExhaustHigh', what: string) =>
+      this.slider(valves, {
+        label,
+        min: 0,
+        max: 60,
+        step: 1,
+        value: spec[key],
+        sync: () => this.config.engine[key],
+        format: (v) => (v === 0 ? 'at rest' : `${Math.round(v)}° ${what}`),
+        onInput: (v) => this.cb.onEngine({ [key]: v }),
+      });
+    vvt('Intake cam, low speed', 'vvtIntakeLow', 'advanced').row.title =
+      'How far the ECU advances the intake cam under load at low speed. Advanced, the intake closes ' +
+      'earlier, before the slow-moving charge is pushed back out, and opens earlier, into more overlap.';
+    vvt('Intake cam, high speed', 'vvtIntakeHigh', 'advanced').row.title =
+      'The same near the rev limit, where a late close lets the runners ram the charge in. The map ' +
+      'blends from the low-speed value at 30% of the rev limit to this one at 85%.';
+    vvt('Exhaust cam, low speed', 'vvtExhaustLow', 'retarded').row.title =
+      'How far the ECU retards the exhaust cam under load at low speed: the exhaust opens later, ' +
+      'getting more work from the expansion, and closes later, into more overlap.';
+    vvt('Exhaust cam, high speed', 'vvtExhaustHigh', 'retarded');
+    const linked = toggle(valves, 'One phaser for both cams', spec.vvtLinked, (on) =>
+      this.cb.onEngine({ vvtLinked: on }),
+    );
+    linked.title =
+      'As a pushrod engine\u2019s single camshaft has: the whole cam moves by the intake\u2019s advance, ' +
+      'exhaust lobes with it, and the exhaust settings do nothing. At idle and light load every cam ' +
+      'sits at rest, for a steady idle.';
+    this.resyncers.push(() => (checkbox(linked).checked = this.config.engine.vvtLinked));
 
     // ---- Intake ------------------------------------------------------------
     const intake = section(root, 'Intake', true);
@@ -1574,6 +1613,15 @@ export class Panel {
 
   updateReadouts(s: EngineSnapshot): void {
     this.refreshIntake();
+    const cams =
+      Math.abs(s.intakeCamAdvance) < 0.5 && Math.abs(s.exhaustCamRetard) < 0.5
+        ? 'Cams at rest'
+        : `Intake cam ${Math.round(s.intakeCamAdvance)}° advanced · exhaust ${Math.round(Math.abs(s.exhaustCamRetard))}° ` +
+          (s.exhaustCamRetard < 0 ? 'advanced, with it' : 'retarded');
+    if (cams !== this.camText) {
+      this.camText = cams;
+      this.camReadout.textContent = cams;
+    }
     const running = s.dyno !== null;
     if (running !== this.dynoRunning) {
       this.dynoRunning = running;

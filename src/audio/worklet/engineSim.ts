@@ -89,6 +89,12 @@ import { IntakeRunners, RUN_BURNED, RUN_DT, RUN_FUEL, RUN_INJECT, RUN_IO_SIZE, R
 const PA_PER_FULLSCALE = 250;
 
 /**
+ * Fastest a cam phaser turns, crank degrees per second. An oil-pressure phaser moves its cam a few
+ * hundred crank degrees a second, so it crosses its whole range in a fifth of a second or so.
+ */
+const PHASER_RATE = 250;
+
+/**
  * Longest a finished dyno run waits for the engine to wind down to a held speed, s, before handing
  * the crank back regardless.
  */
@@ -407,6 +413,13 @@ export class EngineSim {
   private inValves!: ValveState[];
   /** The intake runners. See `IntakeRunners`. */
   private intake!: IntakeRunners;
+  /**
+   * Where the cam phasers have moved each cam from its rest position, crank degrees, positive later:
+   * the intake's is zero or negative (advanced), the exhaust's zero or positive (retarded). See
+   * `updatePhasers`.
+   */
+  private intakeShift = 0;
+  private exhaustShift = 0;
   /** Fuel mass fraction the port injectors bring the charge to: `fuelFractionAt` the spec's λ. */
   private injectFraction = 0;
   /** One cylinder's swept volume of ambient air, kg: what a volumetric efficiency of 1 traps. */
@@ -785,6 +798,37 @@ export class EngineSim {
     return runners;
   }
 
+  /**
+   * Move the cam phasers toward where the ECU's map puts them, at the rate a phaser can turn.
+   *
+   * The map is the spec's: an intake advance and an exhaust retard at low speed and at high speed, blended
+   * as the engine speed goes from 30% to 85% of the rev limit. It applies in full under load and not at
+   * all at idle, as production maps do. At a near-vacuum in the manifold, overlap only pushes exhaust back
+   * up the intake and the idle turns rough, so there the cams sit at rest, which is least overlap.
+   *
+   * Load is read from the throttle, the dyno run's while one is going: none up to 10% open, full by 50%.
+   * Not from the manifold pressure, although that is what an ECU weighs the air by, because here it would
+   * feed back. Overlap itself raises the manifold pressure at idle, so a map reading that as load would
+   * advance the cam, add more overlap, and stall an engine with a big cam; a real ECU knows it is idling
+   * from its closed throttle, as this does.
+   * A single cam-in-block phaser (`vvtLinked`) moves intake and exhaust lobes together by the intake's.
+   */
+  private updatePhasers(): void {
+    const spec = this.spec;
+    const dt = 1 / this.sampleRate;
+    const throttle = this.dyno ? this.dyno.throttle : spec.throttle;
+    const load = clamp((throttle - 0.1) / 0.4, 0, 1);
+    const rpm = (this.omegaMean * 60) / (2 * Math.PI);
+    const speed = clamp((rpm / spec.revLimit - 0.3) / 0.55, 0, 1);
+    const advance = load * (spec.vvtIntakeLow + (spec.vvtIntakeHigh - spec.vvtIntakeLow) * speed);
+    const retard = load * (spec.vvtExhaustLow + (spec.vvtExhaustHigh - spec.vvtExhaustLow) * speed);
+    const intakeTarget = -advance;
+    const exhaustTarget = spec.vvtLinked ? intakeTarget : retard;
+    const step = PHASER_RATE * dt;
+    this.intakeShift += clamp(intakeTarget - this.intakeShift, -step, step);
+    this.exhaustShift += clamp(exhaustTarget - this.exhaustShift, -step, step);
+  }
+
   /** The cell size asked for, m: `pipeCellSize`, no finer than one step per sample allows. */
   private requestedCellSize(): number {
     const minDx = singleStepDx(this.sampleRate, this.wgOptions.cfl ?? DEFAULT_CFL);
@@ -935,10 +979,11 @@ export class EngineSim {
   private computeLifts(b: number): void {
     const spec = this.spec;
     const angle = this.cyls[b]!.angle;
-    // This cylinder's own cam timing, a degree or two from nominal.
-    const camOffset = this.timing[b]!;
-    const exLift = valveLift(angle, spec.evo + camOffset, spec.evc + camOffset, spec.maxLift);
-    const inLift = valveLift(angle, spec.ivo + camOffset, spec.ivc + camOffset, spec.maxLift);
+    // This cylinder's own cam timing, a degree or two from nominal, and where the phasers have put each cam.
+    const exOffset = this.timing[b]! + this.exhaustShift;
+    const inOffset = this.timing[b]! + this.intakeShift;
+    const exLift = valveLift(angle, spec.evo + exOffset, spec.evc + exOffset, spec.maxLift);
+    const inLift = valveLift(angle, spec.ivo + inOffset, spec.ivc + inOffset, spec.maxLift);
     this.liftNow[b * 3] = exLift;
     this.liftNow[b * 3 + 1] = inLift;
     this.liftNow[b * 3 + 2] = valveFlowArea(exLift, spec.exValveDia) * spec.exValveCount;
@@ -1203,6 +1248,19 @@ export class EngineSim {
       this.omega = Math.max(this.omegaMean + this.omegaRipple, 1);
     }
 
+    // --- Variable valve timing ------------------------------------------------
+    // Also while a phaser is still away from rest, so a cam whose phaser has been switched off returns.
+    if (
+      spec.vvtIntakeLow !== 0 ||
+      spec.vvtIntakeHigh !== 0 ||
+      spec.vvtExhaustLow !== 0 ||
+      spec.vvtExhaustHigh !== 0 ||
+      this.intakeShift !== 0 ||
+      this.exhaustShift !== 0
+    ) {
+      this.updatePhasers();
+    }
+
     // --- Dyno run -------------------------------------------------------------
     // The run drives the throttle; when it is over, and the engine has wound back down to where a
     // held speed would put it, the throttle and the crank go back to the spec.
@@ -1247,7 +1305,8 @@ export class EngineSim {
       const cyl = this.cyls[b]!;
       const angle = cyl.angle;
       cyl.sparkCut = limiterCut;
-      cyl.camOffset = this.timing[b]!;
+      cyl.intakeCamOffset = this.timing[b]! + this.intakeShift;
+      cyl.exhaustCamOffset = this.timing[b]! + this.exhaustShift;
       // This cylinder's own cam timing, a degree or two from nominal.
       this.computeLifts(b);
       const exLift = this.liftNow[b * 3]!;
@@ -1519,8 +1578,8 @@ export class EngineSim {
       crankAngle: wrapCycle(cyl.angle),
       cylPressure: cyl.pressure(spec),
       cylTemp: cyl.temp,
-      exLift: valveLift(cyl.angle, spec.evo, spec.evc, spec.maxLift),
-      inLift: valveLift(cyl.angle, spec.ivo, spec.ivc, spec.maxLift),
+      exLift: valveLift(cyl.angle, spec.evo + this.exhaustShift, spec.evc + this.exhaustShift, spec.maxLift),
+      inLift: valveLift(cyl.angle, spec.ivo + this.intakeShift, spec.ivc + this.intakeShift, spec.maxLift),
     }));
     const first = banks[0]!;
 
@@ -1530,6 +1589,8 @@ export class EngineSim {
       rpm: this.rpm,
       limiter: this.limiterCut,
       fuelCut: this.fuelCutActive,
+      intakeCamAdvance: -this.intakeShift,
+      exhaustCamRetard: this.exhaustShift,
       dyno: this.dyno && {
         phase: this.dyno.phase,
         gear: this.dyno.gear + 1,

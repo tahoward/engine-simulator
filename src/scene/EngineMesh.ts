@@ -454,8 +454,10 @@ export class EngineMesh {
       mesh.rod.scale.set(1, axis.length(), 1);
       mesh.rod.quaternion.setFromUnitVectors(AXIS_Y, axis.normalize());
 
-      const exLift = valveLift(snap.crankAngle, s.evo, s.evc, s.maxLift);
-      const inLift = valveLift(snap.crankAngle, s.ivo, s.ivc, s.maxLift);
+      const ex = this.exhaustCamRetard;
+      const inn = -this.intakeCamAdvance;
+      const exLift = valveLift(snap.crankAngle, s.evo + ex, s.evc + ex, s.maxLift);
+      const inLift = valveLift(snap.crankAngle, s.ivo + inn, s.ivc + inn, s.maxLift);
       for (const v of mesh.exValves) this.poseValve(v, mesh.exhaustSide, exLift);
       for (const v of mesh.inValves) this.poseValve(v, -mesh.exhaustSide, inLift);
 
@@ -490,6 +492,10 @@ export class EngineMesh {
       direction: new THREE.Vector3(...port.direction),
     };
   }
+
+  /** Where the cam phasers have the cams, crank degrees, as the last snapshot reported them. */
+  intakeCamAdvance = 0;
+  exhaustCamRetard = 0;
 
   get bankCount(): number {
     return this.cyls.length;
