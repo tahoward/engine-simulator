@@ -52,7 +52,14 @@ npm run desktop:build
 ```
 
 builds the app for this machine: on macOS, `Engine Simulator.app` in
-`target/release/bundle/macos/`.
+`target/release/bundle/macos/`; on Windows, an installer in `target/release/bundle/nsis/` and
+`target/release/bundle/msi/`.
+
+The desktop app is built on the system it is for. On Windows, that needs the Microsoft C++ Build
+Tools (the "Desktop development with C++" workload) and Rust's default MSVC toolchain, as
+[Tauri's prerequisites](https://v2.tauri.app/start/prerequisites/) describe. The WebView2 runtime the
+interface runs in comes with Windows 10 and 11. Audio goes out through WASAPI, the system's own audio
+interface, at the device's sample rate.
 
 ## The scripts
 
