@@ -1,0 +1,13 @@
+[package]
+name = "engine-sim-wasm"
+description = "The engine simulation for the web app's AudioWorklet, behind a plain C ABI"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+engine-sim = { path = "../engine-sim" }
+serde = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }

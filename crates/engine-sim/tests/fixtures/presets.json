@@ -1,0 +1,3627 @@
+{
+ "defaultEngine": {
+  "cylinders": 1,
+  "vAngle": 45,
+  "firingOffset": null,
+  "crankType": "shared",
+  "exhaustLayout": "open",
+  "exhaustHeaders": false,
+  "bore": 0.089,
+  "stroke": 0.08,
+  "rodLength": 0.145,
+  "compressionRatio": 10.5,
+  "exValveDia": 0.034,
+  "exValveCount": 1,
+  "portLength": 0.055,
+  "inValveDia": 0.04,
+  "inValveCount": 1,
+  "maxLift": 0.0095,
+  "evo": 128,
+  "evc": 378,
+  "ivo": 342,
+  "ivc": 576,
+  "camSwitchRpm": 0,
+  "highEvo": 128,
+  "highEvc": 378,
+  "highIvo": 342,
+  "highIvc": 576,
+  "highMaxLift": 0.0095,
+  "vvtIntakeLow": 0,
+  "vvtIntakeHigh": 0,
+  "vvtExhaustLow": 0,
+  "vvtExhaustHigh": 0,
+  "vvtLowRpm": 2000,
+  "vvtHighRpm": 6000,
+  "vvtLinked": false,
+  "ignition": 695,
+  "burnDuration": 55,
+  "advanceCurve": true,
+  "lambda": 1,
+  "fuelCut": true,
+  "combustionVariability": 1,
+  "recipMass": 0.55,
+  "throttle": 0.75,
+  "throttleDia": 0,
+  "plenumVolume": 0,
+  "intakeRunnerLength": 0,
+  "intakeRunnerDia": 0,
+  "intakeRunnerShortLength": 0,
+  "intakeSwitchRpm": 5000,
+  "rpm": 3200,
+  "revLimit": 7000,
+  "freeRunning": false,
+  "flywheelInertia": 0.25,
+  "load": 0.46,
+  "portGasTemp": 950,
+  "pipeCellSize": 0.035,
+  "pipeWallThickness": 0.0012,
+  "airSpeed": 0,
+  "micDistance": 1.5,
+  "micHeight": 1.2,
+  "exhaustHeight": 0.35,
+  "mouthSpacing": 0.4,
+  "cylinderSpread": 1,
+  "groundReflection": 0.7,
+  "outputGain": 0.77,
+  "mechNoise": 0.45,
+  "throatNoise": 0.5
+ },
+ "defaultConfig": {
+  "engine": {
+   "cylinders": 1,
+   "vAngle": 45,
+   "firingOffset": null,
+   "crankType": "shared",
+   "exhaustLayout": "open",
+   "exhaustHeaders": false,
+   "bore": 0.089,
+   "stroke": 0.08,
+   "rodLength": 0.145,
+   "compressionRatio": 10.5,
+   "exValveDia": 0.034,
+   "exValveCount": 1,
+   "portLength": 0.055,
+   "inValveDia": 0.04,
+   "inValveCount": 1,
+   "maxLift": 0.0095,
+   "evo": 128,
+   "evc": 378,
+   "ivo": 342,
+   "ivc": 576,
+   "camSwitchRpm": 0,
+   "highEvo": 128,
+   "highEvc": 378,
+   "highIvo": 342,
+   "highIvc": 576,
+   "highMaxLift": 0.0095,
+   "vvtIntakeLow": 0,
+   "vvtIntakeHigh": 0,
+   "vvtExhaustLow": 0,
+   "vvtExhaustHigh": 0,
+   "vvtLowRpm": 2000,
+   "vvtHighRpm": 6000,
+   "vvtLinked": false,
+   "ignition": 695,
+   "burnDuration": 55,
+   "advanceCurve": true,
+   "lambda": 1,
+   "fuelCut": true,
+   "combustionVariability": 1,
+   "recipMass": 0.55,
+   "throttle": 0.75,
+   "throttleDia": 0,
+   "plenumVolume": 0,
+   "intakeRunnerLength": 0,
+   "intakeRunnerDia": 0,
+   "intakeRunnerShortLength": 0,
+   "intakeSwitchRpm": 5000,
+   "rpm": 3200,
+   "revLimit": 7000,
+   "freeRunning": false,
+   "flywheelInertia": 0.25,
+   "load": 0.46,
+   "portGasTemp": 950,
+   "pipeCellSize": 0.035,
+   "pipeWallThickness": 0.0012,
+   "airSpeed": 0,
+   "micDistance": 1.5,
+   "micHeight": 1.2,
+   "exhaustHeight": 0.35,
+   "mouthSpacing": 0.4,
+   "cylinderSpread": 1,
+   "groundReflection": 0.7,
+   "outputGain": 0.77,
+   "mechNoise": 0.45,
+   "throatNoise": 0.5
+  },
+  "pipe": [
+   {
+    "id": "seg240",
+    "kind": "pipe",
+    "length": 0.3,
+    "dIn": 0.04,
+    "dOut": 0.04,
+    "yaw": 0,
+    "pitch": 0
+   },
+   {
+    "id": "seg241",
+    "kind": "cone",
+    "length": 0.55,
+    "dIn": 0.04,
+    "dOut": 0.1,
+    "yaw": 0.1,
+    "pitch": 0
+   }
+  ],
+  "collector": [
+   {
+    "id": "seg242",
+    "kind": "cone",
+    "length": 0.12,
+    "dIn": 0.05,
+    "dOut": 0.058,
+    "yaw": 0,
+    "pitch": 0
+   },
+   {
+    "id": "seg243",
+    "kind": "pipe",
+    "length": 0.55,
+    "dIn": 0.058,
+    "dOut": 0.058,
+    "yaw": 0,
+    "pitch": 0
+   }
+  ]
+ },
+ "defaultCollector": [
+  {
+   "id": "seg244",
+   "kind": "cone",
+   "length": 0.12,
+   "dIn": 0.05,
+   "dOut": 0.058,
+   "yaw": 0,
+   "pitch": 0
+  },
+  {
+   "id": "seg245",
+   "kind": "pipe",
+   "length": 0.55,
+   "dIn": 0.058,
+   "dOut": 0.058,
+   "yaw": 0,
+   "pitch": 0
+  }
+ ],
+ "enginePresets": [
+  {
+   "name": "Single, megaphone",
+   "engine": {
+    "cylinders": 1,
+    "exhaustLayout": "single",
+    "revLimit": 7000,
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.072,
+    "outputGain": 0.68
+   },
+   "config": {
+    "engine": {
+     "cylinders": 1,
+     "vAngle": 45,
+     "firingOffset": null,
+     "crankType": "shared",
+     "exhaustLayout": "single",
+     "exhaustHeaders": false,
+     "bore": 0.089,
+     "stroke": 0.08,
+     "rodLength": 0.145,
+     "compressionRatio": 10.5,
+     "exValveDia": 0.034,
+     "exValveCount": 1,
+     "portLength": 0.055,
+     "inValveDia": 0.04,
+     "inValveCount": 1,
+     "maxLift": 0.0095,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.072,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 7000,
+     "freeRunning": false,
+     "flywheelInertia": 0.25,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.4,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 0.68,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg5",
+      "kind": "pipe",
+      "length": 0.3,
+      "dIn": 0.04,
+      "dOut": 0.04,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg6",
+      "kind": "cone",
+      "length": 0.55,
+      "dIn": 0.04,
+      "dOut": 0.1,
+      "yaw": 0.1,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg3",
+      "kind": "cone",
+      "length": 0.12,
+      "dIn": 0.05,
+      "dOut": 0.058,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg4",
+      "kind": "pipe",
+      "length": 0.55,
+      "dIn": 0.058,
+      "dOut": 0.058,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 6.960012519455321,
+    "tyreRadius": 0.31,
+    "mass": 232.25585048479093,
+    "shiftRpm": 6850
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg7",
+      "kind": "pipe",
+      "length": 0.75,
+      "dIn": 0.028900000000000002,
+      "dOut": 0.028900000000000002,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg8",
+      "kind": "cone",
+      "length": 0.25,
+      "dIn": 0.028900000000000002,
+      "dOut": 0.04913,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": []
+   }
+  },
+  {
+   "name": "45° V-twin, 2-into-1",
+   "engine": {
+    "cylinders": 2,
+    "vAngle": 45,
+    "firingOffset": null,
+    "exhaustLayout": "2into1",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.073,
+    "revLimit": 5600,
+    "flywheelInertia": 0.4,
+    "outputGain": 0.55
+   },
+   "config": {
+    "engine": {
+     "cylinders": 2,
+     "vAngle": 45,
+     "firingOffset": null,
+     "crankType": "shared",
+     "exhaustLayout": "2into1",
+     "exhaustHeaders": false,
+     "bore": 0.089,
+     "stroke": 0.08,
+     "rodLength": 0.145,
+     "compressionRatio": 10.5,
+     "exValveDia": 0.034,
+     "exValveCount": 1,
+     "portLength": 0.055,
+     "inValveDia": 0.04,
+     "inValveCount": 1,
+     "maxLift": 0.0095,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.073,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 5600,
+     "freeRunning": false,
+     "flywheelInertia": 0.4,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.4,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 0.55,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg13",
+      "kind": "pipe",
+      "length": 0.34,
+      "dIn": 0.042,
+      "dOut": 0.042,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg14",
+      "kind": "cone",
+      "length": 0.1,
+      "dIn": 0.042,
+      "dOut": 0.05,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg15",
+      "kind": "cone",
+      "length": 0.12,
+      "dIn": 0.05,
+      "dOut": 0.06,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg16",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.06,
+      "dOut": 0.06,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 5.145996922483082,
+    "tyreRadius": 0.31,
+    "mass": 371.6093607756655,
+    "shiftRpm": 5450
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg17",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.028900000000000002,
+      "dOut": 0.028900000000000002,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg18",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.036125000000000004,
+      "dOut": 0.03760111019637585,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg19",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.03760111019637585,
+      "dOut": 0.03760111019637585,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg20",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.03760111019637585,
+      "dOut": 0.09400277549093963,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg21",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.03760111019637585,
+      "dOut": 0.03760111019637585,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "90° V-twin, 2-into-2",
+   "engine": {
+    "cylinders": 2,
+    "vAngle": 90,
+    "firingOffset": null,
+    "exhaustLayout": "2into2",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.075,
+    "revLimit": 9000,
+    "mouthSpacing": 0.45,
+    "flywheelInertia": 0.22,
+    "outputGain": 0.81
+   },
+   "config": {
+    "engine": {
+     "cylinders": 2,
+     "vAngle": 90,
+     "firingOffset": null,
+     "crankType": "shared",
+     "exhaustLayout": "2into2",
+     "exhaustHeaders": false,
+     "bore": 0.089,
+     "stroke": 0.08,
+     "rodLength": 0.145,
+     "compressionRatio": 10.5,
+     "exValveDia": 0.034,
+     "exValveCount": 1,
+     "portLength": 0.055,
+     "inValveDia": 0.04,
+     "inValveCount": 1,
+     "maxLift": 0.0095,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.075,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 9000,
+     "freeRunning": false,
+     "flywheelInertia": 0.22,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.45,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 0.81,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg26",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.04,
+      "dOut": 0.04,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg27",
+      "kind": "cone",
+      "length": 0.3,
+      "dIn": 0.04,
+      "dOut": 0.075,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg24",
+      "kind": "cone",
+      "length": 0.12,
+      "dIn": 0.05,
+      "dOut": 0.058,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg25",
+      "kind": "pipe",
+      "length": 0.55,
+      "dIn": 0.058,
+      "dOut": 0.058,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 7.133973028977511,
+    "tyreRadius": 0.31,
+    "mass": 597.229329818034,
+    "shiftRpm": 8850
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg28",
+      "kind": "pipe",
+      "length": 0.75,
+      "dIn": 0.028900000000000002,
+      "dOut": 0.028900000000000002,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg29",
+      "kind": "cone",
+      "length": 0.25,
+      "dIn": 0.028900000000000002,
+      "dOut": 0.04913,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": []
+   }
+  },
+  {
+   "name": "Inline four, Honda F20C",
+   "engine": {
+    "cylinders": 4,
+    "vAngle": 0,
+    "exhaustLayout": "merged",
+    "exhaustHeaders": true,
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.078,
+    "revLimit": 9150,
+    "flywheelInertia": 0.14,
+    "pipeCellSize": 0.035,
+    "bore": 0.087,
+    "stroke": 0.084,
+    "rodLength": 0.153,
+    "compressionRatio": 11,
+    "exValveCount": 2,
+    "exValveDia": 0.032,
+    "inValveCount": 2,
+    "inValveDia": 0.0376,
+    "maxLift": 0.009,
+    "evo": 128,
+    "evc": 372,
+    "ivo": 348,
+    "ivc": 570,
+    "camSwitchRpm": 5500,
+    "highMaxLift": 0.013,
+    "highEvo": 108,
+    "highEvc": 392,
+    "highIvo": 328,
+    "highIvc": 625,
+    "intakeRunnerLength": 0.33,
+    "intakeRunnerDia": 0.04,
+    "outputGain": 1.31
+   },
+   "config": {
+    "engine": {
+     "cylinders": 4,
+     "vAngle": 0,
+     "firingOffset": null,
+     "crankType": "shared",
+     "exhaustLayout": "merged",
+     "exhaustHeaders": true,
+     "bore": 0.087,
+     "stroke": 0.084,
+     "rodLength": 0.153,
+     "compressionRatio": 11,
+     "exValveDia": 0.032,
+     "exValveCount": 2,
+     "portLength": 0.055,
+     "inValveDia": 0.0376,
+     "inValveCount": 2,
+     "maxLift": 0.009,
+     "evo": 128,
+     "evc": 372,
+     "ivo": 348,
+     "ivc": 570,
+     "camSwitchRpm": 5500,
+     "highEvo": 108,
+     "highEvc": 392,
+     "highIvo": 328,
+     "highIvc": 625,
+     "highMaxLift": 0.013,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.078,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0.33,
+     "intakeRunnerDia": 0.04,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 9150,
+     "freeRunning": false,
+     "flywheelInertia": 0.14,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.4,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 1.31,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg34",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.04,
+      "dOut": 0.04,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg35",
+      "kind": "cone",
+      "length": 0.14,
+      "dIn": 0.05,
+      "dOut": 0.06,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg36",
+      "kind": "pipe",
+      "length": 1,
+      "dIn": 0.06,
+      "dOut": 0.06,
+      "yaw": 0.25,
+      "pitch": 0
+     },
+     {
+      "id": "seg37",
+      "kind": "chamber",
+      "length": 0.38,
+      "dIn": 0.06,
+      "dOut": 0.16,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg38",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.055,
+      "dOut": 0.055,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 5.720209190219337,
+    "tyreRadius": 0.31,
+    "mass": 1218.4213460968833,
+    "shiftRpm": 9000
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg39",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.03846660889654819,
+      "dOut": 0.03846660889654819,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg40",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.048083261120685235,
+      "dOut": 0.07077856036964868,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg41",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.07077856036964868,
+      "dOut": 0.07077856036964868,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg42",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.07077856036964868,
+      "dOut": 0.1769464009241217,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg43",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.07077856036964868,
+      "dOut": 0.07077856036964868,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "Inline three",
+   "engine": {
+    "cylinders": 3,
+    "vAngle": 0,
+    "exhaustLayout": "merged",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.075,
+    "revLimit": 6500,
+    "flywheelInertia": 0.2,
+    "pipeCellSize": 0.035,
+    "bore": 0.072,
+    "stroke": 0.082,
+    "rodLength": 0.137,
+    "compressionRatio": 10,
+    "exValveDia": 0.02448,
+    "exValveCount": 2,
+    "inValveDia": 0.0288,
+    "inValveCount": 2,
+    "maxLift": 0.0085,
+    "outputGain": 2.21
+   },
+   "config": {
+    "engine": {
+     "cylinders": 3,
+     "vAngle": 0,
+     "firingOffset": null,
+     "crankType": "shared",
+     "exhaustLayout": "merged",
+     "exhaustHeaders": false,
+     "bore": 0.072,
+     "stroke": 0.082,
+     "rodLength": 0.137,
+     "compressionRatio": 10,
+     "exValveDia": 0.02448,
+     "exValveCount": 2,
+     "portLength": 0.055,
+     "inValveDia": 0.0288,
+     "inValveCount": 2,
+     "maxLift": 0.0085,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.075,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 6500,
+     "freeRunning": false,
+     "flywheelInertia": 0.2,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.4,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 2.21,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg48",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.02942695580585936,
+      "dOut": 0.02942695580585936,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg54",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.0367836947573242,
+      "dOut": 0.046891463962405774,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg55",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.046891463962405774,
+      "dOut": 0.046891463962405774,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg56",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.046891463962405774,
+      "dOut": 0.11722865990601444,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg57",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.046891463962405774,
+      "dOut": 0.046891463962405774,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 5.693398736143001,
+    "tyreRadius": 0.31,
+    "mass": 434.0223348269828,
+    "shiftRpm": 6350
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg58",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.02942695580585936,
+      "dOut": 0.02942695580585936,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg59",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.0367836947573242,
+      "dOut": 0.046891463962405774,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg60",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.046891463962405774,
+      "dOut": 0.046891463962405774,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg61",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.046891463962405774,
+      "dOut": 0.11722865990601444,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg62",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.046891463962405774,
+      "dOut": 0.046891463962405774,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "Inline five",
+   "engine": {
+    "cylinders": 5,
+    "vAngle": 0,
+    "exhaustLayout": "merged",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.075,
+    "revLimit": 7000,
+    "flywheelInertia": 0.3,
+    "pipeCellSize": 0.035,
+    "bore": 0.0825,
+    "stroke": 0.0928,
+    "rodLength": 0.144,
+    "compressionRatio": 10,
+    "exValveDia": 0.028050000000000002,
+    "exValveCount": 2,
+    "inValveDia": 0.033,
+    "inValveCount": 2,
+    "maxLift": 0.0095,
+    "outputGain": 1.02
+   },
+   "config": {
+    "engine": {
+     "cylinders": 5,
+     "vAngle": 0,
+     "firingOffset": null,
+     "crankType": "shared",
+     "exhaustLayout": "merged",
+     "exhaustHeaders": false,
+     "bore": 0.0825,
+     "stroke": 0.0928,
+     "rodLength": 0.144,
+     "compressionRatio": 10,
+     "exValveDia": 0.028050000000000002,
+     "exValveCount": 2,
+     "portLength": 0.055,
+     "inValveDia": 0.033,
+     "inValveCount": 2,
+     "maxLift": 0.0095,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.075,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 7000,
+     "freeRunning": false,
+     "flywheelInertia": 0.3,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.4,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 1.02,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg67",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.03371838686088052,
+      "dOut": 0.03371838686088052,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg73",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04214798357610065,
+      "dOut": 0.06936487670355944,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg74",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.06936487670355944,
+      "dOut": 0.06936487670355944,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg75",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.06936487670355944,
+      "dOut": 0.1734121917588986,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg76",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.06936487670355944,
+      "dOut": 0.06936487670355944,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 4.428788694360042,
+    "tyreRadius": 0.31,
+    "mass": 1157.5041052518914,
+    "shiftRpm": 6850
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg77",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.03371838686088052,
+      "dOut": 0.03371838686088052,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg78",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04214798357610065,
+      "dOut": 0.06936487670355944,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg79",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.06936487670355944,
+      "dOut": 0.06936487670355944,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg80",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.06936487670355944,
+      "dOut": 0.1734121917588986,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg81",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.06936487670355944,
+      "dOut": 0.06936487670355944,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "Inline six",
+   "engine": {
+    "cylinders": 6,
+    "vAngle": 0,
+    "exhaustLayout": "merged",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.075,
+    "revLimit": 7000,
+    "flywheelInertia": 0.35,
+    "pipeCellSize": 0.035,
+    "bore": 0.082,
+    "stroke": 0.0946,
+    "rodLength": 0.145,
+    "compressionRatio": 10.5,
+    "exValveDia": 0.027880000000000002,
+    "exValveCount": 2,
+    "inValveDia": 0.0328,
+    "inValveCount": 2,
+    "maxLift": 0.0095,
+    "outputGain": 1.2
+   },
+   "config": {
+    "engine": {
+     "cylinders": 6,
+     "vAngle": 0,
+     "firingOffset": null,
+     "crankType": "shared",
+     "exhaustLayout": "merged",
+     "exhaustHeaders": false,
+     "bore": 0.082,
+     "stroke": 0.0946,
+     "rodLength": 0.145,
+     "compressionRatio": 10.5,
+     "exValveDia": 0.027880000000000002,
+     "exValveCount": 2,
+     "portLength": 0.055,
+     "inValveDia": 0.0328,
+     "inValveCount": 2,
+     "maxLift": 0.0095,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.075,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 7000,
+     "freeRunning": false,
+     "flywheelInertia": 0.35,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.4,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 1.2,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg86",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.03351403300111761,
+      "dOut": 0.03351403300111761,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg92",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04189254125139701,
+      "dOut": 0.07552489766949176,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg93",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.07552489766949176,
+      "dOut": 0.07552489766949176,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg94",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.07552489766949176,
+      "dOut": 0.1888122441737294,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg95",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.07552489766949176,
+      "dOut": 0.07552489766949176,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 4.157863444534619,
+    "tyreRadius": 0.31,
+    "mass": 1398.835849361295,
+    "shiftRpm": 6850
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg96",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.03351403300111761,
+      "dOut": 0.03351403300111761,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg97",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04189254125139701,
+      "dOut": 0.07552489766949176,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg98",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.07552489766949176,
+      "dOut": 0.07552489766949176,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg99",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.07552489766949176,
+      "dOut": 0.1888122441737294,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg100",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.07552489766949176,
+      "dOut": 0.07552489766949176,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "V6, Toyota 2GR",
+   "engine": {
+    "cylinders": 6,
+    "vAngle": 60,
+    "exhaustLayout": "perBank",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.078,
+    "revLimit": 6600,
+    "flywheelInertia": 0.5,
+    "mouthSpacing": 1,
+    "pipeCellSize": 0.035,
+    "bore": 0.094,
+    "stroke": 0.083,
+    "rodLength": 0.155,
+    "compressionRatio": 10.8,
+    "exValveDia": 0.03196,
+    "exValveCount": 2,
+    "inValveDia": 0.0376,
+    "inValveCount": 2,
+    "maxLift": 0.01,
+    "ivo": 357,
+    "ivc": 605,
+    "vvtIntakeLow": 40,
+    "vvtLowRpm": 2000,
+    "vvtHighRpm": 5600,
+    "outputGain": 0.96
+   },
+   "config": {
+    "engine": {
+     "cylinders": 6,
+     "vAngle": 60,
+     "firingOffset": null,
+     "crankType": "shared",
+     "exhaustLayout": "perBank",
+     "exhaustHeaders": false,
+     "bore": 0.094,
+     "stroke": 0.083,
+     "rodLength": 0.155,
+     "compressionRatio": 10.8,
+     "exValveDia": 0.03196,
+     "exValveCount": 2,
+     "portLength": 0.055,
+     "inValveDia": 0.0376,
+     "inValveCount": 2,
+     "maxLift": 0.01,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 357,
+     "ivc": 605,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 40,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 5600,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.078,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 6600,
+     "freeRunning": false,
+     "flywheelInertia": 0.5,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 1,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 0.96,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg105",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.038418525635427504,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg111",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04802315704428438,
+      "dOut": 0.06121941128425199,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg112",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.06121941128425199,
+      "dOut": 0.06121941128425199,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg113",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.06121941128425199,
+      "dOut": 0.15304852821062997,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg114",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.06121941128425199,
+      "dOut": 0.06121941128425199,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 3.8076096046971273,
+    "tyreRadius": 0.31,
+    "mass": 1520.6441930004014,
+    "shiftRpm": 6450
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg115",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.038418525635427504,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg116",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04802315704428438,
+      "dOut": 0.06121941128425199,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg117",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.06121941128425199,
+      "dOut": 0.06121941128425199,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg118",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.06121941128425199,
+      "dOut": 0.15304852821062997,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg119",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.06121941128425199,
+      "dOut": 0.06121941128425199,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "V8, crossplane, manifold per bank",
+   "engine": {
+    "cylinders": 8,
+    "vAngle": 90,
+    "crankType": "crossplane",
+    "exhaustLayout": "perBank",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.075,
+    "revLimit": 6500,
+    "mouthSpacing": 1.3,
+    "flywheelInertia": 0.9,
+    "pipeCellSize": 0.035,
+    "bore": 0.102,
+    "stroke": 0.084,
+    "rodLength": 0.145,
+    "compressionRatio": 10,
+    "exValveDia": 0.041,
+    "inValveDia": 0.048,
+    "maxLift": 0.011,
+    "outputGain": 1.6
+   },
+   "config": {
+    "engine": {
+     "cylinders": 8,
+     "vAngle": 90,
+     "firingOffset": null,
+     "crankType": "crossplane",
+     "exhaustLayout": "perBank",
+     "exhaustHeaders": false,
+     "bore": 0.102,
+     "stroke": 0.084,
+     "rodLength": 0.145,
+     "compressionRatio": 10,
+     "exValveDia": 0.041,
+     "exValveCount": 1,
+     "portLength": 0.055,
+     "inValveDia": 0.048,
+     "inValveCount": 1,
+     "maxLift": 0.011,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.075,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 6500,
+     "freeRunning": false,
+     "flywheelInertia": 0.9,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 1.3,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 1.6,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg124",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.044,
+      "dOut": 0.044,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg125",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.062,
+      "dOut": 0.072,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg126",
+      "kind": "pipe",
+      "length": 1.15,
+      "dIn": 0.072,
+      "dOut": 0.072,
+      "yaw": 0.18,
+      "pitch": 0
+     },
+     {
+      "id": "seg127",
+      "kind": "chamber",
+      "length": 0.45,
+      "dIn": 0.072,
+      "dOut": 0.2,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg128",
+      "kind": "pipe",
+      "length": 0.55,
+      "dIn": 0.064,
+      "dOut": 0.064,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 3.2288541528750967,
+    "tyreRadius": 0.31,
+    "mass": 1900,
+    "shiftRpm": 6350
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg129",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.03485,
+      "dOut": 0.03485,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg130",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.0435625,
+      "dOut": 0.064124,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg131",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.064124,
+      "dOut": 0.064124,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg132",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.064124,
+      "dOut": 0.16031,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg133",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.064124,
+      "dOut": 0.064124,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "V8, overcammed",
+   "engine": {
+    "cylinders": 8,
+    "vAngle": 90,
+    "crankType": "crossplane",
+    "exhaustLayout": "perBank",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.083,
+    "revLimit": 7000,
+    "mouthSpacing": 1.3,
+    "flywheelInertia": 0.7,
+    "pipeCellSize": 0.035,
+    "bore": 0.1024,
+    "stroke": 0.0884,
+    "rodLength": 0.1448,
+    "compressionRatio": 11,
+    "exValveDia": 0.0406,
+    "inValveDia": 0.0513,
+    "maxLift": 0.015,
+    "evo": 100,
+    "evc": 405,
+    "ivo": 315,
+    "ivc": 610,
+    "ignition": 690,
+    "outputGain": 1.6
+   },
+   "config": {
+    "engine": {
+     "cylinders": 8,
+     "vAngle": 90,
+     "firingOffset": null,
+     "crankType": "crossplane",
+     "exhaustLayout": "perBank",
+     "exhaustHeaders": false,
+     "bore": 0.1024,
+     "stroke": 0.0884,
+     "rodLength": 0.1448,
+     "compressionRatio": 11,
+     "exValveDia": 0.0406,
+     "exValveCount": 1,
+     "portLength": 0.055,
+     "inValveDia": 0.0513,
+     "inValveCount": 1,
+     "maxLift": 0.015,
+     "evo": 100,
+     "evc": 405,
+     "ivo": 315,
+     "ivc": 610,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 690,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.083,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 7000,
+     "freeRunning": false,
+     "flywheelInertia": 0.7,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 1.3,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 1.6,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg138",
+      "kind": "pipe",
+      "length": 0.8,
+      "dIn": 0.044,
+      "dOut": 0.044,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg139",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.062,
+      "dOut": 0.076,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg140",
+      "kind": "pipe",
+      "length": 0.9,
+      "dIn": 0.076,
+      "dOut": 0.076,
+      "yaw": 0.18,
+      "pitch": 0
+     },
+     {
+      "id": "seg141",
+      "kind": "chamber",
+      "length": 0.4,
+      "dIn": 0.076,
+      "dOut": 0.13,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg142",
+      "kind": "pipe",
+      "length": 0.35,
+      "dIn": 0.07,
+      "dOut": 0.07,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 3.4800062597276606,
+    "tyreRadius": 0.31,
+    "mass": 1900,
+    "shiftRpm": 6850
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg143",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.03451,
+      "dOut": 0.03451,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg144",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.043137499999999995,
+      "dOut": 0.0634984,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg145",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.0634984,
+      "dOut": 0.0634984,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg146",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.0634984,
+      "dOut": 0.158746,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg147",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.0634984,
+      "dOut": 0.0634984,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "V8, Chevrolet LT2",
+   "engine": {
+    "cylinders": 8,
+    "vAngle": 90,
+    "crankType": "crossplane",
+    "exhaustLayout": "perBank",
+    "exhaustHeaders": true,
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.075,
+    "revLimit": 6600,
+    "mouthSpacing": 1.3,
+    "flywheelInertia": 0.9,
+    "pipeCellSize": 0.035,
+    "bore": 0.10325,
+    "stroke": 0.092,
+    "rodLength": 0.1556,
+    "compressionRatio": 11.5,
+    "exValveDia": 0.0404,
+    "inValveDia": 0.054,
+    "maxLift": 0.0145,
+    "evo": 104,
+    "evc": 384,
+    "ivo": 338,
+    "ivc": 614,
+    "outputGain": 2.1
+   },
+   "config": {
+    "engine": {
+     "cylinders": 8,
+     "vAngle": 90,
+     "firingOffset": null,
+     "crankType": "crossplane",
+     "exhaustLayout": "perBank",
+     "exhaustHeaders": true,
+     "bore": 0.10325,
+     "stroke": 0.092,
+     "rodLength": 0.1556,
+     "compressionRatio": 11.5,
+     "exValveDia": 0.0404,
+     "exValveCount": 1,
+     "portLength": 0.055,
+     "inValveDia": 0.054,
+     "inValveCount": 1,
+     "maxLift": 0.0145,
+     "evo": 104,
+     "evc": 384,
+     "ivo": 338,
+     "ivc": 614,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.075,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 6600,
+     "freeRunning": false,
+     "flywheelInertia": 0.9,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 1.3,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 2.1,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg152",
+      "kind": "pipe",
+      "length": 0.6,
+      "dIn": 0.044,
+      "dOut": 0.044,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg153",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.066,
+      "dOut": 0.076,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg154",
+      "kind": "pipe",
+      "length": 1,
+      "dIn": 0.076,
+      "dOut": 0.076,
+      "yaw": 0.18,
+      "pitch": 0
+     },
+     {
+      "id": "seg155",
+      "kind": "chamber",
+      "length": 0.45,
+      "dIn": 0.076,
+      "dOut": 0.2,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg156",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.07,
+      "dOut": 0.07,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 3.2767942153640015,
+    "tyreRadius": 0.31,
+    "mass": 1900,
+    "shiftRpm": 6450
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg157",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.034339999999999996,
+      "dOut": 0.034339999999999996,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg158",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04292499999999999,
+      "dOut": 0.0631856,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg159",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.0631856,
+      "dOut": 0.0631856,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg160",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.0631856,
+      "dOut": 0.157964,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg161",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.0631856,
+      "dOut": 0.0631856,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "V8, Chevrolet LT6",
+   "engine": {
+    "cylinders": 8,
+    "vAngle": 90,
+    "crankType": "flatplane",
+    "exhaustLayout": "perBank",
+    "exhaustHeaders": true,
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.082,
+    "revLimit": 8600,
+    "mouthSpacing": 0.6,
+    "flywheelInertia": 0.45,
+    "pipeCellSize": 0.035,
+    "bore": 0.10425,
+    "stroke": 0.08,
+    "rodLength": 0.15,
+    "compressionRatio": 12.5,
+    "exValveDia": 0.0355,
+    "exValveCount": 2,
+    "inValveDia": 0.042,
+    "inValveCount": 2,
+    "maxLift": 0.0135,
+    "evo": 105,
+    "evc": 395,
+    "ivo": 325,
+    "ivc": 630,
+    "intakeRunnerLength": 0.37,
+    "intakeRunnerShortLength": 0.33,
+    "intakeSwitchRpm": 8100,
+    "vvtIntakeLow": 40,
+    "vvtLowRpm": 4500,
+    "vvtHighRpm": 7500,
+    "outputGain": 0.93
+   },
+   "config": {
+    "engine": {
+     "cylinders": 8,
+     "vAngle": 90,
+     "firingOffset": null,
+     "crankType": "flatplane",
+     "exhaustLayout": "perBank",
+     "exhaustHeaders": true,
+     "bore": 0.10425,
+     "stroke": 0.08,
+     "rodLength": 0.15,
+     "compressionRatio": 12.5,
+     "exValveDia": 0.0355,
+     "exValveCount": 2,
+     "portLength": 0.055,
+     "inValveDia": 0.042,
+     "inValveCount": 2,
+     "maxLift": 0.0135,
+     "evo": 105,
+     "evc": 395,
+     "ivo": 325,
+     "ivc": 630,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 40,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 4500,
+     "vvtHighRpm": 7500,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.082,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0.37,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0.33,
+     "intakeSwitchRpm": 8100,
+     "rpm": 800,
+     "revLimit": 8600,
+     "freeRunning": false,
+     "flywheelInertia": 0.45,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.6,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 0.93,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg166",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.045,
+      "dOut": 0.045,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg167",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.068,
+      "dOut": 0.076,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg168",
+      "kind": "pipe",
+      "length": 0.9,
+      "dIn": 0.076,
+      "dOut": 0.076,
+      "yaw": 0.15,
+      "pitch": 0
+     },
+     {
+      "id": "seg169",
+      "kind": "chamber",
+      "length": 0.4,
+      "dIn": 0.076,
+      "dOut": 0.19,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg170",
+      "kind": "pipe",
+      "length": 0.35,
+      "dIn": 0.07,
+      "dOut": 0.07,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 4.292854437182297,
+    "tyreRadius": 0.31,
+    "mass": 1900,
+    "shiftRpm": 8450
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg171",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.042673894244608136,
+      "dOut": 0.042673894244608136,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg172",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.05334236780576017,
+      "dOut": 0.07851996541007897,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg173",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.07851996541007897,
+      "dOut": 0.07851996541007897,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg174",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.07851996541007897,
+      "dOut": 0.19629991352519743,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg175",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.07851996541007897,
+      "dOut": 0.07851996541007897,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "V8, flatplane, manifold per bank",
+   "engine": {
+    "cylinders": 8,
+    "vAngle": 90,
+    "crankType": "flatplane",
+    "exhaustLayout": "perBank",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.078,
+    "revLimit": 9000,
+    "mouthSpacing": 1.3,
+    "flywheelInertia": 0.5,
+    "pipeCellSize": 0.035,
+    "bore": 0.094,
+    "stroke": 0.067,
+    "rodLength": 0.132,
+    "compressionRatio": 12,
+    "exValveDia": 0.03196,
+    "exValveCount": 2,
+    "inValveDia": 0.0376,
+    "inValveCount": 2,
+    "maxLift": 0.0105,
+    "outputGain": 0.82
+   },
+   "config": {
+    "engine": {
+     "cylinders": 8,
+     "vAngle": 90,
+     "firingOffset": null,
+     "crankType": "flatplane",
+     "exhaustLayout": "perBank",
+     "exhaustHeaders": false,
+     "bore": 0.094,
+     "stroke": 0.067,
+     "rodLength": 0.132,
+     "compressionRatio": 12,
+     "exValveDia": 0.03196,
+     "exValveCount": 2,
+     "portLength": 0.055,
+     "inValveDia": 0.0376,
+     "inValveCount": 2,
+     "maxLift": 0.0105,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.078,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 9000,
+     "freeRunning": false,
+     "flywheelInertia": 0.5,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 1.3,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 0.82,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg180",
+      "kind": "pipe",
+      "length": 0.44,
+      "dIn": 0.042,
+      "dOut": 0.042,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg181",
+      "kind": "cone",
+      "length": 0.14,
+      "dIn": 0.058,
+      "dOut": 0.07,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg182",
+      "kind": "pipe",
+      "length": 0.85,
+      "dIn": 0.07,
+      "dOut": 0.07,
+      "yaw": 0.15,
+      "pitch": 0
+     },
+     {
+      "id": "seg183",
+      "kind": "cone",
+      "length": 0.25,
+      "dIn": 0.07,
+      "dOut": 0.09,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 4.597177750288011,
+    "tyreRadius": 0.31,
+    "mass": 1900,
+    "shiftRpm": 8850
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg184",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.038418525635427504,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg185",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04802315704428438,
+      "dOut": 0.07069008716918661,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg186",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.07069008716918661,
+      "dOut": 0.07069008716918661,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg187",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.07069008716918661,
+      "dOut": 0.17672521792296653,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg188",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.07069008716918661,
+      "dOut": 0.07069008716918661,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "Boxer four",
+   "engine": {
+    "cylinders": 4,
+    "vAngle": 180,
+    "crankType": "boxer",
+    "exhaustLayout": "merged",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.075,
+    "revLimit": 6500,
+    "flywheelInertia": 0.3,
+    "pipeCellSize": 0.035,
+    "bore": 0.0995,
+    "stroke": 0.079,
+    "rodLength": 0.1305,
+    "compressionRatio": 10,
+    "exValveDia": 0.033830000000000006,
+    "exValveCount": 2,
+    "inValveDia": 0.0398,
+    "inValveCount": 2,
+    "maxLift": 0.0105,
+    "outputGain": 0.88
+   },
+   "config": {
+    "engine": {
+     "cylinders": 4,
+     "vAngle": 180,
+     "firingOffset": null,
+     "crankType": "boxer",
+     "exhaustLayout": "merged",
+     "exhaustHeaders": false,
+     "bore": 0.0995,
+     "stroke": 0.079,
+     "rodLength": 0.1305,
+     "compressionRatio": 10,
+     "exValveDia": 0.033830000000000006,
+     "exValveCount": 2,
+     "portLength": 0.055,
+     "inValveDia": 0.0398,
+     "inValveCount": 2,
+     "maxLift": 0.0105,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.075,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 6500,
+     "freeRunning": false,
+     "flywheelInertia": 0.3,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.4,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 0.88,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg193",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.040666418092819547,
+      "dOut": 0.040666418092819547,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg199",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.05083302261602443,
+      "dOut": 0.07482620929078797,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg200",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.07482620929078797,
+      "dOut": 0.07482620929078797,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg201",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.07482620929078797,
+      "dOut": 0.18706552322696993,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg202",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.07482620929078797,
+      "dOut": 0.07482620929078797,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 4.221439335206952,
+    "tyreRadius": 0.31,
+    "mass": 1064.7440530252438,
+    "shiftRpm": 6350
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg203",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.040666418092819547,
+      "dOut": 0.040666418092819547,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg204",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.05083302261602443,
+      "dOut": 0.07482620929078797,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg205",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.07482620929078797,
+      "dOut": 0.07482620929078797,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg206",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.07482620929078797,
+      "dOut": 0.18706552322696993,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg207",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.07482620929078797,
+      "dOut": 0.07482620929078797,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "Boxer six",
+   "engine": {
+    "cylinders": 6,
+    "vAngle": 180,
+    "crankType": "boxer",
+    "exhaustLayout": "perBank",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.076,
+    "revLimit": 7300,
+    "flywheelInertia": 0.35,
+    "mouthSpacing": 0.9,
+    "pipeCellSize": 0.035,
+    "bore": 0.097,
+    "stroke": 0.0815,
+    "rodLength": 0.1275,
+    "compressionRatio": 11.3,
+    "exValveDia": 0.03298,
+    "exValveCount": 2,
+    "inValveDia": 0.0388,
+    "inValveCount": 2,
+    "maxLift": 0.011,
+    "outputGain": 1.03
+   },
+   "config": {
+    "engine": {
+     "cylinders": 6,
+     "vAngle": 180,
+     "firingOffset": null,
+     "crankType": "boxer",
+     "exhaustLayout": "perBank",
+     "exhaustHeaders": false,
+     "bore": 0.097,
+     "stroke": 0.0815,
+     "rodLength": 0.1275,
+     "compressionRatio": 11.3,
+     "exValveDia": 0.03298,
+     "exValveCount": 2,
+     "portLength": 0.055,
+     "inValveDia": 0.0388,
+     "inValveCount": 2,
+     "maxLift": 0.011,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.076,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 7300,
+     "freeRunning": false,
+     "flywheelInertia": 0.35,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.9,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 1.03,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg212",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.03964464879400498,
+      "dOut": 0.03964464879400498,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg218",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04955581099250622,
+      "dOut": 0.06317322228268557,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg219",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.06317322228268557,
+      "dOut": 0.06317322228268557,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg220",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.06317322228268557,
+      "dOut": 0.15793305570671393,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg221",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.06317322228268557,
+      "dOut": 0.06317322228268557,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 4.02114752730742,
+    "tyreRadius": 0.31,
+    "mass": 1758.6272977923807,
+    "shiftRpm": 7150
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg222",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.03964464879400498,
+      "dOut": 0.03964464879400498,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg223",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04955581099250622,
+      "dOut": 0.06317322228268557,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg224",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.06317322228268557,
+      "dOut": 0.06317322228268557,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg225",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.06317322228268557,
+      "dOut": 0.15793305570671393,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg226",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.06317322228268557,
+      "dOut": 0.06317322228268557,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  },
+  {
+   "name": "Parallel twin, 360°",
+   "engine": {
+    "cylinders": 2,
+    "vAngle": 0,
+    "firingOffset": 360,
+    "exValveDia": 0.030260000000000002,
+    "exValveCount": 2,
+    "inValveDia": 0.0356,
+    "inValveCount": 2,
+    "exhaustLayout": "2into1",
+    "rpm": 800,
+    "load": 0,
+    "throttle": 0.074,
+    "revLimit": 7500,
+    "outputGain": 0.54
+   },
+   "config": {
+    "engine": {
+     "cylinders": 2,
+     "vAngle": 0,
+     "firingOffset": 360,
+     "crankType": "shared",
+     "exhaustLayout": "2into1",
+     "exhaustHeaders": false,
+     "bore": 0.089,
+     "stroke": 0.08,
+     "rodLength": 0.145,
+     "compressionRatio": 10.5,
+     "exValveDia": 0.030260000000000002,
+     "exValveCount": 2,
+     "portLength": 0.055,
+     "inValveDia": 0.0356,
+     "inValveCount": 2,
+     "maxLift": 0.0095,
+     "evo": 128,
+     "evc": 378,
+     "ivo": 342,
+     "ivc": 576,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "ignition": 695,
+     "burnDuration": 55,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "combustionVariability": 1,
+     "recipMass": 0.55,
+     "throttle": 0.074,
+     "throttleDia": 0,
+     "plenumVolume": 0,
+     "intakeRunnerLength": 0,
+     "intakeRunnerDia": 0,
+     "intakeRunnerShortLength": 0,
+     "intakeSwitchRpm": 5000,
+     "rpm": 800,
+     "revLimit": 7500,
+     "freeRunning": false,
+     "flywheelInertia": 0.25,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "airSpeed": 0,
+     "micDistance": 1.5,
+     "micHeight": 1.2,
+     "exhaustHeight": 0.35,
+     "mouthSpacing": 0.4,
+     "cylinderSpread": 1,
+     "groundReflection": 0.7,
+     "outputGain": 0.54,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg231",
+      "kind": "pipe",
+      "length": 0.4,
+      "dIn": 0.04,
+      "dOut": 0.04,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg232",
+      "kind": "pipe",
+      "length": 0.25,
+      "dIn": 0.055,
+      "dOut": 0.055,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg233",
+      "kind": "chamber",
+      "length": 0.3,
+      "dIn": 0.055,
+      "dOut": 0.13,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg234",
+      "kind": "pipe",
+      "length": 0.2,
+      "dIn": 0.05,
+      "dOut": 0.05,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   },
+   "dyno": {
+    "ratios": [
+     3.36,
+     2.09,
+     1.47,
+     1.1,
+     0.87,
+     0.71
+    ],
+    "finalDrive": 6.296066118753702,
+    "tyreRadius": 0.31,
+    "mass": 497.691108181695,
+    "shiftRpm": 7350
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg235",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.03637498703779838,
+      "dOut": 0.03637498703779838,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg236",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.04546873379724797,
+      "dOut": 0.04732664000000001,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg237",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.04732664000000001,
+      "dOut": 0.04732664000000001,
+      "yaw": 0.2,
+      "pitch": 0
+     },
+     {
+      "id": "seg238",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.04732664000000001,
+      "dOut": 0.11831660000000002,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg239",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.04732664000000001,
+      "dOut": 0.04732664000000001,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
+  }
+ ],
+ "pipePresets": [
+  {
+   "name": "Open header",
+   "description": "Short straight pipe, no silencer. Raw and loud, strongly tuned.",
+   "segments": [
+    {
+     "id": "seg246",
+     "kind": "pipe",
+     "length": 0.42,
+     "dIn": 0.042,
+     "dOut": 0.042,
+     "yaw": 0,
+     "pitch": 0
+    },
+    {
+     "id": "seg247",
+     "kind": "pipe",
+     "length": 0.18,
+     "dIn": 0.048,
+     "dOut": 0.048,
+     "yaw": 0,
+     "pitch": -0.12
+    }
+   ]
+  },
+  {
+   "name": "Megaphone",
+   "description": "Header into a long taper. Broad, brassy, race-bike bark.",
+   "segments": [
+    {
+     "id": "seg248",
+     "kind": "pipe",
+     "length": 0.3,
+     "dIn": 0.04,
+     "dOut": 0.04,
+     "yaw": 0,
+     "pitch": 0
+    },
+    {
+     "id": "seg249",
+     "kind": "cone",
+     "length": 0.55,
+     "dIn": 0.04,
+     "dOut": 0.1,
+     "yaw": 0.1,
+     "pitch": 0
+    }
+   ]
+  },
+  {
+   "name": "Tuned expansion chamber",
+   "description": "Diffuser then reverse cone. The classic two-stroke-style pulse tuner.",
+   "segments": [
+    {
+     "id": "seg250",
+     "kind": "pipe",
+     "length": 0.22,
+     "dIn": 0.038,
+     "dOut": 0.038,
+     "yaw": 0,
+     "pitch": 0
+    },
+    {
+     "id": "seg251",
+     "kind": "cone",
+     "length": 0.3,
+     "dIn": 0.038,
+     "dOut": 0.11,
+     "yaw": 0,
+     "pitch": 0
+    },
+    {
+     "id": "seg252",
+     "kind": "pipe",
+     "length": 0.12,
+     "dIn": 0.11,
+     "dOut": 0.11,
+     "yaw": 0,
+     "pitch": 0
+    },
+    {
+     "id": "seg253",
+     "kind": "cone",
+     "length": 0.24,
+     "dIn": 0.11,
+     "dOut": 0.026,
+     "yaw": 0,
+     "pitch": 0
+    },
+    {
+     "id": "seg254",
+     "kind": "pipe",
+     "length": 0.16,
+     "dIn": 0.026,
+     "dOut": 0.026,
+     "yaw": 0,
+     "pitch": -0.15
+    }
+   ]
+  },
+  {
+   "name": "Street muffler",
+   "description": "Long header, expansion can, short tailpipe. Quiet and boomy.",
+   "segments": [
+    {
+     "id": "seg255",
+     "kind": "pipe",
+     "length": 0.6,
+     "dIn": 0.042,
+     "dOut": 0.042,
+     "yaw": 0.25,
+     "pitch": 0
+    },
+    {
+     "id": "seg256",
+     "kind": "chamber",
+     "length": 0.34,
+     "dIn": 0.042,
+     "dOut": 0.13,
+     "yaw": 0,
+     "pitch": 0
+    },
+    {
+     "id": "seg257",
+     "kind": "pipe",
+     "length": 0.3,
+     "dIn": 0.04,
+     "dOut": 0.04,
+     "yaw": 0,
+     "pitch": -0.1
+    }
+   ]
+  },
+  {
+   "name": "Long tuned pipe",
+   "description": "Very long primary. Low first resonance, strong low-rpm pull.",
+   "segments": [
+    {
+     "id": "seg258",
+     "kind": "pipe",
+     "length": 0.9,
+     "dIn": 0.04,
+     "dOut": 0.04,
+     "yaw": 0.4,
+     "pitch": 0
+    },
+    {
+     "id": "seg259",
+     "kind": "cone",
+     "length": 0.35,
+     "dIn": 0.04,
+     "dOut": 0.06,
+     "yaw": 0.2,
+     "pitch": 0
+    },
+    {
+     "id": "seg260",
+     "kind": "pipe",
+     "length": 0.25,
+     "dIn": 0.06,
+     "dOut": 0.06,
+     "yaw": 0,
+     "pitch": 0
+    }
+   ]
+  },
+  {
+   "name": "Oval muffler, offset pipes",
+   "description": "Flat oval can with its pipes at opposite sides. Rings across the can, rougher in the mids.",
+   "segments": [
+    {
+     "id": "seg261",
+     "kind": "pipe",
+     "length": 0.6,
+     "dIn": 0.042,
+     "dOut": 0.042,
+     "yaw": 0.25,
+     "pitch": 0
+    },
+    {
+     "id": "seg262",
+     "kind": "chamber",
+     "length": 0.4,
+     "dIn": 0.042,
+     "dOut": 0.26,
+     "yaw": 0,
+     "pitch": 0,
+     "section": "oval",
+     "height": 0.13,
+     "offsetIn": 0.07,
+     "offsetOut": -0.07
+    },
+    {
+     "id": "seg263",
+     "kind": "pipe",
+     "length": 0.3,
+     "dIn": 0.04,
+     "dOut": 0.04,
+     "yaw": 0,
+     "pitch": -0.1
+    }
+   ]
+  }
+ ]
+}

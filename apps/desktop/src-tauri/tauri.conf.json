@@ -1,0 +1,33 @@
+{
+  "$schema": "../../../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Engine Simulator",
+  "version": "0.1.0",
+  "identifier": "com.tahoward.engine-simulator",
+  "build": {
+    "beforeDevCommand": "npm run dev:desktop --prefix ../web",
+    "devUrl": "http://localhost:5174",
+    "beforeBuildCommand": "npm run build:desktop --prefix ../web",
+    "frontendDist": "../../web/dist-desktop"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Engine Simulator",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 600
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Utility",
+    "shortDescription": "Engines simulated from physics, with an exhaust you build yourself",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+  }
+}

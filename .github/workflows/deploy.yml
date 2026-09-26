@@ -52,7 +52,7 @@ jobs:
         run: npm run build
 
       - name: Assemble site
-        run: mv dist site/app
+        run: mv apps/web/dist site/app
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

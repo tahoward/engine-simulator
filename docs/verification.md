@@ -1,8 +1,9 @@
 # Verification
 
-`npm test` runs the test suite against the physics core. The core is pure code with no
-`AudioContext`, so every test runs headless in Node. Each item below says what is checked and
-why it matters.
+`cargo test --release -p engine-sim` runs the physics tests, in `crates/engine-sim/tests/`. The
+simulation is pure code with no audio device, so they run headless. They run the web app's own
+engine presets, from `tests/fixtures/presets.json`. Each item below says what is checked and why it
+matters.
 
 - **Shock capturing.** [Sod's shock tube](glossary.md#sod-shock-tube) (a standard test: a tube with high pressure on one side
   and low on the other, suddenly opened) is compared to its exact solution. The result must
@@ -40,8 +41,7 @@ why it matters.
   Lean mixtures must release less heat, rich ones no more than stoichiometric, and λ 2 must
   misfire. With the fuel cut, a shut throttle at 3200 rpm must leave no fuel in the manifold and
   fire no cycles, and opening the throttle must bring every cycle back.
-- **Intake runners.** Runners stepped together in one shared kernel must render bit for bit as they
-  do on the TypeScript path. Left on auto, a runner's bore must follow the valves and its length the rev
+- **Intake runners.** Left on auto, a runner's bore must follow the valves and its length the rev
   limit, and set values must be used as given. On a 6.2 litre V8, the tuned runner must fill the
   cylinder to over 95% at its tuned speed. That must be more than 10 points above an 80 mm stub, and
   more than it fills either side of that speed. An 800 mm runner must make more torque than a 250 mm
@@ -75,11 +75,11 @@ why it matters.
 - **Firing frequency.** At 1800, 3200 and 4800 rpm, every low spectral peak must be a multiple
   of `rpm/120`, and the half-order component must be missing. This confirms a four-stroke
   cycle.
-- **Crank algebra.** `crankState` computes piston position, both its derivatives and the
-  cylinder volume from one sin/cos/sqrt. It must match the four separate functions to 12
-  decimal places over the whole cycle, including a connecting rod only just longer than the
-  crank throw. Without this, the fast version (used by the physics) and the readable version
-  (used by the renderer) could drift apart unnoticed.
+- **Crank algebra.** `crank_at` computes piston position, both its derivatives and the
+  cylinder volume from one sin/cos/sqrt. It must match the separate formulas to 12 decimal
+  places over the whole cycle, including a connecting rod only just longer than the crank throw,
+  and the piston the 3D view draws must sit where it says. Without this, the fast version (used by
+  the physics) and the readable one (used by the renderer) could drift apart unnoticed.
 - **Thermodynamics.** Mass is conserved with the valves shut. Peak compression pressure is below
   the ideal no-heat-loss ([isentropic](glossary.md#adiabatic-and-isentropic)) limit but within 15% of it. The [polytropic exponent](glossary.md#polytropic-exponent) (how
   pressure scales with volume during compression) is 1.28–1.36. [Choked flow](glossary.md#choked-flow) through a valve
@@ -107,6 +107,24 @@ why it matters.
   with a rigid crank, it must not, to 1e-6. The junction must pass a pulse from one primary
   into the other and into the collector, and conserve mass and energy to 1e-3. Every engine
   preset must run clean, and switching layout or cylinder count mid-run must stay finite.
+
+## The reference renders
+
+The tests above check the physics. `tests/parity.rs` checks that the simulation computes exactly what
+it computed before, down to the last bit of every sample. `tests/fixtures/scenarios.json` holds a
+few dozen scenarios: every preset held at one operating point and idling free, every exhaust preset,
+a throttle blip into the rev limiter and back onto the fuel cut, a dyno run through a cam switch,
+edits to a running engine including a change of layout, a drawn exhaust, and another sample rate.
+For each it holds the audio as a hash per 10 ms block, and every snapshot taken.
+
+So a change meant to be a refactor or an optimisation is proven to be one, and a change meant to
+alter the sound shows exactly where it does. When it is meant to, `PARITY_BLESS=1` writes the new
+results into the fixture.
+
+In the web app, `npm test` replays the same file through the Wasm build, through the same `Sim` the
+AudioWorklet uses. That is what keeps the web app and the desktop app sounding the same: both builds
+must produce these samples exactly. The rest of `npm test` covers the interface: the pipe editor, the
+exhaust layout drawn in 3D, and the drawn engine.
 
 ## Sources
 
