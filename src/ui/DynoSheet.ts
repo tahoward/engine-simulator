@@ -61,6 +61,11 @@ export class DynoSheet {
   private dirty = true;
   private hoverX: number | null = null;
   private running = false;
+  /**
+   * Whether a snapshot has shown this run going. Until one has, a snapshot without a run is one sent
+   * before the audio thread took the start, not the run ending.
+   */
+  private seen = false;
 
   private width = 0;
   private height = 0;
@@ -121,6 +126,7 @@ export class DynoSheet {
     this.points = [];
     this.smoothed = [];
     this.running = true;
+    this.seen = false;
     this.card.classList.remove('hidden');
     this.status.textContent = 'Starting in 1st…';
     this.peaks.textContent = '';
@@ -133,10 +139,12 @@ export class DynoSheet {
   onSnapshot(dyno: DynoSnapshot | null): void {
     if (!this.running) return;
     if (!dyno) {
+      if (!this.seen) return;
       this.running = false;
       this.status.textContent = this.points.length > 0 ? 'Run complete' : 'Run stopped';
       return;
     }
+    this.seen = true;
     const p = dyno.points;
     for (let i = 0; i + 3 < p.length; i += 4) {
       this.points.push({ rpm: p[i]!, torque: p[i + 1]!, kmh: p[i + 2]!, gear: p[i + 3]! });
