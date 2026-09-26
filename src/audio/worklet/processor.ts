@@ -81,7 +81,7 @@ class EngineProcessor extends AudioWorkletProcessor {
     const n = mono.length;
 
     // k-rate, so one value per block. `setControls` returns at once when nothing moved.
-    this.sim.setControls(parameters.throttle![0]!, parameters.rpm![0]!, parameters.load![0]!);
+    this.sim.setControls(parameters.throttle![0]!, parameters.load![0]!);
 
     // No timing here. `performance` is not exposed in AudioWorkletGlobalScope (verified
     // absent in Chrome), and `currentTime` only advances once per block, so the audio

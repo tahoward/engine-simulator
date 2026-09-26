@@ -166,7 +166,7 @@ describe('advance map', () => {
     const sim = new EngineSim(FS, cfg);
     sim.render(FS * 2);
     expect(sim.rpm).toBeLessThan(600);
-    sim.setControls(1, cfg.engine.rpm, 0.46);
+    sim.setControls(1, 0.46);
     sim.render(FS * 3);
     expect(sim.rpm).toBeGreaterThan(3000);
   });
@@ -214,7 +214,7 @@ describe('overrun fuel cut', () => {
   it('brings the fuel back as soon as the throttle opens', () => {
     const sim = single({ throttle: 0, rpm: 3200 });
     watch(sim, 0.5);
-    sim.setControls(0.5, 3200, 0);
+    sim.setControls(0.5, 0);
     expect(watch(sim, 1).fired).toBe(1);
   });
 });

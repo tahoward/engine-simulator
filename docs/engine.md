@@ -124,10 +124,13 @@ rises to about 9.9% near idle, which matches published single-cylinder data. Con
 waveforms differ by about 28%, and by 117% at idle, where some cycles nearly misfire.
 
 **The crank speeds up and slows down within each cycle.** Gas pressure and the moving parts push
-the crank unevenly. On a big single, the speed swings by a few percent even on a [dynamometer](glossary.md#dynamometer)
-(a test rig that holds the engine at a set speed). Only the *fluctuating* part of the torque
-should do this, because whatever holds the speed absorbs the average. So the model tracks the
-average torque and subtracts it first, which keeps the engine at the speed you set.
+the crank unevenly. In the app the crank is driven by the torque itself, against friction, the
+load and the flywheel, so the speed follows the throttle and the ripple comes with it. On a big
+single, the speed swings by a few percent within a cycle, and it does so even on a
+[dynamometer](glossary.md#dynamometer) (a test rig that holds the engine at a set speed). The tests
+measure the engine held like that, at exact operating points. There only the *fluctuating* part of
+the torque may move the crank, because whatever holds the speed absorbs the average, so the model
+tracks the average torque and subtracts it first.
 
 **The piston's weight shakes the crank.** The piston and the small end of the rod push on the crank
 as hard as the gas does, at twice crank frequency. Over a full cycle this averages to zero, so it

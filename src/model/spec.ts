@@ -286,7 +286,9 @@ export interface EngineSpec {
   plenumVolume: number;
 
   // --- Operating point ---
-  /** Target crank speed, rev/min. Used directly when `freeRunning` is false. */
+  /**
+   * Crank speed the engine starts at, rev/min. With `freeRunning` off, the speed it is held at as well.
+   */
   rpm: number;
   /**
    * Rev limiter, rev/min.
@@ -294,14 +296,18 @@ export interface EngineSpec {
    * A hard spark cut: past the limit every cylinder whose charge is committed misses its firing,
    * and sparks return once speed has fallen `REV_LIMIT_HYSTERESIS_RPM` below it. The unburned
    * charge still goes down the pipe, and the engine bounces off the limit in the stuttering way a
-   * real one does. A fixed `rpm` at or above the limit is not held: the crank is let go, unloaded,
-   * so it can bounce too.
+   * real one does. With the speed held (`freeRunning` off) at or past the limit, the crank is let
+   * go instead, unloaded, so it can bounce too.
    */
   revLimit: number;
   /**
-   * When true the crank is integrated from gas torque, reciprocating inertia and
-   * load instead of being swept at a fixed `rpm`, so the pipe's tuning can pull
-   * the engine around. See `flywheelInertia` / `load`.
+   * When true the crank is integrated from gas torque, reciprocating inertia and load, so the
+   * throttle and the pipe's tuning set the speed. See `flywheelInertia` / `load`. The app always runs
+   * this way.
+   *
+   * When false the engine is held at `rpm`, as an engine dynamometer holds it, with only the
+   * within-cycle ripple left free. That is a measurement setting: it is how the tests and the
+   * benchmark put an engine at an exact operating point, and why it is the default here.
    */
   freeRunning: boolean;
   /** Rotating inertia, kg*m^2. Small single-cylinders are ~0.02-0.2. */
@@ -1787,8 +1793,8 @@ export const PRESET_IDLE_RPM = 800;
  *
  * The throttle is each preset's own, found by running it free with no load and adjusting the opening
  * until it settles at the idle speed. Most come out at 7-8%, because every throttle is sized to its
- * engine's airflow (`throttleDiaOf`). The fixed-speed rpm is set to the same idle, so the engine
- * starts in the same place whichever way the crank is run.
+ * engine's airflow (`throttleDiaOf`). The engine starts at the idle speed too, so it does not have
+ * to settle there from somewhere else.
  */
 function idling(throttle: number): Pick<EngineSpec, 'rpm' | 'load' | 'throttle'> {
   return { rpm: PRESET_IDLE_RPM, load: 0, throttle };

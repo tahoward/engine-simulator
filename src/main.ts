@@ -11,8 +11,10 @@
 import * as THREE from 'three';
 import { AudioEngine } from './audio/AudioEngine.js';
 import {
+  ENGINE_PRESETS,
   defaultConfig,
   exhaustPortDiameter,
+  presetEngine,
   fullLoadTorque,
   makeSegment,
   type EngineConfig,
@@ -542,8 +544,23 @@ function glow(angle: number, ignition: number): number {
 // pipe someone likes is a shareable link rather than something to screenshot.
 // ---------------------------------------------------------------------------
 
+/**
+ * Where the app starts without a configuration in the URL: the first preset, idling.
+ *
+ * The app always runs the crank free, with the speed following the throttle and the load, so
+ * `freeRunning` is set here and carried across presets; a held speed is a measurement setting only.
+ */
+function startingConfig(): EngineConfig {
+  const cfg = defaultConfig();
+  const first = ENGINE_PRESETS[0]!;
+  cfg.engine = presetEngine(first, { ...cfg.engine, freeRunning: true });
+  cfg.pipe = first.pipe();
+  if (first.collector) cfg.collector = first.collector();
+  return cfg;
+}
+
 function loadConfig(): EngineConfig {
-  const base = defaultConfig();
+  const base = startingConfig();
   const hash = location.hash.replace(/^#/, '');
   if (!hash) return base;
   try {
@@ -556,6 +573,7 @@ function loadConfig(): EngineConfig {
         base.engine.load = Math.min(Math.max(legacy / fullLoadTorque(base.engine), 0), 1.5);
       }
       delete (base.engine as { loadTorque?: unknown }).loadTorque;
+      base.engine.freeRunning = true;
     }
     if (Array.isArray(parsed.pipe) && parsed.pipe.length > 0) {
       base.pipe = parsed.pipe.map((s) => makeSegment(s));
