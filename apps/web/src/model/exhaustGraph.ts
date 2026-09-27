@@ -1245,17 +1245,18 @@ export function solverGraph(graph: ExhaustGraph): ExhaustGraph {
 }
 
 /**
- * Put down a loose pipe at `position`, a straight length of `dia` bore heading along world +x. Returns its
- * id.
+ * Put down a loose pipe starting at `position`: a straight `length` long, of `dia` bore, running along the
+ * crank (world +z), as long as the engine where the caller gives it the engine's length. Returns its id.
  */
-export function placeLoosePipe(graph: ExhaustGraph, position: Vec3, dia: number): string {
+export function placeLoosePipe(graph: ExhaustGraph, position: Vec3, dia: number, length: number): string {
   const id = newDuctId(graph, 'loose');
   graph.ducts.push({
     id,
-    segments: [makeSegment({ kind: 'pipe', length: 0.3, dIn: dia, dOut: dia })],
+    segments: [makeSegment({ kind: 'pipe', length, dIn: dia, dOut: dia })],
     from: { kind: 'free', position: [...position] },
     to: { kind: 'mouth' },
-    headingYaw: 0,
+    // A quarter turn about the vertical takes world +x, which headings turn off, onto +z.
+    headingYaw: -Math.PI / 2,
     headingPitch: 0,
     headingFrame: 'world',
   });

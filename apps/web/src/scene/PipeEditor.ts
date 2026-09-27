@@ -100,8 +100,6 @@ interface HandleData {
 const ATTACH_MARKER = 0xffd166;
 const JUNCTION_MARKER = 0xc792ff;
 
-/** Length of a loose pipe as it is put down, m: `placeLoosePipe`'s. */
-const LOOSE_PIPE_LENGTH = 0.3;
 
 /** Size of the selected segment's triad, m. */
 const PIPE_TRIAD_SIZE = 0.11;
@@ -283,8 +281,9 @@ export class PipeEditor {
   /** Placing a turbo, or a loose pipe: the see-through one following the pointer, and where it is. */
   private placeMode = false;
   private placeKind: 'turbo' | 'pipe' = 'turbo';
+  /** The loose pipe being placed: from where it starts, along the crank (+z), as `setLoosePipe` sizes it. */
   private readonly ghostPipe = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.021, 0.021, LOOSE_PIPE_LENGTH, 24).rotateZ(-Math.PI / 2).translate(LOOSE_PIPE_LENGTH / 2, 0, 0),
+    new THREE.BufferGeometry(),
     new THREE.MeshStandardMaterial({ color: 0xb9bdc3, transparent: true, opacity: 0.45, depthWrite: false }),
   );
   private readonly ghost = new TurboMesh(true);
@@ -494,11 +493,19 @@ export class PipeEditor {
    * Follow the pointer with the turbo being placed: on the level it is put down at, or, near an open pipe
    * end, with its inlet flange on that end and turned to take the pipe.
    */
+  /** Size the loose pipe that placing puts down, as `placeLoosePipe` will: `length` long, of `dia` bore. */
+  setLoosePipe(length: number, dia: number): void {
+    this.ghostPipe.geometry.dispose();
+    this.ghostPipe.geometry = new THREE.CylinderGeometry(dia / 2, dia / 2, length, 24)
+      .rotateX(Math.PI / 2)
+      .translate(0, 0, length / 2);
+  }
+
   private updateGhost(): void {
     const ctx = this.context;
     if (!ctx) return;
     if (this.placeKind === 'pipe') {
-      // A loose pipe goes down level with the ports, heading along the engine's x; its triad turns it.
+      // A loose pipe goes down level with the ports, running along the crank; its triad turns it.
       const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.turboHeight);
       const point = new THREE.Vector3();
       this.ghostPipe.visible = !!this.raycaster.ray.intersectPlane(plane, point);

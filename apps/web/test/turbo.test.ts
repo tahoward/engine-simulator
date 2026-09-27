@@ -551,14 +551,33 @@ describe('a pipe', () => {
   });
 });
 
+describe('the engine’s length', () => {
+  it('is its block: first cylinder to last along the crank, and a pitch over', async () => {
+    const { engineLength, cylinderSpacing, cylinderZ } = await import('../src/model/spec.js');
+    const four = { ...defaultConfig().engine, cylinders: 4, vAngle: 0 } as EngineSpec;
+    expect(engineLength(four)).toBeCloseTo(4 * cylinderSpacing(four), 12);
+    const single = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
+    expect(engineLength(single)).toBeCloseTo(cylinderSpacing(single), 12);
+    // A V8's banks are staggered, so its length takes in the stagger too.
+    const v8 = { ...defaultConfig().engine, cylinders: 8, vAngle: 90, crankType: 'crossplane' } as EngineSpec;
+    const zs = [...Array(8).keys()].map((c) => cylinderZ(v8, c));
+    expect(engineLength(v8)).toBeCloseTo(Math.max(...zs) - Math.min(...zs) + cylinderSpacing(v8), 12);
+    expect(engineLength(v8)).toBeGreaterThan(4 * cylinderSpacing(v8));
+  });
+});
+
 describe('a loose pipe', () => {
   it('is put down attached to nothing, where it was put, and the solver is not given it', async () => {
     const { placeLoosePipe, solverGraph } = await import('../src/model/exhaustGraph.js');
     const { spec, graph, ports } = single();
-    const id = placeLoosePipe(graph, [0.4, 0.2, 0.3], 0.04);
+    const id = placeLoosePipe(graph, [0.4, 0.2, 0.3], 0.04, 0.3);
     expect(validateGraph(graph, 1)).toEqual([]);
     const placement = layoutGraph(ports, graph);
     expect(placement.ducts.get(id)!.origin.distanceTo(new THREE.Vector3(0.4, 0.2, 0.3))).toBeLessThan(1e-12);
+    // Along the crank, as long as it was given.
+    const place = placement.ducts.get(id)!;
+    const end = layoutPipe(graph.ducts.find((d) => d.id === id)!.segments, place.origin, place.heading).joints.at(-1)!;
+    expect(end.distanceTo(new THREE.Vector3(0.4, 0.2, 0.6))).toBeLessThan(1e-9);
     expect(solverGraph(graph).ducts.map((d) => d.id)).toEqual(['runner0']);
     // And survives a link.
     expect(graphFromJson(JSON.parse(JSON.stringify(graph)))).toEqual(graph);
@@ -568,7 +587,7 @@ describe('a loose pipe', () => {
   it('is attached by a pipe drawn into its start, and is then fed like any other', async () => {
     const { attachToLooseStart, placeLoosePipe, solverGraph } = await import('../src/model/exhaustGraph.js');
     const { spec, graph, ports } = single();
-    const id = placeLoosePipe(graph, [0.5, 0.25, 0.1], 0.04);
+    const id = placeLoosePipe(graph, [0.5, 0.25, 0.1], 0.04, 0.3);
     const loose = graph.ducts.find((d) => d.id === id)!;
     const before = layoutGraph(ports, graph).ducts.get(id)!;
     const node = attachToLooseStart(graph, 'runner0', id, [1, 0, 0])!;
@@ -592,7 +611,7 @@ describe('drawing into a loose pipe’s far end', () => {
     const { attachToLooseStart, placeLoosePipe } = await import('../src/model/exhaustGraph.js');
     const { flipLoosePipe } = await import('../src/scene/drawing.js');
     const { spec, graph, ports } = single();
-    const id = placeLoosePipe(graph, [0.5, 0.25, 0.1], 0.04);
+    const id = placeLoosePipe(graph, [0.5, 0.25, 0.1], 0.04, 0.3);
     const loose = graph.ducts.find((d) => d.id === id)!;
     // Bent and tapering, so turning it round has something to keep.
     loose.segments.push(makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.04, dOut: 0.055, yaw: 0.6, pitch: 0.3 }));

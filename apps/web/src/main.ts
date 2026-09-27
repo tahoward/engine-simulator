@@ -14,6 +14,7 @@ import type { EngineHost } from './audio/EngineHost.js';
 import {
   ENGINE_PRESETS,
   defaultConfig,
+  engineLength,
   exhaustPortDiameter,
   presetEngine,
   fullLoadTorque,
@@ -253,7 +254,7 @@ const editor = new PipeEditor(
     },
     onPlacePipe: (position) => {
       freeze();
-      const id = placeLoosePipe(config.graph!, position, exhaustPortDiameter(config.engine));
+      const id = placeLoosePipe(config.graph!, position, exhaustPortDiameter(config.engine), engineLength(config.engine));
       editedDuctId = id;
       afterTurboEdit(true);
       panel.showDuct(id);
@@ -672,6 +673,7 @@ function rebuildPipeGeometry(): void {
     turbos: turbos.map((t, i) => ({ turbo: t.id, target: turboMeshes[i]!.pickTarget })),
   });
   editor.portDiameter = exhaustPortDiameter(config.engine);
+  editor.setLoosePipe(engineLength(config.engine), exhaustPortDiameter(config.engine));
   editor.turboSize = size;
   editor.turboHeight = turboHeight(ports);
   editor.turboOutletDia = size.outletDia;

@@ -619,7 +619,8 @@ export class Panel {
     this.placePipeBtn = el('button', '', placePipeRow) as HTMLButtonElement;
     this.placePipeBtn.textContent = 'Place a pipe';
     this.placePipeBtn.title =
-      'Put a straight pipe down in the view, attached to nothing: click where it should start. Select it ' +
+      'Put a straight pipe down in the view, attached to nothing: click where it should start. It runs ' +
+      'along the crank, as long as the engine. Select it ' +
       'for its triad, to move it with the arrows and turn it with the rings. It carries no gas until a pipe ' +
       'is drawn into its start, which attaches it.';
     this.placePipeHint = el('span', 'hint', placePipeRow);
