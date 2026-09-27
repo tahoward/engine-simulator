@@ -303,29 +303,48 @@ time. Batching the gas transfer as well would put a regular energy kick into the
 
 ## The turbocharger's sounds
 
-A turbocharged engine adds four sounds of its own, all from the turbo's state as the model has it
-(see [The turbocharger](engine.md#the-turbocharger)). They radiate from the engine alongside the
-exhaust, and **Turbo sound** sets their level.
+A turbocharger changes the exhaust note and adds sounds of its own (see
+[The turbocharger](engine.md#the-turbocharger)). Where it can be, each comes from a simulated flow;
+**Turbo sound** sets the level of all of them.
 
-- **The whine.** The compressor wheel sings at its blade-pass frequency, six blades times the shaft
-  speed, with its second harmonic and weaker tones at the first three shaft orders, where a real wheel's
-  small imbalances put them. It is loudest at full speed and full flow, and still there, fainter, from a
-  wheel spinning free after a lift. Twin turbos each have a voice, 1.2% apart in speed, so the two beat.
-  Every tone fades out below the Nyquist frequency, so nothing folds back down at a low sample rate.
-- **The blow-off valve.** When it vents to the atmosphere, the jet is noise through two broad
-  resonances, at 2.3 and 5.6 kHz, as loud as the flow it vents and the boost it vents from. The valve
-  pops as it lifts off its seat. Recirculating, it is a tenth as loud. On a vacuum with no boost behind
-  it, it is silent.
-- **The flutter.** In a surge, each time the flow runs backwards through the wheel it makes a chuff of
-  noise, as loud as the reverse flow; and the flow's rise and collapse at the compressor inlet
-  radiates, as the exhaust mouth does, as a thump.
-- **The wastegate.** Just open, its flap rattles on its seat with every exhaust pulse: a short impact
-  ringing two modes of the flap, at 1.85 and 3.3 kHz. Further open it rattles less, and the bypassed
-  exhaust hisses.
+**In the exhaust.** The turbine is in the gas dynamics, so what it does to the note is solved, not
+filtered. Each pulse arriving at it is partly reflected, back up the manifold, and partly spent turning
+the wheel, so what goes on down the pipe is smaller and rounder: at 4400 rpm on the RB26, the pressure
+past the turbine swings by 60% of what arrives. Two sounds of the turbo's own go into the gas and travel
+down the pipe to the tailpipe with the rest:
 
-The turbine also takes the edge off the exhaust. Every pulse it extracts work from comes out of it
-smaller, and the wheel is in the way of what is left. That is approximated, not solved: the exhaust's
-radiated sound is passed through a one-pole low-pass at 2.2 kHz and at 55% of its level.
+- **The turbine's whistle.** The wheel's first two shaft orders pulse the flow through it, by 0.4% at
+  full speed.
+- **The wastegate's hiss.** The jet through an open wastegate is turbulent: broadband flow noise, 20%
+  of the flow it bypasses, band-limited at the jet's Strouhal frequency, like the mixing noise of a
+  junction.
+
+**From the compressor inlet.** The inlet is a mouth, and what the compressor draws through it radiates
+the way the tailpipe's flow does, through the same monopole far field. So the thump of a surge, and the
+whoosh as the flow builds, are the inlet's flow itself.
+
+- **The whine.** The blades modulate the air they draw in at the blade-pass frequency, six blades times
+  the shaft speed, with its second harmonic and weaker shaft orders, where a real wheel's small
+  imbalances put them. The modulation is 0.5% of the flow at full speed, going as the square of the
+  speed, and radiated with the flow, so the whine is as loud as the air the wheel moves. Twin turbos each
+  have a voice, 1.2% apart in speed, so the two beat. Every tone fades out below the Nyquist frequency,
+  so nothing folds back down at a low sample rate.
+- **The flutter.** Past its surge line the wheel's flow breaks up: it sheds turbulence into the inlet,
+  around its first few shaft orders, growing from nothing at the surge line to 6% of its flow with no
+  flow at all. As the flow collapses and recovers in a surge, that comes and goes with it, which is the
+  flutter. The air forced back out through the inducer is a jet as well, and roars as one.
+
+**From the blow-off valve.** An atmospheric valve's outlet is a mouth too, and its outflow radiates as
+the valve lifts and shuts. The jet's hiss is Lighthill's: its sound power is `K rho U^8 D^2 / c^5`, from
+the jet's own speed through the valve and its opening, with `K` 5 × 10^-5 as measured jets give. The
+noise is band-limited around the jet's Strouhal peak, `0.2 U / D`. A recirculating valve hands its air
+back to the compressor inlet, which then draws that much less from the air, and a tenth of its jet's
+noise gets out through the ducting. On a vacuum with no boost behind it, it has nothing to vent and is
+silent.
+
+**The wastegate flap.** Just open, it rattles on its seat with each pulse across the turbine, as the
+simulated pressure there rises. The flap is mechanical, so this is an impact ringing two of its modes,
+at 1.85 and 3.3 kHz. Further open it rattles less.
 
 ## Sources
 

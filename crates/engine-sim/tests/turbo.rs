@@ -145,22 +145,88 @@ fn without_a_blow_off_valve_the_compressor_surges() {
     assert!(hz > 5.0 && hz < 60.0, "{reversals} surge cycles in half a second");
 }
 
-/// On boost, the turbo's sound has its strongest tone at the compressor's blade-pass frequency.
+/// On boost, what the compressor radiates from its inlet has its strongest tone at the blade-pass
+/// frequency.
 #[test]
 fn whines_at_the_blade_pass_frequency() {
-    let render = |noise: f64| {
-        let mut sim = rb26(json!({ "throttle": 1, "rpm": 2500, "turboNoise": noise }));
-        sim.render(3 * FS as usize);
-        let bpf = sim.turbo().unwrap().blade_pass_hz();
-        (sim.render(16384), bpf)
-    };
-    let (with, bpf) = render(1.0);
-    let (without, _) = render(0.0);
+    let mut sim = rb26(json!({ "throttle": 1, "rpm": 2500 }));
+    sim.render(3 * FS as usize);
+    let bpf = sim.turbo().unwrap().blade_pass_hz();
     assert!(bpf > 3000.0 && bpf < 12000.0, "blade pass {bpf} Hz");
-    let turbo: Vec<f32> = with.iter().zip(&without).map(|(a, b)| a - b).collect();
     let size = 16384;
+    let mut turbo = Vec::with_capacity(size);
+    for _ in 0..size {
+        sim.render(1);
+        turbo.push(sim.turbo().unwrap().last_sound() as f32);
+    }
     let mag = common::magnitude_spectrum(&common::hann(&turbo), size);
     let peaks = common::find_peaks(&mag, FS, size, 1000.0, 16000.0, 0.1);
     let top = peaks[0];
     assert!((top.hz - bpf).abs() < 0.03 * bpf, "strongest tone {} Hz, blade pass {bpf} Hz", top.hz);
+}
+
+/// The turbine sits in the exhaust: everything the cylinders push out passes through it, from a
+/// higher pressure on its inlet side than on its outlet side.
+#[test]
+fn the_turbine_passes_the_exhaust_between_two_pressures() {
+    let mut sim = rb26(json!({ "throttle": 1, "rpm": 4400 }));
+    assert_eq!(sim.pipe_solver().turbine_count(), 1, "one turbine, at the six's one collector");
+    sim.render(3 * FS as usize);
+    let n = FS as usize;
+    let (mut valves, mut through, mut inlet, mut outlet) = (0.0, 0.0, 0.0, 0.0);
+    for _ in 0..n {
+        sim.render(1);
+        let r = &sim.pipe_solver().result;
+        valves += r.valve_mass_flows.iter().sum::<f64>();
+        through += r.turbine_flow + r.bypass_flow;
+        inlet += r.turbine_inlet;
+        outlet += r.turbine_outlet;
+    }
+    assert!(
+        (through - valves).abs() < 0.03 * valves,
+        "turbine {} kg/s, valves {} kg/s",
+        through / n as f64,
+        valves / n as f64
+    );
+    let rise = (inlet - outlet) / n as f64;
+    assert!(rise > 0.2e5, "the exhaust backs up behind the turbine: {rise} Pa");
+    assert_eq!(sim.pipe_solver().recoveries(), 0);
+}
+
+/// Each exhaust pulse gives up much of itself to the turbine: the pressure past it swings far less
+/// than the pressure arriving at it.
+#[test]
+fn the_turbine_takes_the_edge_off_the_pulses() {
+    let mut sim = rb26(json!({ "throttle": 1, "rpm": 4400 }));
+    sim.render(3 * FS as usize);
+    let n = FS as usize / 2;
+    let mut up = Vec::with_capacity(n);
+    let mut down = Vec::with_capacity(n);
+    for _ in 0..n {
+        sim.render(1);
+        let r = &sim.pipe_solver().result;
+        up.push(r.turbine_inlet);
+        down.push(r.turbine_outlet);
+    }
+    let swing = |v: &[f64]| {
+        let mean = v.iter().sum::<f64>() / v.len() as f64;
+        (v.iter().map(|x| (x - mean) * (x - mean)).sum::<f64>() / v.len() as f64).sqrt()
+    };
+    let (su, sd) = (swing(&up), swing(&down));
+    assert!(sd < 0.7 * su, "pulses {sd} Pa past the turbine against {su} Pa arriving");
+}
+
+/// With nothing merging, there is no junction for the turbine to sit in: it works from the valves'
+/// flow instead, and still makes boost.
+#[test]
+fn an_engine_with_nothing_merging_still_makes_boost() {
+    let mut cfg = common::default_config();
+    cfg.engine = common::with(
+        &cfg.engine,
+        json!({ "turbo": true, "throttle": 1, "rpm": 6000, "freeRunning": false, "combustionVariability": 0 }),
+    );
+    let mut sim = EngineSim::new(FS, &cfg);
+    assert_eq!(sim.pipe_solver().turbine_count(), 0);
+    sim.render(4 * FS as usize);
+    assert!(boost(&sim) > 0.3, "boost {}", boost(&sim));
 }

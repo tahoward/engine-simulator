@@ -33,17 +33,22 @@ Where the model is simplified, and by how much.
   point, for torque, economy and emissions together; this one is four cam positions at two speeds,
   blended in a straight line between them, and moves the cams under load only. What cam timing does
   to part-load economy and emissions, much of what a real engine uses it for, is not modelled.
-- **The turbocharger is lumped.** Its turbine is a nozzle, not a duct in the exhaust. So the exhaust's
-  pulses reach the tailpipe without passing through it, and it works from their mean; the back pressure
-  it makes is applied where the exhaust meets the air, and its muffling of the note is a fixed filter.
-  The compressor map is one generic shape scaled to the turbo's size, not a real turbo's map, and its
-  turbine efficiency does not vary. There is no knock, so no boost is too much and the spark is not
-  retarded on boost, as a real engine's would be. The RB26DETT preset makes 376 N·m at 4400 rpm against
-  the real engine's 368, and 331 PS at 6800, against its rated 280 and the 300-320 real ones make.
-- **The turbocharger's sounds are synthesised from its state.** The whine is tones at the wheel's
-  blade-pass and shaft orders, not the flow through its blades; the blow-off jet and the flutter's
-  chuff are shaped noise. Their levels are set by ear against the exhaust. Only the surge's thump
-  is radiated from the flow itself.
+- **The turbine is a restriction without volume.** It is solved in the exhaust, between the
+  junction's two sides, but as a nozzle obeying Stodola's law at every instant: it has no housing
+  volume, and its efficiency does not vary with its speed or its pressure ratio. On an engine where
+  nothing merges it is not in the exhaust at all but a nozzle on the valves' mean flow, and its back
+  pressure is applied where the exhaust meets the air.
+- **The rest of the turbocharger is lumped.** The compressor map is one generic shape scaled to the
+  turbo's size, not a real turbo's map. There is no knock, so no boost is too much and the spark is not
+  retarded on boost, as a real engine's would be. The RB26DETT preset makes 373 N·m at 4400 rpm against
+  the real engine's 368, and 330 PS at 6800, against its rated 280 and the 300-320 real ones make.
+- **Some of the turbocharger's sounds have chosen levels.** The whine is the blades modulating the
+  inlet's flow by a depth chosen for it, not solved from the flow through the blades; the turbine's
+  whistle is likewise a chosen pulsation of its flow; a stalled compressor's turbulence has a chosen
+  intensity; and the wastegate's rattle is an impact on two modes. The blow-off valve's and the reverse
+  flow's jet noise follow Lighthill's law from the simulated jets, but its constant is taken from
+  measured jets, not derived, and a recirculating valve's share that gets out through the ducting is
+  chosen.
 - **A sealed cavity has a tiny built-in growth.** In a nearly lossless *sealed* cavity the
   solver has a small [second-order](glossary.md#order-of-accuracy) error that grows at about 1.4 /s. Normal damping is 150 /s,
   about a hundred times larger, so it stays suppressed. It is not zero.

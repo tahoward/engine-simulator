@@ -1426,7 +1426,7 @@
     "turboSize": 0.12,
     "intercooler": 0.7,
     "blowOff": "atmospheric",
-    "outputGain": 2.28
+    "outputGain": 1.21
    },
    "config": {
     "engine": {
@@ -1499,7 +1499,7 @@
      "mouthSpacing": 0.4,
      "cylinderSpread": 1,
      "groundReflection": 0.7,
-     "outputGain": 2.28,
+     "outputGain": 1.21,
      "mechNoise": 0.45,
      "throatNoise": 0.5
     },

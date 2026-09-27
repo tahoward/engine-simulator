@@ -34,7 +34,7 @@ use crate::spec::{
     exhaust_port_diameter, firing_plan, fuel_fraction_at, full_load_torque, gas, intake_runner_of, load_torque_of,
     physical_bank_count,
 };
-use crate::turbo::Turbo;
+use crate::turbo::{TurbineDrive, Turbo};
 use crate::valve::{valve_flow_area, valve_lift};
 
 /// Pressure, Pa, that maps to digital full scale.
@@ -358,6 +358,7 @@ impl EngineSim {
         if !spec.turbo {
             if self.turbo.take().is_some() {
                 self.wg.clear_back_pressure();
+                self.wg.set_turbine(None);
             }
             self.charge_p = gas::P_AMB;
             self.charge_t = gas::T_AMB;
@@ -1004,7 +1005,12 @@ impl EngineSim {
             self.prev_angle[b] = angle;
         }
 
-        // --- Exhaust gas dynamics, all ducts in lockstep ---
+        // --- Exhaust gas dynamics, all ducts in lockstep, with the turbine in them ---
+        if let Some(turbo) = &mut self.turbo {
+            if self.wg.turbine_count() > 0 {
+                self.wg.set_turbine(Some(turbo.turbine_setting()));
+            }
+        }
         self.wg.advance(dt, &self.valve_states);
         self.substeps = self.wg.result.substeps;
 
@@ -1024,11 +1030,7 @@ impl EngineSim {
 
         // --- Cylinder gas state, sub-stepped ---
         let cam_spec = if self.on_high_cam { self.high_cam_spec.as_ref().unwrap() } else { &self.spec };
-        let mut exhaust_pulses = 0;
         for b in 0..banks {
-            if self.prev_ex_lift[b] <= 0.0 && self.ex_lift[b] > 0.0 {
-                exhaust_pulses += 1;
-            }
             let ex_mdot = self.wg.result.valve_mass_flows[b];
             self.last_valve_mdot[b] = ex_mdot;
             let in_mdot = -intake.valve_mass_flows[b];
@@ -1097,18 +1099,27 @@ impl EngineSim {
         // --- Turbocharger ---
         let mut turbo_pa = 0.0;
         if let Some(turbo) = &mut self.turbo {
-            let mut flow = 0.0;
-            let mut heat = 0.0;
-            for b in 0..banks {
-                let m = self.wg.result.valve_mass_flows[b];
-                flow += m;
-                heat += math::max(m, 0.0) * self.wg.primary(b).read_port().1;
-            }
-            let t_ex = if flow > 1e-6 { heat / math::max(flow, 1e-6) } else { self.spec.spec.port_gas_temp };
-            let out = turbo.step(dt, flow, t_ex, throttle_flow, self.plenum.pressure(), exhaust_pulses);
+            let drive = if self.wg.turbine_count() > 0 {
+                let r = &self.wg.result;
+                TurbineDrive { power: r.turbine_power, inlet: r.turbine_inlet, outlet: r.turbine_outlet }
+            } else {
+                // Nothing merges, so there is no junction for the turbine to sit in: it is a nozzle on
+                // the valves' flow, and the exhaust's mouths open into its inlet.
+                let mut flow = 0.0;
+                let mut heat = 0.0;
+                for b in 0..banks {
+                    let m = self.wg.result.valve_mass_flows[b];
+                    flow += m;
+                    heat += math::max(m, 0.0) * self.wg.primary(b).read_port().1;
+                }
+                let t_ex = if flow > 1e-6 { heat / math::max(flow, 1e-6) } else { self.spec.spec.port_gas_temp };
+                let drive = turbo.lumped_turbine(flow, t_ex);
+                self.wg.set_back_pressure(drive.inlet);
+                drive
+            };
+            let out = turbo.step(dt, drive, throttle_flow, self.plenum.pressure());
             self.charge_p = out.charge_p;
             self.charge_t = out.charge_t;
-            self.wg.set_back_pressure(out.back_pressure);
             turbo_pa = out.sound;
         }
 
@@ -1160,9 +1171,10 @@ impl EngineSim {
                 exhaust_pa += self.far_fields[m].process(delayed) * self.mouth_gains[m];
             }
         }
-        let mut pa = match &mut self.turbo {
-            Some(turbo) => self.listener.process(turbo.muffle(exhaust_pa) + direct_pa + turbo_pa),
-            None => self.listener.process(exhaust_pa + direct_pa),
+        let mut pa = if self.turbo.is_some() {
+            self.listener.process(exhaust_pa + direct_pa + turbo_pa)
+        } else {
+            self.listener.process(exhaust_pa + direct_pa)
         };
 
         if self.rebuild_ramp < 1.0 {
@@ -1241,6 +1253,7 @@ impl EngineSim {
             turbo: self.turbo.as_ref().map(|t| TurboSnapshot {
                 boost: t.boost(),
                 manifold: self.plenum.pressure() - gas::P_AMB,
+                turbine_inlet: t.back_pressure() - gas::P_AMB,
                 shaft_rpm: t.shaft_rpm(),
                 wastegate: t.wastegate(),
                 blow_off: t.blow_off(),

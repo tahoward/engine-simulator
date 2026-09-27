@@ -3,23 +3,27 @@
 //! that vents it when the throttle shuts. And the sounds all of that makes.
 //!
 //! ```text
-//!   exhaust valves -> turbine (back pressure on the exhaust) --- shaft --- compressor
-//!                        |                                                   |
-//!                    wastegate                                  compressor duct (inertia)
-//!                                                                            |
-//!   plenum <- throttle <----------------- charge air (intercooler) <---------+---> blow-off valve
+//!   exhaust junction -> turbine (in the gas dynamics) --- shaft --- compressor <- inlet (radiates)
+//!                          |                                             |
+//!                      wastegate                            compressor duct (inertia)
+//!                                                                        |
+//!   plenum <- throttle <------------- charge air (intercooler) <---------+---> blow-off valve
 //! ```
 //!
-//! Lumped, one state per part, stepped once per audio sample. The turbine is a Stodola nozzle fed by
-//! the exhaust flow the cylinders push out; its inlet pressure is applied as the pressure the exhaust
-//! mouths open into, so the pumping loss and the residual gas it costs come out of the cylinder model.
-//! The compressor is a Moore-Greitzer characteristic with the inertia of the air in its duct, which is
-//! what makes it surge when the throttle shuts on boost with nowhere for the air to go.
+//! The turbine is solved in the exhaust, at a junction, by `ExhaustSystem`: this sets its flow
+//! constants from the wastegate each sample, and is driven by the power it reports. Everything else is
+//! lumped, one state per part, stepped once per audio sample. The compressor is a Moore-Greitzer
+//! characteristic with the inertia of the air in its duct, which is what makes it surge when the
+//! throttle shuts on boost with nowhere for the air to go.
+//!
+//! What the turbo radiates comes from its flows: the compressor inlet's, carrying the blades' whine
+//! and a stalled wheel's turbulence, and the blow-off valve's, with its jet's noise by Lighthill's law.
 //!
 //! Twin turbos are identical and in parallel, so one lumped shaft stands for both; the sound gives
 //! each its own voice, a little apart in speed as two real ones are.
 
-use crate::dsp::{Impact, Noise, OnePole, Resonator};
+use crate::dsp::{Impact, Noise, Resonator};
+use crate::exhaust_system::TurbineSetting;
 use crate::math::{self, PI, clamp};
 use crate::radiation::FarField;
 use crate::spec::{BlowOff, EngineSpec, displacement, gas, gas_energy, gas_enthalpy, gas_temperature};
@@ -119,35 +123,35 @@ const EXHAUST_SMOOTHING_HZ: f64 = 40.0;
 
 /// Blades on the compressor wheel, not counting splitters: the order of the blade-pass tone.
 const COMPRESSOR_BLADES: f64 = 6.0;
-/// The whine's harmonics, in shaft orders, and their levels relative to the blade-pass tone.
+/// The compressor's tones, in shaft orders, and their levels relative to the blade-pass tone: the
+/// blade pass and its harmonic, and the shaft orders a real wheel's small imbalances put there.
 const WHINE_ORDERS: [(f64, f64); 5] =
     [(1.0, 0.22), (2.0, 0.12), (3.0, 0.08), (COMPRESSOR_BLADES, 1.0), (2.0 * COMPRESSOR_BLADES, 0.3)];
-/// Blade-pass tone at 1 m at full speed and full flow, Pa, at `turbo_noise = 1`.
-const WHINE_PA: f64 = 1.6;
-/// How much of the whine a freely spinning, unloaded wheel still makes.
-const WHINE_UNLOADED: f64 = 0.25;
+/// How deeply the blades modulate the air drawn into the compressor at full speed: the blade-pass
+/// tone's share of the inlet's volume flow. It goes as the square of the speed.
+const WHINE_DEPTH: f64 = 0.005;
 /// Relative speed of the second turbo of a pair.
 const TWIN_DETUNE: f64 = 1.012;
-/// Hiss of the air into the compressor at full flow, Pa at 1 m.
-const INLET_HISS_PA: f64 = 0.5;
 
-/// Blow-off jet noise at 1 m, Pa, per kg/s vented at one bar across the valve.
-const BLOW_OFF_PA: f64 = 90.0;
-/// The valve's pop as it lifts off its seat, Pa at 1 m.
-const BLOW_OFF_POP_PA: f64 = 25.0;
-/// How much quieter a recirculating valve is, venting back into the compressor inlet.
-const RECIRCULATING_SHARE: f64 = 0.1;
+/// The turbine's pulsation of the exhaust flow at full speed, at the first two shaft orders, as a
+/// share of its flow: its whistle, carried down the pipe.
+const TURBINE_PULSATION: f64 = 0.004;
+const TURBINE_ORDERS: [(f64, f64); 2] = [(1.0, 1.0), (2.0, 0.5)];
 
-/// Chuff of the air reversing through the compressor in a surge, Pa at 1 m per kg/s of reverse flow.
-const SURGE_PA: f64 = 90.0;
+/// Lighthill's constant: the share of a jet's kinetic power `rho U^8 D^2 / c^5` it radiates as
+/// sound. Measured jets give 0.3-1.2e-4.
+const LIGHTHILL_K: f64 = 5e-5;
+/// How much of a recirculating blow-off valve's jet noise gets out through the intake's ducting.
+const RECIRCULATING_TRANSMISSION: f64 = 0.1;
 
-/// Wastegate flap rattle at 1 m, Pa, per exhaust pulse, and the bypass hiss wide open.
-const WASTEGATE_RATTLE_PA: f64 = 3.0;
-const WASTEGATE_HISS_PA: f64 = 0.6;
+/// The turbulence a stalled compressor sheds into its inlet, as a share of its flow at that speed:
+/// what the flutter is made of. Stall starts at the surge line and is fully developed at no flow.
+const STALL_INTENSITY: f64 = 0.06;
 
-/// How much of the exhaust note the turbine passes, and the corner of its muffling, Hz.
-const TURBINE_PASS: f64 = 0.55;
-const TURBINE_MUFFLE_HZ: f64 = 2200.0;
+/// Wastegate flap rattle at 1 m, Pa, per 10 kPa of pulse across it, and how far open it can be and
+/// still rattle.
+const WASTEGATE_RATTLE_PA: f64 = 2.0;
+const WASTEGATE_RATTLE_OPENING: f64 = 0.45;
 
 /// Everything about the turbo that follows from the spec.
 #[derive(Clone, Copy, Debug)]
@@ -229,16 +233,74 @@ fn sizing(spec: &EngineSpec) -> Sizing {
     }
 }
 
+/// What drives the turbine this sample: the power it takes from the exhaust, W, and the pressures at
+/// its inlet and outlet, Pa.
+#[derive(Clone, Copy, Debug)]
+pub struct TurbineDrive {
+    pub power: f64,
+    pub inlet: f64,
+    pub outlet: f64,
+}
+
 /// What the turbo hands the engine each sample.
 #[derive(Clone, Copy, Debug)]
 pub struct TurboOut {
     /// Pressure and temperature of the charge air the throttle draws from, Pa and K.
     pub charge_p: f64,
     pub charge_t: f64,
-    /// Pressure at the turbine inlet, which the exhaust mouths open into, Pa.
-    pub back_pressure: f64,
     /// What the turbo radiates this sample, Pa at 1 m.
     pub sound: f64,
+}
+
+/// Speed of the jet through an orifice from `p_up` (Pa) and `t_up` (K) to `p_down`, m/s: sonic at the
+/// throat once it chokes.
+fn jet_velocity(p_up: f64, t_up: f64, p_down: f64) -> f64 {
+    if p_up <= p_down {
+        return 0.0;
+    }
+    let k = (GAMMA_AIR - 1.0) / GAMMA_AIR;
+    let critical = math::pow(2.0 / (GAMMA_AIR + 1.0), 1.0 / k);
+    let pr = math::max(p_down / p_up, critical);
+    math::sqrt(2.0 * CP_AIR * t_up * (1.0 - math::pow(pr, k)))
+}
+
+/// Sound pressure at 1 m, Pa RMS, of a jet of speed `u` (m/s) from a nozzle of diameter `d` (m), by
+/// Lighthill's eighth-power law.
+fn lighthill_pa(u: f64, d: f64) -> f64 {
+    let rho = gas::P_AMB / (gas::R * gas::T_AMB);
+    let c = math::sqrt(GAMMA_AIR * gas::R * gas::T_AMB);
+    let u2 = u * u;
+    let power = LIGHTHILL_K * rho * u2 * u2 * u2 * u2 * d * d / (c * c * c * c * c);
+    math::sqrt((power * rho * c) / (4.0 * PI))
+}
+
+/// A jet's broadband noise: white noise band-limited either side of its Strouhal peak, `0.2 U / D`,
+/// at a given RMS level.
+struct JetNoise {
+    lp: f64,
+    hp: f64,
+}
+
+impl JetNoise {
+    fn new() -> JetNoise {
+        JetNoise { lp: 0.0, hp: 0.0 }
+    }
+
+    fn next(&mut self, noise: &mut Noise, u: f64, d: f64, pa_rms: f64, sample_rate: f64) -> f64 {
+        if pa_rms <= 0.0 {
+            self.lp *= 0.99;
+            self.hp *= 0.99;
+            return 0.0;
+        }
+        let peak = clamp((0.2 * u) / math::max(d, 1e-3), 100.0, 0.4 * sample_rate);
+        let c_lp = 1.0 - math::exp((-2.0 * PI * 2.0 * peak) / sample_rate);
+        let c_hp = 1.0 - math::exp((-2.0 * PI * 0.5 * peak) / sample_rate);
+        // Uniform noise has an RMS of 1/sqrt(3); a one-pole low-pass keeps c/(2 - c) of its power.
+        let norm = math::sqrt(3.0 * (2.0 - c_lp) / c_lp);
+        self.lp += c_lp * (noise.next() - self.lp);
+        self.hp += c_hp * (self.lp - self.hp);
+        (self.lp - self.hp) * norm * pa_rms
+    }
 }
 
 pub struct Turbo {
@@ -254,7 +316,8 @@ pub struct Turbo {
     wastegate: f64,
     blow_off: f64,
     blow_off_flow: f64,
-    /// The exhaust flow into the turbine, kg/s, and its temperature, K, smoothed over the pulses.
+    /// For a turbine not in the exhaust, where nothing merges: the exhaust flow into it, kg/s, and
+    /// its temperature, K, smoothed over the pulses.
     exhaust_flow: f64,
     exhaust_temp: f64,
     smoothing_c: f64,
@@ -263,30 +326,32 @@ pub struct Turbo {
     since_reverse: f64,
 
     // Sound
-    phase: [[f64; 5]; 2],
     noise: Noise,
-    whine_level: OnePole,
-    hiss: Resonator,
-    blow_off_bands: [Resonator; 2],
-    blow_off_pop: Impact,
-    blow_off_body: Resonator,
-    blow_off_was_open: bool,
-    surge_band: Resonator,
-    surge_thump: FarField,
+    whine_phase: [[f64; 5]; 2],
+    turbine_phase: [f64; 2],
+    /// The compressor inlet and the atmospheric blow-off valve's outlet, radiating as the tailpipe does.
+    inlet: FarField,
+    vent: FarField,
+    blow_off_jet: JetNoise,
+    reverse_jet: JetNoise,
+    stall_lp: f64,
+    stall_hp: f64,
+    /// The pressure drop across the turbine, smoothed, Pa, and whether it is above that now: the
+    /// pulses the wastegate flap rattles on.
+    across_mean: f64,
+    across_high: bool,
     rattle: Impact,
     rattle_modes: [Resonator; 2],
-    muffle: OnePole,
+    last_sound: f64,
 }
 
 impl Turbo {
     pub fn new(spec: &EngineSpec, sample_rate: f64) -> Turbo {
         let size = sizing(spec);
         let mass = (gas::P_AMB * size.charge_volume) / (gas::R * gas::T_AMB);
-        let mut whine_level = OnePole::default();
-        whine_level.set_cutoff(30.0, sample_rate);
-        let mut muffle = OnePole::default();
-        muffle.set_cutoff(TURBINE_MUFFLE_HZ, sample_rate);
+        let c = math::sqrt(GAMMA_AIR * gas::R * gas::T_AMB);
         let inlet_radius = math::max(math::sqrt(size.inducer_area / PI), 0.01);
+        let vent_radius = math::max(math::sqrt(size.blow_off_area / PI), 0.005);
         Turbo {
             sample_rate,
             omega: 0.03 * size.full_speed,
@@ -301,19 +366,20 @@ impl Turbo {
             smoothing_c: 1.0 - math::exp((-2.0 * PI * EXHAUST_SMOOTHING_HZ) / sample_rate),
             back_pressure: gas::P_AMB,
             since_reverse: f64::INFINITY,
-            phase: [[0.0; 5]; 2],
             noise: Noise::new(0x7ab0_c3d1 as f64),
-            whine_level,
-            hiss: Resonator::new(4500.0, 0.8, sample_rate),
-            blow_off_bands: [Resonator::new(2300.0, 1.6, sample_rate), Resonator::new(5600.0, 1.2, sample_rate)],
-            blow_off_pop: Impact::new(0.0012, sample_rate),
-            blow_off_body: Resonator::new(850.0, 5.0, sample_rate),
-            blow_off_was_open: false,
-            surge_band: Resonator::new(1400.0, 1.4, sample_rate),
-            surge_thump: FarField::new(sample_rate, (2.0 * 343.0) / inlet_radius),
+            whine_phase: [[0.0; 5]; 2],
+            turbine_phase: [0.0; 2],
+            inlet: FarField::new(sample_rate, (2.0 * c) / inlet_radius),
+            vent: FarField::new(sample_rate, (2.0 * c) / vent_radius),
+            blow_off_jet: JetNoise::new(),
+            reverse_jet: JetNoise::new(),
+            stall_lp: 0.0,
+            stall_hp: 0.0,
+            across_mean: 0.0,
+            across_high: false,
             rattle: Impact::new(0.0002, sample_rate),
             rattle_modes: [Resonator::new(1850.0, 12.0, sample_rate), Resonator::new(3300.0, 15.0, sample_rate)],
-            muffle,
+            last_sound: 0.0,
             size,
         }
     }
@@ -372,17 +438,23 @@ impl Turbo {
         self.since_reverse < 0.1
     }
 
+    /// What the turbo itself radiated last sample, Pa at 1 m, before the listener: its own sounds
+    /// alone, without the exhaust's.
+    pub fn last_sound(&self) -> f64 {
+        self.last_sound
+    }
+
+    /// Pressure at the turbine inlet, Pa.
+    pub fn back_pressure(&self) -> f64 {
+        self.back_pressure
+    }
+
     /// Isentropic efficiency of the compressor at flow `m` (kg/s) at its present speed.
     fn compressor_efficiency(&self, m: f64) -> f64 {
         let s = math::max(self.omega / self.size.full_speed, MIN_SPEED_FRACTION);
         let phi = m.abs() / (s * self.size.choke_flow);
         let d = (phi - ETA_BEST_FLOW) / (1.0 - ETA_BEST_FLOW);
         ETA_COMPRESSOR * math::max(1.0 - ETA_FALLOFF * d * d, ETA_FLOOR)
-    }
-
-    /// Pressure at the turbine inlet, Pa.
-    pub fn back_pressure(&self) -> f64 {
-        self.back_pressure
     }
 
     /// Pressure rise across the compressor, Pa, at flow `m` (kg/s).
@@ -404,40 +476,58 @@ impl Turbo {
         math::max(mg, -loss)
     }
 
-    /// Advance by `dt`.
-    ///
-    /// `exhaust_flow` is the exhaust valves' mass flow, kg/s, at `exhaust_temp` (K); `throttle_flow`
-    /// the flow the plenum drew through the throttle this sample, kg/s; `plenum_p` its pressure, Pa.
-    /// `pulses` is how many exhaust valves started to open this sample.
-    pub fn step(
-        &mut self,
-        dt: f64,
-        exhaust_flow: f64,
-        exhaust_temp: f64,
-        throttle_flow: f64,
-        plenum_p: f64,
-        pulses: u32,
-    ) -> TurboOut {
+    /// The turbine as it sits in the exhaust this sample: its flow constants, its efficiency and the
+    /// pulsation of its blades. Call once a sample.
+    pub fn turbine_setting(&mut self) -> TurbineSetting {
+        let size = self.size;
+        let s = self.omega / size.full_speed;
+        let shaft_hz = self.omega / (2.0 * PI);
+        let mut pulse = 0.0;
+        for (h, &(order, rel)) in TURBINE_ORDERS.iter().enumerate() {
+            let hz = shaft_hz * order;
+            let fade = self.fade(hz);
+            let ph = &mut self.turbine_phase[h];
+            *ph += hz / self.sample_rate;
+            *ph -= ph.floor();
+            pulse += rel * fade * math::sin(2.0 * PI * *ph);
+        }
+        TurbineSetting {
+            k_turbine: size.turbine_k,
+            k_wastegate: size.wastegate_k * self.wastegate,
+            efficiency: ETA_TURBINE,
+            pulsation: 1.0 + TURBINE_PULSATION * size.noise * s * s * pulse,
+            bypass_noise: size.noise,
+        }
+    }
+
+    /// For an engine with nothing merging, where the turbine cannot sit in the exhaust: a nozzle fed by
+    /// the exhaust valves' flow, kg/s, at their temperature, K, whose inlet pressure the exhaust's
+    /// mouths open into.
+    pub fn lumped_turbine(&mut self, exhaust_flow: f64, exhaust_temp: f64) -> TurbineDrive {
         let size = self.size;
         self.exhaust_flow += self.smoothing_c * (exhaust_flow - self.exhaust_flow);
         self.exhaust_temp += self.smoothing_c * (exhaust_temp - self.exhaust_temp);
         let m_ex = math::max(self.exhaust_flow, 0.0);
         let t_ex = clamp(self.exhaust_temp, 400.0, 1400.0);
+        let k_total = size.turbine_k + size.wastegate_k * self.wastegate;
+        let q = (m_ex * math::sqrt(t_ex)) / k_total;
+        let p_in = math::sqrt(gas::P_AMB * gas::P_AMB + q * q);
+        let m_turbine = m_ex * (size.turbine_k / k_total);
+        let expansion = 1.0 - math::pow(gas::P_AMB / p_in, (GAMMA_EXH - 1.0) / GAMMA_EXH);
+        TurbineDrive { power: ETA_TURBINE * m_turbine * CP_EXH * t_ex * expansion, inlet: p_in, outlet: gas::P_AMB }
+    }
+
+    /// Advance by `dt`, with the turbine driven by `turbine`. `throttle_flow` is the flow the plenum
+    /// drew through the throttle this sample, kg/s; `plenum_p` its pressure, Pa.
+    pub fn step(&mut self, dt: f64, turbine: TurbineDrive, throttle_flow: f64, plenum_p: f64) -> TurboOut {
+        let size = self.size;
+        self.back_pressure = turbine.inlet;
 
         // --- Wastegate: opens on boost over its spring ---
         let boost = self.boost();
         let wg_target = clamp((boost - (size.boost_target - WASTEGATE_CRACK)) / WASTEGATE_SPAN, 0.0, 1.0);
         self.wastegate += (dt / WASTEGATE_TAU) * (wg_target - self.wastegate);
         self.wastegate = clamp(self.wastegate, 0.0, 1.0);
-
-        // --- Turbine: Stodola's ellipse, the turbine and the wastegate in parallel ---
-        let k_total = size.turbine_k + size.wastegate_k * self.wastegate;
-        let q = (m_ex * math::sqrt(t_ex)) / k_total;
-        let p_in = math::sqrt(gas::P_AMB * gas::P_AMB + q * q);
-        self.back_pressure = p_in;
-        let m_turbine = m_ex * (size.turbine_k / k_total);
-        let expansion = 1.0 - math::pow(gas::P_AMB / p_in, (GAMMA_EXH - 1.0) / GAMMA_EXH);
-        let p_turbine = ETA_TURBINE * m_turbine * CP_EXH * t_ex * expansion;
 
         // --- Compressor: its duct's air accelerated by the pressure rise against the charge ---
         let p2 = self.charge_pressure();
@@ -457,7 +547,7 @@ impl Turbo {
         // --- Shaft ---
         let drag = size.friction * self.omega * self.omega;
         let omega = math::max(self.omega, 0.02 * size.full_speed);
-        self.omega += (dt * (p_turbine - p_compressor - drag)) / (size.inertia * omega);
+        self.omega += (dt * (turbine.power - p_compressor - drag)) / (size.inertia * omega);
         self.omega = clamp(self.omega, 0.0, 2.0 * size.full_speed);
 
         // --- Blow-off valve: opens on the pressure across a shut throttle ---
@@ -494,44 +584,43 @@ impl Turbo {
             self.energy = e_min;
         }
 
-        let sound = self.sound(m_c, vent, pulses);
-        TurboOut { charge_p: self.charge_pressure(), charge_t: self.charge_temp(), back_pressure: p_in, sound }
+        let sound = self.sound(m_c, vent, p2, t2, turbine.inlet - turbine.outlet);
+        self.last_sound = sound;
+        TurboOut { charge_p: self.charge_pressure(), charge_t: self.charge_temp(), sound }
     }
 
-    /// The exhaust note after the turbine, which takes the edge off every pulse it extracts work from.
-    pub fn muffle(&mut self, exhaust_pa: f64) -> f64 {
-        TURBINE_PASS * self.muffle.process(exhaust_pa)
+    /// 1 for a tone well below the Nyquist frequency, fading to 0 before it, so nothing folds back.
+    fn fade(&self, hz: f64) -> f64 {
+        let top = math::min(0.45 * self.sample_rate, 18_000.0);
+        let start = 0.7 * top;
+        if hz >= top {
+            0.0
+        } else if hz <= start {
+            1.0
+        } else {
+            1.0 - (hz - start) / (top - start)
+        }
     }
 
-    fn sound(&mut self, m_c: f64, vent: f64, pulses: u32) -> f64 {
+    /// What the turbo radiates, Pa at 1 m: the compressor inlet's flow, carrying the blades' whine and
+    /// a stalled wheel's turbulence; the blow-off valve's jet; the air reversing through the wheel in a
+    /// surge; and the wastegate flap rattling on the pulses across the turbine.
+    fn sound(&mut self, m_c: f64, vent: f64, p2: f64, t2: f64, across_turbine: f64) -> f64 {
         let size = self.size;
         let level = size.noise;
-        if level <= 0.0 {
-            return 0.0;
-        }
+        let rho = gas::P_AMB / (gas::R * gas::T_AMB);
         let s = self.omega / size.full_speed;
-        let flow_share = clamp(m_c / size.choke_flow, 0.0, 1.2);
-        let loading = WHINE_UNLOADED + (1.0 - WHINE_UNLOADED) * math::sqrt(flow_share);
-        let whine_amp = self.whine_level.process(WHINE_PA * level * s * s * loading);
-
-        // --- Whine: shaft orders and blade pass, faded out below Nyquist ---
-        let fade_top = math::min(0.45 * self.sample_rate, 18_000.0);
-        let fade_start = 0.7 * fade_top;
         let shaft_hz = self.omega / (2.0 * PI);
+
+        // --- The blades' modulation of the air drawn in ---
         let mut whine = 0.0;
         let voices = size.count as usize;
         for v in 0..voices {
             let speed = if v == 0 { shaft_hz } else { shaft_hz * TWIN_DETUNE };
             for (h, &(order, rel)) in WHINE_ORDERS.iter().enumerate() {
                 let hz = speed * order;
-                let fade = if hz >= fade_top {
-                    0.0
-                } else if hz <= fade_start {
-                    1.0
-                } else {
-                    1.0 - (hz - fade_start) / (fade_top - fade_start)
-                };
-                let ph = &mut self.phase[v][h];
+                let fade = self.fade(hz);
+                let ph = &mut self.whine_phase[v][h];
                 *ph += hz / self.sample_rate;
                 *ph -= ph.floor();
                 if fade > 0.0 {
@@ -539,38 +628,56 @@ impl Turbo {
                 }
             }
         }
-        whine *= whine_amp / size.count;
-        let hiss = self.hiss.process(self.noise.next()) * INLET_HISS_PA * level * flow_share * flow_share;
+        whine *= (WHINE_DEPTH * s * s) / size.count;
 
-        // --- Blow-off: the jet of vented air, and the valve's pop as it lifts ---
-        // Both go as the boost it lets go of: opening on a vacuum with no boost behind it, it is silent.
-        let vent_share = if matches!(size.blow_off, BlowOff::Recirculating) { RECIRCULATING_SHARE } else { 1.0 };
-        let boost = math::max(self.boost(), 0.0);
-        let open = self.blow_off > 0.05;
-        if open && !self.blow_off_was_open {
-            self.blow_off_pop.trigger(BLOW_OFF_POP_PA * level * vent_share * math::min(boost / 0.5e5, 1.5));
-        }
-        self.blow_off_was_open = open;
-        let jet_amp = BLOW_OFF_PA * level * vent_share * vent * math::sqrt(boost / 1e5);
-        let n = self.noise.next();
-        let jet = jet_amp * (self.blow_off_bands[0].process(n) + 0.7 * self.blow_off_bands[1].process(n));
-        let pop = self.blow_off_body.process(self.blow_off_pop.next());
+        // --- Stall: left of the surge line the wheel's flow breaks up, around a few shaft orders ---
+        let phi = m_c / (math::max(s, MIN_SPEED_FRACTION) * size.choke_flow);
+        let surge_line = 2.0 * MG_W;
+        let stall = if s > 0.1 { clamp((surge_line - phi) / surge_line, 0.0, 1.0) } else { 0.0 };
+        let stall_hz = clamp(shaft_hz, 50.0, 0.2 * self.sample_rate);
+        let c_lp = 1.0 - math::exp((-2.0 * PI * 3.0 * stall_hz) / self.sample_rate);
+        let c_hp = 1.0 - math::exp((-2.0 * PI * 0.3 * stall_hz) / self.sample_rate);
+        self.stall_lp += c_lp * (self.noise.next() - self.stall_lp);
+        self.stall_hp += c_hp * (self.stall_lp - self.stall_hp);
+        let turbulence = (self.stall_lp - self.stall_hp) * STALL_INTENSITY * stall * s * size.choke_flow;
 
-        // --- Surge: a thump as the flow collapses, and the chuff of air reversing through the wheel ---
-        let thump = self.surge_thump.process(m_c / (gas::P_AMB / (gas::R * gas::T_AMB)));
-        let reverse = math::max(-m_c, 0.0);
-        let chuff = self.surge_band.process(self.noise.next()) * SURGE_PA * level * reverse * (0.3 + s);
+        // --- The compressor inlet: what the wheel draws from the air, less what a recirculating
+        // blow-off valve hands back to it ---
+        let recirculated = if matches!(size.blow_off, BlowOff::Recirculating) { vent } else { 0.0 };
+        let drawn = m_c - recirculated;
+        let inlet = self.inlet.process((drawn * (1.0 + whine) + turbulence) / rho);
 
-        // --- Wastegate: the flap rattling on its seat with the exhaust pulses, and the bypass hiss ---
+        // --- The blow-off valve: its outflow radiating, and its jet's noise ---
+        let d_vent = math::sqrt((4.0 * size.blow_off_area * self.blow_off) / PI);
+        let u_vent = if vent > 0.0 { jet_velocity(p2, t2, gas::P_AMB) } else { 0.0 };
+        let (vent_flow, jet_share) = match size.blow_off {
+            BlowOff::Atmospheric => (vent, 1.0),
+            _ => (0.0, RECIRCULATING_TRANSMISSION),
+        };
+        let vented = self.vent.process(vent_flow / rho);
+        let jet_pa = if vent > 0.0 { jet_share * lighthill_pa(u_vent, d_vent) } else { 0.0 };
+        let jet = self.blow_off_jet.next(&mut self.noise, u_vent, d_vent, jet_pa, self.sample_rate);
+
+        // --- A surge: the air forced backwards through the inducer ---
+        let d_inducer = math::sqrt((4.0 * size.inducer_area) / PI);
+        let u_reverse = math::max(-m_c, 0.0) / (rho * size.inducer_area);
+        let reverse_pa = lighthill_pa(u_reverse, d_inducer);
+        let reverse = self.reverse_jet.next(&mut self.noise, u_reverse, d_inducer, reverse_pa, self.sample_rate);
+
+        // --- The wastegate flap, just open, knocked on its seat by each pulse across the turbine ---
+        self.across_mean +=
+            (1.0 - math::exp((-2.0 * PI * 5.0) / self.sample_rate)) * (across_turbine - self.across_mean);
+        let rising = across_turbine - self.across_mean;
+        let high = rising > 0.15 * math::max(self.across_mean, 1e3);
         let wg = self.wastegate;
-        if pulses > 0 && wg > 0.0 && wg < 0.45 {
-            let rattle = WASTEGATE_RATTLE_PA * level * (1.0 - wg / 0.45) * (0.6 + 0.4 * self.noise.next().abs());
-            self.rattle.trigger(rattle);
+        if high && !self.across_high && wg > 0.0 && wg < WASTEGATE_RATTLE_OPENING {
+            let open = 1.0 - wg / WASTEGATE_RATTLE_OPENING;
+            self.rattle.trigger(WASTEGATE_RATTLE_PA * open * (rising / 1e4));
         }
+        self.across_high = high;
         let hit = self.rattle.next();
         let rattle = self.rattle_modes[0].process(hit) + 0.6 * self.rattle_modes[1].process(hit);
-        let bypass = self.noise.next() * WASTEGATE_HISS_PA * level * wg * (self.back_pressure / gas::P_AMB - 1.0);
 
-        whine + hiss + jet + pop + thump * level + chuff + rattle + bypass
+        level * (inlet + vented + jet + reverse + rattle)
     }
 }
