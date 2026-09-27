@@ -127,6 +127,16 @@ export function turboPorts(mount: TurboMount & { position: Vec3 }, size: TurboSi
   };
 }
 
+/**
+ * The index of `duct`'s fitted bend, if it has one: the bend a drawn pipe finishes in where it joins a
+ * turbo or another pipe. Joined at both ends, it is not edited, but fitted again whenever the pipe before
+ * it or what it joins moves.
+ */
+export function fittedBend(_graph: ExhaustGraph, duct: ExhaustDuct): number | null {
+  if (!duct.fitted || duct.segments.length === 0 || duct.to.kind !== 'node') return null;
+  return duct.segments.length - 1;
+}
+
 /** Turbos with pipes attached: those whose node a pipe meets. */
 export function connectedTurbos(graph: ExhaustGraph): TurboMount[] {
   return (graph.turbos ?? []).filter((t) => endsAt(graph, t.node).length > 0);

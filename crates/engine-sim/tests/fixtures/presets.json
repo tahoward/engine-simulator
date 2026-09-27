@@ -1839,13 +1839,23 @@
        "id": "turbo1",
        "node": "merge0-t0",
        "position": null,
-       "yaw": 0
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ]
       },
       {
        "id": "turbo2",
        "node": "merge0-t1",
        "position": null,
-       "yaw": 0
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ]
       }
      ]
     }

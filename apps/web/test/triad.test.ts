@@ -109,3 +109,34 @@ describe('the triad', () => {
     expect(snapTo(-0.0128, MOVE_STEP)).toBeCloseTo(-0.015, 12);
   });
 });
+
+describe('swinging a whole pipe about where it starts', () => {
+  it('turns it as one piece, every segment and bend kept', async () => {
+    const { swingPipe } = await import('../src/scene/drawing.js');
+    const { layoutPipe, turnHeading } = await import('../src/scene/PipeMesh.js');
+    const { makeSegment } = await import('../src/model/spec.js');
+    const origin = new THREE.Vector3(0.2, 0.1, -0.1);
+    const base = new THREE.Vector3(1, 0, 0);
+    const duct = {
+      id: 'a',
+      from: { kind: 'valve' as const, cylinder: 0 },
+      to: { kind: 'mouth' as const },
+      headingYaw: 0.3,
+      headingPitch: -0.2,
+      segments: [
+        makeSegment({ length: 0.2, yaw: 0.1 }),
+        makeSegment({ length: 0.3, yaw: 0.9, pitch: 0.4 }),
+        makeSegment({ length: 0.25, yaw: -0.6, pitch: -0.5 }),
+      ],
+    };
+    const before = layoutPipe(duct.segments, origin, turnHeading(base, duct.headingYaw, duct.headingPitch));
+    const axis = new THREE.Vector3(0.3, 0.8, -0.5).normalize();
+    swingPipe(duct, base, before.jointDirections, axis, 0.7);
+    const after = layoutPipe(duct.segments, origin, turnHeading(base, duct.headingYaw, duct.headingPitch));
+    before.joints.forEach((p, i) => {
+      const expected = p.clone().sub(origin).applyAxisAngle(axis, 0.7).add(origin);
+      expect(after.joints[i]!.distanceTo(expected)).toBeLessThan(1e-9);
+    });
+    duct.segments.forEach((s, i) => expect(s.length).toBe([0.2, 0.3, 0.25][i]));
+  });
+});

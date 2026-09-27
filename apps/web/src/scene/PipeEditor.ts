@@ -20,6 +20,7 @@ import type { Vec3 } from '../model/geometry.js';
 import {
   IDENTITY,
   ensureTurboOutlet,
+  fittedBend,
   quatFromAxisAngle,
   quatMultiply,
   quatNormalise,
@@ -36,7 +37,7 @@ import {
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
-import { layoutPipe, turnBetween, type PipeMesh } from './PipeMesh.js';
+import { layoutPipe, type PipeMesh } from './PipeMesh.js';
 import { TurboMesh } from './TurboMesh.js';
 import {
   AXIS_COLOURS,
@@ -56,8 +57,11 @@ import {
 import type { DuctPlacement, ExhaustPlacement, ExhaustPort } from './exhaustLayout.js';
 import {
   MIN_DRAW_LENGTH,
+  bendAnchor,
   collectSnapTargets,
+  swingPipe,
   continuingDiameter,
+  fitCurve,
   fitSegment,
   headingOffsetTo,
   nearestSnap,
@@ -68,8 +72,6 @@ import {
   type SnapTarget,
 } from './drawing.js';
 
-const MIN_LENGTH = 0.02;
-const MAX_LENGTH = 2.0;
 const MIN_RADIUS = 0.006;
 const MAX_RADIUS = 0.22;
 
@@ -108,10 +110,20 @@ interface TriadDrag {
   /** For a ring: the pointer's angle at the last move, and how far it has turned since the drag began. */
   lastAngle: number;
   turned: number;
-  /** A pipe segment's: which, the heading entering it, and its direction when the drag began. */
-  segment?: number;
-  heading?: THREE.Vector3;
-  dir0?: THREE.Vector3;
+  /**
+   * A pipe's: which, the direction its heading is stored off, how many of its segments were drawn (the
+   * rest being the bend fitted to what it joins), and each drawn segment's direction when the drag began.
+   */
+  ductId?: string;
+  base?: THREE.Vector3;
+  drawn?: number;
+  dirs0?: THREE.Vector3[];
+  /** What a pipe's arrows move: the junction it starts from, or the turbo, from where it was. */
+  startNode?: string;
+  startAxis?: Vec3;
+  startTurbo?: { id: string; position: Vec3; rotation: Quat };
+  /** The last place a move was sent to, for the final commit. */
+  lastPosition?: Vec3;
   /** A turbo's: which, and its rotation when the drag began. */
   turbo?: string;
   rotation0?: Quat;
@@ -149,6 +161,11 @@ export interface PipeEditorCallbacks {
   onPlaceTurbo?: (placement: TurboPlacement) => void;
   /** Placing turbos was started or ended from the view, by Escape. */
   onPlacing?: (active: boolean) => void;
+  /**
+   * The junction at `node` was moved to here by the triad of a pipe starting from it; `axis` is the way it
+   * points, for the first time it is moved. `commit` is false for intermediate frames of a drag.
+   */
+  onMoveJunction?: (node: string, position: Vec3, axis: Vec3, commit: boolean) => void;
   /** A turbo was moved or turned to here by its triad. `commit` is false for intermediate frames of a drag. */
   onMoveTurbo?: (turbo: string, position: Vec3, rotation: Quat, commit: boolean) => void;
 }
@@ -367,7 +384,7 @@ export class PipeEditor {
   private sizeTurboTriad(size: TurboSize): void {
     this.group.remove(this.turboTriad.group);
     this.turboTriad.dispose();
-    this.turboTriad = new Triad(size.scroll * 2.6);
+    this.turboTriad = new Triad(size.scroll * 1.9);
     this.group.add(this.turboTriad.group);
     this.placeTurboTriad();
   }
@@ -481,9 +498,9 @@ export class PipeEditor {
     return this.route !== null;
   }
 
-  /** Whether a handle is being dragged: an edit that has not settled yet. */
+  /** Whether a handle is being dragged, a diameter ring or a triad's: an edit that has not settled yet. */
   get dragging(): boolean {
-    return this.drag !== null;
+    return this.drag !== null || this.triadDrag !== null;
   }
 
   /**
@@ -555,8 +572,8 @@ export class PipeEditor {
     this.pipeTriad.setVisible(!hide && this.pipeTriadAt !== null);
   }
 
-  /** Where the selected segment's triad goes: its end, moved, and its start, turned about. */
-  private pipeTriadAt: { end: THREE.Vector3; start: THREE.Vector3 } | null = null;
+  /** Where the selected pipe's triad goes: where the pipe starts, which it turns about. */
+  private pipeTriadAt: { start: THREE.Vector3 } | null = null;
 
   private onContextMenu = (e: MouseEvent): void => {
     if (this.drawMode) e.preventDefault();
@@ -615,6 +632,8 @@ export class PipeEditor {
       if (!hit) continue;
       const st = ctx.meshes[i]!.stationAt(hit.point);
       if (!st) continue;
+      // A bend into a turbo is fitted, not drawn, so nothing branches off it.
+      if (fittedBend(ctx.graph, duct) === st.segment) continue;
       /**
        * Aim at the pipe's *axis*, not the skin the ray hit.
        *
@@ -743,6 +762,30 @@ export class PipeEditor {
 
     const { point } = this.aim(tip, target, snap);
 
+    /**
+     * Joining something ends the route in one smooth bend, fitted to arrive along what it joins: square
+     * into a turbo's flange, beside another pipe's end, into the flow along a pipe's side, or along a
+     * junction's axis. See `bendAnchor`.
+     */
+    const anchor = this.connectionAnchor(target, duct.id);
+    if (anchor) {
+      if (anchor.point.distanceTo(tip.point) < MIN_DRAW_LENGTH) return;
+      if (duct.segments.length === 0) {
+        // Straight out of where it starts: the bend does the turning.
+        duct.headingYaw = 0;
+        duct.headingPitch = 0;
+      }
+      duct.segments.push(fitCurve(tip.point, tip.dir, anchor.point, anchor.dir, { dIn: dia, dOut: dia }));
+      duct.fitted = true;
+      const node = this.connect(target, dia);
+      if (node) {
+        this.finishRoute({ kind: 'node', node });
+        return;
+      }
+      duct.segments.pop();
+      delete duct.fitted;
+    }
+
     if (duct.segments.length === 0) {
       /**
        * The first segment is straight, and the duct's stored heading carries the direction.
@@ -765,15 +808,6 @@ export class PipeEditor {
     }
 
     // Connecting ends the route; a free point just carries on.
-    if (target.kind === 'turboInlet') {
-      const mount = ctx.graph.turbos?.find((t) => t.id === target.turbo);
-      if (mount) {
-        duct.to = { kind: 'node', node: mount.node };
-        ensureTurboOutlet(ctx.graph, mount.node, this.turboOutletDia);
-        this.finishRoute({ kind: 'node', node: mount.node });
-        return;
-      }
-    }
     if (target.kind === 'node') {
       this.finishRoute({ kind: 'node', node: target.node });
       return;
@@ -796,6 +830,58 @@ export class PipeEditor {
     this.cb.onChange(true);
   }
 
+  /**
+   * Where a route ending on `target` bends in to, and the way it arrives, or `null` where it has nothing
+   * fixed to arrive along and ends in a corner, as a free point does.
+   */
+  private connectionAnchor(target: SnapTarget, ductId: string): { point: THREE.Vector3; dir: THREE.Vector3 } | null {
+    const ctx = this.context;
+    if (!ctx) return null;
+    switch (target.kind) {
+      case 'turboInlet':
+        return { point: target.point.clone(), dir: target.dir.clone() };
+      case 'ductSurface':
+        return target.dir ? { point: target.point.clone(), dir: target.dir.clone() } : null;
+      case 'ductEnd': {
+        const other = ctx.graph.ducts.find((d) => d.id === target.duct);
+        const place = ctx.placement.ducts.get(target.duct);
+        if (!other || !place || other.segments.length === 0) return null;
+        const swept = layoutPipe(other.segments, place.origin, place.heading);
+        return { point: swept.joints.at(-1)!.clone(), dir: swept.jointDirections.at(-1)!.clone() };
+      }
+      case 'node':
+        return bendAnchor(ctx.graph, ctx.placement, target.node, ductId);
+      default:
+        return null;
+    }
+  }
+
+  /**
+   * Join the route's duct onto `target`, making the junction that takes where needed: on another pipe's
+   * side or open end, or at a turbo's inlet. Returns the node it now ends at.
+   */
+  private connect(target: SnapTarget, dia: number): string | null {
+    const ctx = this.context!;
+    switch (target.kind) {
+      case 'turboInlet': {
+        const mount = ctx.graph.turbos?.find((t) => t.id === target.turbo);
+        if (!mount) return null;
+        const duct = ctx.graph.ducts.find((d) => d.id === this.route!.ductId)!;
+        duct.to = { kind: 'node', node: mount.node };
+        ensureTurboOutlet(ctx.graph, mount.node, this.turboOutletDia);
+        return mount.node;
+      }
+      case 'node':
+        return target.node;
+      case 'ductSurface':
+        return splitDuctAt(ctx.graph, target.duct, target.x);
+      case 'ductEnd':
+        return joinDuctEnd(ctx.graph, target.duct, (Math.PI * dia * dia) / 4);
+      default:
+        return null;
+    }
+  }
+
   /** The duct feeding this one, for continuing at its diameter. */
   private startingDuct(duct: ExhaustDuct): ExhaustDuct | null {
     const ctx = this.context;
@@ -811,6 +897,12 @@ export class PipeEditor {
     if (duct.from.kind === 'valve' && ctx) return Math.max(this.portDiameter, 0.02);
     return 0.042;
   }
+
+  /**
+   * Where the edited duct's segments stop being editable: its bend into a turbo, joined at both ends, which
+   * is fitted rather than drawn. `null` when all of it is. Set by the owner.
+   */
+  lockedFrom: number | null = null;
 
   /** Header diameter to start a runner at. Set by the owner from the engine's port. */
   portDiameter = 0.042;
@@ -872,21 +964,28 @@ export class PipeEditor {
       const r0 = this.pipe[0]!.dIn / 2;
       this.addRing(this.origin, this.heading, r0, { kind: 'inlet', segment: 0 });
     }
-    for (let i = 0; i < layout.joints.length; i++) {
+    // No handles on a bend into a turbo: it is fitted to both its ends, not drawn.
+    const editable = Math.min(this.lockedFrom ?? layout.joints.length, layout.joints.length);
+    for (let i = 0; i < editable; i++) {
       this.addRing(layout.joints[i]!, layout.jointDirections[i]!, layout.jointRadii[i]!, { kind: 'ring', segment: i });
     }
 
-    // The selected segment's triad: moving its end, turning it about its start.
-    const sel = this.selected;
-    if (sel !== null && sel < layout.joints.length) {
-      const start = sel === 0 ? this.origin.clone() : layout.joints[sel - 1]!.clone();
-      this.pipeTriadAt = { end: layout.joints[sel]!.clone(), start };
-      this.pipeTriad.setMoveOrigin(this.pipeTriadAt.end);
-      this.pipeTriad.setRotateOrigin(start);
-      // Turned with the segment: red along it, so its arrow changes only the length. Turning a straight
-      // pipe about itself does nothing, so that ring is not offered.
-      this.pipeTriad.setOrientation(frameAlong(this.pipeTriadAt.end.clone().sub(start)));
-      this.pipeTriad.hideRing(0, true);
+    /**
+     * The selected pipe's triad, at the connection it starts from: its port, junction or turbo outlet. Where
+     * it starts is held there, so it has no arrows; its rings swing the whole pipe about that point, and are
+     * turned with the pipe, red along the way it sets off.
+     */
+    if (this.selected !== null && editable > 0) {
+      this.pipeTriadAt = { start: this.origin.clone() };
+      this.pipeTriad.setMoveOrigin(this.origin);
+      this.pipeTriad.setRotateOrigin(this.origin);
+      this.pipeTriad.setOrientation(frameAlong(layout.stations[0]!.direction));
+      // A pipe from a junction or a turbo has arrows too, which move what it starts from; one from a
+      // port has none, since the port is part of the engine.
+      const duct = this.context?.graph.ducts.find((d) => d.segments === this.pipe);
+      this.pipeTriad.showMoves(duct?.from.kind === 'node');
+      // A bent pipe swung about the way it sets off moves the rest of it, so that ring is offered too.
+      this.pipeTriad.hideRing(0, false);
     } else {
       this.pipeTriadAt = null;
     }
@@ -1090,12 +1189,26 @@ export class PipeEditor {
     else drag.lastAngle = this.ringAngleNow(rotateOrigin, ring) ?? 0;
 
     if (on === 'pipe') {
-      const sel = this.selected;
-      if (sel === null || !this.pipe[sel]) return;
+      const ctx = this.context;
+      const duct = ctx?.graph.ducts.find((d) => d.segments === this.pipe);
+      const drawn = Math.min(this.lockedFrom ?? this.pipe.length, this.pipe.length);
+      if (!ctx || !duct || drawn === 0) return;
       const layout = layoutPipe(this.pipe, this.origin, this.heading);
-      drag.segment = sel;
-      drag.heading = sel === 0 ? this.heading.clone() : layout.jointDirections[sel - 1]!.clone();
-      drag.dir0 = layout.joints[sel]!.clone().sub(rotateOrigin).normalize();
+      drag.ductId = duct.id;
+      drag.drawn = drawn;
+      drag.dirs0 = layout.jointDirections.slice(0, drawn).map((d) => d.clone());
+      drag.base = this.headingBase(duct);
+      if (duct.from.kind === 'node') {
+        const node = duct.from.node;
+        const mount = ctx.graph.turbos?.find((t) => t.node === node);
+        if (mount?.position) {
+          drag.startTurbo = { id: mount.id, position: [...mount.position], rotation: [...mount.rotation] };
+        } else {
+          drag.startNode = node;
+          const axis = ctx.placement.joints.get(node)?.axis ?? this.heading;
+          drag.startAxis = [axis.x, axis.y, axis.z];
+        }
+      }
     } else {
       const mount = this.context?.graph.turbos?.find((t) => t.id === this.selectedTurbo);
       if (!mount?.position) return;
@@ -1154,35 +1267,72 @@ export class PipeEditor {
   }
 
   /**
-   * The selected segment by its triad.
+   * The selected pipe's arrows: moving what it starts from, the junction or the turbo, and the pipe with
+   * it. The pipes feeding it bend in to follow.
+   */
+  private dragPipeStart(drag: TriadDrag, snap: boolean): void {
+    const at = this.triadMove(drag, snap);
+    if (!at) return;
+    drag.moved = true;
+    const delta = at.clone().sub(drag.moveOrigin);
+    if (drag.startTurbo) {
+      const p = drag.startTurbo.position;
+      const position: Vec3 = [p[0] + delta.x, p[1] + delta.y, p[2] + delta.z];
+      drag.lastPosition = position;
+      const rotation = drag.startTurbo.rotation;
+      const id = drag.startTurbo.id;
+      this.commitFrame(
+        drag,
+        () => this.cb.onMoveTurbo?.(id, position, rotation, false),
+        () => this.cb.onMoveTurbo?.(id, position, rotation, true),
+      );
+    } else if (drag.startNode && drag.startAxis) {
+      const position: Vec3 = [at.x, at.y, at.z];
+      drag.lastPosition = position;
+      const node = drag.startNode;
+      const axis = drag.startAxis;
+      this.commitFrame(
+        drag,
+        () => this.cb.onMoveJunction?.(node, position, axis, false),
+        () => this.cb.onMoveJunction?.(node, position, axis, true),
+      );
+    }
+  }
+
+  /**
+   * The direction `duct`'s stored heading is turned off, as `layoutGraph` reads it: its port's, a turbo's
+   * outlet flange's, or the world's for a pipe leaving a junction, which is stored in world terms from here
+   * on, since the junction's own direction is worked out afresh each time.
+   */
+  private headingBase(duct: ExhaustDuct): THREE.Vector3 {
+    const ctx = this.context!;
+    if (duct.from.kind === 'valve') return ctx.ports[duct.from.cylinder]?.direction.clone() ?? this.heading.clone();
+    const outlet = ctx.placement.turbos.get(duct.from.node)?.outlet;
+    if (outlet && duct.headingFrame !== 'world') return new THREE.Vector3(...outlet.dir);
+    duct.headingFrame = 'world';
+    return new THREE.Vector3(1, 0, 0);
+  }
+
+  /**
+   * The selected pipe by its triad: swung as one piece about where it starts.
    *
-   * Moving its end: the segment runs from where it starts to the new end, turning off the heading entering
-   * it by what that takes, and as long as it now is. Turning it: it swings about its start, keeping its
-   * length, landing with shift held on a multiple of 15 degrees counted from the engine's axes, so a segment
-   * drawn at an odd angle squares up.
+   * Every drawn segment keeps its length and turns with the rest, so the bends between them stay as they
+   * were: the way the pipe sets off goes into its heading, and each corner after is worked out again from
+   * the turned directions either side of it. A bend fitted to what the pipe joins at its far end is fitted
+   * again when the scene rebuilds. With shift held it lands on 15-degree steps from the engine's axes, so
+   * a pipe at an odd angle squares up.
    */
   private dragPipeTriad(drag: TriadDrag, snap: boolean): void {
-    const seg = this.pipe[drag.segment ?? -1];
-    if (!seg || !drag.heading || !drag.dir0) return;
-    if (drag.handle.kind === 'ring') {
-      let turn = this.triadTurn(drag);
-      if (turn === null) return;
-      if (snap) turn = snapTurnToEngine(drag.dir0, turn, drag.axis, (TRIAD_TURN_DEG * Math.PI) / 180);
-      const dir = drag.dir0.clone().applyAxisAngle(drag.axis, turn);
-      const { yaw, pitch } = turnBetween(drag.heading, dir);
-      seg.yaw = yaw;
-      seg.pitch = pitch;
-    } else {
-      const end = this.triadMove(drag, snap);
-      if (!end) return;
-      const chord = end.sub(drag.rotateOrigin);
-      const chordLen = chord.length();
-      if (chordLen < 1e-4) return;
-      const turn = turnBetween(drag.heading, chord);
-      seg.yaw = turn.yaw;
-      seg.pitch = turn.pitch;
-      seg.length = clamp(chordLen, MIN_LENGTH, MAX_LENGTH);
+    const duct = this.context?.graph.ducts.find((d) => d.id === drag.ductId);
+    if (!duct || !drag.dirs0 || !drag.base) return;
+    if (drag.handle.kind !== 'ring') {
+      this.dragPipeStart(drag, snap);
+      return;
     }
+    let turn = this.triadTurn(drag);
+    if (turn === null) return;
+    if (snap) turn = snapTurnToEngine(drag.dirs0[0]!, turn, drag.axis, (TRIAD_TURN_DEG * Math.PI) / 180);
+    swingPipe(duct, drag.base, drag.dirs0, drag.axis, turn);
     drag.moved = true;
     this.commitFrame(drag, () => this.cb.onChange(false), () => this.cb.onChange(true));
   }
@@ -1279,7 +1429,14 @@ export class PipeEditor {
 
     const { point, dir, name } = this.aim(tip, target, snap);
 
-    this.previewGeom.setFromPoints([tip.point, point]);
+    // Joining something, the bend the pipe will take to arrive along it.
+    const anchor = this.connectionAnchor(target, this.route.ductId);
+    const path = anchor
+      ? layoutPipe([fitCurve(tip.point, tip.dir, anchor.point, anchor.dir)], tip.point, tip.dir).stations.map(
+          (st) => st.position,
+        )
+      : [tip.point, point];
+    this.previewGeom.setFromPoints(path);
     this.preview.computeLineDistances();
     this.preview.visible = true;
     if (dir) {
@@ -1396,6 +1553,10 @@ export class PipeEditor {
       if (drag.on === 'turbo') {
         const mount = this.context?.graph.turbos?.find((t) => t.id === drag.turbo);
         if (mount?.position) this.cb.onMoveTurbo?.(mount.id, mount.position, mount.rotation, true);
+      } else if (drag.lastPosition && drag.startTurbo) {
+        this.cb.onMoveTurbo?.(drag.startTurbo.id, drag.lastPosition, drag.startTurbo.rotation, true);
+      } else if (drag.lastPosition && drag.startNode && drag.startAxis) {
+        this.cb.onMoveJunction?.(drag.startNode, drag.lastPosition, drag.startAxis, true);
       } else {
         this.cb.onChange(true);
         this.rebuildHandles();

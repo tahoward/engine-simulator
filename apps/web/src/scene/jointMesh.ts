@@ -200,18 +200,27 @@ function continuationOf(limbs: JointLimb[], i: number): number {
   return i;
 }
 
+/**
+ * A junction's fitting, not drawn: pipes that join merge in smooth bends of their own, so the fitting is
+ * only there to be picked. It shows, see-through and green, while the junction is selected.
+ */
 export class JointMesh {
   readonly group = new THREE.Group();
 
   private mesh: THREE.Mesh | null = null;
   private geometry: THREE.BufferGeometry | null = null;
   private readonly material: THREE.MeshStandardMaterial;
+  private selected = false;
 
   constructor() {
     this.material = new THREE.MeshStandardMaterial({
-      color: 0x9aa0a8,
-      metalness: 0.66,
-      roughness: 0.36,
+      color: 0x8cff9e,
+      emissive: 0x2f6b3a,
+      metalness: 0.2,
+      roughness: 0.6,
+      transparent: true,
+      opacity: 0.45,
+      depthWrite: false,
     });
   }
 
@@ -220,9 +229,10 @@ export class JointMesh {
     return this.mesh;
   }
 
-  /** Tint the joint to show it is selected, in the same green as the editor's selected handles. */
+  /** Show the joint while it is selected, in the same green as the editor's selected handles. */
   setSelected(on: boolean): void {
-    this.material.emissive.setHex(on ? 0x2f6b3a : 0x000000);
+    this.selected = on;
+    if (this.mesh) this.mesh.visible = on;
   }
 
   rebuild(placement: JointPlacement | undefined): void {
@@ -232,8 +242,8 @@ export class JointMesh {
     if (!geom) return;
     this.geometry = geom;
     const mesh = new THREE.Mesh(geom, this.material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
+    // Hidden, but still there to pick: a ray tests an object whether or not it is drawn.
+    mesh.visible = this.selected;
     this.mesh = mesh;
     this.group.add(mesh);
   }

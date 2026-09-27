@@ -84,6 +84,14 @@ export interface ExhaustDuct {
    * length.
    */
   role?: 'runner' | 'stub' | 'manifold' | 'downpipe' | 'collector';
+  /**
+   * Whether the duct's last segment is a bend fitted to what the duct joins, rather than drawn.
+   *
+   * A pipe drawn to join something, a turbo's inlet or another pipe, finishes in one smooth bend worked out
+   * from where the drawn pipe ends and the place and direction of what it joins (`bendAnchor`), and fitted
+   * again whenever either moves. Joined at both ends, it is not edited: the drawn pipe up to it is.
+   */
+  fitted?: true;
 }
 
 /**
@@ -105,10 +113,28 @@ export interface TurboMount {
 /** A rotation as a unit quaternion, `[x, y, z, w]`. */
 export type Quat = [number, number, number, number];
 
+/**
+ * A junction given a place of its own by being moved there: `position` (m, world), with pipes leaving it
+ * turned off `axis`. A junction is otherwise wherever the pipes meeting at it end; once placed, they bend in
+ * to meet it (`ExhaustDuct.fitted`).
+ */
+export interface JunctionMount {
+  node: string;
+  position: Vec3;
+  axis: Vec3;
+}
+
 export interface ExhaustGraph {
   ducts: ExhaustDuct[];
   /** Turbochargers, each at one node. One whose node no duct names is not connected yet. */
   turbos?: TurboMount[];
+  /** Junctions that have been moved, and so have a place of their own. */
+  junctions?: JunctionMount[];
+}
+
+/** Where the junction at `node` has been moved to, if it has. */
+export function junctionAt(graph: ExhaustGraph, node: string): JunctionMount | undefined {
+  return graph.junctions?.find((j) => j.node === node);
 }
 
 /** The turbo whose turbine sits at `node`, if one does. */
@@ -145,8 +171,18 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
         return [{ id: t.id, node: t.node, position, rotation }];
       })
     : [];
+  const junctions = (raw as { junctions?: unknown }).junctions;
+  const triple = (v: unknown): v is Vec3 => Array.isArray(v) && v.length === 3 && v.every(finite);
+  const placed: JunctionMount[] = Array.isArray(junctions)
+    ? junctions.flatMap((j: Record<string, unknown>) =>
+        typeof j?.node === 'string' && triple(j.position) && triple(j.axis)
+          ? [{ node: j.node, position: [...j.position] as Vec3, axis: [...j.axis] as Vec3 }]
+          : [],
+      )
+    : [];
   return {
     ...(mounts.length > 0 ? { turbos: mounts } : {}),
+    ...(placed.length > 0 ? { junctions: placed } : {}),
     ducts: ducts.map((d: Record<string, unknown>) => ({
       id: String(d.id),
       segments: (Array.isArray(d.segments) ? d.segments : []).map((sg) => makeSegment(sg)),
@@ -157,6 +193,7 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
       ...(d.headingFrame === 'world' ? { headingFrame: 'world' as const } : {}),
       ...(typeof d.continues === 'string' ? { continues: d.continues } : {}),
       ...(typeof d.role === 'string' && ROLES.has(d.role) ? { role: d.role as ExhaustDuct['role'] } : {}),
+      ...(d.fitted === true ? { fitted: true as const } : {}),
     })),
   };
 }
@@ -667,6 +704,8 @@ export function pathToAir(graph: ExhaustGraph, cylinder: number): ExhaustDuct[] 
  */
 export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct): void {
   if (source.from.kind !== 'valve') return;
+  // What was drawn: a bend fitted into a turbo belongs to its own pipe, and each keeps its own.
+  const drawn = (d: ExhaustDuct) => (d.fitted ? d.segments.slice(0, -1) : d.segments);
   /**
    * Not onto, nor from, a runner that carries a manifold on.
    *
@@ -678,7 +717,8 @@ export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct): 
   if (carries(source)) return;
   for (const other of graph.ducts) {
     if (other === source || other.from.kind !== 'valve' || carries(other)) continue;
-    other.segments = source.segments.map((sg) => makeSegment(sg));
+    const bend = other.fitted ? other.segments.slice(-1) : [];
+    other.segments = [...drawn(source).map((sg) => makeSegment(sg)), ...bend];
   }
 }
 
@@ -840,6 +880,7 @@ export function disconnectEnd(graph: ExhaustGraph, ductId: string, dirs?: DuctDi
   if (!duct || duct.to.kind !== 'node') return;
   const node = duct.to.node;
   duct.to = { kind: 'mouth' };
+  releaseBend(duct);
   for (const d of graph.ducts) if (d.continues === duct.id) delete d.continues;
   tidyJunctions(graph, [node], dirs);
 }
@@ -870,7 +911,11 @@ export function removeJunction(
   const keepOut = via ? outs.find((d) => d.id === via[1]) : undefined;
 
   const touched = new Set<string>();
-  for (const feed of feeds) if (feed !== keepIn) feed.to = { kind: 'mouth' };
+  for (const feed of feeds) {
+    if (feed === keepIn) continue;
+    feed.to = { kind: 'mouth' };
+    releaseBend(feed);
+  }
   for (const out of outs) {
     if (out === keepOut) continue;
     graph.ducts = graph.ducts.filter((d) => d !== out);
@@ -890,6 +935,16 @@ export function removeJunction(
  * what undoes the split a branch made, once the branch is gone.
  */
 export function tidyJunctions(graph: ExhaustGraph, nodes: Iterable<string>, dirs?: DuctDirections): void {
+  tidy(graph, nodes, dirs);
+  // A junction that has gone takes the place it was moved to with it.
+  if (graph.junctions) {
+    const live = new Set(nodeOrder(graph));
+    graph.junctions = graph.junctions.filter((j) => live.has(j.node));
+    if (graph.junctions.length === 0) delete graph.junctions;
+  }
+}
+
+function tidy(graph: ExhaustGraph, nodes: Iterable<string>, dirs?: DuctDirections): void {
   const queue = [...nodes];
   for (let guard = 0; guard < graph.ducts.length * 4 + 16 && queue.length > 0; guard++) {
     const node = queue.shift()!;
@@ -915,8 +970,11 @@ export function tidyJunctions(graph: ExhaustGraph, nodes: Iterable<string>, dirs
         });
       }
     } else if (outs.length === 0) {
-      for (const feed of feeds) feed.to = { kind: 'mouth' };
-    } else if (feeds.length === 1 && outs.length === 1) {
+      for (const feed of feeds) {
+        feed.to = { kind: 'mouth' };
+        releaseBend(feed);
+      }
+    } else if (feeds.length === 1 && outs.length === 1 && !junctionAt(graph, node)) {
       fuse(graph, feeds[0]!, outs[0]!, dirs);
     }
   }
@@ -952,6 +1010,16 @@ function fuse(graph: ExhaustGraph, into: ExhaustDuct, out: ExhaustDuct, dirs?: D
   // Anything that carried straight on from `out` now carries on from `into`, which it has become.
   for (const d of graph.ducts) if (d.continues === out.id) d.continues = into.id;
   graph.ducts = graph.ducts.filter((d) => d !== out);
+}
+
+/**
+ * Take off the bend a duct was fitted into a turbo with, now it is not joined to one: the bend was only
+ * ever the way from the pipe as drawn to the turbo's inlet, so the pipe ends where it was drawn to.
+ */
+function releaseBend(duct: ExhaustDuct): void {
+  if (!duct.fitted) return;
+  duct.segments.pop();
+  delete duct.fitted;
 }
 
 function touchedNodes(duct: ExhaustDuct): string[] {

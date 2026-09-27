@@ -28,8 +28,16 @@ import { PipeMesh } from './scene/PipeMesh.js';
 import { ductDirections, freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustPlacement } from './scene/exhaustLayout.js';
 import { JointMesh, throughPipe } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
-import { moveTurbo, seatTurbos, turboHeight } from './scene/turboPlacement.js';
-import { graphTurboSize, isTurbocharged, newTurbo, placeTurbo, removeTurbo, turboPortsOf } from './model/turbo.js';
+import { moveJunction, moveTurbo, refitBends, seatTurbos, turboHeight } from './scene/turboPlacement.js';
+import {
+  fittedBend,
+  graphTurboSize,
+  isTurbocharged,
+  newTurbo,
+  placeTurbo,
+  removeTurbo,
+  turboPortsOf,
+} from './model/turbo.js';
 import {
   carriedGeometry,
   compileExhaust,
@@ -133,14 +141,18 @@ function directionsOf(placement: ExhaustPlacement | null): DuctDirections | unde
  *
  * Pipes are straight tube: shorten one that runs into a junction and it falls short of it. Left joined,
  * the fitting would have to grow to bridge the gap. So its end is left open instead, which is what
- * cutting a real pipe short does. If the edited pipe was the one the junction follows, it is the *others*
- * that stop meeting, and it is still the edited one that comes off.
+ * cutting a real pipe short does. Pipes that join it in a fitted bend are fitted again first, so they
+ * follow it wherever it goes; only a pipe drawn into it without one can fall short. If the edited pipe was
+ * the one the junction follows, it is those *others* that stop meeting, and it is still the edited one
+ * that comes off.
  */
 function detachIfShort(ductId: string): void {
   const graph = config.graph!;
   const duct = graph.ducts.find((d) => d.id === ductId);
   if (!duct || duct.to.kind !== 'node') return;
   const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
+  // The bends into the junction follow what they join first, so it is only a drawn pipe that falls short.
+  refitBends(graph, ports, config.engine);
   if (!pipesMeetAt(graph, layoutGraph(ports, graph, turboPortsOf(graph, config.engine)), duct.to.node)) {
     disconnectEnd(graph, duct.id, directionsOf(stablePlacement));
   }
@@ -168,7 +180,11 @@ const editor = new PipeEditor(
       panel.syncTurbos();
       // Rebuilding the waveguide reallocates and briefly ramps the audio, so during
       // a drag it is throttled; the editor always sends a final commit on release.
-      if (commit) audio.setGraph(config.graph!);
+      // A settled edit is kept in the link too, so a reload comes back to it.
+      if (commit) {
+        audio.setGraph(config.graph!);
+        saveConfig();
+      }
     },
     onSelect: (i) => {
       selectJoint(null);
@@ -215,10 +231,16 @@ const editor = new PipeEditor(
       selectTurbo(mount.id);
     },
     onPlacing: (active) => panel.setPlacingState(active),
+    onMoveJunction: (node, position, axis, commit) => {
+      freeze();
+      const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
+      moveJunction(config.graph!, ports, config.engine, node, position, axis);
+      afterTurboEdit(commit);
+    },
     onMoveTurbo: (id, position, rotation, commit) => {
       freeze();
       const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
-      moveTurbo(config.graph!, ports, config.engine, id, position, rotation, directionsOf(stablePlacement));
+      moveTurbo(config.graph!, ports, config.engine, id, position, rotation);
       afterTurboEdit(commit);
     },
   },
@@ -488,6 +510,7 @@ function rebuildPipeGeometry(): void {
 
   const ports = Array.from({ length: cylinders }, (_, b) => engineMesh.exhaustPort(b));
   seatTurbos(graph, ports, config.engine);
+  refitBends(graph, ports, config.engine);
   const turboPorts = turboPortsOf(graph, config.engine);
   const placement = layoutGraph(ports, graph, turboPorts);
   lastPlacement = placement;
@@ -559,6 +582,7 @@ function rebuildPipeGeometry(): void {
   editor.turboOutletDia = size.outletDia;
 
   const editedDuct = graph.ducts.find((d) => d.id === editedDuctId) ?? graph.ducts[0];
+  editor.lockedFrom = editedDuct ? fittedBend(graph, editedDuct) : null;
   if (editedDuct) {
     const place = placement.ducts.get(editedDuct.id);
     const meshIndex = graph.ducts.indexOf(editedDuct);

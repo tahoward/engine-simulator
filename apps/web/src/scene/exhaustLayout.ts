@@ -14,6 +14,7 @@ import * as THREE from 'three';
 import { segmentDiameter } from '../model/spec.js';
 import {
   endsAt,
+  junctionAt,
   nodeOrder,
   type DuctDirections,
   type ExhaustDuct,
@@ -231,13 +232,15 @@ export function layoutGraph(
        */
       const carried = downstream.find((d) => d.continues !== undefined);
       const primary = carried ? upstream.find((d) => d.id === carried.continues) : undefined;
+      /** A junction that has been moved has a place of its own: the pipes into it bend in to meet it. */
+      const pinned = junctionAt(graph, node);
 
       /**
        * Pipes this node may aim: compiled ones, which neither carry a manifold on nor were drawn, at a
        * junction nothing was snapped onto. A runner from a port, or a downpipe from one bank's manifold
        * to where the banks meet.
        */
-      const free = primary
+      const free = primary || pinned
         ? []
         : upstream.filter(
             (d) =>
@@ -350,8 +353,8 @@ export function layoutGraph(
       // A pipe that was attached to runs straight on from where, and the way, it finished.
       const primarySample = primary ? samples.find((sm) => sm.duct === primary) : undefined;
       const joinAt = primarySample ?? teeInto ?? (pointJoint && !opposed ? through : null);
-      const mouth = joinAt ? joinAt.end.clone() : centroid;
-      const axis = joinAt ? joinAt.endDir.clone() : bisector.clone();
+      const mouth = pinned ? new THREE.Vector3(...pinned.position) : joinAt ? joinAt.end.clone() : centroid;
+      const axis = pinned ? new THREE.Vector3(...pinned.axis) : joinAt ? joinAt.endDir.clone() : bisector.clone();
 
       /**
        * The joint's limbs: every pipe that meets here, and which way it arrives.
@@ -672,14 +675,26 @@ export function pipesMeetAt(graph: ExhaustGraph, placement: ExhaustPlacement, no
  */
 export function freezeHeadings(graph: ExhaustGraph, placement: ExhaustPlacement, ports: ExhaustPort[]): void {
   for (const duct of graph.ducts) {
-    if (duct.headingYaw !== undefined || duct.headingPitch !== undefined) continue;
     const place = placement.ducts.get(duct.id);
     if (!place) continue;
-    const base = duct.from.kind === 'valve' ? ports[duct.from.cylinder]?.direction : WORLD_X;
+    /**
+     * A pipe leaving a turbo is held to its outlet flange, which is the turbo's own and turns with it, so
+     * its heading is stored off the flange's direction, not the world's: turning the turbo swings the pipe
+     * with it. One stored in world terms, as every pipe leaving a junction is, is put back on the flange.
+     */
+    const outlet = duct.from.kind === 'node' ? placement.turbos.get(duct.from.node)?.outlet : undefined;
+    const stored = duct.headingYaw !== undefined || duct.headingPitch !== undefined;
+    if (stored && !(outlet && duct.headingFrame === 'world')) continue;
+    const base = outlet
+      ? new THREE.Vector3(...outlet.dir)
+      : duct.from.kind === 'valve'
+        ? ports[duct.from.cylinder]?.direction
+        : WORLD_X;
     if (!base) continue;
     const turn = turnBetween(base, place.heading);
     duct.headingYaw = turn.yaw;
     duct.headingPitch = turn.pitch;
-    if (duct.from.kind === 'node') duct.headingFrame = 'world';
+    if (duct.from.kind === 'node' && !outlet) duct.headingFrame = 'world';
+    else delete duct.headingFrame;
   }
 }

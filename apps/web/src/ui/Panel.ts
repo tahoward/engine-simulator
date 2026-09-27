@@ -20,7 +20,7 @@ import {
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
-import { connectedTurbos, isTurbocharged } from '../model/turbo.js';
+import { connectedTurbos, fittedBend, isTurbocharged } from '../model/turbo.js';
 import {
   ENGINE_PRESETS,
   bankFiringIntervals,
@@ -1424,9 +1424,13 @@ export class Panel {
 
   private addSegment(kind: SegmentKind): void {
     const pipe = this.currentSegments();
-    const last = pipe[pipe.length - 1];
+    // Added to the pipe as drawn: before a bend into a turbo, which is fitted to what comes before it.
+    const at = this.lockedFrom() ?? pipe.length;
+    const last = pipe[at - 1];
     const dIn = last ? segmentDiameter(last, 1) : 0.042;
-    pipe.push(
+    pipe.splice(
+      at,
+      0,
       makeSegment({
         kind,
         length: kind === 'chamber' ? 0.3 : 0.25,
@@ -1434,7 +1438,7 @@ export class Panel {
         dOut: kind === 'chamber' ? dIn * 3 : kind === 'cone' ? dIn * 1.8 : dIn,
       }),
     );
-    this.selected = pipe.length - 1;
+    this.selected = at;
     this.commit();
     this.rebuildPipeList();
     this.cb.onSelect(this.selected);
@@ -1455,6 +1459,13 @@ export class Panel {
     const duct = this.currentDuct();
     if (this.linkRunners && graph && duct) copyToSiblingRunners(graph, duct);
     this.cb.onPipe();
+  }
+
+  /** Where the edited pipe stops being editable: its bend into a turbo, if it has one. */
+  private lockedFrom(): number | null {
+    const graph = this.config.graph;
+    const duct = this.currentDuct();
+    return graph && duct ? fittedBend(graph, duct) : null;
   }
 
   /** The duct the list is editing, or the first one if the selection has gone stale. */
@@ -1494,9 +1505,12 @@ export class Panel {
     const segments = this.currentSegments();
     this.listEl.replaceChildren();
     this.rows.length = 0;
-    segments.forEach((seg, i) =>
-      this.rows.push(this.buildRow(this.listEl, segments, seg, i, true)),
-    );
+    const locked = this.lockedFrom();
+    segments.forEach((seg, i) => {
+      const row = this.buildRow(this.listEl, segments, seg, i, true);
+      if (locked !== null && i >= locked) lockRow(row);
+      this.rows.push(row);
+    });
 
     this.applySelection();
     this.syncStats();
@@ -1659,7 +1673,8 @@ export class Panel {
 
   private move(pipe: PipeSegment[], index: number, delta: number): void {
     const to = index + delta;
-    if (to < 0 || to >= pipe.length) return;
+    const end = this.lockedFrom() ?? pipe.length;
+    if (to < 0 || to >= end || index >= end) return;
     const [seg] = pipe.splice(index, 1);
     pipe.splice(to, 0, seg!);
     this.selected = to;
@@ -1670,7 +1685,8 @@ export class Panel {
 
   private duplicate(list: PipeSegment[], index: number): void {
     const seg = list[index];
-    if (!seg) return;
+    const locked = this.lockedFrom();
+    if (!seg || (locked !== null && index >= locked)) return;
     list.splice(index + 1, 0, makeSegment({ ...seg, id: undefined }));
     this.selected = index + 1;
     this.commit();
@@ -1679,6 +1695,8 @@ export class Panel {
   }
 
   private remove(list: PipeSegment[], index: number): void {
+    const locked = this.lockedFrom();
+    if (locked !== null && index >= locked) return;
     list.splice(index, 1);
     this.selected = null;
     /**
@@ -1703,6 +1721,8 @@ export class Panel {
   deleteSelected(): boolean {
     const list = this.currentSegments();
     if (this.selected === null || !list[this.selected]) return false;
+    const locked = this.lockedFrom();
+    if (locked !== null && this.selected >= locked) return true;
     this.remove(list, this.selected);
     return true;
   }
@@ -1739,7 +1759,7 @@ export class Panel {
       if (row.offsetOut && document.activeElement !== row.offsetOut) {
         row.offsetOut.value = round((seg.offsetOut ?? 0) * MM, 1);
       }
-      row.kind.value = seg.kind;
+      if (!row.el.classList.contains('locked')) row.kind.value = seg.kind;
       row.dOutWrap.classList.toggle('hidden', seg.kind === 'pipe');
     });
   }
@@ -1985,6 +2005,22 @@ function option(value: string, label: string): HTMLOptionElement {
   o.value = value;
   o.textContent = label;
   return o;
+}
+
+/**
+ * Show a segment row as not editable: a bend into a turbo, fitted to both its ends. Its fields still show
+ * its length and bore, kept up to date as it is fitted again, but take no input.
+ */
+function lockRow(row: SegmentRow): void {
+  row.el.classList.add('locked');
+  for (const input of row.el.querySelectorAll('input, select, button')) {
+    (input as HTMLInputElement).disabled = true;
+  }
+  row.el.querySelector('.segment-tools')?.classList.add('hidden');
+  row.kind.replaceChildren(option('bend', 'bend, fitted'));
+  row.el.title =
+    'Fitted to both its ends, the pipe before it and what it joins, so it is not edited: change the pipe ' +
+    'before it, or move what it joins, and it follows.';
 }
 
 function section(root: HTMLElement, title: string, collapsed: boolean): HTMLElement {
