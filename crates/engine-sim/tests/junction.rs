@@ -522,3 +522,62 @@ mod manifolds_stay_solvable_and_affordable {
         }
     }
 }
+
+/// A manifold drawn by hand along a three: each cylinder's pipe bent into a pipe of the same bore that
+/// carries on past it, three junctions in a row a few centimetres apart, all of one runner's bore, so the
+/// flow runs near the speed of sound. At 32 kHz the links between the junctions are a cell long.
+fn hand_drawn_three() -> EngineConfig {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/drawn_inline3.json");
+    serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
+}
+
+/// The hand-drawn three at `fs` on full throttle for two seconds: its top rpm, and its note's level from
+/// 0.9 s to 1.3 s, as it revs through the top half of its range.
+fn rev_hand_drawn_three(fs: f64) -> (EngineSim, f64, f64) {
+    let cfg = hand_drawn_three();
+    let mut sim = EngineSim::new(fs, &cfg);
+    sim.render((fs / 2.0) as usize);
+    sim.set_controls(1.0, 0.0);
+    let (mut top, mut sq, mut count) = (0.0_f64, 0.0, 0usize);
+    let tenth = (fs / 10.0) as usize;
+    for step in 0..20 {
+        for _ in 0..tenth {
+            let v = sim.render(1)[0] as f64;
+            if (9..13).contains(&step) {
+                sq += v * v;
+                count += 1;
+            }
+        }
+        top = top.max(sim.snapshot().rpm);
+    }
+    (sim, top, (sq / count as f64).sqrt())
+}
+
+/// Revved hard, gas in a link comes to race back into a junction faster than sound, from well below the
+/// junction's pressure. Passed through as though a choked end could not feel the junction, it pours in
+/// without end: the pipes behind the junction lock at six atmospheres, those past it fall to a partial
+/// vacuum, the note dies and the engine stops pulling at 4000 rpm. It meets a shock instead, and revs to
+/// its limiter. And the junction fills the pipe after it no faster than sound, choked, rather than at
+/// whatever speed the acoustic estimate asks and then clamped: never clamped at all.
+#[test]
+fn a_hand_drawn_manifold_revs_to_its_limiter_without_locking_a_junction() {
+    let limit = hand_drawn_three().engine.rev_limit;
+    let (sim, top, _) = rev_hand_drawn_three(32000.0);
+    assert!(top > 0.95 * limit, "revved to {top:.0} rpm of a {limit:.0} rpm limit");
+    let ducts = ducts(&sim);
+    assert_eq!(recoveries(&ducts), 0);
+    assert_eq!(ducts.iter().map(|d| d.junction_clamps).sum::<u64>(), 0, "junction clamps");
+    for (k, d) in ducts.iter().enumerate() {
+        let mean = (0..d.n).map(|i| d.pressure_at(i)).sum::<f64>() / d.n as f64;
+        assert!(mean < 3e5, "duct {k} held at {:.0} kPa", mean / 1000.0);
+    }
+}
+
+/// And it sounds the same at 32 kHz as at 48: clamped, the flow out of the last junction came out twice
+/// as loud and rough at the coarser grid.
+#[test]
+fn a_hand_drawn_manifold_sounds_the_same_at_32_khz_as_at_48() {
+    let (_, _, fine) = rev_hand_drawn_three(48000.0);
+    let (_, _, coarse) = rev_hand_drawn_three(32000.0);
+    assert!((coarse / fine - 1.0).abs() < 0.25, "{coarse:.4} at 32 kHz against {fine:.4} at 48");
+}

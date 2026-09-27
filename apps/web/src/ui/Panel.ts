@@ -80,6 +80,10 @@ export interface PanelCallbacks {
   onRemoveDuct: (id: string) => void;
   /** Take this pipe's far end off what it joins, with the bend it was fitted in. */
   onDetachDuct: (id: string) => void;
+  /** Save the engine as it stands to a file. */
+  onExportEngine: () => void;
+  /** Replace the engine with one from an exported file's text. */
+  onImportEngine: (text: string) => void;
   /** Whether clicks while drawing lay smooth bends rather than corners. */
   onBendMode: (on: boolean) => void;
   /** The bend tool was switched on or off. */
@@ -422,6 +426,34 @@ export class Panel {
       this.cb.onReseed(preset.turbos ?? 0);
       this.rebuildAll();
       this.cb.onResetView();
+    });
+
+    // ---- Export and import ----------------------------------------------
+    // The whole engine, exhaust and all, as a file: to keep, to share, and to bring back.
+    const fileRow = el('div', 'row buttons', transport);
+    const exportBtn = el('button', '', fileRow) as HTMLButtonElement;
+    exportBtn.textContent = 'Export engine';
+    exportBtn.title = 'Save this engine to a file: its layout, its settings and its exhaust as drawn.';
+    exportBtn.addEventListener('click', () => this.cb.onExportEngine());
+    const importBtn = el('button', '', fileRow) as HTMLButtonElement;
+    importBtn.textContent = 'Import engine…';
+    importBtn.title = 'Load an engine saved by Export engine, in place of this one.';
+    const picker = el('input', 'hidden', fileRow) as HTMLInputElement;
+    picker.type = 'file';
+    picker.accept = '.json,application/json';
+    importBtn.addEventListener('click', () => picker.click());
+    picker.addEventListener('change', () => {
+      const file = picker.files?.[0];
+      // Cleared, so choosing the same file again still counts as a change.
+      picker.value = '';
+      if (!file) return;
+      void file.text().then((text) => {
+        this.selected = null;
+        this.dynoShift = null;
+        this.dynoMass = null;
+        this.cb.onImportEngine(text);
+        this.cb.onResetView();
+      });
     });
 
     // ---- Layout ----------------------------------------------------------

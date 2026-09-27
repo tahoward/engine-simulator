@@ -495,6 +495,14 @@ the starting point. Two [Newton steps](glossary.md#newtons-method) (a standard w
 flows, using an [HLLC](glossary.md#hllc) Riemann solve (a fast calculation of how two gas states meet) for each branch.
 Any imbalance left over is reported as a diagnostic rather than corrected.
 
+**Near the speed of sound, a pipe end at a junction behaves as gas does.** Filling a pipe, the
+junction's gas cannot come in faster than sound: it accelerates from the junction's pressure and
+temperature as through a nozzle and chokes at the pipe's end, at 0.54 of the junction's pressure, however
+far below that the pipe's end falls. Leaving a pipe faster than sound, gas cannot feel a junction lower
+than itself, and passes into it as it is; into a junction higher than itself it meets a shock, which the
+Riemann solve resolves. A manifold no wider than one runner, which runs its flow close to sonic, needs
+both: without them its junctions lock or clamp.
+
 It behaves correctly in simple cases: two pipes reduce to a plain change in pipe width, and one pipe
 to a closed end. What it adds is cross-talk. Each cylinder's exhaust pulse reaches the junction, and
 part of it travels **up the other primary**. Depending on the firing interval, that either helps
