@@ -301,6 +301,32 @@ the slow wall update are batched, every 16 samples: the wall moves only about 0.
 time. Batching the gas transfer as well would put a regular energy kick into the pipe at
 48000/16 = 3000 Hz, which is audible as a whistle.
 
+## The turbocharger's sounds
+
+A turbocharged engine adds four sounds of its own, all from the turbo's state as the model has it
+(see [The turbocharger](engine.md#the-turbocharger)). They radiate from the engine alongside the
+exhaust, and **Turbo sound** sets their level.
+
+- **The whine.** The compressor wheel sings at its blade-pass frequency, six blades times the shaft
+  speed, with its second harmonic and weaker tones at the first three shaft orders, where a real wheel's
+  small imbalances put them. It is loudest at full speed and full flow, and still there, fainter, from a
+  wheel spinning free after a lift. Twin turbos each have a voice, 1.2% apart in speed, so the two beat.
+  Every tone fades out below the Nyquist frequency, so nothing folds back down at a low sample rate.
+- **The blow-off valve.** When it vents to the atmosphere, the jet is noise through two broad
+  resonances, at 2.3 and 5.6 kHz, as loud as the flow it vents and the boost it vents from. The valve
+  pops as it lifts off its seat. Recirculating, it is a tenth as loud. On a vacuum with no boost behind
+  it, it is silent.
+- **The flutter.** In a surge, each time the flow runs backwards through the wheel it makes a chuff of
+  noise, as loud as the reverse flow; and the flow's rise and collapse at the compressor inlet
+  radiates, as the exhaust mouth does, as a thump.
+- **The wastegate.** Just open, its flap rattles on its seat with every exhaust pulse: a short impact
+  ringing two modes of the flap, at 1.85 and 3.3 kHz. Further open it rattles less, and the bypassed
+  exhaust hisses.
+
+The turbine also takes the edge off the exhaust. Every pulse it extracts work from comes out of it
+smaller, and the wheel is in the way of what is left. That is approximated, not solved: the exhaust's
+radiated sound is passed through a one-pole low-pass at 2.2 kHz and at 55% of its level.
+
 ## Sources
 
 - Gas solver: [Toro 2009](references.md#toro2009); MUSCL: [van Leer 1979](references.md#vanleer1979);

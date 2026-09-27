@@ -121,33 +121,36 @@ impl IntakePlenum {
         geometric * (CD_CLOSED + (CD_OPEN - CD_CLOSED) * open)
     }
 
-    /// Advance by `dt`. `valve_flow` is the net mass flow to the cylinders, kg/s, positive out of
-    /// the plenum; `backflow`, 0 or more, is the part of it flowing back in, at its own temperature
-    /// and composition.
+    /// Advance by `dt`, drawing through the throttle from air at `p_up` (Pa) and `t_up` (K): the
+    /// atmosphere, or a turbocharger's charge air. `valve_flow` is the net mass flow to the cylinders,
+    /// kg/s, positive out of the plenum; `backflow`, 0 or more, is the part of it flowing back in, at
+    /// its own temperature and composition. Returns the flow in through the throttle, kg/s.
+    #[allow(clippy::too_many_arguments)]
     pub fn step(
         &mut self,
         dt: f64,
+        p_up: f64,
+        t_up: f64,
         valve_flow: f64,
         backflow: f64,
         backflow_temp: f64,
         backflow_burned: f64,
         backflow_fuel: f64,
-    ) {
+    ) -> f64 {
         let p = self.pressure();
         let t = self.temp();
         let burned = self.burned_fraction();
         let fuel = self.fuel_fraction();
 
         let area = self.area;
-        let throttle_flow = if p < gas::P_AMB {
-            orifice_mass_flow(area, 1.0, gas::P_AMB, gas::T_AMB, p, gas::GAMMA_AIR)
+        let throttle_flow = if p < p_up {
+            orifice_mass_flow(area, 1.0, p_up, t_up, p, gas::GAMMA_AIR)
         } else {
-            -orifice_mass_flow(area, 1.0, p, t, gas::P_AMB, gas_gamma(t))
+            -orifice_mass_flow(area, 1.0, p, t, p_up, gas_gamma(t))
         };
 
         let h_own = gas_enthalpy(t);
-        let h_throttle =
-            if throttle_flow >= 0.0 { throttle_flow * gas_enthalpy(gas::T_AMB) } else { throttle_flow * h_own };
+        let h_throttle = if throttle_flow >= 0.0 { throttle_flow * gas_enthalpy(t_up) } else { throttle_flow * h_own };
         let drawn = valve_flow + backflow;
         let h_valve = -drawn * h_own + backflow * gas_enthalpy(backflow_temp);
 
@@ -173,6 +176,7 @@ impl IntakePlenum {
         if !self.energy.is_finite() || !self.mass.is_finite() {
             self.reset();
         }
+        throttle_flow
     }
 
     pub fn reset(&mut self) {

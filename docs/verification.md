@@ -57,6 +57,14 @@ matters.
   make more than 5% more torque than its short runners alone, and the same at 8400, where it is on them. It must switch at its switch
   speed, stay switched inside the 150 rpm below it, switch back below that, and change the torque by
   less than 10% across the switch, with no solver recoveries.
+- **Turbocharger.** On the RB26 preset, the boost must stay under 0.5 bar at 1500 rpm and hold within
+  0.06 bar of its 0.7 bar target at 4000 and 6500 rpm, with the wastegate further open at 6500. Opened
+  from part throttle at 3500 rpm, it must take between 0.2 and 2.5 s to reach 90% of its boost. It must
+  make within 10% of the real engine's 368 N·m at 4400 rpm, and between 280 and 350 PS at 6800. With
+  the throttle shut on boost, an atmospheric blow-off valve must open and let the boost go without the
+  compressor flow ever reversing; with none, the compressor must surge at between 5 and 60 cycles a
+  second. On boost, the turbo's strongest tone must be within 3% of its blade-pass frequency. A
+  naturally aspirated engine must have no turbo, and switching one off must leave no boost behind.
 - **Headers.** On the LT6 at 8400 rpm, equal-length headers must fill the cylinder more than 3
   points past a manifold along the ports.
 - **Port injection.** With the fuel cut, neither the manifold nor a runner may hold more than a
