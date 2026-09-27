@@ -1030,3 +1030,33 @@ describe('bending a straight', () => {
     expect(total()).toBeCloseTo(was, 9);
   });
 });
+
+/**
+ * Bending a bend again, as the bend tool does: from the straight it was, turned from how far it turns now,
+ * so taking hold of it changes nothing until it is dragged.
+ */
+describe('bending a bend again', () => {
+  it('comes back to the same bend from the straight it was, and to straight at no turn', async () => {
+    const { bendWhole } = await import('../src/scene/drawing.js');
+    const dir = new THREE.Vector3(1, 0.2, -0.3).normalize();
+    const axis = new THREE.Vector3(0, 1, 0).cross(dir).normalize();
+    const straight = makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.042 });
+    const bend = bendWhole(straight, dir, axis, 0.9, 0.06).segment;
+    expect(bend.curve).toBeTruthy();
+
+    // What the tool reads off the bend: the way it sets off, the way it ends, and the turn between.
+    const swept = layoutPipe([bend], new THREE.Vector3(), dir);
+    const start = swept.stations.find((st) => st.segment === 0)!.direction.clone().normalize();
+    const out = swept.jointDirections[0]!.clone().normalize();
+    const turnAxis = start.clone().cross(out).normalize();
+    const again = bendWhole(makeSegment({ ...bend, curve: undefined }), start, turnAxis, start.angleTo(out), 0.06).segment;
+    const redone = layoutPipe([again], new THREE.Vector3(), dir);
+    expect(redone.joints[0]!.distanceTo(swept.joints[0]!)).toBeLessThan(1e-6);
+    expect(again.length).toBeCloseTo(bend.length, 9);
+
+    // Taken back to no turn, it is the straight it was.
+    const flat = bendWhole(makeSegment({ ...bend, curve: undefined }), start, turnAxis, 0, 0.06).segment;
+    expect(flat.curve).toBeUndefined();
+    expect(flat.length).toBeCloseTo(bend.length, 9);
+  });
+});

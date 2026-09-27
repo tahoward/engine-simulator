@@ -181,7 +181,7 @@ function engineTypeOf(eng: EngineSpec): string {
 /** What draw mode says before a route has started. */
 const START_HINT = 'Pick a port, a junction, or a pipe to continue or branch from';
 const ROUTE_HINT = 'Click to add a bend, or a junction, pipe or turbo inlet to join it';
-const BEND_HINT = 'Click a straight to bend';
+const BEND_HINT = 'Click a straight to bend, or a bend to bend again';
 const PLACE_HINT = 'Click to put it down, or on an open pipe end to attach it · Esc stops';
 
 export class Panel {
