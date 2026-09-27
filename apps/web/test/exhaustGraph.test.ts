@@ -283,3 +283,32 @@ describe('carrying a bore across a junction', () => {
     expect(g.ducts.find((d) => d.id === 'a')!.segments[0]!.dOut).toBe(0.045);
   });
 });
+
+describe('adding at a junction', () => {
+  it('puts the segment first on the pipe leaving it', async () => {
+    const { addAtJunction } = await import('../src/model/exhaustGraph.js');
+    const spec = specOf({ cylinders: 2, exhaustLayout: '2into1' });
+    const graph = compileLayout(spec, [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.5, dIn: 0.06 })]);
+    const collector = graph.ducts.find((d) => d.from.kind === 'node')!;
+    const node = (collector.from as { node: string }).node;
+    const before = collector.segments.length;
+    expect(addAtJunction(graph, node, 'chamber')).toBe(collector.id);
+    expect(collector.segments).toHaveLength(before + 1);
+    expect(collector.segments[0]!.kind).toBe('chamber');
+    expect(collector.segments[0]!.dIn).toBeCloseTo(0.06, 9);
+  });
+
+  it('makes a pipe out of a junction nothing leaves yet', async () => {
+    const { addAtJunction, removeDuct } = await import('../src/model/exhaustGraph.js');
+    const spec = specOf({ cylinders: 2, exhaustLayout: '2into1' });
+    const graph = compileLayout(spec, [makeSegment({ length: 0.4, dIn: 0.04 })], [makeSegment({ length: 0.5 })]);
+    const collector = graph.ducts.find((d) => d.from.kind === 'node')!;
+    const node = (collector.from as { node: string }).node;
+    removeDuct(graph, collector.id);
+    const id = addAtJunction(graph, node, 'pipe')!;
+    const added = graph.ducts.find((d) => d.id === id)!;
+    expect(added.from).toEqual({ kind: 'node', node });
+    expect(added.to).toEqual({ kind: 'mouth' });
+    expect(added.segments[0]!.dIn).toBeCloseTo(0.04, 9);
+  });
+});

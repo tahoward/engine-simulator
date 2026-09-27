@@ -1284,6 +1284,40 @@ export function solverGraph(graph: ExhaustGraph): ExhaustGraph {
 }
 
 /**
+ * Add a segment of `kind` at the opening of the junction at `node`: first on the pipe leaving it, or, where
+ * none does yet, as a new pipe out of it along its axis, at the bore of the widest pipe into it. Returns the
+ * pipe it went on, or `null` where `node` is not a junction's.
+ */
+export function addAtJunction(graph: ExhaustGraph, node: string, kind: 'pipe' | 'chamber'): string | null {
+  if (turboAt(graph, node)) return null;
+  const ends = endsAt(graph, node);
+  if (ends.length === 0) return null;
+  const out = ends.find((e) => e.end === 'inlet')?.duct;
+  let dIn = out?.segments[0] ? segmentDiameter(out.segments[0], 0) : 0;
+  if (!out) {
+    for (const e of ends) {
+      const last = e.duct.segments.at(-1);
+      if (last) dIn = Math.max(dIn, segmentDiameter(last, 1));
+    }
+  }
+  if (!dIn) dIn = 0.042;
+  const seg = makeSegment({
+    kind,
+    length: kind === 'chamber' ? 0.3 : 0.25,
+    dIn,
+    dOut: kind === 'chamber' ? dIn * 3 : dIn,
+  });
+  if (out) {
+    out.segments.unshift(seg);
+    return out.id;
+  }
+  const id = newDuctId(graph, 'pipe');
+  // Along the junction's own axis, which a pipe leaving one is turned off.
+  graph.ducts.push({ id, segments: [seg], from: { kind: 'node', node }, to: { kind: 'mouth' }, headingYaw: 0, headingPitch: 0 });
+  return id;
+}
+
+/**
  * Put down a loose pipe starting at `position`: a straight `length` long, of `dia` bore, running along the
  * crank (world +z), as long as the engine where the caller gives it the engine's length. Returns its id.
  */
