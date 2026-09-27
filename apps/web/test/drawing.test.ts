@@ -17,6 +17,7 @@ import {
   MIN_DRAW_LENGTH,
   collectSnapTargets,
   continuingDiameter,
+  detachDuct,
   fitSegment,
   headingOffsetTo,
   nearestSnap,
@@ -29,11 +30,13 @@ import {
 import { layoutGraph, type ExhaustPort } from '../src/scene/exhaustLayout.js';
 import { layoutPipe } from '../src/scene/PipeMesh.js';
 import {
+  attachToLooseStart,
   compileLayout,
   disconnectEnd,
   joinDuctEnd,
   newDuctId,
   newNodeId,
+  placeLoosePipe,
   splitDuctAt,
   splitSegments,
   validateGraph,
@@ -855,5 +858,37 @@ describe('detaching a branch from the side of a pipe', () => {
     const place = layoutGraph(ports(), graph).ducts.get('runner0')!;
     const after = layoutPipe(runner.segments, place.origin, place.heading);
     expect(after.joints.at(-1)!.distanceTo(swept.joints.at(-1)!)).toBeLessThan(1e-9);
+  });
+});
+
+/** A pipe drawn from a port into a placed pipe comes off it again, and the placed pipe is loose again. */
+describe('detaching a pipe from a placed pipe', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
+  const ports = (): ExhaustPort[] => {
+    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    return [0, 1].map((i) => mesh.exhaustPort(i));
+  };
+
+  it('takes off the bend, and leaves the placed pipe loose where it lies', () => {
+    const graph = compileLayout(spec, [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.042 })], []);
+    const loose = placeLoosePipe(graph, [0.2, -0.3, 0.4], 0.042);
+    const before = layoutGraph(ports(), graph).ducts.get(loose)!;
+    const runner = graph.ducts.find((d) => d.id === 'runner0')!;
+    const drawn = runner.segments.length;
+    expect(attachToLooseStart(graph, 'runner0', loose, [1, 0, 0])).not.toBeNull();
+    runner.segments.push(makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042 }));
+    runner.fitted = true;
+
+    expect(detachDuct(graph, 'runner0', layoutGraph(ports(), graph))).toBe(true);
+    expect(runner.to.kind).toBe('mouth');
+    expect(runner.fitted).toBeUndefined();
+    expect(runner.segments).toHaveLength(drawn);
+    const placed = graph.ducts.find((d) => d.id === loose)!;
+    expect(placed.from.kind).toBe('free');
+    expect(graph.junctions).toBeUndefined();
+    expect(validateGraph(graph, 2)).toEqual([]);
+    const after = layoutGraph(ports(), graph).ducts.get(loose)!;
+    expect(after.origin.distanceTo(before.origin)).toBeLessThan(1e-9);
+    expect(after.heading.angleTo(before.heading)).toBeLessThan(1e-9);
   });
 });

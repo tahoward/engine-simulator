@@ -15,10 +15,14 @@ import * as THREE from 'three';
 
 import { makeSegment, segmentDiameter, type PipeSegment } from '../model/spec.js';
 import {
+  disconnectEnd,
   endsAt,
   junctionAt,
   newDuctId,
   nodeOrder,
+  removeDuct,
+  turboAt,
+  type DuctDirections,
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
@@ -234,6 +238,8 @@ export function loosenChildren(graph: ExhaustGraph, ductId: string, placement: E
     delete child.continues;
   }
   duct.to = { kind: 'mouth' };
+  // The bend it was fitted in goes too: it was only the way to what it joined.
+  if (duct.fitted) duct.segments.pop();
   delete duct.fitted;
   if (graph.junctions) {
     graph.junctions = graph.junctions.filter((j) => j.node !== node);
@@ -270,6 +276,28 @@ export function splitDuct(graph: ExhaustGraph, ductId: string, index: number, pl
   delete duct.fitted;
   graph.ducts.push(rest);
   return rest.id;
+}
+
+/**
+ * Take `ductId`'s far end off what it joins, with the bend it was fitted in, leaving it ending where it was
+ * drawn to. Where it is the only pipe into a junction, the pipes carrying on from it are left loose, where
+ * they lie (`loosenChildren`); from a turbo, the pipe drawn from its outlet goes instead, so long as nothing
+ * carries on from that (`disconnectEnd`). A pipe that was nothing but its bend goes, unless it is a
+ * cylinder's. Returns `false`, changing nothing, where it cannot come off.
+ */
+export function detachDuct(
+  graph: ExhaustGraph,
+  ductId: string,
+  placement: ExhaustPlacement | null,
+  dirs?: DuctDirections,
+): boolean {
+  const duct = graph.ducts.find((d) => d.id === ductId);
+  if (!duct || duct.to.kind !== 'node') return false;
+  const node = duct.to.node;
+  if (placement && !turboAt(graph, node)) loosenChildren(graph, ductId, placement);
+  if (duct.to.kind === 'node' && !disconnectEnd(graph, ductId, dirs)) return false;
+  if (duct.segments.length === 0 && duct.from.kind !== 'valve') removeDuct(graph, ductId, dirs);
+  return true;
 }
 
 /**

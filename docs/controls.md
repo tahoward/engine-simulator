@@ -218,7 +218,8 @@ open air there. Deleting the pipe after a merge leaves the merge the same way.
   lie, still joined to whatever the pipe ran into; the pipe before the gap ends in open air. A bend fitted at
   a pipe's end re-forms from wherever the pipe now ends.
 - **Deleting a fitted bend** takes the pipe off whatever it joined, ending where it was drawn to; a pipe
-  that is nothing but a bend goes whole. Taken off the side of a straight pipe, the two halves that pipe was
+  that is nothing but a bend goes whole. Where it was the only pipe in, the pipes carrying on from it are
+  left loose, where they lie: a placed pipe it was drawn into is loose again. Taken off the side of a straight pipe, the two halves that pipe was
   split into for it merge back into one, and so does the segment the join cut in two: two straight
   segments in line, of one taper, always become one. The last pipe into a turbo takes the pipe drawn from its outlet with
   it, unless pipes carry on from that.
