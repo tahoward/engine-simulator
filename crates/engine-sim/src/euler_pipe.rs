@@ -29,6 +29,9 @@ pub const CP: f64 = (GAMMA * gas::R) / (GAMMA - 1.0);
 /// `1/(gamma-1)`, precomputed: a divide by the constant would not be folded into a multiply.
 const INV_GM1: f64 = 1.0 / (GAMMA - 1.0);
 const INV_GAMMA: f64 = 1.0 / GAMMA;
+/// The static pressure of gas choked at the speed of sound, over the stagnation pressure it came from:
+/// `(2 / (gamma + 1))^(gamma / (gamma - 1))`, 0.540 for the exhaust's gamma of 1.33.
+const CHOKED_PRESSURE_RATIO: f64 = 0.5404;
 const MOUTH_ISENTROPIC_EXP: f64 = (GAMMA - 1.0) / (2.0 * GAMMA);
 const TWO_OVER_GM1: f64 = 2.0 / (GAMMA - 1.0);
 
@@ -334,6 +337,8 @@ pub struct EulerPipe {
     pub junction_clamps: u64,
     /// Faces that were treated as supersonic outflow.
     pub supersonic_faces: u64,
+    /// Faces a junction filled at the speed of sound: choked, as a nozzle is, the most it can pass.
+    pub choked_faces: u64,
     heat_counter: i32,
     heat_batch: f64,
     /// The last `(p_ghost / p)^(1/gamma)` each end's junction boundary took, keyed by the bits of
@@ -460,6 +465,7 @@ impl EulerPipe {
             recoveries: 0,
             junction_clamps: 0,
             supersonic_faces: 0,
+            choked_faces: 0,
             heat_counter: 0,
             heat_batch: 0.0,
             junction_pow: [(f64::NAN.to_bits(), f64::NAN); 2],
@@ -1428,10 +1434,13 @@ impl EulerPipe {
             DuctEnd::Outlet => self.n,
         };
 
-        // Supersonic outflow into the junction: a choked end cannot be told what pressure to be at.
+        // Supersonic outflow into the junction: a choked end cannot be told what pressure to be at, so long
+        // as the junction is no higher than it. Into a junction higher than it, the gas meets a shock that
+        // runs back up the duct against it, which the Riemann flux below resolves: passed through as if
+        // nothing were there, the duct would go on pouring into a junction it cannot fill.
         let c_end = math::sqrt((GAMMA * math::max(st.p, MIN_JUNCTION_P)) / math::max(st.rho, MIN_JUNCTION_RHO));
         let outward = if end == DuctEnd::Outlet { st.u } else { -st.u };
-        if outward >= c_end {
+        if outward >= c_end && gas::P_AMB + junction_gauge <= st.p {
             if commit {
                 self.supersonic_faces += 1;
             }
@@ -1455,6 +1464,36 @@ impl EulerPipe {
         let rho_c = math::max(st.rho_c, MIN_JUNCTION_RHO * ambient_c);
         let u_raw =
             if end == DuctEnd::Outlet { (st.toward - returning) / rho_c } else { (returning - st.toward) / rho_c };
+        let area = self.area_face[face];
+
+        // Filling the duct, the junction's gas cannot come in faster than sound: from its pressure and
+        // temperature it accelerates to the duct's end as through a nozzle, and chokes there, at the sonic
+        // state, however far below it the duct's end pressure falls. Asked for more by the acoustic
+        // estimate, which knows nothing of choking, the end takes that state instead.
+        let filling = if end == DuctEnd::Outlet { u_raw < 0.0 } else { u_raw > 0.0 };
+        if filling {
+            let t_star = (2.0 * math::max(junction_temp, gas::T_AMB)) / (GAMMA + 1.0);
+            let c_star = math::sqrt(GAMMA * gas::R * t_star);
+            if u_raw.abs() > c_star {
+                if commit {
+                    self.choked_faces += 1;
+                }
+                let p_star = math::max(gas::P_AMB + junction_gauge, 1e-3) * CHOKED_PRESSURE_RATIO;
+                let r_star = p_star / (gas::R * t_star);
+                let u_star = if end == DuctEnd::Outlet { -c_star } else { c_star };
+                let flux = if end == DuctEnd::Inlet {
+                    hllc(r_star, u_star, p_star, st.rho, st.u, st.p)
+                } else {
+                    hllc(st.rho, st.u, st.p, r_star, u_star, p_star)
+                };
+                if !commit {
+                    return flux.0 * area;
+                }
+                self.set_face(face, flux);
+                return self.f0[face] * area;
+            }
+        }
+
         if commit && u_raw.abs() > u_limit {
             self.junction_clamps += 1;
         }
@@ -1476,7 +1515,6 @@ impl EulerPipe {
             math::max(st.rho * self.junction_pow[e].1, MIN_JUNCTION_RHO)
         };
 
-        let area = self.area_face[face];
         let flux = if end == DuctEnd::Inlet {
             hllc(r_ghost, u_ghost, p_ghost, st.rho, st.u, st.p)
         } else {
@@ -2073,6 +2111,13 @@ mod tests {
 
     fn pipe(length: f64, d: f64) -> PipeSegment {
         make_segment(SegmentPartial { length: Some(length), d_in: Some(d), ..Default::default() })
+    }
+
+    /// The choked pressure ratio is the one the exhaust's gamma gives.
+    #[test]
+    fn chokes_at_the_pressure_ratio_its_gamma_gives() {
+        let ratio = math::pow(2.0 / (GAMMA + 1.0), GAMMA / (GAMMA - 1.0));
+        assert!((CHOKED_PRESSURE_RATIO - ratio).abs() < 1e-4, "{ratio}");
     }
 
     #[test]

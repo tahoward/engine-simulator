@@ -167,7 +167,13 @@ matters.
   collector, moving bank 1's timing must change bank 0's port pressure. Through separate pipes
   with a rigid crank, it must not, to 1e-6. The junction must pass a pulse from one primary
   into the other and into the collector, and conserve mass and energy to 1e-3. Every engine
-  preset must run clean, and switching layout or cylinder count mid-run must stay finite.
+  preset must run clean, and switching layout or cylinder count mid-run must stay finite. A three with a
+  manifold drawn by hand, three junctions a few centimetres apart along a pipe of one runner's bore, must
+  rev to its limiter at 32 kHz with nothing diverging, no junction clamping, and no pipe left above three
+  atmospheres: gas racing back into a junction faster than sound, from below the junction's pressure, must
+  meet a shock rather than pour in without end, and a junction must fill the pipe after it no faster than
+  sound, choked. Its note must be within 25% of the level at 48 kHz as it revs through the top half of its
+  range.
 
 ## The reference renders
 

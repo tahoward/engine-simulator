@@ -284,3 +284,9 @@ open air there. Deleting the pipe after a merge leaves the merge the same way.
 
 The whole setup is saved in the page URL (the part after `#`). So you can share an engine and
 exhaust you like as a link. Refreshing the page also keeps what you were working on.
+
+**Export engine**, under the engine preset menu, saves the engine as a file: its layout and settings,
+and its exhaust as drawn, as JSON named for its layout, `engine-v8-crossplane.json` say. **Import
+engine…** loads one in place of the engine you have. A file that is not an exported engine is refused,
+and the engine is left as it was. An exhaust in the file that does not fit its engine, one edited by hand
+to another cylinder count say, is replaced by one built from its pipe and collector, and the panel says so.

@@ -17,8 +17,6 @@ import {
   engineLength,
   exhaustPortDiameter,
   presetEngine,
-  fullLoadTorque,
-  makeSegment,
   type EngineConfig,
   type EngineSnapshot,
   type EngineSpec,
@@ -29,12 +27,12 @@ import { PipeMesh } from './scene/PipeMesh.js';
 import { ductDirections, freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustPlacement } from './scene/exhaustLayout.js';
 import { JointMesh } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
+import { engineFile, engineFileName, readConfig, readEngineFile } from './model/engineFile.js';
 import { detachDuct, loosenChildren, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
 import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatTurbos, turboHeight } from './scene/turboPlacement.js';
 import {
   lockedFrom,
   graphTurboSize,
-  isTurbocharged,
   newTurbo,
   placeTurbo,
   removeTurbo,
@@ -45,11 +43,9 @@ import {
   compileExhaust,
   defaultDuctId,
   disconnectEnd,
-  graphFromJson,
   hasBeenEdited,
   placeLoosePipe,
   removeDuct,
-  validateGraph,
   type DuctDirections,
 } from './model/exhaustGraph.js';
 import { Viewer } from './scene/Viewer.js';
@@ -374,6 +370,8 @@ const panel = new Panel(panelEl, config, {
     audio.setGraph(config.graph!);
     saveConfig();
   },
+  onExportEngine: () => exportEngine(),
+  onImportEngine: (text) => importEngine(text),
   onBendMode: (on) => {
     editor.bendMode = on;
   },
@@ -798,45 +796,59 @@ function startingConfig(): EngineConfig {
 }
 
 function loadConfig(): EngineConfig {
-  const base = startingConfig();
   const hash = location.hash.replace(/^#/, '');
-  if (!hash) return base;
+  if (!hash) return startingConfig();
   try {
-    const parsed = JSON.parse(decodeURIComponent(atob(hash))) as Partial<EngineConfig>;
-    if (parsed.engine) {
-      Object.assign(base.engine, parsed.engine);
-      // A link may carry the load as a torque in N*m, `loadTorque`, rather than as a fraction.
-      const loadTorque = (parsed.engine as { loadTorque?: unknown }).loadTorque;
-      if (typeof loadTorque === 'number' && parsed.engine.load === undefined) {
-        base.engine.load = Math.min(Math.max(loadTorque / fullLoadTorque(base.engine, isTurbocharged(graphFromJson(parsed.graph) ?? undefined)), 0), 1.5);
-      }
-      delete (base.engine as { loadTorque?: unknown }).loadTorque;
-      base.engine.freeRunning = true;
-    }
-    if (Array.isArray(parsed.pipe) && parsed.pipe.length > 0) {
-      base.pipe = parsed.pipe.map((s) => makeSegment(s));
-    }
-    // The collector is part of the geometry like anything else: without this a shared link would lose
-    // it and come back with the default.
-    if (Array.isArray(parsed.collector) && parsed.collector.length > 0) {
-      base.collector = parsed.collector.map((s) => makeSegment(s));
-    }
-
-    /**
-     * A drawn graph, if the link carried one, rebuilt by `graphFromJson` rather than trusted as-is. A
-     * graph that does not describe this engine is discarded in favour of compiling a fresh one, which is
-     * the same thing a change of topology does.
-     */
-    const graph = graphFromJson(parsed.graph);
-    if (graph) {
-      if (validateGraph(graph, base.engine.cylinders).length === 0) base.graph = graph;
-      else console.warn('[main] the exhaust in the URL does not fit this engine; rebuilding it');
-    }
-    return base;
+    const { config: read, graphDropped } = readConfig(JSON.parse(decodeURIComponent(atob(hash))), startingConfig());
+    if (graphDropped) console.warn('[main] the exhaust in the URL does not fit this engine; rebuilding it');
+    return read;
   } catch {
     console.warn('[main] could not read the configuration in the URL; using defaults');
-    return base;
+    return startingConfig();
   }
+}
+
+/** Save the engine as it stands, exhaust and all, as a file the user can keep and import again. */
+function exportEngine(): void {
+  const blob = new Blob([engineFile(config)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${engineFileName(config.engine)}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+/**
+ * Replace the engine with one from an exported file's text: the engine, its pipe and collector, and its
+ * exhaust, or one compiled from the pipe and collector where the file's does not fit. Says why in the
+ * panel if it cannot be read, and leaves the engine as it was.
+ */
+function importEngine(text: string): void {
+  const read = readEngineFile(text, startingConfig());
+  if (!read) {
+    panel.notify('That file is not an exported engine.');
+    return;
+  }
+  const next = read.config;
+  Object.assign(config.engine, next.engine);
+  config.pipe = next.pipe;
+  config.collector = next.collector;
+  config.graph = next.graph ?? compileExhaust(config.engine, config.pipe, config.collector);
+  editedDuctId = defaultDuctId(config.graph) ?? editedDuctId;
+  selectTurbo(null);
+  selectJoint(null);
+  editor.select(null);
+  audio.setEngine(config.engine);
+  engineMesh.setSpec(config.engine);
+  rebuildPipeGeometry();
+  audio.setGraph(config.graph);
+  panel.rebuildAll();
+  viewer.frameBounds(sceneBounds());
+  saveConfig();
+  if (read.graphDropped) panel.notify('Its exhaust does not fit its engine, so one was built from its pipe and collector.');
 }
 
 function loadSampleRate(): number {
