@@ -29,6 +29,7 @@ import {
 } from '../model/turbo.js';
 import type { Quat } from '../model/exhaustGraph.js';
 import {
+  attachToLooseStart,
   joinDuctEnd,
   newDuctId,
   splitDuctAt,
@@ -59,6 +60,8 @@ import {
   MIN_DRAW_LENGTH,
   bendAnchor,
   collectSnapTargets,
+  diameterAt,
+  type BendAnchor,
   swingPipe,
   continuingDiameter,
   fitCurve,
@@ -85,6 +88,9 @@ interface HandleData {
   kind: HandleKind;
   segment: number;
 }
+
+/** Length of a loose pipe as it is put down, m: `placeLoosePipe`'s. */
+const LOOSE_PIPE_LENGTH = 0.3;
 
 /** Size of the selected segment's triad, m. */
 const PIPE_TRIAD_SIZE = 0.11;
@@ -118,10 +124,10 @@ interface TriadDrag {
   base?: THREE.Vector3;
   drawn?: number;
   dirs0?: THREE.Vector3[];
-  /** What a pipe's arrows move: the junction it starts from, or the turbo, from where it was. */
+  /** What a pipe's arrows move: the junction it starts from, and the way it points, or a loose pipe. */
   startNode?: string;
   startAxis?: Vec3;
-  startTurbo?: { id: string; position: Vec3; rotation: Quat };
+  loose?: Vec3;
   /** The last place a move was sent to, for the final commit. */
   lastPosition?: Vec3;
   /** A turbo's: which, and its rotation when the drag began. */
@@ -159,6 +165,8 @@ export interface PipeEditorCallbacks {
   onAim?: (aim: string | null) => void;
   /** A turbo was put down. */
   onPlaceTurbo?: (placement: TurboPlacement) => void;
+  /** A loose pipe was put down, starting at `position`. */
+  onPlacePipe?: (position: Vec3) => void;
   /** Placing turbos was started or ended from the view, by Escape. */
   onPlacing?: (active: boolean) => void;
   /**
@@ -254,12 +262,17 @@ export class PipeEditor {
   private drawMode = false;
   private context: DrawContext | null = null;
 
-  /** Placing a turbo: the see-through one following the pointer, and where it is. */
+  /** Placing a turbo, or a loose pipe: the see-through one following the pointer, and where it is. */
   private placeMode = false;
+  private placeKind: 'turbo' | 'pipe' = 'turbo';
+  private readonly ghostPipe = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.021, 0.021, LOOSE_PIPE_LENGTH, 24).rotateZ(-Math.PI / 2).translate(LOOSE_PIPE_LENGTH / 2, 0, 0),
+    new THREE.MeshStandardMaterial({ color: 0xb9bdc3, transparent: true, opacity: 0.45, depthWrite: false }),
+  );
   private readonly ghost = new TurboMesh(true);
   private ghostAt: TurboPlacement = { position: [0, 0, 0], rotation: [...IDENTITY] };
   /** Turbos are drawn this size, and put down at this height unless snapped to a pipe. Set by the owner. */
-  private size: TurboSize = { scroll: 0.07, depth: 0.06, outletDia: 0.058 };
+  private size: TurboSize = { scroll: 0.07, depth: 0.06, outletDia: 0.058, inletDia: 0.042 };
   turboHeight = 0;
   /** The bore a turbo's outlet is given when a pipe is first drawn into it. Set by the owner. */
   turboOutletDia = 0.058;
@@ -347,6 +360,8 @@ export class PipeEditor {
 
     this.ghost.group.visible = false;
     this.group.add(this.ghost.group);
+    this.ghostPipe.visible = false;
+    this.group.add(this.ghostPipe);
     this.group.add(this.pipeTriad.group, this.turboTriad.group);
   }
 
@@ -393,12 +408,14 @@ export class PipeEditor {
   // Placing turbos
   // -------------------------------------------------------------------------
 
-  /** Start or stop placing a turbo. Stops drawing, since the two share the pointer. */
-  setPlaceMode(on: boolean): void {
+  /** Start or stop placing a turbo, or a loose pipe. Stops drawing, since the two share the pointer. */
+  setPlaceMode(on: boolean, kind: 'turbo' | 'pipe' = 'turbo'): void {
     if (on && this.drawMode) this.setDrawMode(false);
     this.placeMode = on;
+    this.placeKind = kind;
     this.ghost.rebuild(this.size);
     this.ghost.group.visible = false;
+    this.ghostPipe.visible = false;
     this.applyHandleVisibility();
     this.placeTurboTriad();
   }
@@ -414,6 +431,14 @@ export class PipeEditor {
   private updateGhost(): void {
     const ctx = this.context;
     if (!ctx) return;
+    if (this.placeKind === 'pipe') {
+      // A loose pipe goes down level with the ports, heading along the engine's x; its triad turns it.
+      const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.turboHeight);
+      const point = new THREE.Vector3();
+      this.ghostPipe.visible = !!this.raycaster.ray.intersectPlane(plane, point);
+      if (this.ghostPipe.visible) this.ghostPipe.position.copy(point);
+      return;
+    }
     const rect = this.dom.getBoundingClientRect();
     const ends = collectSnapTargets(ctx.graph, ctx.placement, ctx.ports).filter((t) => t.kind === 'ductEnd');
     const end = nearestSnap(ends, this.pointer, this.camera, SNAP_PIXELS, {
@@ -662,7 +687,7 @@ export class PipeEditor {
 
   /** Whether a route can start from this target. */
   private static startable(target: SnapTarget | null): boolean {
-    return !!target && target.kind !== 'free' && target.kind !== 'turboInlet';
+    return !!target && target.kind !== 'free' && target.kind !== 'turboInlet' && target.kind !== 'looseStart';
   }
 
   /**
@@ -775,7 +800,8 @@ export class PipeEditor {
         duct.headingYaw = 0;
         duct.headingPitch = 0;
       }
-      duct.segments.push(fitCurve(tip.point, tip.dir, anchor.point, anchor.dir, { dIn: dia, dOut: dia }));
+      // Tapering from the bore it leaves at to the bore of what it joins, so it matches at both.
+      duct.segments.push(fitCurve(tip.point, tip.dir, anchor.point, anchor.dir, { dIn: dia, dOut: anchor.dia }));
       duct.fitted = true;
       const node = this.connect(target, dia);
       if (node) {
@@ -786,7 +812,14 @@ export class PipeEditor {
       delete duct.fitted;
     }
 
-    if (duct.segments.length === 0) {
+    const straightOut = target.kind === 'free' ? this.portRun(duct, tip, point) : null;
+    if (straightOut !== null) {
+      // Out of an exhaust port, straight on at first: the next segment turns.
+      if (straightOut < MIN_DRAW_LENGTH) return;
+      duct.headingYaw = 0;
+      duct.headingPitch = 0;
+      duct.segments.push(makeSegment({ kind: 'pipe', length: straightOut, dIn: dia, dOut: dia }));
+    } else if (duct.segments.length === 0) {
       /**
        * The first segment is straight, and the duct's stored heading carries the direction.
        *
@@ -831,23 +864,41 @@ export class PipeEditor {
   }
 
   /**
+   * How long a pipe's first segment out of an exhaust port runs, m, straight on out of it towards `point`:
+   * as far along the port's direction as the point is, in the drawing's length steps. `null` for any other
+   * segment, which may turn.
+   */
+  private portRun(duct: ExhaustDuct, tip: { point: THREE.Vector3; dir: THREE.Vector3 }, point: THREE.Vector3): number | null {
+    if (duct.from.kind !== 'valve' || duct.segments.length > 0) return null;
+    return quantiseLength(Math.max(point.clone().sub(tip.point).dot(tip.dir), 0), LENGTH_GRID_M);
+  }
+
+  /**
    * Where a route ending on `target` bends in to, and the way it arrives, or `null` where it has nothing
    * fixed to arrive along and ends in a corner, as a free point does.
    */
-  private connectionAnchor(target: SnapTarget, ductId: string): { point: THREE.Vector3; dir: THREE.Vector3 } | null {
+  private connectionAnchor(target: SnapTarget, ductId: string): BendAnchor | null {
     const ctx = this.context;
     if (!ctx) return null;
     switch (target.kind) {
       case 'turboInlet':
-        return { point: target.point.clone(), dir: target.dir.clone() };
-      case 'ductSurface':
-        return target.dir ? { point: target.point.clone(), dir: target.dir.clone() } : null;
+      case 'looseStart':
+        return { point: target.point.clone(), dir: target.dir.clone(), dia: target.dia };
+      case 'ductSurface': {
+        const other = ctx.graph.ducts.find((d) => d.id === target.duct);
+        if (!target.dir || !other) return null;
+        return { point: target.point.clone(), dir: target.dir.clone(), dia: diameterAt(other.segments, target.x) };
+      }
       case 'ductEnd': {
         const other = ctx.graph.ducts.find((d) => d.id === target.duct);
         const place = ctx.placement.ducts.get(target.duct);
         if (!other || !place || other.segments.length === 0) return null;
         const swept = layoutPipe(other.segments, place.origin, place.heading);
-        return { point: swept.joints.at(-1)!.clone(), dir: swept.jointDirections.at(-1)!.clone() };
+        return {
+          point: swept.joints.at(-1)!.clone(),
+          dir: swept.jointDirections.at(-1)!.clone(),
+          dia: segmentDiameter(other.segments.at(-1)!, 1),
+        };
       }
       case 'node':
         return bendAnchor(ctx.graph, ctx.placement, target.node, ductId);
@@ -873,6 +924,8 @@ export class PipeEditor {
       }
       case 'node':
         return target.node;
+      case 'looseStart':
+        return attachToLooseStart(ctx.graph, this.route!.ductId, target.duct, [target.dir.x, target.dir.y, target.dir.z]);
       case 'ductSurface':
         return splitDuctAt(ctx.graph, target.duct, target.x);
       case 'ductEnd':
@@ -971,19 +1024,31 @@ export class PipeEditor {
     }
 
     /**
-     * The selected pipe's triad, at the connection it starts from: its port, junction or turbo outlet. Where
-     * it starts is held there, so it has no arrows; its rings swing the whole pipe about that point, and are
-     * turned with the pipe, red along the way it sets off.
+     * The selected pipe's triad, at where it starts: the junction it leaves, or where a loose pipe was put
+     * down. Its rings swing the whole pipe about that point, and are turned with the pipe, red along the way
+     * it sets off; its arrows move the junction, or the loose pipe, and the pipe with it.
+     *
+     * None for a pipe that carries straight on from a straight one (`ExhaustDuct.continues`), whose way is
+     * that pipe's, nor for one leaving a turbo's outlet, whose way is the flange's: each goes where what it
+     * leaves points it. One carrying on from a curved pipe, a bend fitted to meet it, has one: the bend
+     * follows wherever it is moved or turned.
      */
-    if (this.selected !== null && editable > 0) {
+    const graph = this.context?.graph;
+    const duct = graph?.ducts.find((d) => d.segments === this.pipe);
+    const carriedFrom = duct?.continues ? graph?.ducts.find((d) => d.id === duct.continues) : undefined;
+    // Nor for one attached to an exhaust port, which is part of the engine and holds it.
+    const held =
+      duct?.from.kind === 'valve' ||
+      (duct?.from.kind === 'node' &&
+        ((carriedFrom !== undefined && !carriedFrom.fitted) ||
+          !!graph?.turbos?.some((t) => t.node === (duct.from as { node: string }).node)));
+    if (this.selected !== null && editable > 0 && !held) {
       this.pipeTriadAt = { start: this.origin.clone() };
       this.pipeTriad.setMoveOrigin(this.origin);
       this.pipeTriad.setRotateOrigin(this.origin);
       this.pipeTriad.setOrientation(frameAlong(layout.stations[0]!.direction));
-      // A pipe from a junction or a turbo has arrows too, which move what it starts from; one from a
-      // port has none, since the port is part of the engine.
-      const duct = this.context?.graph.ducts.find((d) => d.segments === this.pipe);
-      this.pipeTriad.showMoves(duct?.from.kind === 'node');
+      // Its arrows move the junction it starts from, or a loose pipe itself.
+      this.pipeTriad.showMoves(true);
       // A bent pipe swung about the way it sets off moves the rest of it, so that ring is offered too.
       this.pipeTriad.hideRing(0, false);
     } else {
@@ -1049,7 +1114,12 @@ export class PipeEditor {
 
     if (this.placeMode) {
       this.updateGhost();
-      if (this.ghost.group.visible) this.cb.onPlaceTurbo?.({ ...this.ghostAt });
+      if (this.placeKind === 'pipe') {
+        const p = this.ghostPipe.position;
+        if (this.ghostPipe.visible) this.cb.onPlacePipe?.([p.x, p.y, p.z]);
+      } else if (this.ghost.group.visible) {
+        this.cb.onPlaceTurbo?.({ ...this.ghostAt });
+      }
       e.preventDefault();
       return;
     }
@@ -1198,16 +1268,13 @@ export class PipeEditor {
       drag.drawn = drawn;
       drag.dirs0 = layout.jointDirections.slice(0, drawn).map((d) => d.clone());
       drag.base = this.headingBase(duct);
-      if (duct.from.kind === 'node') {
+      if (duct.from.kind === 'free') {
+        drag.loose = [...duct.from.position];
+      } else if (duct.from.kind === 'node') {
         const node = duct.from.node;
-        const mount = ctx.graph.turbos?.find((t) => t.node === node);
-        if (mount?.position) {
-          drag.startTurbo = { id: mount.id, position: [...mount.position], rotation: [...mount.rotation] };
-        } else {
-          drag.startNode = node;
-          const axis = ctx.placement.joints.get(node)?.axis ?? this.heading;
-          drag.startAxis = [axis.x, axis.y, axis.z];
-        }
+        drag.startNode = node;
+        const axis = ctx.placement.joints.get(node)?.axis ?? this.heading;
+        drag.startAxis = [axis.x, axis.y, axis.z];
       }
     } else {
       const mount = this.context?.graph.turbos?.find((t) => t.id === this.selectedTurbo);
@@ -1267,26 +1334,21 @@ export class PipeEditor {
   }
 
   /**
-   * The selected pipe's arrows: moving what it starts from, the junction or the turbo, and the pipe with
-   * it. The pipes feeding it bend in to follow.
+   * The selected pipe's arrows: moving the junction it starts from, and the pipe with it, the pipes feeding
+   * it bending in to follow; or a loose pipe, which has nothing attached.
    */
   private dragPipeStart(drag: TriadDrag, snap: boolean): void {
     const at = this.triadMove(drag, snap);
     if (!at) return;
     drag.moved = true;
-    const delta = at.clone().sub(drag.moveOrigin);
-    if (drag.startTurbo) {
-      const p = drag.startTurbo.position;
-      const position: Vec3 = [p[0] + delta.x, p[1] + delta.y, p[2] + delta.z];
-      drag.lastPosition = position;
-      const rotation = drag.startTurbo.rotation;
-      const id = drag.startTurbo.id;
-      this.commitFrame(
-        drag,
-        () => this.cb.onMoveTurbo?.(id, position, rotation, false),
-        () => this.cb.onMoveTurbo?.(id, position, rotation, true),
-      );
-    } else if (drag.startNode && drag.startAxis) {
+    // A loose pipe moves itself: it is where it was put down, and nothing is attached to it.
+    const duct = this.context?.graph.ducts.find((d) => d.id === drag.ductId);
+    if (drag.loose && duct?.from.kind === 'free') {
+      duct.from = { kind: 'free', position: [at.x, at.y, at.z] };
+      this.commitFrame(drag, () => this.cb.onChange(false), () => this.cb.onChange(true));
+      return;
+    }
+    if (drag.startNode && drag.startAxis) {
       const position: Vec3 = [at.x, at.y, at.z];
       drag.lastPosition = position;
       const node = drag.startNode;
@@ -1307,6 +1369,7 @@ export class PipeEditor {
   private headingBase(duct: ExhaustDuct): THREE.Vector3 {
     const ctx = this.context!;
     if (duct.from.kind === 'valve') return ctx.ports[duct.from.cylinder]?.direction.clone() ?? this.heading.clone();
+    if (duct.from.kind === 'free') return new THREE.Vector3(1, 0, 0);
     const outlet = ctx.placement.turbos.get(duct.from.node)?.outlet;
     if (outlet && duct.headingFrame !== 'world') return new THREE.Vector3(...outlet.dir);
     duct.headingFrame = 'world';
@@ -1427,7 +1490,15 @@ export class PipeEditor {
       return;
     }
 
-    const { point, dir, name } = this.aim(tip, target, snap);
+    const aimed = this.aim(tip, target, snap);
+    let { point, dir, name } = aimed;
+    // Out of an exhaust port the first segment runs straight on.
+    const run = target.kind === 'free' ? this.portRun(duct, tip, point) : null;
+    if (run !== null) {
+      point = tip.point.clone().addScaledVector(tip.dir, run);
+      dir = tip.dir.clone();
+      name = 'straight on';
+    }
 
     // Joining something, the bend the pipe will take to arrive along it.
     const anchor = this.connectionAnchor(target, this.route.ductId);
@@ -1514,22 +1585,16 @@ export class PipeEditor {
     const d = radius * 2;
     const i = this.drag!.data.segment;
 
+    // A pipe's two ends are set apart, so it tapers between them; the inlet ring sets where it starts.
     if (this.drag!.data.kind === 'inlet') {
       seg.dIn = d;
-      if (seg.kind === 'pipe') seg.dOut = d;
-      // A 'pipe' segment's outlet tracks its inlet, so the next segment has to
-      // follow too or the duct develops a phantom step.
-      this.propagate(i);
       return;
     }
 
-    // The outlet diameter is `dIn` for a chamber (it necks back down to the throat)
-    // or a pipe, and `dOut` for a cone — matching `segmentDiameter(seg, 1)`.
+    // The outlet diameter is `dIn` for a chamber, which necks back down to its throat, and `dOut` for a
+    // pipe, matching `segmentDiameter(seg, 1)`. The next segment starts at it.
     if (seg.kind === 'chamber') seg.dIn = d;
-    else if (seg.kind === 'pipe') {
-      seg.dIn = d;
-      seg.dOut = d;
-    } else seg.dOut = d;
+    else seg.dOut = d;
 
     this.propagate(i);
   }
@@ -1540,7 +1605,6 @@ export class PipeEditor {
     const next = this.pipe[index + 1];
     if (!seg || !next) return;
     next.dIn = segmentDiameter(seg, 1);
-    if (next.kind === 'pipe') next.dOut = next.dIn;
   }
 
   private onPointerUp = (): void => {
@@ -1553,8 +1617,6 @@ export class PipeEditor {
       if (drag.on === 'turbo') {
         const mount = this.context?.graph.turbos?.find((t) => t.id === drag.turbo);
         if (mount?.position) this.cb.onMoveTurbo?.(mount.id, mount.position, mount.rotation, true);
-      } else if (drag.lastPosition && drag.startTurbo) {
-        this.cb.onMoveTurbo?.(drag.startTurbo.id, drag.lastPosition, drag.startTurbo.rotation, true);
       } else if (drag.lastPosition && drag.startNode && drag.startAxis) {
         this.cb.onMoveJunction?.(drag.startNode, drag.lastPosition, drag.startAxis, true);
       } else {
@@ -1582,6 +1644,8 @@ export class PipeEditor {
     this.previewGeom.dispose();
     this.guideGeom.dispose();
     this.ghost.dispose();
+    this.ghostPipe.geometry.dispose();
+    (this.ghostPipe.material as THREE.Material).dispose();
     for (const m of [this.matHover, this.matSelected, this.matRing, this.previewMat, this.guideMat]) {
       m.dispose();
     }

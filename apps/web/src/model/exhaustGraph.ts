@@ -31,10 +31,15 @@ import {
   segmentDiameter,
 } from './spec.js';
 
-/** What feeds a duct's inlet. */
+/**
+ * What feeds a duct's inlet: a cylinder's exhaust valve, a node, or nothing yet, for a loose pipe put down
+ * at `position` (m, world) and not attached to anything. A loose pipe carries no gas, so the solver is not
+ * given it (`solverGraph`); once a pipe is drawn into its start, that start is a node like any other.
+ */
 export type DuctSource =
   | { kind: 'valve'; cylinder: number }
-  | { kind: 'node'; node: string };
+  | { kind: 'node'; node: string }
+  | { kind: 'free'; position: Vec3 };
 
 /** Where a duct's outlet goes. */
 export type DuctSink = { kind: 'node'; node: string } | { kind: 'mouth' };
@@ -281,6 +286,10 @@ export function ductLabel(graph: ExhaustGraph, duct: ExhaustDuct): string {
     if (duct.role === 'stub') return `Cylinder ${n} stub`;
     if (duct.to.kind === 'mouth') return `Cylinder ${n} exhaust`;
     return `Cylinder ${n} primary`;
+  }
+  if (duct.from.kind === 'free') {
+    const loose = graph.ducts.filter((d) => d.from.kind === 'free');
+    return `Loose pipe ${loose.indexOf(duct) + 1}`;
   }
   const turbo = graph.turbos?.findIndex((t) => t.node === (duct.from as { node: string }).node) ?? -1;
   if (turbo >= 0) return `After turbo ${turbo + 1}`;
@@ -854,15 +863,29 @@ export function splitDuctAt(
 }
 
 /**
+ * The pipes leaving the junction `duct` ends at: its children, which carry on from it.
+ *
+ * A pipe with children is not deleted, nor anything else that would take them with it, so what was built
+ * downstream is never lost as a side effect: they have to go first.
+ */
+export function childDucts(graph: ExhaustGraph, duct: ExhaustDuct): ExhaustDuct[] {
+  if (duct.to.kind !== 'node') return [];
+  return endsAt(graph, duct.to.node)
+    .filter((e) => e.end === 'inlet')
+    .map((e) => e.duct);
+}
+
+/**
  * Delete a duct and tidy the junctions at either end of it.
  *
  * A cylinder's runner is never deleted — every cylinder must have a pipe, and `validateGraph` rejects an
- * engine where one does not — so asking to delete one is refused. Anything else goes, and the junctions it
- * touched are tidied by `tidyJunctions`. Returns whether anything was deleted.
+ * engine where one does not — so asking to delete one is refused, and so is deleting one with children
+ * (`childDucts`). Anything else goes, and the junctions it touched are tidied by `tidyJunctions`. Returns
+ * whether anything was deleted.
  */
 export function removeDuct(graph: ExhaustGraph, ductId: string, dirs?: DuctDirections): boolean {
   const duct = graph.ducts.find((d) => d.id === ductId);
-  if (!duct || duct.from.kind === 'valve') return false;
+  if (!duct || duct.from.kind === 'valve' || childDucts(graph, duct).length > 0) return false;
   graph.ducts = graph.ducts.filter((d) => d !== duct);
   tidyJunctions(graph, touchedNodes(duct), dirs);
   return true;
@@ -875,14 +898,18 @@ export function removeDuct(graph: ExhaustGraph, ductId: string, dirs?: DuctDirec
  * say. Pipes are straight tube that snaps together, so one cut short does not stretch to stay joined,
  * and a fitting grown to bridge the gap would be 36 cm across. The junction it left is tidied.
  */
-export function disconnectEnd(graph: ExhaustGraph, ductId: string, dirs?: DuctDirections): void {
+export function disconnectEnd(graph: ExhaustGraph, ductId: string, dirs?: DuctDirections): boolean {
   const duct = graph.ducts.find((d) => d.id === ductId);
-  if (!duct || duct.to.kind !== 'node') return;
+  if (!duct || duct.to.kind !== 'node') return false;
   const node = duct.to.node;
+  // The only pipe into a junction stays on it, or the pipes leaving it would go with nothing to feed them.
+  const feeds = endsAt(graph, node).filter((e) => e.end === 'outlet');
+  if (feeds.length === 1 && childDucts(graph, duct).length > 0) return false;
   duct.to = { kind: 'mouth' };
   releaseBend(duct);
   for (const d of graph.ducts) if (d.continues === duct.id) delete d.continues;
   tidyJunctions(graph, [node], dirs);
+  return true;
 }
 
 /**
@@ -892,23 +919,18 @@ export function disconnectEnd(graph: ExhaustGraph, ductId: string, dirs?: DuctDi
  * since nothing feeds them any more. The exception is a pipe running straight *through*: a tee's through
  * pipe was only split so something could join it, so deleting the tee rejoins it into one pipe and takes
  * away just the branch. Where the graph records which pipe carries on (`ExhaustDuct.continues`), that
- * decides it; otherwise the caller says, from the geometry, as `[in, out]`.
+ * decides it; otherwise the caller says, from the geometry, as `[in, out]`. Refused, returning `false`,
+ * where a pipe it would delete has children of its own: see `junctionRemoval`.
  */
 export function removeJunction(
   graph: ExhaustGraph,
   node: string,
   through?: [string, string] | null,
   dirs?: DuctDirections,
-): void {
-  const ends = endsAt(graph, node);
-  const feeds = ends.filter((e) => e.end === 'outlet').map((e) => e.duct);
-  const outs = ends.filter((e) => e.end === 'inlet').map((e) => e.duct);
-  // What the graph says runs through, where it says — a manifold, or a pipe that was split — else the
-  // caller's reading of the geometry. A manifold widens at each junction, so geometry alone misses it.
-  const carried = outs.find((d) => d.continues && feeds.some((f) => f.id === d.continues));
-  const via: [string, string] | null | undefined = carried ? [carried.continues!, carried.id] : through;
-  const keepIn = via ? feeds.find((d) => d.id === via[0]) : undefined;
-  const keepOut = via ? outs.find((d) => d.id === via[1]) : undefined;
+): boolean {
+  const plan = junctionRemoval(graph, node, through);
+  if (!plan) return false;
+  const { feeds, outs, keepIn, keepOut } = plan;
 
   const touched = new Set<string>();
   for (const feed of feeds) {
@@ -923,6 +945,30 @@ export function removeJunction(
   }
   if (keepIn && keepOut) fuse(graph, keepIn, keepOut, dirs);
   tidyJunctions(graph, touched, dirs);
+  return true;
+}
+
+/**
+ * What deleting the junction at `node` would do: which pipes run into and out of it, and the pair that runs
+ * straight through, to be rejoined. `null` where it is refused: where a pipe it would delete has children
+ * of its own (`childDucts`).
+ */
+export function junctionRemoval(
+  graph: ExhaustGraph,
+  node: string,
+  through?: [string, string] | null,
+): { feeds: ExhaustDuct[]; outs: ExhaustDuct[]; keepIn?: ExhaustDuct; keepOut?: ExhaustDuct } | null {
+  const ends = endsAt(graph, node);
+  const feeds = ends.filter((e) => e.end === 'outlet').map((e) => e.duct);
+  const outs = ends.filter((e) => e.end === 'inlet').map((e) => e.duct);
+  // What the graph says runs through, where it says — a manifold, or a pipe that was split — else the
+  // caller's reading of the geometry. A manifold widens at each junction, so geometry alone misses it.
+  const carried = outs.find((d) => d.continues && feeds.some((f) => f.id === d.continues));
+  const via: [string, string] | null | undefined = carried ? [carried.continues!, carried.id] : through;
+  const keepIn = via ? feeds.find((d) => d.id === via[0]) : undefined;
+  const keepOut = via ? outs.find((d) => d.id === via[1]) : undefined;
+  if (outs.some((out) => out !== keepOut && childDucts(graph, out).length > 0)) return null;
+  return { feeds, outs, ...(keepIn ? { keepIn } : {}), ...(keepOut ? { keepOut } : {}) };
 }
 
 /**
@@ -1067,6 +1113,68 @@ export function joinDuctEnd(
   return node;
 }
 
+/** The ducts gas reaches: from the cylinders' valves, through whatever they join. */
+function fedDucts(graph: ExhaustGraph): Set<string> {
+  const fed = new Set<string>();
+  const frontier = graph.ducts.filter((d) => d.from.kind === 'valve');
+  for (const d of frontier) fed.add(d.id);
+  for (let guard = 0; guard < graph.ducts.length + 1 && frontier.length > 0; guard++) {
+    const duct = frontier.pop()!;
+    if (duct.to.kind !== 'node') continue;
+    for (const e of endsAt(graph, duct.to.node)) {
+      if (e.end !== 'inlet' || fed.has(e.duct.id)) continue;
+      fed.add(e.duct.id);
+      frontier.push(e.duct);
+    }
+  }
+  return fed;
+}
+
+/**
+ * The graph as the solver is given it: without loose pipes, nor anything reached only through one, since
+ * no gas reaches them. What is left is every duct fed from a cylinder.
+ */
+export function solverGraph(graph: ExhaustGraph): ExhaustGraph {
+  if (!graph.ducts.some((d) => d.from.kind === 'free')) return graph;
+  const fed = fedDucts(graph);
+  return { ...graph, ducts: graph.ducts.filter((d) => fed.has(d.id)) };
+}
+
+/**
+ * Put down a loose pipe at `position`, a straight length of `dia` bore heading along world +x. Returns its
+ * id.
+ */
+export function placeLoosePipe(graph: ExhaustGraph, position: Vec3, dia: number): string {
+  const id = newDuctId(graph, 'loose');
+  graph.ducts.push({
+    id,
+    segments: [makeSegment({ kind: 'pipe', length: 0.3, dIn: dia, dOut: dia })],
+    from: { kind: 'free', position: [...position] },
+    to: { kind: 'mouth' },
+    headingYaw: 0,
+    headingPitch: 0,
+    headingFrame: 'world',
+  });
+  return id;
+}
+
+/**
+ * Attach `ductId`'s far end to the start of the loose pipe `looseId`, which heads along `axis`. Its start
+ * becomes a junction, fixed where the loose pipe began, and the loose pipe carries on from it: attached, it
+ * is a pipe like any other. Returns the junction.
+ */
+export function attachToLooseStart(graph: ExhaustGraph, ductId: string, looseId: string, axis: Vec3): string | null {
+  const duct = graph.ducts.find((d) => d.id === ductId);
+  const loose = graph.ducts.find((d) => d.id === looseId);
+  if (!duct || !loose || loose.from.kind !== 'free') return null;
+  const node = newNodeId(graph);
+  (graph.junctions ??= []).push({ node, position: [...loose.from.position], axis: [...axis] });
+  duct.to = { kind: 'node', node };
+  loose.from = { kind: 'node', node };
+  loose.headingFrame = 'world';
+  return node;
+}
+
 /**
  * Reasons a graph cannot be solved, as readable sentences. Empty means it can.
  *
@@ -1108,9 +1216,10 @@ export function validateGraph(graph: ExhaustGraph, cylinders: number): string[] 
     }
   }
 
-  // Every duct must trace back to a valve, or the gas in it came from nowhere.
+  // Every duct must trace back to a valve, or the gas in it came from nowhere: or to a loose pipe, which
+  // carries no gas yet and is not given to the solver (`solverGraph`).
   const reachable = new Set<string>();
-  const frontier = graph.ducts.filter((d) => d.from.kind === 'valve');
+  const frontier = graph.ducts.filter((d) => d.from.kind === 'valve' || d.from.kind === 'free');
   for (const d of frontier) reachable.add(d.id);
   for (let guard = 0; guard < graph.ducts.length + 1 && frontier.length > 0; guard++) {
     const duct = frontier.pop()!;

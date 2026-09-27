@@ -17,7 +17,7 @@ import {
   validateGraph,
   type ExhaustGraph,
 } from '../src/model/exhaustGraph.js';
-import { ENGINE_PRESETS, defaultConfig, presetEngine, type EngineSpec } from '../src/model/spec.js';
+import { ENGINE_PRESETS, defaultConfig, makeSegment, presetEngine, segmentDiameter, type EngineSpec } from '../src/model/spec.js';
 import {
   graphTurboSize,
   newTurbo,
@@ -111,6 +111,15 @@ describe('a turbo put down on the open end of a pipe', () => {
     expect(runner.segments.every((s) => !s.curve)).toBe(true);
   });
 
+  it('stays in while pipes carry on from its outlet pipe', () => {
+    const { graph, mount } = singleWithTurbo();
+    const outlet = endsAt(graph, mount.node).find((e) => e.end === 'inlet')!.duct;
+    joinDuctEnd(graph, outlet.id, 0);
+    const before = JSON.stringify(graph);
+    expect(removeTurbo(graph, mount.id)).toBe(false);
+    expect(JSON.stringify(graph)).toBe(before);
+  });
+
   it('comes out leaving its pipe open to the air again', () => {
     const { graph, mount } = singleWithTurbo();
     removeTurbo(graph, mount.id);
@@ -162,6 +171,17 @@ describe('a turbo put down on the open end of a pipe', () => {
     // Still straight out of the flange, which now points somewhere else.
     expect(after.heading.angleTo(after.flange)).toBeLessThan(1e-9);
     expect(after.flange.angleTo(before.flange)).toBeGreaterThan(1);
+  });
+
+  it('meets its pipes at its own bores: the inlet, and the outlet', () => {
+    const { spec, graph, ports, mount } = singleWithTurbo();
+    const [px, py, pz] = mount.position!;
+    moveTurbo(graph, ports, spec, mount.id, [px + 0.05, py, pz + 0.08], mount.rotation);
+    const size = graphTurboSize(graph, spec);
+    const runner = graph.ducts.find((d) => d.id === 'runner0')!;
+    expect(runner.segments.at(-1)!.dOut).toBeCloseTo(size.inletDia, 12);
+    const out = endsAt(graph, mount.node).find((e) => e.end === 'inlet')!.duct;
+    expect(out.segments[0]!.dIn).toBeCloseTo(size.outletDia, 12);
   });
 
   it('survives being saved in a link and read back', () => {
@@ -396,11 +416,72 @@ describe('a pipe drawn to join another', () => {
     expect(graphFromJson(JSON.parse(JSON.stringify(graph)))!.junctions).toEqual(graph.junctions);
   });
 
+  it('matches the bore of the pipe before it and of the pipe it joins, tapering between them', () => {
+    const { graph, runner1 } = joined();
+    const runner0 = graph.ducts.find((d) => d.id === 'runner0')!;
+    // Different bores either side, so the bend has something to match.
+    runner0.segments.at(-1)!.dOut = 0.05;
+    runner1.segments.at(-2)!.dOut = 0.036;
+    refitBends(graph, ports, spec);
+    const bend = runner1.segments.at(-1)!;
+    expect(bend.dIn).toBeCloseTo(0.036, 12);
+    expect(bend.dOut).toBeCloseTo(0.05, 12);
+    expect(segmentDiameter(bend, 0.5)).toBeCloseTo(0.043, 12);
+  });
+
   it('gives up its bend when it is taken off again', () => {
     const { graph, runner1 } = joined();
     const drawn = runner1.segments.length - 1;
     disconnectEnd(graph, 'runner1');
     expect(runner1.segments).toHaveLength(drawn);
     expect(runner1.fitted).toBeUndefined();
+  });
+});
+
+describe('a pipe', () => {
+  it('tapers in a straight line between its two ends', () => {
+    const seg = makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.04, dOut: 0.06 });
+    expect(seg.dOut).toBe(0.06);
+    expect(segmentDiameter(seg, 0)).toBe(0.04);
+    expect(segmentDiameter(seg, 0.25)).toBeCloseTo(0.045, 12);
+    expect(segmentDiameter(seg, 1)).toBe(0.06);
+    // And one given only its inlet is the same all the way along.
+    expect(makeSegment({ kind: 'pipe', dIn: 0.05 }).dOut).toBe(0.05);
+  });
+});
+
+describe('a loose pipe', () => {
+  it('is put down attached to nothing, where it was put, and the solver is not given it', async () => {
+    const { placeLoosePipe, solverGraph } = await import('../src/model/exhaustGraph.js');
+    const { spec, graph, ports } = single();
+    const id = placeLoosePipe(graph, [0.4, 0.2, 0.3], 0.04);
+    expect(validateGraph(graph, 1)).toEqual([]);
+    const placement = layoutGraph(ports, graph);
+    expect(placement.ducts.get(id)!.origin.distanceTo(new THREE.Vector3(0.4, 0.2, 0.3))).toBeLessThan(1e-12);
+    expect(solverGraph(graph).ducts.map((d) => d.id)).toEqual(['runner0']);
+    // And survives a link.
+    expect(graphFromJson(JSON.parse(JSON.stringify(graph)))).toEqual(graph);
+    void spec;
+  });
+
+  it('is attached by a pipe drawn into its start, and is then fed like any other', async () => {
+    const { attachToLooseStart, placeLoosePipe, solverGraph } = await import('../src/model/exhaustGraph.js');
+    const { spec, graph, ports } = single();
+    const id = placeLoosePipe(graph, [0.5, 0.25, 0.1], 0.04);
+    const loose = graph.ducts.find((d) => d.id === id)!;
+    const before = layoutGraph(ports, graph).ducts.get(id)!;
+    const node = attachToLooseStart(graph, 'runner0', id, [1, 0, 0])!;
+    refitBends(graph, ports, spec);
+    expect(validateGraph(graph, 1)).toEqual([]);
+    // Fed now, so the solver hears it.
+    expect(solverGraph(graph).ducts.map((d) => d.id)).toContain(id);
+    const placement = layoutGraph(ports, graph);
+    // It stayed where it was, and the pipe drawn into it bends in to meet its start.
+    const after = placement.ducts.get(id)!;
+    expect(after.origin.distanceTo(before.origin)).toBeLessThan(1e-9);
+    expect(after.heading.angleTo(before.heading)).toBeLessThan(1e-9);
+    expect(pipesMeetAt(graph, placement, node)).toBe(true);
+    expect(graph.ducts.find((d) => d.id === 'runner0')!.fitted).toBe(true);
+    void loose;
   });
 });

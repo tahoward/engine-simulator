@@ -684,3 +684,8 @@ button.tool:hover {
   margin: 0;
   color: var(--ink-dim);
 }
+
+.notice {
+  color: #ffd166;
+  margin: 4px 0;
+}

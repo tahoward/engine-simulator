@@ -13,7 +13,7 @@
 
 import { Channel, invoke } from '@tauri-apps/api/core';
 
-import type { ExhaustGraph } from '../model/exhaustGraph.js';
+import { solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
 import type { DynoConfig, EngineConfig, EngineSnapshot, EngineSpec } from '../model/spec.js';
 import type { EngineHost, LagListener, SnapshotListener } from './EngineHost.js';
 import { CONTROL_PARAMS } from './worklet/controls.js';
@@ -66,6 +66,8 @@ export class NativeEngine implements EngineHost {
     private rate = 48000,
   ) {
     this.config = structuredClone(config);
+    // Loose pipes carry no gas, so the solver is not given them.
+    if (this.config.graph) this.config.graph = solverGraph(this.config.graph);
   }
 
   get running(): boolean {
@@ -135,8 +137,10 @@ export class NativeEngine implements EngineHost {
   }
 
   setGraph(graph: ExhaustGraph | null): void {
-    this.config.graph = graph ?? undefined;
-    void this.send({ type: 'graph', graph });
+    // Loose pipes carry no gas, so the solver is not given them.
+    const solved = graph ? solverGraph(graph) : null;
+    this.config.graph = solved ?? undefined;
+    void this.send({ type: 'graph', graph: solved });
   }
 
   dyno(config: DynoConfig | null): void {

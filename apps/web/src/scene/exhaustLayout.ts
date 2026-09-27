@@ -170,6 +170,15 @@ export function layoutGraph(
 
   // Valve-fed ducts start at a known port. A drawn one is finished here; one that will be aimed gets
   // its port direction for now and is overwritten when its junction is solved.
+  // A loose pipe is where it was put down, heading as stored off world +x.
+  for (const duct of graph.ducts) {
+    if (duct.from.kind !== 'free') continue;
+    ducts.set(duct.id, {
+      origin: new THREE.Vector3(...duct.from.position),
+      heading: turnHeading(WORLD_X, duct.headingYaw, duct.headingPitch),
+    });
+  }
+
   for (const duct of graph.ducts) {
     if (duct.from.kind !== 'valve') continue;
     const port = ports[duct.from.cylinder];

@@ -10,6 +10,7 @@
  */
 
 import {
+  childDucts,
   copyToSiblingRunners,
   defaultDuctId,
   ductLabel,
@@ -65,6 +66,8 @@ export interface PanelCallbacks {
   onReseed: (turbos: number) => void;
   /** Placing turbos in the view was switched on or off. */
   onPlaceMode: (on: boolean) => void;
+  /** Placing loose pipes in the view was switched on or off. */
+  onPlacePipeMode: (on: boolean) => void;
   /** Take this turbo out of the exhaust. */
   onRemoveTurbo: (id: string) => void;
   /** Draw mode was switched on or off. */
@@ -169,7 +172,12 @@ export class Panel {
    */
   private linkRunners = true;
   private drawing = false;
+  private noticeEl!: HTMLElement;
+  private noticeTimer = 0;
   private placing = false;
+  private placingPipe = false;
+  private placePipeBtn!: HTMLButtonElement;
+  private placePipeHint!: HTMLElement;
   private placeBtn!: HTMLButtonElement;
   private placeHint!: HTMLElement;
   private turboCountEl!: HTMLElement;
@@ -573,6 +581,18 @@ export class Panel {
       'between two of them. Alt rounds the bend off the pipe instead, Shift draws freely; Escape ' +
       'abandons; right-click or a double-click finishes in open air.';
     this.drawHint = el('span', 'hint', drawRow);
+    const placePipeRow = el('div', 'row', exhaust);
+    this.placePipeBtn = el('button', '', placePipeRow) as HTMLButtonElement;
+    this.placePipeBtn.textContent = 'Place a pipe';
+    this.placePipeBtn.title =
+      'Put a straight pipe down in the view, attached to nothing: click where it should start. Select it ' +
+      'for its triad, to move it with the arrows and turn it with the rings. It carries no gas until a pipe ' +
+      'is drawn into its start, which attaches it.';
+    this.placePipeHint = el('span', 'hint', placePipeRow);
+    this.placePipeBtn.addEventListener('click', () => {
+      this.setPlacingPipeState(!this.placingPipe);
+      this.cb.onPlacePipeMode(this.placingPipe);
+    });
     this.drawBtn.addEventListener('click', () => {
       this.setDrawMode(!this.drawing);
       this.cb.onDrawMode(this.drawing);
@@ -600,10 +620,11 @@ export class Panel {
       if (this.linkRunners) this.commit();
     });
 
+    this.noticeEl = el('div', 'hint notice hidden', exhaust);
     this.listEl = el('div', 'segments', exhaust);
 
     const addRow = el('div', 'row buttons', exhaust);
-    for (const kind of ['pipe', 'cone', 'chamber'] as SegmentKind[]) {
+    for (const kind of ['pipe', 'chamber'] as SegmentKind[]) {
       const b = el('button', '', addRow) as HTMLButtonElement;
       b.textContent = `+ ${kind}`;
       b.addEventListener('click', () => this.addSegment(kind));
@@ -1435,7 +1456,7 @@ export class Panel {
         kind,
         length: kind === 'chamber' ? 0.3 : 0.25,
         dIn,
-        dOut: kind === 'chamber' ? dIn * 3 : kind === 'cone' ? dIn * 1.8 : dIn,
+        dOut: kind === 'chamber' ? dIn * 3 : dIn,
       }),
     );
     this.selected = at;
@@ -1540,14 +1561,17 @@ export class Panel {
     el('span', 'segment-index', head).textContent = String(index + 1);
 
     const kind = el('select', 'segment-kind', head) as HTMLSelectElement;
-    for (const k of ['pipe', 'cone', 'chamber'] as SegmentKind[]) {
+    // Every pipe can taper, so an older exhaust's cone is a pipe here.
+    for (const k of ['pipe', 'chamber'] as SegmentKind[]) {
       kind.appendChild(option(k, k));
     }
-    kind.value = seg.kind;
+    kind.value = seg.kind === 'cone' ? 'pipe' : seg.kind;
     kind.addEventListener('change', () => {
+      const was = seg.kind;
       seg.kind = kind.value as SegmentKind;
-      if (seg.kind === 'pipe') seg.dOut = seg.dIn;
-      else if (seg.dOut === seg.dIn) seg.dOut = seg.dIn * (seg.kind === 'chamber' ? 3 : 1.8);
+      // A can goes back to a pipe the width of its throats; a pipe becomes a can three times as wide.
+      if (seg.kind === 'pipe' && was === 'chamber') seg.dOut = seg.dIn;
+      else if (seg.kind === 'chamber' && seg.dOut <= seg.dIn * 1.05) seg.dOut = seg.dIn * 3;
       this.commit();
       this.rebuildPipeList();
     });
@@ -1565,7 +1589,9 @@ export class Panel {
     mkTool('↑', 'Move earlier in the exhaust', () => this.move(list, index, -1));
     mkTool('↓', 'Move later in the exhaust', () => this.move(list, index, 1));
     mkTool('⧉', 'Duplicate', () => this.duplicate(list, index));
-    mkTool('×', 'Delete', () => this.remove(list, index));
+    mkTool('×', 'Delete. Only the last segment of a pipe can be, and only once nothing carries on from it.', () =>
+      this.remove(list, index),
+    );
 
     const grid = el('div', 'segment-grid', wrap);
     const length = numberField(grid, 'Length', seg.length * MM, 10, 2000, 5, 'mm', (v) => {
@@ -1575,8 +1601,8 @@ export class Panel {
     });
     const dIn = numberField(grid, 'Inlet ⌀', seg.dIn * MM, 6, 250, 1, 'mm', (v) => {
       seg.dIn = v / MM;
-      if (seg.kind === 'pipe') seg.dOut = seg.dIn;
-      this.propagate(list, index);
+      // The segment before ends where this one starts.
+      this.matchPrevious(list, index);
       this.commit();
       this.syncPipe();
     });
@@ -1596,7 +1622,6 @@ export class Panel {
         this.syncPipe();
       },
     );
-    dOutWrap.classList.toggle('hidden', seg.kind === 'pipe');
 
     const shape = seg.kind === 'chamber' ? this.chamberFields(wrap, seg) : {};
 
@@ -1662,13 +1687,24 @@ export class Panel {
     return { height, offsetIn, offsetOut };
   }
 
-  /** Keep the duct continuous after an inlet/outlet edit. */
+  /** Keep the duct continuous after an outlet edit: the next segment starts where this one ends. */
   private propagate(list: PipeSegment[], index: number): void {
     const seg = list[index];
     const next = list[index + 1];
     if (!seg || !next) return;
     next.dIn = segmentDiameter(seg, 1);
-    if (next.kind === 'pipe') next.dOut = next.dIn;
+  }
+
+  /**
+   * Keep the duct continuous after an inlet edit: the segment before ends where this one starts, its
+   * outlet for a pipe and its throats for a can.
+   */
+  private matchPrevious(list: PipeSegment[], index: number): void {
+    const seg = list[index];
+    const prev = list[index - 1];
+    if (!seg || !prev) return;
+    if (prev.kind === 'chamber') prev.dIn = seg.dIn;
+    else prev.dOut = seg.dIn;
   }
 
   private move(pipe: PipeSegment[], index: number, delta: number): void {
@@ -1697,6 +1733,20 @@ export class Panel {
   private remove(list: PipeSegment[], index: number): void {
     const locked = this.lockedFrom();
     if (locked !== null && index >= locked) return;
+    // Nothing is deleted that something else carries on from: a segment with more after it, or the pipe
+    // itself, its last segment, while other pipes carry on from its end. A bend fitted at its end is not
+    // one: it is fitted again from wherever the drawn pipe now ends.
+    const graph = this.config.graph;
+    const duct = this.currentDuct();
+    const drawn = locked ?? list.length;
+    if (index < drawn - 1) {
+      this.notify('Segments carry on from this one: delete from the end of the pipe.');
+      return;
+    }
+    if (drawn <= 1 && graph && duct && childDucts(graph, duct).length > 0) {
+      this.notify('Pipes carry on from this one: delete them first.');
+      return;
+    }
     list.splice(index, 1);
     this.selected = null;
     /**
@@ -1705,8 +1755,6 @@ export class Panel {
      * An empty duct is drawn as nothing but still solved as a short stub, so leaving it would keep a pipe
      * the user can no longer see or select. A runner is kept, empty, because a cylinder must have one.
      */
-    const graph = this.config.graph;
-    const duct = this.currentDuct();
     if (list.length === 0 && graph && duct && duct.from.kind !== 'valve') {
       // The owner removes it, because tidying the junctions needs the layout to keep pipes where they were.
       this.cb.onRemoveDuct(duct.id);
@@ -1715,6 +1763,14 @@ export class Panel {
     }
     this.rebuildPipeList();
     this.cb.onSelect(null);
+  }
+
+  /** Say something about the last thing asked for, for a few seconds: why a delete was refused, say. */
+  notify(text: string): void {
+    this.noticeEl.textContent = text;
+    this.noticeEl.classList.remove('hidden');
+    clearTimeout(this.noticeTimer);
+    this.noticeTimer = window.setTimeout(() => this.noticeEl.classList.add('hidden'), 4000);
   }
 
   /** Delete the selected segment, as its × button would. Returns whether one was selected. */
@@ -1759,8 +1815,7 @@ export class Panel {
       if (row.offsetOut && document.activeElement !== row.offsetOut) {
         row.offsetOut.value = round((seg.offsetOut ?? 0) * MM, 1);
       }
-      if (!row.el.classList.contains('locked')) row.kind.value = seg.kind;
-      row.dOutWrap.classList.toggle('hidden', seg.kind === 'pipe');
+      if (!row.el.classList.contains('locked')) row.kind.value = seg.kind === 'cone' ? 'pipe' : seg.kind;
     });
   }
 
@@ -1778,8 +1833,22 @@ export class Panel {
   }
 
   /** Show draw mode as on or off, without telling anyone: for when the owner switched it. */
+  /** Show whether loose pipes are being placed: from the button, or ended in the view by Escape. */
+  setPlacingPipeState(on: boolean): void {
+    if (on && this.drawing) {
+      this.setDrawMode(false);
+      this.cb.onDrawMode(false);
+    }
+    if (on && this.placing) this.setPlacingState(false);
+    this.placingPipe = on;
+    this.placePipeBtn.classList.toggle('active', on);
+    this.placePipeBtn.textContent = on ? 'Stop placing' : 'Place a pipe';
+    this.placePipeHint.textContent = on ? 'Click where the pipe should start · Esc stops' : '';
+  }
+
   /** Show whether turbos are being placed: from the button, or ended in the view by Escape. */
   setPlacingState(on: boolean): void {
+    if (on && this.placingPipe) this.setPlacingPipeState(false);
     if (on && this.drawing) {
       this.setDrawMode(false);
       this.cb.onDrawMode(false);
@@ -1831,6 +1900,10 @@ export class Panel {
     if (on && this.placing) {
       this.setPlacingState(false);
       this.cb.onPlaceMode(false);
+    }
+    if (on && this.placingPipe) {
+      this.setPlacingPipeState(false);
+      this.cb.onPlacePipeMode(false);
     }
     this.drawing = on;
     this.drawBtn.classList.toggle('active', on);

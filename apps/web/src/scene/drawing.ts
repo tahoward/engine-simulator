@@ -246,14 +246,35 @@ export function swingPipe(
  * placed where its pipes' ends average out has no place apart from them, so `null`, as for the pipe that
  * is itself carried on.
  */
+/** A duct's bore `x` m along it. */
+export function diameterAt(segments: PipeSegment[], x: number): number {
+  let at = 0;
+  for (const seg of segments) {
+    if (x <= at + seg.length) return segmentDiameter(seg, seg.length > 0 ? (x - at) / seg.length : 0);
+    at += seg.length;
+  }
+  const last = segments.at(-1);
+  return last ? segmentDiameter(last, 1) : 0.042;
+}
+
+export interface BendAnchor {
+  point: THREE.Vector3;
+  dir: THREE.Vector3;
+  /** The bore there, which the bend ends at so the two match. */
+  dia: number;
+}
+
 export function bendAnchor(
   graph: ExhaustGraph,
   placement: ExhaustPlacement,
   node: string,
   ductId: string,
-): { point: THREE.Vector3; dir: THREE.Vector3 } | null {
+): BendAnchor | null {
   const turbo = placement.turbos.get(node);
-  if (turbo) return { point: new THREE.Vector3(...turbo.inlet.point), dir: new THREE.Vector3(...turbo.inlet.dir) };
+  if (turbo) {
+    const { point, dir, dia } = turbo.inlet;
+    return { point: new THREE.Vector3(...point), dir: new THREE.Vector3(...dir), dia };
+  }
   const ends = endsAt(graph, node);
   // A junction that has been moved is where it was put, every pipe into it arriving along the first
   // leaving it.
@@ -265,7 +286,8 @@ export function bendAnchor(
       out && place && out.segments.length > 0
         ? layoutPipe(out.segments, place.origin, place.heading).stations[0]!.direction.clone()
         : new THREE.Vector3(...pinned.axis);
-    return { point: new THREE.Vector3(...pinned.position), dir };
+    const dia = out?.segments[0] ? segmentDiameter(out.segments[0], 0) : 0.042;
+    return { point: new THREE.Vector3(...pinned.position), dir, dia };
   }
   const onward = ends.find((e) => e.end === 'inlet' && e.duct.continues !== undefined)?.duct;
   const primary = onward ? ends.find((e) => e.end === 'outlet' && e.duct.id === onward.continues)?.duct : undefined;
@@ -279,7 +301,11 @@ export function bendAnchor(
     next && onward.segments.length > 0
       ? layoutPipe(onward.segments, next.origin, next.heading).stations[0]!.direction.clone()
       : swept.jointDirections.at(-1)!.clone();
-  return { point: swept.joints.at(-1)!.clone(), dir: leaving };
+  return {
+    point: swept.joints.at(-1)!.clone(),
+    dir: leaving,
+    dia: segmentDiameter(primary.segments.at(-1)!, 1),
+  };
 }
 
 /** Below this turn and this offset, a pipe runs straight into a port rather than curving: radians, m. */
@@ -353,7 +379,9 @@ export type SnapTarget =
       /** The pipe's direction there, which a branch drawn *from* the side leaves along. */
       dir?: THREE.Vector3;
     }
-  | { kind: 'turboInlet'; point: THREE.Vector3; dir: THREE.Vector3; turbo: string }
+  | { kind: 'turboInlet'; point: THREE.Vector3; dir: THREE.Vector3; dia: number; turbo: string }
+  /** The start of a loose pipe, which a route can end on to attach it. */
+  | { kind: 'looseStart'; point: THREE.Vector3; dir: THREE.Vector3; dia: number; duct: string }
   | { kind: 'free'; point: THREE.Vector3 };
 
 /**
@@ -399,7 +427,22 @@ export function collectSnapTargets(
       kind: 'turboInlet',
       point: new THREE.Vector3(...ports.inlet.point),
       dir: new THREE.Vector3(...ports.inlet.dir),
+      dia: ports.inlet.dia,
       turbo: turbo.id,
+    });
+  }
+
+  for (const duct of graph.ducts) {
+    if (duct.from.kind !== 'free' || duct.segments.length === 0) continue;
+    const place = placement.ducts.get(duct.id);
+    if (!place) continue;
+    const dir = layoutPipe(duct.segments, place.origin, place.heading).stations[0]!.direction;
+    targets.push({
+      kind: 'looseStart',
+      point: place.origin.clone(),
+      dir: dir.clone(),
+      dia: segmentDiameter(duct.segments[0]!, 0),
+      duct: duct.id,
     });
   }
 
