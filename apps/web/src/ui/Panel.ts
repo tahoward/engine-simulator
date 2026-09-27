@@ -48,6 +48,7 @@ import {
   BLOW_OFFS,
   CHAMBER_SECTIONS,
   makeSegment,
+  physicalBankCount,
   segmentDiameter,
   speedOfSound,
   totalPipeLength,
@@ -88,6 +89,14 @@ export interface PanelCallbacks {
   onBendMode: (on: boolean) => void;
   /** The bend tool was switched on or off. */
   onBendTool: (on: boolean) => void;
+  /** The equal-length header tool was switched on or off. */
+  onHeaderTool: (on: boolean) => void;
+  /** The header's primaries are to be `length` m each. */
+  onHeaderLength: (length: number) => void;
+  /** Whether the header is mirrored onto the other bank. */
+  onHeaderMirror: (on: boolean) => void;
+  /** Build the header the ghost shows. */
+  onApplyHeader: () => void;
   /**
    * Reshape bend `index` of this pipe to turn through `angle` radians round `radius` m, the straights either
    * side of it taking up the difference so the pipe keeps its length.
@@ -206,6 +215,15 @@ export class Panel {
   private bendToolBtn!: HTMLButtonElement;
   private bendToolHint!: HTMLElement;
   private bendingTool = false;
+  /** The equal-length header tool: whether it is on, and its controls. */
+  private headerOn = false;
+  private headerMirror = true;
+  private headerBtn!: HTMLButtonElement;
+  private headerApplyBtn!: HTMLButtonElement;
+  private headerHint!: HTMLElement;
+  private headerOptions!: HTMLElement;
+  private headerLengthInput!: HTMLInputElement;
+  private headerMirrorLabel!: HTMLLabelElement;
   private placePipeHint!: HTMLElement;
   private placeBtn!: HTMLButtonElement;
   private placeHint!: HTMLElement;
@@ -665,6 +683,36 @@ export class Panel {
       'straight curves into one arc; Shift turns in 15 degree steps. It keeps its length, as a tube does ' +
       'when it is bent, and a ghost shows where it is going until you let go.';
     this.bendToolHint = el('span', 'hint', bendToolRow);
+    const headerRow = el('div', 'row', exhaust);
+    this.headerBtn = el('button', '', headerRow) as HTMLButtonElement;
+    this.headerBtn.textContent = 'Equal-length header';
+    this.headerBtn.title =
+      'Builds a bank’s primaries all the same length, each straight out of its port and bending into one ' +
+      'collector. Drag the triad’s arrows to put the collector where it goes, and its rings to point it; ' +
+      'a ghost shows the header, the nearer primaries swinging on their way to make their length up. Apply ' +
+      'or Enter builds it, Escape abandons it.';
+    this.headerApplyBtn = el('button', 'hidden', headerRow) as HTMLButtonElement;
+    this.headerApplyBtn.textContent = 'Apply';
+    this.headerHint = el('span', 'hint', headerRow);
+    this.headerOptions = el('div', 'row hidden', exhaust);
+    this.headerLengthInput = numberField(this.headerOptions, 'Primary length', 400, 50, 3000, 1, 'mm', (v) =>
+      this.cb.onHeaderLength(v / MM),
+    );
+    this.headerMirrorLabel = el('label', '', this.headerOptions) as HTMLLabelElement;
+    const mirrorBox = el('input', '', this.headerMirrorLabel) as HTMLInputElement;
+    mirrorBox.type = 'checkbox';
+    mirrorBox.checked = this.headerMirror;
+    this.headerMirrorLabel.append(' Mirror onto other bank');
+    this.headerMirrorLabel.title = 'Gives the other bank the mirror image of this header, its collector at the mirrored place.';
+    mirrorBox.addEventListener('change', () => {
+      this.headerMirror = mirrorBox.checked;
+      this.cb.onHeaderMirror(this.headerMirror);
+    });
+    this.headerBtn.addEventListener('click', () => {
+      this.setHeaderToolState(!this.headerOn);
+      this.cb.onHeaderTool(this.headerOn);
+    });
+    this.headerApplyBtn.addEventListener('click', () => this.cb.onApplyHeader());
     this.bendToolBtn.addEventListener('click', () => {
       this.setBendToolState(!this.bendingTool);
       this.cb.onBendTool(this.bendingTool);
@@ -2014,10 +2062,60 @@ export class Panel {
       this.setPlacingPipeState(false);
       this.cb.onPlacePipeMode(false);
     }
+    if (on) this.stopHeaderTool();
     this.bendingTool = on;
     this.bendToolBtn.classList.toggle('active', on);
     this.bendToolBtn.textContent = on ? 'Stop bending' : 'Bend a pipe';
     this.bendToolHint.textContent = on ? BEND_HINT : '';
+  }
+
+  /** Show the equal-length header tool as on or off, and turn off what it replaces. */
+  setHeaderToolState(on: boolean): void {
+    if (on && this.drawing) {
+      this.setDrawMode(false);
+      this.cb.onDrawMode(false);
+    }
+    if (on && this.placingPipe) {
+      this.setPlacingPipeState(false);
+      this.cb.onPlacePipeMode(false);
+    }
+    if (on && this.placing) {
+      this.setPlacingState(false);
+      this.cb.onPlaceMode(false);
+    }
+    if (on && this.bendingTool) {
+      this.setBendToolState(false);
+      this.cb.onBendTool(false);
+    }
+    this.headerOn = on;
+    this.headerBtn.classList.toggle('active', on);
+    this.headerBtn.textContent = on ? 'Cancel header' : 'Equal-length header';
+    this.headerApplyBtn.classList.toggle('hidden', !on);
+    this.headerOptions.classList.toggle('hidden', !on);
+    this.headerMirrorLabel.classList.toggle('hidden', physicalBankCount(this.config.engine) < 2);
+    this.headerHint.textContent = '';
+  }
+
+  /** Turn the header tool off, as starting another tool does. */
+  private stopHeaderTool(): void {
+    if (!this.headerOn) return;
+    this.setHeaderToolState(false);
+    this.cb.onHeaderTool(false);
+  }
+
+  /** Whether the header is to be mirrored onto the other bank. */
+  get headerMirrored(): boolean {
+    return this.headerMirror;
+  }
+
+  /** Show the primary length the header tool is building, m. */
+  setHeaderLength(length: number): void {
+    this.headerLengthInput.value = round(length * MM, 1);
+  }
+
+  /** What the header being placed comes to, from the view. */
+  setHeaderAim(aim: string): void {
+    if (this.headerOn) this.headerHint.textContent = aim;
   }
 
   /** What the bend tool is doing, from the view. */
@@ -2039,6 +2137,7 @@ export class Panel {
       this.cb.onDrawMode(false);
     }
     if (on && this.placing) this.setPlacingState(false);
+    if (on) this.stopHeaderTool();
     this.placingPipe = on;
     this.placePipeBtn.classList.toggle('active', on);
     this.placePipeBtn.textContent = on ? 'Stop placing' : 'Place a pipe';
@@ -2052,6 +2151,7 @@ export class Panel {
       this.setDrawMode(false);
       this.cb.onDrawMode(false);
     }
+    if (on) this.stopHeaderTool();
     this.placing = on;
     this.placeBtn.classList.toggle('active', on);
     this.placeBtn.textContent = on ? 'Stop placing' : 'Place a turbo';
@@ -2104,6 +2204,7 @@ export class Panel {
       this.setPlacingPipeState(false);
       this.cb.onPlacePipeMode(false);
     }
+    if (on) this.stopHeaderTool();
     this.drawing = on;
     this.drawBtn.classList.toggle('active', on);
     this.drawBtn.textContent = on ? 'Stop drawing' : 'Draw a pipe';
