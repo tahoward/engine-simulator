@@ -64,11 +64,19 @@ matters.
   the throttle shut on boost, an atmospheric blow-off valve must open and let the boost go without the
   compressor flow ever reversing; with none, the compressor must surge at between 5 and 60 cycles a
   second. A
-  naturally aspirated engine must have no turbo, and switching one off must leave no boost behind. The
-  six must have one turbine, in its exhaust, passing the valves' flow within 3%, with the pressure at
-  its inlet more than 0.2 bar above its outlet; the pressure past it must swing by less than 70% of what
-  arrives; and there must be no solver recoveries. A single, with nothing merging, must still make boost.
+  naturally aspirated engine must have no turbo, and taking the turbos out must leave no boost behind. The
+  six must have two turbines, in its exhaust, passing the valves' flow within 3%, with the pressure at
+  their inlets more than 0.2 bar above their outlets; the pressure past them must swing by less than 70%
+  of what arrives; and there must be no solver recoveries. A single with its pipe drawn into a turbo must
+  make boost, and a turbo with nothing attached must do nothing.
   The strongest tone of what the compressor radiates must be within 3% of its blade-pass frequency.
+- **Placing turbos.** A turbo put down on an open pipe end must attach it and give itself one outlet to
+  the air, in a graph the solver accepts; the pipe must meet its inlet flange and its outlet pipe start
+  at its outlet flange, with no junction fitting drawn; its inlet must be offered to draw to, and its
+  node not as a junction; tidying must leave its one pipe in and one out; taking it out must leave the
+  pipe open again; moved, the pipe must follow it and still meet its inlet; and it must survive a link.
+  Heard through the Wasm build it must make boost. The RB26 must compile to two turbos, each fed by
+  three cylinders, seated where their manifolds end.
 - **Headers.** On the LT6 at 8400 rpm, equal-length headers must fill the cylinder more than 3
   points past a manifold along the ports.
 - **Port injection.** With the fuel cut, neither the manifold nor a runner may hold more than a

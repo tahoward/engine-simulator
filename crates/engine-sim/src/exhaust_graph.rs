@@ -107,9 +107,35 @@ impl ExhaustDuct {
     }
 }
 
+/// A turbocharger placed in the exhaust: its turbine sits at `node`, so the ducts ending there feed
+/// its inlet and the one leaving it is its outlet. Where it is drawn is the web app's business; the
+/// solver needs only the node.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurboMount {
+    pub id: String,
+    pub node: String,
+    #[serde(default)]
+    pub position: Option<[f64; 3]>,
+    /// How it is turned, as a unit quaternion `[x, y, z, w]`.
+    #[serde(default)]
+    pub rotation: Option<[f64; 4]>,
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ExhaustGraph {
     pub ducts: Vec<ExhaustDuct>,
+    /// Turbochargers, each at one node. A mount whose node no duct names is not connected yet, and does
+    /// nothing.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub turbos: Vec<TurboMount>,
+}
+
+impl ExhaustGraph {
+    /// Whether a turbine sits at `node`.
+    pub fn is_turbo_node(&self, node: &str) -> bool {
+        self.turbos.iter().any(|t| t.node == node)
+    }
 }
 
 /// Which side of a duct meets a node.
@@ -438,7 +464,7 @@ pub fn compile_layout(spec: &EngineSpec, pipe: &[PipeSegment], collector: &[Pipe
         ducts.push(duct);
     }
     ducts.extend(tail);
-    ExhaustGraph { ducts }
+    ExhaustGraph { ducts, turbos: Vec::new() }
 }
 
 /// The exhaust `spec` asks for: equal-length headers into one merge per collector where it has
@@ -486,7 +512,7 @@ pub fn compile_collector_layout(spec: &EngineSpec, pipe: &[PipeSegment], collect
         d.role = Some(DuctRole::Collector);
         ducts.push(d);
     }
-    ExhaustGraph { ducts }
+    ExhaustGraph { ducts, turbos: Vec::new() }
 }
 
 /// `segments` with `length` taken out of its longest plain pipe, as far as that pipe can spare.
@@ -553,6 +579,9 @@ pub fn validate_graph(graph: &ExhaustGraph, cylinders: usize) -> Vec<String> {
         }
         if downstream == 0 {
             problems.push(format!("junction \"{node}\" has no pipe leaving it"));
+        }
+        if downstream > 1 && graph.is_turbo_node(&node) {
+            problems.push(format!("the turbo at \"{node}\" has {downstream} pipes leaving its one outlet"));
         }
     }
 

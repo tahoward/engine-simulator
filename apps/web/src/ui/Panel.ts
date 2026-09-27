@@ -16,9 +16,11 @@ import {
   endsAt,
   nodeOrder,
   pathToAir,
+  turboAt,
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
+import { connectedTurbos, isTurbocharged } from '../model/turbo.js';
 import {
   ENGINE_PRESETS,
   bankFiringIntervals,
@@ -56,8 +58,15 @@ export interface PanelCallbacks {
   onSelect: (index: number | null) => void;
   /** The user picked a different duct to edit. */
   onSelectDuct: (id: string) => void;
-  /** `config.pipe` and `config.collector` were replaced; rebuild the graph from them. */
-  onReseed: () => void;
+  /**
+   * `config.pipe` and `config.collector` were replaced; rebuild the graph from them, with `turbos` turbos
+   * placed where the layout puts them.
+   */
+  onReseed: (turbos: number) => void;
+  /** Placing turbos in the view was switched on or off. */
+  onPlaceMode: (on: boolean) => void;
+  /** Take this turbo out of the exhaust. */
+  onRemoveTurbo: (id: string) => void;
   /** Draw mode was switched on or off. */
   onDrawMode: (on: boolean) => void;
   /** Start drawing a new pipe out of this junction. */
@@ -135,7 +144,8 @@ function engineTypeOf(eng: EngineSpec): string {
 
 /** What draw mode says before a route has started. */
 const START_HINT = 'Pick a port, a junction, or a pipe to continue or branch from';
-const ROUTE_HINT = 'Click to add a bend, or a junction or pipe to join it';
+const ROUTE_HINT = 'Click to add a bend, or a junction, pipe or turbo inlet to join it';
+const PLACE_HINT = 'Click to put it down, or on an open pipe end to attach it · Esc stops';
 
 export class Panel {
   private readonly listEl: HTMLElement;
@@ -159,6 +169,12 @@ export class Panel {
    */
   private linkRunners = true;
   private drawing = false;
+  private placing = false;
+  private placeBtn!: HTMLButtonElement;
+  private placeHint!: HTMLElement;
+  private turboCountEl!: HTMLElement;
+  private turboWrap!: HTMLElement;
+  private turboEl!: HTMLElement;
   private drawHint!: HTMLElement;
   /** Whether a route is in progress, so the hint can show where it is aimed. */
   private drawingRoute = false;
@@ -275,7 +291,7 @@ export class Panel {
       step: 0.01,
       value: spec.load,
       sync: () => this.config.engine.load,
-      format: (v) => `${Math.round(v * 100)}% · ${Math.round(v * fullLoadTorque(this.config.engine))} N·m`,
+      format: (v) => `${Math.round(v * 100)}% · ${Math.round(v * fullLoadTorque(this.config.engine, isTurbocharged(this.config.graph)))} N·m`,
       onInput: (v) => this.cb.onEngine({ load: v }),
     });
     load.row.title =
@@ -307,7 +323,7 @@ export class Panel {
         return;
       }
       const eng = this.config.engine;
-      const fit = fitDyno(eng);
+      const fit = fitDyno(eng, isTurbocharged(this.config.graph));
       this.cb.onDyno({
         ...fit,
         shiftRpm: Math.min(this.dynoShift ?? fit.shiftRpm, eng.revLimit - 50),
@@ -319,8 +335,8 @@ export class Panel {
       min: 1500,
       max: 12000,
       step: 50,
-      value: fitDyno(spec).shiftRpm,
-      sync: () => this.dynoShift ?? fitDyno(this.config.engine).shiftRpm,
+      value: fitDyno(spec, isTurbocharged(this.config.graph)).shiftRpm,
+      sync: () => this.dynoShift ?? fitDyno(this.config.engine, isTurbocharged(this.config.graph)).shiftRpm,
       format: (v) => `${Math.round(v)} rpm${this.dynoShift === null ? ' (auto)' : ''}`,
       onInput: (v) => (this.dynoShift = v),
     }).row.title =
@@ -331,8 +347,8 @@ export class Panel {
       min: 100,
       max: 2500,
       step: 10,
-      value: fitDyno(spec).mass,
-      sync: () => this.dynoMass ?? fitDyno(this.config.engine).mass,
+      value: fitDyno(spec, isTurbocharged(this.config.graph)).mass,
+      sync: () => this.dynoMass ?? fitDyno(this.config.engine, isTurbocharged(this.config.graph)).mass,
       format: (v) => `${Math.round(v)} kg${this.dynoMass === null ? ' (auto)' : ''}`,
       onInput: (v) => (this.dynoMass = v),
     }).row.title =
@@ -370,7 +386,7 @@ export class Panel {
       this.config.pipe.push(...preset.pipe());
       this.config.collector.length = 0;
       if (preset.collector) this.config.collector.push(...preset.collector());
-      this.cb.onReseed();
+      this.cb.onReseed(preset.turbos ?? 0);
       this.rebuildAll();
       this.cb.onResetView();
     });
@@ -982,33 +998,33 @@ export class Panel {
       'openings.';
 
     // ---- Turbocharger ----------------------------------------------------
+    /**
+     * Turbos are placed in the view and piped up like the rest of the exhaust; what is here is placing
+     * them, and the settings every turbo shares.
+     */
     const turbo = section(root, 'Turbocharger', true);
-    const turboOn = toggle(turbo, 'Turbocharged', spec.turbo, (on) => {
-      this.cb.onEngine({ turbo: on });
-      turboWrap.classList.toggle('hidden', !on);
+    const placeRow = el('div', 'row', turbo);
+    this.placeBtn = el('button', '', placeRow) as HTMLButtonElement;
+    this.placeBtn.textContent = 'Place a turbo';
+    this.placeBtn.title =
+      'Put a turbo down in the view, then draw pipes into its inlet: the open flange on the side of its ' +
+      'turbine. Put it on the open end of a pipe to attach that pipe as it goes down. Its outlet gets a ' +
+      'short pipe to the air, which you can draw on from. Click a turbo for its triad: drag an arrow to ' +
+      'move it along that axis, a square to move it in that plane, a ring to turn it; shift snaps to ' +
+      '5 mm and 15 degrees. Its pipes follow. Delete takes it out.';
+    this.placeHint = el('span', 'hint', placeRow);
+    this.placeBtn.addEventListener('click', () => {
+      this.setPlacingState(!this.placing);
+      this.cb.onPlaceMode(this.placing);
     });
-    turboOn.title =
-      'A turbine in the exhaust spinning a compressor that feeds the throttle above atmospheric ' +
-      'pressure. The exhaust drives it, so the boost builds with the exhaust flow and lags while the ' +
-      'shaft spins up.';
+    this.turboCountEl = el('div', 'readout', turbo);
     this.turboReadout = el('div', 'readout', turbo);
+    /** The turbo selected in the view. */
+    this.turboEl = el('div', 'joint hidden', turbo);
     const turboWrap = el('div', '', turbo);
-    turboWrap.classList.toggle('hidden', !spec.turbo);
-    this.resyncers.push(() => {
-      checkbox(turboOn).checked = this.config.engine.turbo;
-      turboWrap.classList.toggle('hidden', !this.config.engine.turbo);
-    });
-    const countRow = el('div', 'row', turboWrap);
-    el('label', '', countRow).textContent = 'Turbos';
-    const countSel = el('select', '', countRow) as HTMLSelectElement;
-    countSel.appendChild(option('1', 'One'));
-    countSel.appendChild(option('2', 'Two, in parallel'));
-    countSel.value = String(spec.turboCount);
-    this.resyncers.push(() => (countSel.value = String(this.config.engine.turboCount)));
-    countSel.addEventListener('change', () => this.cb.onEngine({ turboCount: countSel.value === '2' ? 2 : 1 }));
-    countRow.title =
-      'Two share the work, each half the size of one: lighter rotors that spin up sooner, each with ' +
-      'its own whine a little apart from the other’s.';
+    this.turboWrap = turboWrap;
+    this.resyncers.push(() => this.syncTurbos());
+    this.syncTurbos();
     this.slider(turboWrap, {
       label: 'Boost',
       min: 0.1,
@@ -1742,7 +1758,60 @@ export class Panel {
   }
 
   /** Show draw mode as on or off, without telling anyone: for when the owner switched it. */
+  /** Show whether turbos are being placed: from the button, or ended in the view by Escape. */
+  setPlacingState(on: boolean): void {
+    if (on && this.drawing) {
+      this.setDrawMode(false);
+      this.cb.onDrawMode(false);
+    }
+    this.placing = on;
+    this.placeBtn.classList.toggle('active', on);
+    this.placeBtn.textContent = on ? 'Stop placing' : 'Place a turbo';
+    this.placeHint.textContent = on ? PLACE_HINT : '';
+  }
+
+  /** How many turbos there are, and the settings shown only when there is one. */
+  syncTurbos(): void {
+    const graph = this.config.graph;
+    const all = graph?.turbos ?? [];
+    const fed = graph ? connectedTurbos(graph).length : 0;
+    this.turboCountEl.textContent =
+      all.length === 0
+        ? 'No turbo: place one in the view'
+        : `${all.length === 1 ? 'One turbo' : `${all.length} turbos`}` +
+          (fed < all.length ? `, ${all.length - fed} with nothing attached` : '') +
+          (all.length > 1 ? ', sharing these settings' : '');
+    this.turboWrap.classList.toggle('hidden', all.length === 0);
+  }
+
+  /** Describe the turbo selected in the view, or none. */
+  showTurbo(id: string | null): void {
+    const graph = this.config.graph;
+    const turbos = graph?.turbos ?? [];
+    const index = turbos.findIndex((t) => t.id === id);
+    this.turboEl.replaceChildren();
+    this.turboEl.classList.toggle('hidden', !graph || index < 0);
+    if (!graph || index < 0) return;
+    const mount = turbos[index]!;
+    const ends = endsAt(graph, mount.node);
+    el('div', 'joint-title', this.turboEl).textContent = `Turbo ${index + 1}`;
+    const list = (label: string, ducts: ExhaustDuct[]) => {
+      const row = el('div', 'joint-row', this.turboEl);
+      el('span', 'joint-label', row).textContent = label;
+      el('span', '', row).textContent = ducts.length > 0 ? ducts.map((d) => ductLabel(graph, d)).join(', ') : 'nothing yet';
+    };
+    list('Fed by', ends.filter((e) => e.end === 'outlet').map((e) => e.duct));
+    list('Outlet', ends.filter((e) => e.end === 'inlet').map((e) => e.duct));
+    const btn = el('button', '', el('div', 'row', this.turboEl)) as HTMLButtonElement;
+    btn.textContent = 'Take this turbo out';
+    btn.addEventListener('click', () => this.cb.onRemoveTurbo(mount.id));
+  }
+
   private setDrawMode(on: boolean): void {
+    if (on && this.placing) {
+      this.setPlacingState(false);
+      this.cb.onPlaceMode(false);
+    }
     this.drawing = on;
     this.drawBtn.classList.toggle('active', on);
     this.drawBtn.textContent = on ? 'Stop drawing' : 'Draw a pipe';
@@ -1765,7 +1834,8 @@ export class Panel {
     if (!node || !graph) return;
 
     const ends = endsAt(graph, node);
-    el('div', 'joint-title', this.jointEl).textContent = `Junction ${nodeOrder(graph).indexOf(node) + 1}`;
+    const junctions = nodeOrder(graph).filter((n) => !turboAt(graph, n));
+    el('div', 'joint-title', this.jointEl).textContent = `Junction ${junctions.indexOf(node) + 1}`;
     const list = (label: string, ducts: ExhaustDuct[]) => {
       if (ducts.length === 0) return;
       const row = el('div', 'joint-row', this.jointEl);

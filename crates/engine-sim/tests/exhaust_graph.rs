@@ -237,21 +237,24 @@ mod validate_graph_catches_what_a_half_drawn_route_leaves_behind {
     /// a cylinder with no pipe
     #[test]
     fn a_cylinder_with_no_pipe() {
-        let graph = ExhaustGraph { ducts: vec![runner("a", 0, DuctSink::Mouth)] };
+        let graph = ExhaustGraph { ducts: vec![runner("a", 0, DuctSink::Mouth)], ..Default::default() };
         assert!(problems(&graph, 2).contains("cylinder 2 has no exhaust pipe"), "{}", problems(&graph, 2));
     }
 
     /// two pipes on one port
     #[test]
     fn two_pipes_on_one_port() {
-        let graph = ExhaustGraph { ducts: vec![runner("a", 0, DuctSink::Mouth), runner("b", 0, DuctSink::Mouth)] };
+        let graph = ExhaustGraph {
+            ducts: vec![runner("a", 0, DuctSink::Mouth), runner("b", 0, DuctSink::Mouth)],
+            ..Default::default()
+        };
         assert!(problems(&graph, 1).contains("has 2 pipes on its exhaust port"), "{}", problems(&graph, 1));
     }
 
     /// a junction joining only one pipe
     #[test]
     fn a_junction_joining_only_one_pipe() {
-        let graph = ExhaustGraph { ducts: vec![runner("a", 0, to_node("x"))] };
+        let graph = ExhaustGraph { ducts: vec![runner("a", 0, to_node("x"))], ..Default::default() };
         let problems = problems(&graph, 1);
         assert!(problems.contains("joins only one pipe"), "{problems}");
         assert!(problems.contains("no pipe leaving it"), "{problems}");
@@ -265,6 +268,7 @@ mod validate_graph_catches_what_a_half_drawn_route_leaves_behind {
                 runner("a", 0, DuctSink::Mouth),
                 duct("orphan", vec![any_segment()], from_node("nowhere"), DuctSink::Mouth),
             ],
+            ..Default::default()
         };
         let problems = problems(&graph, 1);
         assert!(problems.contains("\"orphan\" is not connected to any cylinder"), "{problems}");
@@ -273,15 +277,17 @@ mod validate_graph_catches_what_a_half_drawn_route_leaves_behind {
     /// duplicate ids
     #[test]
     fn duplicate_ids() {
-        let graph =
-            ExhaustGraph { ducts: vec![runner("same", 0, DuctSink::Mouth), runner("same", 1, DuctSink::Mouth)] };
+        let graph = ExhaustGraph {
+            ducts: vec![runner("same", 0, DuctSink::Mouth), runner("same", 1, DuctSink::Mouth)],
+            ..Default::default()
+        };
         assert!(problems(&graph, 2).contains("two ducts share the id"), "{}", problems(&graph, 2));
     }
 
     /// and the solver refuses to build one
     #[test]
     fn and_the_solver_refuses_to_build_one() {
-        let graph = ExhaustGraph { ducts: vec![runner("a", 0, to_node("x"))] };
+        let graph = ExhaustGraph { ducts: vec![runner("a", 0, to_node("x"))], ..Default::default() };
         match ExhaustSystem::new(&graph, 1, FS, gas::T_AMB, &EulerPipeOptions::default()) {
             Ok(_) => panic!("built an exhaust from a graph that cannot be solved"),
             Err(e) => assert!(e.contains("cannot be solved"), "{e}"),
@@ -312,6 +318,7 @@ mod arrangements_primaries_and_collectors_cannot_express {
                 duct("midB", vec![pipe(0.3, 0.05)], from_node("pairB"), to_node("tail")),
                 duct("tailpipe", vec![pipe(0.5, 0.06)], from_node("tail"), DuctSink::Mouth),
             ],
+            ..Default::default()
         }
     }
 
@@ -435,6 +442,7 @@ mod walking_the_graph_for_the_panel_and_the_url {
                 duct("r2", vec![of_length(0.4)], valve(2), to_node("b")),
                 duct("tail", vec![of_length(0.5)], from_node("b"), DuctSink::Mouth),
             ],
+            ..Default::default()
         };
         assert_eq!(ids(&graph, &path_to_air(&graph, 0)), ["r0", "mid", "tail"]);
         assert_eq!(ids(&graph, &path_to_air(&graph, 2)), ["r2", "tail"]);
@@ -451,6 +459,7 @@ mod walking_the_graph_for_the_panel_and_the_url {
                 duct("x", vec![any_segment()], from_node("a"), to_node("b")),
                 duct("y", vec![any_segment()], from_node("b"), to_node("a")),
             ],
+            ..Default::default()
         };
         assert!(path_to_air(&graph, 0).len() <= 3);
     }
@@ -474,6 +483,7 @@ mod walking_the_graph_for_the_panel_and_the_url {
                 .into_iter()
                 .map(|d| ExhaustDuct { segments: d.segments.iter().map(copy_segment).collect(), ..d })
                 .collect(),
+            ..Default::default()
         };
 
         assert_eq!(validate_graph(&rebuilt, 8), Vec::<String>::new());

@@ -1,11 +1,10 @@
 /**
  * Direct manipulation of the exhaust in 3D.
  *
- * Two handle types per joint:
- *   - a sphere at the end of each segment. Drag it anywhere and the segment follows:
- *     the distance sets its length, the direction sets the corner it turns at.
- *   - a ring around each joint. Drag it outward to open the pipe up, inward to
- *     choke it down.
+ * The selected segment has a triad (`Triad.ts`): its arrows and squares move the segment's end along an
+ * axis or in a plane, the length and the corner following, and its rings turn the segment about where it
+ * starts. A ring around each joint sets the diameter there: drag it outward to open the pipe up, inward to
+ * choke it down. A selected turbo has a triad of its own, which moves and turns it.
  *
  * Both write through the same mutation helpers the numeric panel uses, so the two
  * editors cannot drift apart — there is exactly one `PipeSegment[]`.
@@ -17,6 +16,17 @@
 
 import * as THREE from 'three';
 import { makeSegment, type PipeSegment, segmentDiameter } from '../model/spec.js';
+import type { Vec3 } from '../model/geometry.js';
+import {
+  IDENTITY,
+  ensureTurboOutlet,
+  quatFromAxisAngle,
+  quatMultiply,
+  quatNormalise,
+  seatTurbo,
+  type TurboSize,
+} from '../model/turbo.js';
+import type { Quat } from '../model/exhaustGraph.js';
 import {
   joinDuctEnd,
   newDuctId,
@@ -27,6 +37,22 @@ import {
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
 import { layoutPipe, turnBetween, type PipeMesh } from './PipeMesh.js';
+import { TurboMesh } from './TurboMesh.js';
+import {
+  AXIS_COLOURS,
+  MOVE_STEP,
+  TURN_STEP_DEG as TRIAD_TURN_DEG,
+  Triad,
+  angleStep,
+  axisOffset,
+  planePoint,
+  frameAlong,
+  ringAngle,
+  snapTo,
+  snapTurnToEngine,
+  type RingFrame,
+  type TriadHandle,
+} from './Triad.js';
 import type { DuctPlacement, ExhaustPlacement, ExhaustPort } from './exhaustLayout.js';
 import {
   MIN_DRAW_LENGTH,
@@ -47,42 +73,63 @@ const MAX_LENGTH = 2.0;
 const MIN_RADIUS = 0.006;
 const MAX_RADIUS = 0.22;
 
-/**
- * How far the end-handle sphere is lifted clear of the pipe, m (plus the local
- * radius). Without an offset it sits inside the diameter ring at the same joint, and
- * since the ring is the larger target the sphere becomes effectively unclickable —
- * and on an intermediate joint it would be buried inside the next segment's wall.
- */
-const HANDLE_LIFT = 0.035;
-
 /** Live geometry edits are cheap to draw but force a waveguide rebuild, so throttle those. */
 const AUDIO_COMMIT_MS = 200;
 
-type HandleKind = 'end' | 'ring' | 'inlet' | 'rotate';
+/** A diameter handle: the ring at a joint, or at the inlet. */
+type HandleKind = 'ring' | 'inlet';
 
 interface HandleData {
   kind: HandleKind;
   segment: number;
-  /** Displacement from the point the handle controls to the handle itself. */
-  dragOffset?: THREE.Vector3;
-  /** For a rotation ring, the engine axis it turns the segment about: 0 X, 1 Y, 2 Z. */
-  axis?: number;
 }
 
-/** Radius of the rotation rings round the selected segment's start, m. */
-const ROTATE_RADIUS = 0.11;
-/** What a rotation ring snaps to with shift held, degrees. */
-const ROTATE_STEP_DEG = 15;
-/**
- * Below this, the pointer's ray is too close to edge-on to a rotation ring's plane to meet it cleanly, and
- * the drag falls back to a camera-facing plane.
- */
-const MIN_RING_FACING = 0.2;
+/** Size of the selected segment's triad, m. */
+const PIPE_TRIAD_SIZE = 0.11;
 
+/**
+ * A triad being dragged, on a pipe segment or a turbo.
+ *
+ * Everything is measured from where the drag began, so a move or a turn is where the pointer is now rather
+ * than the sum of every frame's step.
+ */
+interface TriadDrag {
+  on: 'pipe' | 'turbo';
+  handle: TriadHandle;
+  /** The part's axis the handle works along or about, and for a ring its frame, as they were at the start. */
+  axis: THREE.Vector3;
+  ring: RingFrame;
+  /** The pointer's offset along the axis, or its point in the plane, when the drag began. */
+  grabOffset: number;
+  grabPoint: THREE.Vector3;
+  /** Where the moving handles and the rings were when the drag began. */
+  moveOrigin: THREE.Vector3;
+  rotateOrigin: THREE.Vector3;
+  /** For a ring: the pointer's angle at the last move, and how far it has turned since the drag began. */
+  lastAngle: number;
+  turned: number;
+  /** A pipe segment's: which, the heading entering it, and its direction when the drag began. */
+  segment?: number;
+  heading?: THREE.Vector3;
+  dir0?: THREE.Vector3;
+  /** A turbo's: which, and its rotation when the drag began. */
+  turbo?: string;
+  rotation0?: Quat;
+  lastCommit: number;
+  moved: boolean;
+}
 /** Something in the exhaust a click picked out, outside draw mode. */
 export type ScenePick =
   | { kind: 'segment'; duct: string; segment: number }
-  | { kind: 'joint'; node: string };
+  | { kind: 'joint'; node: string }
+  | { kind: 'turbo'; turbo: string };
+
+/** Where a turbo being placed goes, and the open pipe end it was put on, if any. */
+export interface TurboPlacement {
+  position: Vec3;
+  rotation: Quat;
+  attach?: string;
+}
 
 export interface PipeEditorCallbacks {
   /** Geometry changed. `commit` is false for intermediate frames of a drag. */
@@ -98,6 +145,12 @@ export interface PipeEditorCallbacks {
   onDrawing?: (active: boolean) => void;
   /** Where the next segment is aimed, in words — "up, 250 mm" — or `null` when nothing is. */
   onAim?: (aim: string | null) => void;
+  /** A turbo was put down. */
+  onPlaceTurbo?: (placement: TurboPlacement) => void;
+  /** Placing turbos was started or ended from the view, by Escape. */
+  onPlacing?: (active: boolean) => void;
+  /** A turbo was moved or turned to here by its triad. `commit` is false for intermediate frames of a drag. */
+  onMoveTurbo?: (turbo: string, position: Vec3, rotation: Quat, commit: boolean) => void;
 }
 
 /**
@@ -114,12 +167,8 @@ function drawSnapOf(e: { shiftKey: boolean; altKey: boolean }): DrawSnap {
   return e.altKey ? 'turn' : 'engine';
 }
 
-/**
- * Colours for the engine's axes, the usual X red, Y green, Z blue, so a locked segment says which way it runs.
- * A diagonal mixes the two it lies between.
- */
-const AXIS_COLOURS = [new THREE.Color(0xff6b6b), new THREE.Color(0x7be07b), new THREE.Color(0x6ba6ff)];
-const ENGINE_AXES = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+// A locked segment is drawn in its engine axis's colour (`Triad.ts`), so it says which way it runs. A
+// diagonal mixes the two it lies between.
 /** A segment carrying straight on in a direction that is none of the engine's. */
 const STRAIGHT_ON_COLOUR = new THREE.Color(0xffffff);
 /** A segment not locked to a direction. */
@@ -144,7 +193,11 @@ export interface DrawContext {
   meshes: PipeMesh[];
   /** Each junction's mesh, by node, for picking a junction. */
   joints: Array<{ node: string; target: THREE.Object3D | null }>;
+  /** Each turbo's mesh, by turbo id, for picking and dragging one. */
+  turbos: Array<{ turbo: string; target: THREE.Object3D }>;
 }
+
+
 
 /** How close, in pixels, the pointer has to be for a snap target to take. */
 const SNAP_PIXELS = 14;
@@ -159,36 +212,22 @@ export class PipeEditor {
   private readonly raycaster = new THREE.Raycaster();
   private readonly pointer = new THREE.Vector2();
   private readonly handles: THREE.Mesh[] = [];
-  /** Leader lines joining each lifted end-handle to the joint it controls. */
-  private readonly stalks: THREE.Line[] = [];
+  /** The selected segment's triad, and the selected turbo's. */
+  private readonly pipeTriad = new Triad(PIPE_TRIAD_SIZE);
+  private turboTriad = new Triad();
+  private triadDrag: TriadDrag | null = null;
 
   private selected: number | null = null;
   private hovered: THREE.Mesh | null = null;
 
+  /** A diameter ring being dragged. */
   private drag: {
     handle: THREE.Mesh;
     data: HandleData;
-    /** Centreline point where the dragged segment begins. */
-    start: THREE.Vector3;
-    /** Heading entering the dragged segment. */
-    heading: THREE.Vector3;
     plane: THREE.Plane;
     /** A point on, and the direction of, the pipe axis at the dragged joint. */
     axisPoint: THREE.Vector3;
     axisDir: THREE.Vector3;
-    /** For a rotation ring: what it turns about, and how far it has turned so far. */
-    rotate?: {
-      axis: THREE.Vector3;
-      /** Two directions spanning the ring's plane, for measuring angles in it. */
-      u: THREE.Vector3;
-      v: THREE.Vector3;
-      /** The segment's direction when the drag began. */
-      dir0: THREE.Vector3;
-      /** Angle of the pointer round the ring at the last move, radians. */
-      lastAngle: number;
-      /** How far the pointer has turned since the drag began, radians. */
-      turned: number;
-    };
     lastCommit: number;
   } | null = null;
 
@@ -197,6 +236,18 @@ export class PipeEditor {
 
   private drawMode = false;
   private context: DrawContext | null = null;
+
+  /** Placing a turbo: the see-through one following the pointer, and where it is. */
+  private placeMode = false;
+  private readonly ghost = new TurboMesh(true);
+  private ghostAt: TurboPlacement = { position: [0, 0, 0], rotation: [...IDENTITY] };
+  /** Turbos are drawn this size, and put down at this height unless snapped to a pipe. Set by the owner. */
+  private size: TurboSize = { scroll: 0.07, depth: 0.06, outletDia: 0.058 };
+  turboHeight = 0;
+  /** The bore a turbo's outlet is given when a pipe is first drawn into it. Set by the owner. */
+  turboOutletDia = 0.058;
+  /** The turbo the owner has selected, which the turbo triad is on. */
+  private selectedTurbo: string | null = null;
   /**
    * The route in progress.
    *
@@ -234,22 +285,12 @@ export class PipeEditor {
   private readonly guideMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.35 });
   private readonly marker: THREE.Mesh;
 
-  private readonly matNormal = new THREE.MeshBasicMaterial({ color: 0x4fd1ff });
   private readonly matHover = new THREE.MeshBasicMaterial({ color: 0xffd166 });
   private readonly matSelected = new THREE.MeshBasicMaterial({ color: 0x8cff9e });
   private readonly matRing = new THREE.MeshBasicMaterial({
     color: 0x4fd1ff,
     transparent: true,
     opacity: 0.6,
-  });
-  /** One per engine axis, in the same colours the drawing preview uses. */
-  private readonly matRotate = AXIS_COLOURS.map(
-    (color) => new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 }),
-  );
-  private readonly matStalk = new THREE.LineBasicMaterial({
-    color: 0x4fd1ff,
-    transparent: true,
-    opacity: 0.35,
   });
 
   constructor(
@@ -286,6 +327,107 @@ export class PipeEditor {
     this.marker.visible = false;
     this.marker.renderOrder = 13;
     this.group.add(this.marker);
+
+    this.ghost.group.visible = false;
+    this.group.add(this.ghost.group);
+    this.group.add(this.pipeTriad.group, this.turboTriad.group);
+  }
+
+  get turboSize(): TurboSize {
+    return this.size;
+  }
+
+  set turboSize(size: TurboSize) {
+    const changed = size.scroll !== this.size.scroll;
+    this.size = size;
+    if (changed) this.sizeTurboTriad(size);
+  }
+
+  /** Show the turbo triad on `turbo`, or with `null` on none. Called by the owner on select and rebuild. */
+  setSelectedTurbo(turbo: string | null): void {
+    this.selectedTurbo = turbo;
+    this.placeTurboTriad();
+  }
+
+  /** Put the turbo triad on the selected turbo, sized to it, or hide it. */
+  private placeTurboTriad(): void {
+    const mount = this.context?.graph.turbos?.find((t) => t.id === this.selectedTurbo);
+    const show = !!mount?.position && !this.drawMode && !this.placeMode;
+    if (show) {
+      const at = new THREE.Vector3(...mount!.position!);
+      this.turboTriad.setMoveOrigin(at);
+      this.turboTriad.setRotateOrigin(at);
+      // Turned with the turbo: red along its shaft.
+      this.turboTriad.setOrientation(new THREE.Quaternion(...mount!.rotation));
+    }
+    this.turboTriad.setVisible(show);
+  }
+
+  /** Resize the turbo triad for turbos of `size`. */
+  private sizeTurboTriad(size: TurboSize): void {
+    this.group.remove(this.turboTriad.group);
+    this.turboTriad.dispose();
+    this.turboTriad = new Triad(size.scroll * 2.6);
+    this.group.add(this.turboTriad.group);
+    this.placeTurboTriad();
+  }
+
+  // -------------------------------------------------------------------------
+  // Placing turbos
+  // -------------------------------------------------------------------------
+
+  /** Start or stop placing a turbo. Stops drawing, since the two share the pointer. */
+  setPlaceMode(on: boolean): void {
+    if (on && this.drawMode) this.setDrawMode(false);
+    this.placeMode = on;
+    this.ghost.rebuild(this.size);
+    this.ghost.group.visible = false;
+    this.applyHandleVisibility();
+    this.placeTurboTriad();
+  }
+
+  get placing(): boolean {
+    return this.placeMode;
+  }
+
+  /**
+   * Follow the pointer with the turbo being placed: on the level it is put down at, or, near an open pipe
+   * end, with its inlet flange on that end and turned to take the pipe.
+   */
+  private updateGhost(): void {
+    const ctx = this.context;
+    if (!ctx) return;
+    const rect = this.dom.getBoundingClientRect();
+    const ends = collectSnapTargets(ctx.graph, ctx.placement, ctx.ports).filter((t) => t.kind === 'ductEnd');
+    const end = nearestSnap(ends, this.pointer, this.camera, SNAP_PIXELS, {
+      width: rect.width,
+      height: rect.height,
+    });
+    if (end && end.kind === 'ductEnd') {
+      const duct = ctx.graph.ducts.find((d) => d.id === end.duct);
+      const place = ctx.placement.ducts.get(end.duct);
+      if (duct && place) {
+        const dir = layoutPipe(duct.segments, place.origin, place.heading).jointDirections.at(-1) ?? place.heading;
+        const mount = { id: '', node: '', position: null as Vec3 | null, rotation: [...IDENTITY] as Quat };
+        seatTurbo(mount, [end.point.x, end.point.y, end.point.z], [dir.x, dir.y, dir.z], this.size);
+        this.ghostAt = { position: mount.position!, rotation: mount.rotation, attach: duct.id };
+        this.showGhost();
+        return;
+      }
+    }
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.turboHeight);
+    const point = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(plane, point)) {
+      this.ghost.group.visible = false;
+      return;
+    }
+    this.ghostAt = { position: [point.x, point.y, point.z], rotation: [...IDENTITY] };
+    this.showGhost();
+  }
+
+  private showGhost(): void {
+    this.ghost.place(this.ghostAt.position, this.ghostAt.rotation);
+    this.ghost.group.visible = true;
   }
 
   // -------------------------------------------------------------------------
@@ -295,6 +437,7 @@ export class PipeEditor {
   /** Everything the editor needs to draw into the current scene. Refreshed on every rebuild. */
   setDrawContext(context: DrawContext): void {
     this.context = context;
+    this.placeTurboTriad();
     if (!this.route) return;
     /**
      * Follow the duct through the rebuild, and only abandon the route if the duct is *gone from the
@@ -319,6 +462,7 @@ export class PipeEditor {
     if (!on) this.cancelRoute();
     this.group.visible = true;
     this.applyHandleVisibility();
+    this.placeTurboTriad();
   }
 
   /** Start a route from a junction, as clicking it in draw mode would. For the panel's button. */
@@ -406,15 +550,25 @@ export class PipeEditor {
 
   /** Handles are a nuisance while drawing: they sit exactly where the route is being aimed. */
   private applyHandleVisibility(): void {
-    for (const h of this.handles) h.visible = !this.drawMode;
-    for (const st of this.stalks) st.visible = !this.drawMode;
+    const hide = this.drawMode || this.placeMode;
+    for (const h of this.handles) h.visible = !hide;
+    this.pipeTriad.setVisible(!hide && this.pipeTriadAt !== null);
   }
+
+  /** Where the selected segment's triad goes: its end, moved, and its start, turned about. */
+  private pipeTriadAt: { end: THREE.Vector3; start: THREE.Vector3 } | null = null;
 
   private onContextMenu = (e: MouseEvent): void => {
     if (this.drawMode) e.preventDefault();
   };
 
   private onKeyDown = (e: KeyboardEvent): void => {
+    if (this.placeMode && e.key === 'Escape') {
+      this.setPlaceMode(false);
+      this.cb.onPlacing?.(false);
+      e.preventDefault();
+      return;
+    }
     if (!this.drawMode || !this.route) return;
     if (e.key === 'Escape') {
       this.cancelRoute();
@@ -489,7 +643,7 @@ export class PipeEditor {
 
   /** Whether a route can start from this target. */
   private static startable(target: SnapTarget | null): boolean {
-    return !!target && target.kind !== 'free';
+    return !!target && target.kind !== 'free' && target.kind !== 'turboInlet';
   }
 
   /**
@@ -611,6 +765,15 @@ export class PipeEditor {
     }
 
     // Connecting ends the route; a free point just carries on.
+    if (target.kind === 'turboInlet') {
+      const mount = ctx.graph.turbos?.find((t) => t.id === target.turbo);
+      if (mount) {
+        duct.to = { kind: 'node', node: mount.node };
+        ensureTurboOutlet(ctx.graph, mount.node, this.turboOutletDia);
+        this.finishRoute({ kind: 'node', node: mount.node });
+        return;
+      }
+    }
     if (target.kind === 'node') {
       this.finishRoute({ kind: 'node', node: target.node });
       return;
@@ -701,11 +864,6 @@ export class PipeEditor {
       this.group.remove(h);
     }
     this.handles.length = 0;
-    for (const s of this.stalks) {
-      s.geometry.dispose();
-      this.group.remove(s);
-    }
-    this.stalks.length = 0;
 
     const layout = layoutPipe(this.pipe, this.origin, this.heading);
 
@@ -714,49 +872,23 @@ export class PipeEditor {
       const r0 = this.pipe[0]!.dIn / 2;
       this.addRing(this.origin, this.heading, r0, { kind: 'inlet', segment: 0 });
     }
-
     for (let i = 0; i < layout.joints.length; i++) {
-      const p = layout.joints[i]!;
-      const d = layout.jointDirections[i]!;
-      const r = layout.jointRadii[i]!;
-
-      // Lift the sphere clear of the pipe, with a stalk so it is obvious which joint
-      // it belongs to. `dragOffset` is subtracted when dragging so the pipe end
-      // lands where the pointer is, not where the handle is.
-      const lift = liftVector(d).multiplyScalar(r + HANDLE_LIFT);
-      const sphere = new THREE.Mesh(new THREE.SphereGeometry(0.013, 16, 12), this.matNormal);
-      sphere.position.copy(p).add(lift);
-      sphere.userData = {
-        kind: 'end',
-        segment: i,
-        dragOffset: lift.clone(),
-      } satisfies HandleData;
-      sphere.renderOrder = 10;
-      this.handles.push(sphere);
-      this.group.add(sphere);
-
-      const stalk = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints([p.clone(), sphere.position.clone()]),
-        this.matStalk,
-      );
-      this.stalks.push(stalk);
-      this.group.add(stalk);
-
-      this.addRing(p, d, r, { kind: 'ring', segment: i });
+      this.addRing(layout.joints[i]!, layout.jointDirections[i]!, layout.jointRadii[i]!, { kind: 'ring', segment: i });
     }
 
+    // The selected segment's triad: moving its end, turning it about its start.
     const sel = this.selected;
     if (sel !== null && sel < layout.joints.length) {
-      const start = sel === 0 ? this.origin : layout.joints[sel - 1]!;
-      ENGINE_AXES.forEach((axis, a) => {
-        const ring = new THREE.Mesh(new THREE.TorusGeometry(ROTATE_RADIUS, 0.006, 8, 96), this.matRotate[a]);
-        ring.position.copy(start);
-        ring.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
-        ring.userData = { kind: 'rotate', segment: sel, axis: a } satisfies HandleData;
-        ring.renderOrder = 10;
-        this.handles.push(ring);
-        this.group.add(ring);
-      });
+      const start = sel === 0 ? this.origin.clone() : layout.joints[sel - 1]!.clone();
+      this.pipeTriadAt = { end: layout.joints[sel]!.clone(), start };
+      this.pipeTriad.setMoveOrigin(this.pipeTriadAt.end);
+      this.pipeTriad.setRotateOrigin(start);
+      // Turned with the segment: red along it, so its arrow changes only the length. Turning a straight
+      // pipe about itself does nothing, so that ring is not offered.
+      this.pipeTriad.setOrientation(frameAlong(this.pipeTriadAt.end.clone().sub(start)));
+      this.pipeTriad.hideRing(0, true);
+    } else {
+      this.pipeTriadAt = null;
     }
 
     this.applyHandleColours();
@@ -786,11 +918,9 @@ export class PipeEditor {
   private applyHandleColours(): void {
     for (const h of this.handles) {
       const data = h.userData as HandleData;
-      const isRing = data.kind !== 'end';
       if (h === this.hovered) h.material = this.matHover;
-      else if (data.kind === 'rotate') h.material = this.matRotate[data.axis ?? 0]!;
       else if (data.segment === this.selected) h.material = this.matSelected;
-      else h.material = isRing ? this.matRing : this.matNormal;
+      else h.material = this.matRing;
     }
   }
 
@@ -818,8 +948,29 @@ export class PipeEditor {
     if (e.button !== 0) return;
     this.updatePointer(e);
 
+    if (this.placeMode) {
+      this.updateGhost();
+      if (this.ghost.group.visible) this.cb.onPlaceTurbo?.({ ...this.ghostAt });
+      e.preventDefault();
+      return;
+    }
+
     if (this.drawMode) {
       this.onDrawClick(e);
+      return;
+    }
+
+    // A triad first: it sits on what is selected, in front of everything.
+    const turboHandle = this.turboTriad.pick(this.raycaster);
+    if (turboHandle) {
+      this.beginTriadDrag('turbo', turboHandle);
+      e.preventDefault();
+      return;
+    }
+    const pipeHandle = this.pipeTriad.pick(this.raycaster);
+    if (pipeHandle) {
+      this.beginTriadDrag('pipe', pipeHandle);
+      e.preventDefault();
       return;
     }
 
@@ -834,7 +985,7 @@ export class PipeEditor {
       return;
     }
 
-    // Anything else under the pointer: a segment of any pipe, or a junction.
+    // Anything else under the pointer: a segment of any pipe, a junction, or a turbo.
     const pick = this.pickScene();
     if (this.cb.onPick) {
       this.cb.onPick(pick);
@@ -879,23 +1030,25 @@ export class PipeEditor {
       if (!hit || (best && hit.distance >= best.distance)) continue;
       best = { distance: hit.distance, pick: { kind: 'joint', node: joint.node } };
     }
+    for (const turbo of ctx.turbos) {
+      const hit = this.raycaster.intersectObject(turbo.target, true)[0];
+      if (!hit || (best && hit.distance >= best.distance)) continue;
+      best = { distance: hit.distance, pick: { kind: 'turbo', turbo: turbo.turbo } };
+    }
     return (best as { pick: ScenePick } | null)?.pick ?? null;
   }
 
+  /** Take hold of a diameter ring. */
   private beginDrag(handle: THREE.Mesh, data: HandleData): void {
     const layout = layoutPipe(this.pipe, this.origin, this.heading);
     const i = data.segment;
-    const start = i === 0 ? this.origin.clone() : layout.joints[i - 1]!.clone();
-    const heading = i === 0 ? this.heading.clone() : layout.jointDirections[i - 1]!.clone();
-
-    // Always drag in a plane facing the camera.
+    // Always in a plane facing the camera.
     //
-    // A plane perpendicular to the pipe would be the obvious choice for a radius
-    // handle, but the pipe is normally viewed side-on, which puts the pointer ray
-    // almost parallel to that plane. The intersection then shoots off to infinity for
-    // a few pixels of movement, enough to take a 40 mm pipe to the 440 mm clamp in one
-    // short drag. A camera-facing plane is always well conditioned; the radius is
-    // recovered afterwards as the perpendicular distance from the pipe's axis.
+    // A plane perpendicular to the pipe would be the obvious choice, but the pipe is normally viewed
+    // side-on, which puts the pointer ray almost parallel to that plane. The intersection then shoots off
+    // to infinity for a few pixels of movement, enough to take a 40 mm pipe to the 440 mm clamp in one
+    // short drag. A camera-facing plane is always well conditioned; the radius is recovered afterwards as
+    // the perpendicular distance from the pipe's axis.
     const normal = new THREE.Vector3();
     this.camera.getWorldDirection(normal);
     const plane = new THREE.Plane();
@@ -906,77 +1059,169 @@ export class PipeEditor {
       data.kind === 'inlet' ? this.heading.clone() : layout.jointDirections[i]!.clone()
     ).normalize();
 
-    this.drag = { handle, data, start, heading, plane, axisPoint, axisDir, lastCommit: 0 };
-    if (data.kind === 'rotate') {
-      const a = data.axis ?? 0;
-      const axis = ENGINE_AXES[a]!.clone();
-      // A right-handed pair in the ring's plane, so a positive angle is a positive turn about the axis.
-      const u = ENGINE_AXES[(a + 1) % 3]!.clone();
-      const v = axis.clone().cross(u);
-      const dir0 = layout.joints[i]!.clone().sub(start).normalize();
-      this.drag.rotate = { axis, u, v, dir0, lastAngle: 0, turned: 0 };
-      this.drag.rotate.lastAngle = this.ringAngle() ?? 0;
-    }
+    this.drag = { handle, data, plane, axisPoint, axisDir, lastCommit: 0 };
     this.controls.enabled = false;
   }
 
-  /**
-   * Where the pointer is round the rotation ring being dragged, as an angle in its plane.
-   *
-   * Straight onto the ring's plane where the view allows, so the angle is exactly where the pointer is on
-   * the ring. Seen nearly edge-on, that intersection runs off to infinity, so the pointer is taken on a
-   * plane facing the camera instead and flattened onto the ring's.
-   */
-  private ringAngle(): number | null {
-    const drag = this.drag;
-    const rot = drag?.rotate;
-    if (!drag || !rot) return null;
+  /** Take hold of a triad's handle, on the selected segment or the selected turbo. */
+  private beginTriadDrag(on: 'pipe' | 'turbo', handle: TriadHandle): void {
+    const triad = on === 'pipe' ? this.pipeTriad : this.turboTriad;
+    const moveOrigin = triad.moveOrigin;
+    const rotateOrigin = triad.rotateOrigin;
+    const axis = triad.axisDir(handle.axis);
+    const ring = triad.ring(handle.axis);
+    const drag: TriadDrag = {
+      on,
+      handle,
+      axis,
+      ring,
+      grabOffset: 0,
+      grabPoint: moveOrigin.clone(),
+      moveOrigin,
+      rotateOrigin,
+      lastAngle: 0,
+      turned: 0,
+      lastCommit: 0,
+      moved: false,
+    };
     const ray = this.raycaster.ray;
-    const point = new THREE.Vector3();
-    const facing = Math.abs(ray.direction.dot(rot.axis));
-    const plane =
-      facing > MIN_RING_FACING
-        ? new THREE.Plane().setFromNormalAndCoplanarPoint(rot.axis, drag.start)
-        : new THREE.Plane().setFromNormalAndCoplanarPoint(
-            this.camera.getWorldDirection(new THREE.Vector3()),
-            drag.start,
-          );
-    if (!ray.intersectPlane(plane, point)) return null;
-    const rel = point.sub(drag.start);
-    const x = rel.dot(rot.u);
-    const y = rel.dot(rot.v);
-    if (Math.hypot(x, y) < 1e-6) return null;
-    return Math.atan2(y, x);
+    if (handle.kind === 'axis') drag.grabOffset = axisOffset(ray, moveOrigin, axis) ?? 0;
+    else if (handle.kind === 'plane') drag.grabPoint = planePoint(ray, moveOrigin, axis) ?? moveOrigin.clone();
+    else drag.lastAngle = this.ringAngleNow(rotateOrigin, ring) ?? 0;
+
+    if (on === 'pipe') {
+      const sel = this.selected;
+      if (sel === null || !this.pipe[sel]) return;
+      const layout = layoutPipe(this.pipe, this.origin, this.heading);
+      drag.segment = sel;
+      drag.heading = sel === 0 ? this.heading.clone() : layout.jointDirections[sel - 1]!.clone();
+      drag.dir0 = layout.joints[sel]!.clone().sub(rotateOrigin).normalize();
+    } else {
+      const mount = this.context?.graph.turbos?.find((t) => t.id === this.selectedTurbo);
+      if (!mount?.position) return;
+      drag.turbo = mount.id;
+      drag.rotation0 = [...mount.rotation];
+    }
+    this.triadDrag = drag;
+    this.controls.enabled = false;
+  }
+
+  private ringAngleNow(centre: THREE.Vector3, ring: RingFrame): number | null {
+    return ringAngle(this.raycaster.ray, centre, ring, this.camera.getWorldDirection(new THREE.Vector3()));
   }
 
   /**
-   * Turn a segment about one of the engine's axes, keeping its length.
-   *
-   * With shift held the segment lands on a multiple of 15 degrees round that axis, measured in the engine's
-   * frame rather than from where it started, so a pipe that was drawn at an odd angle squares up.
+   * Where the triad being dragged has moved its point to, from where it began: along the arrow's axis, or
+   * in the square's plane, in 5 mm steps with shift held.
    */
-  private dragRotate(seg: PipeSegment, snap: boolean): void {
-    const drag = this.drag!;
-    const rot = drag.rotate!;
-    const angle = this.ringAngle();
-    if (angle === null) return;
-    // Accumulated a step at a time, so a drag past half a turn does not wrap back.
-    let step = angle - rot.lastAngle;
-    if (step > Math.PI) step -= 2 * Math.PI;
-    else if (step < -Math.PI) step += 2 * Math.PI;
-    rot.turned += step;
-    rot.lastAngle = angle;
-
-    let turn = rot.turned;
-    if (snap) {
-      const from = Math.atan2(rot.dir0.dot(rot.v), rot.dir0.dot(rot.u));
-      const grid = (ROTATE_STEP_DEG * Math.PI) / 180;
-      turn = Math.round((from + turn) / grid) * grid - from;
+  private triadMove(drag: TriadDrag, snap: boolean): THREE.Vector3 | null {
+    const axis = drag.axis;
+    const ray = this.raycaster.ray;
+    if (drag.handle.kind === 'axis') {
+      const at = axisOffset(ray, drag.moveOrigin, axis);
+      if (at === null) return null;
+      const t = at - drag.grabOffset;
+      return drag.moveOrigin.clone().addScaledVector(axis, snap ? snapTo(t, MOVE_STEP) : t);
     }
-    const dir = rot.dir0.clone().applyAxisAngle(rot.axis, turn);
-    const { yaw, pitch } = turnBetween(drag.heading, dir);
-    seg.yaw = yaw;
-    seg.pitch = pitch;
+    const point = planePoint(ray, drag.moveOrigin, axis);
+    if (!point) return null;
+    const d = point.sub(drag.grabPoint);
+    d.addScaledVector(axis, -d.dot(axis));
+    if (snap) {
+      // In steps along the plane's own two axes.
+      const { u, v } = drag.ring;
+      const a = snapTo(d.dot(u), MOVE_STEP);
+      const b = snapTo(d.dot(v), MOVE_STEP);
+      d.copy(u).multiplyScalar(a).addScaledVector(v, b);
+    }
+    return drag.moveOrigin.clone().add(d);
+  }
+
+  /** How far the ring being dragged has turned since the drag began, radians, accumulated so it never wraps. */
+  private triadTurn(drag: TriadDrag): number | null {
+    const angle = this.ringAngleNow(drag.rotateOrigin, drag.ring);
+    if (angle === null) return null;
+    drag.turned += angleStep(drag.lastAngle, angle);
+    drag.lastAngle = angle;
+    return drag.turned;
+  }
+
+  /** A frame of a triad drag: move or turn what it is on. */
+  private dragTriad(snap: boolean): void {
+    const drag = this.triadDrag!;
+    if (drag.on === 'pipe') this.dragPipeTriad(drag, snap);
+    else this.dragTurboTriad(drag, snap);
+  }
+
+  /**
+   * The selected segment by its triad.
+   *
+   * Moving its end: the segment runs from where it starts to the new end, turning off the heading entering
+   * it by what that takes, and as long as it now is. Turning it: it swings about its start, keeping its
+   * length, landing with shift held on a multiple of 15 degrees counted from the engine's axes, so a segment
+   * drawn at an odd angle squares up.
+   */
+  private dragPipeTriad(drag: TriadDrag, snap: boolean): void {
+    const seg = this.pipe[drag.segment ?? -1];
+    if (!seg || !drag.heading || !drag.dir0) return;
+    if (drag.handle.kind === 'ring') {
+      let turn = this.triadTurn(drag);
+      if (turn === null) return;
+      if (snap) turn = snapTurnToEngine(drag.dir0, turn, drag.axis, (TRIAD_TURN_DEG * Math.PI) / 180);
+      const dir = drag.dir0.clone().applyAxisAngle(drag.axis, turn);
+      const { yaw, pitch } = turnBetween(drag.heading, dir);
+      seg.yaw = yaw;
+      seg.pitch = pitch;
+    } else {
+      const end = this.triadMove(drag, snap);
+      if (!end) return;
+      const chord = end.sub(drag.rotateOrigin);
+      const chordLen = chord.length();
+      if (chordLen < 1e-4) return;
+      const turn = turnBetween(drag.heading, chord);
+      seg.yaw = turn.yaw;
+      seg.pitch = turn.pitch;
+      seg.length = clamp(chordLen, MIN_LENGTH, MAX_LENGTH);
+    }
+    drag.moved = true;
+    this.commitFrame(drag, () => this.cb.onChange(false), () => this.cb.onChange(true));
+  }
+
+  /**
+   * The selected turbo by its triad: moved along one of its own axes or in the plane of two, or turned
+   * about one through its centre.
+   */
+  private dragTurboTriad(drag: TriadDrag, snap: boolean): void {
+    const mount = this.context?.graph.turbos?.find((t) => t.id === drag.turbo);
+    if (!mount?.position || !drag.rotation0) return;
+    let position: Vec3 = [...mount.position];
+    let rotation: Quat = mount.rotation;
+    if (drag.handle.kind === 'ring') {
+      let turn = this.triadTurn(drag);
+      if (turn === null) return;
+      // Its other two axes swing round the ring: snapped, they land square to the engine's where they can.
+      if (snap) turn = snapTurnToEngine(drag.ring.u, turn, drag.axis, (TRIAD_TURN_DEG * Math.PI) / 180);
+      const a = drag.axis;
+      rotation = quatNormalise(quatMultiply(quatFromAxisAngle([a.x, a.y, a.z], turn), drag.rotation0));
+    } else {
+      const at = this.triadMove(drag, snap);
+      if (!at) return;
+      position = [at.x, at.y, at.z];
+    }
+    drag.moved = true;
+    const send = (commit: boolean) => this.cb.onMoveTurbo?.(mount.id, position, rotation, commit);
+    this.commitFrame(drag, () => send(false), () => send(true));
+  }
+
+  /** Report a drag frame, throttling the ones that rebuild the audio. */
+  private commitFrame(drag: TriadDrag, frame: () => void, commit: () => void): void {
+    const now = performance.now();
+    if (now - drag.lastCommit > AUDIO_COMMIT_MS) {
+      drag.lastCommit = now;
+      commit();
+    } else {
+      frame();
+    }
   }
 
   /**
@@ -1058,6 +1303,17 @@ export class PipeEditor {
   }
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (this.placeMode) {
+      this.updatePointer(e);
+      this.updateGhost();
+      return;
+    }
+    if (this.triadDrag) {
+      this.updatePointer(e);
+      this.dragTriad(e.shiftKey);
+      e.preventDefault();
+      return;
+    }
     if (this.drawMode && !this.drag) {
       this.updatePointer(e);
       this.updateDrawPreview(drawSnapOf(e));
@@ -1066,28 +1322,23 @@ export class PipeEditor {
     this.updatePointer(e);
 
     if (!this.drag) {
-      const hit = this.raycaster.intersectObjects(this.handles, false)[0];
+      const onTriad = this.turboTriad.hover(this.raycaster) || this.pipeTriad.hover(this.raycaster);
+      const hit = onTriad ? undefined : this.raycaster.intersectObjects(this.handles, false)[0];
       const next = (hit?.object as THREE.Mesh | undefined) ?? null;
       if (next !== this.hovered) {
         this.hovered = next;
         this.applyHandleColours();
       }
       // A hand over anything clickable, so it is discoverable that pipes and junctions can be picked.
-      this.dom.style.cursor = next ? 'grab' : this.pickScene() ? 'pointer' : '';
+      this.dom.style.cursor = onTriad || next ? 'grab' : this.pickScene() ? 'pointer' : '';
       return;
     }
 
     const seg = this.pipe[this.drag.data.segment];
     if (!seg) return;
-
-    if (this.drag.data.kind === 'rotate') {
-      this.dragRotate(seg, e.shiftKey);
-    } else {
-      const point = new THREE.Vector3();
-      if (!this.raycaster.ray.intersectPlane(this.drag.plane, point)) return;
-      if (this.drag.data.kind === 'end') this.dragEnd(seg, point);
-      else this.dragRadius(seg, point);
-    }
+    const point = new THREE.Vector3();
+    if (!this.raycaster.ray.intersectPlane(this.drag.plane, point)) return;
+    this.dragRadius(seg, point);
 
     const now = performance.now();
     const commit = now - this.drag.lastCommit > AUDIO_COMMIT_MS;
@@ -1095,26 +1346,6 @@ export class PipeEditor {
     this.cb.onChange(commit);
     e.preventDefault();
   };
-
-  /**
-   * Grab the end of a segment and move it: distance sets length, direction sets the corner.
-   *
-   * A segment is straight and turns where it starts, so the pointer's position gives both exactly — the
-   * turn from the direction coming in to the direction of the pointer, and the distance to it.
-   */
-  private dragEnd(seg: PipeSegment, rawTarget: THREE.Vector3): void {
-    // The sphere is drawn lifted clear of the pipe, so undo that displacement to get
-    // where the user actually wants the pipe end to be.
-    const offset = this.drag!.data.dragOffset;
-    const target = offset ? rawTarget.clone().sub(offset) : rawTarget;
-    const chord = target.clone().sub(this.drag!.start);
-    const chordLen = chord.length();
-    if (chordLen < 1e-4) return;
-    const turn = turnBetween(this.drag!.heading, chord);
-    seg.yaw = turn.yaw;
-    seg.pitch = turn.pitch;
-    seg.length = clamp(chordLen, MIN_LENGTH, MAX_LENGTH);
-  }
 
   /** Grab a joint ring and pull: sets the diameter at that joint. */
   private dragRadius(seg: PipeSegment, target: THREE.Vector3): void {
@@ -1156,6 +1387,21 @@ export class PipeEditor {
   }
 
   private onPointerUp = (): void => {
+    if (this.triadDrag) {
+      const drag = this.triadDrag;
+      this.triadDrag = null;
+      this.controls.enabled = true;
+      if (!drag.moved) return;
+      // Final authoritative push, since intermediate frames were throttled.
+      if (drag.on === 'turbo') {
+        const mount = this.context?.graph.turbos?.find((t) => t.id === drag.turbo);
+        if (mount?.position) this.cb.onMoveTurbo?.(mount.id, mount.position, mount.rotation, true);
+      } else {
+        this.cb.onChange(true);
+        this.rebuildHandles();
+      }
+      return;
+    }
     if (!this.drag) return;
     this.drag = null;
     this.controls.enabled = true;
@@ -1170,36 +1416,15 @@ export class PipeEditor {
     this.dom.removeEventListener('pointermove', this.onPointerMove);
     window.removeEventListener('pointerup', this.onPointerUp);
     for (const h of this.handles) h.geometry.dispose();
-    for (const s of this.stalks) s.geometry.dispose();
+    this.pipeTriad.dispose();
+    this.turboTriad.dispose();
     this.previewGeom.dispose();
     this.guideGeom.dispose();
-    for (const m of [
-      this.matNormal,
-      this.matHover,
-      this.matSelected,
-      this.matRing,
-      this.matStalk,
-      this.previewMat,
-      this.guideMat,
-      ...this.matRotate,
-    ]) {
+    this.ghost.dispose();
+    for (const m of [this.matHover, this.matSelected, this.matRing, this.previewMat, this.guideMat]) {
       m.dispose();
     }
   }
-}
-
-/**
- * A unit direction to lift a handle away from the pipe: perpendicular to the pipe
- * and as close to straight up as that allows, so handles do not disappear into the
- * geometry on a vertical run.
- */
-function liftVector(direction: THREE.Vector3): THREE.Vector3 {
-  const up = new THREE.Vector3(0, 1, 0);
-  const v = up.clone().projectOnPlane(direction.clone().normalize());
-  if (v.lengthSq() < 1e-6) {
-    return new THREE.Vector3(0, 0, 1).projectOnPlane(direction.clone().normalize()).normalize();
-  }
-  return v.normalize();
 }
 
 function clamp(x: number, lo: number, hi: number): number {
