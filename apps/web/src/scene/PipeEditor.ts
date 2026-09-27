@@ -218,6 +218,8 @@ export interface PipeEditorCallbacks {
   onApplyHeader?: (builds: Array<{ plan: HeaderPlan; primaries: HeaderPrimary[] }>) => void;
   /** The header tool was ended from the view, by Escape. */
   onHeaderEnded?: () => void;
+  /** The pipes' length, where it follows what is picked. */
+  onHeaderLength?: (length: number) => void;
 }
 
 /**
@@ -237,6 +239,8 @@ export interface HeaderSetup {
   mirrored: boolean;
   /** The bore a pipe from a port with none on it starts at. */
   portBore: number;
+  /** Whether the length was set; until it is, it is the shortest that reaches, following what is picked. */
+  lengthSet: boolean;
 }
 
 /** The openings' dots: picked, and not. */
@@ -718,6 +722,7 @@ export class PipeEditor {
   setHeaderLength(length: number): void {
     if (!this.header) return;
     this.header.length = length;
+    this.header.lengthSet = true;
     this.updateHeader();
   }
 
@@ -744,7 +749,13 @@ export class PipeEditor {
       length: h.length,
       collectorBore: headerCollectorBore(ctx.graph, openings),
     });
-    const bankOf = (o: OpeningAt) => (o.opening.kind === 'port' ? (h.banks[o.opening.cylinder] ?? 0) : -1);
+    // A port's bank, and a port's pipe's: anything else merges at the triad however it is mirrored.
+    const bankOf = (o: OpeningAt) => {
+      if (o.opening.kind === 'port') return h.banks[o.opening.cylinder] ?? 0;
+      const id = o.opening.duct;
+      const from = ctx.graph.ducts.find((d) => d.id === id)?.from;
+      return from?.kind === 'valve' ? (h.banks[from.cylinder] ?? 0) : -1;
+    };
     const ports = picked.filter((o) => bankOf(o) >= 0);
     if (!h.mirrored || !h.mirror || ports.length === 0) return picked.length > 0 ? [plan(picked, h.merge, h.axis)] : [];
     // The triad's side: the bank whose picked ports are nearer it on average.
@@ -800,6 +811,13 @@ export class PipeEditor {
       dot.scale.setScalar(Math.max(o.bore * 0.35, 0.008));
       (dot.material as THREE.MeshBasicMaterial).color.setHex(h.picked.has(openingKey(o.opening)) ? OPENING_PICKED : OPENING_UNPICKED);
     });
+    // Picks that are no longer openings — a pipe drawn on the port, say — are not picked.
+    const live = new Set(this.openings.map((o) => openingKey(o.opening)));
+    for (const key of [...h.picked]) if (!live.has(key)) h.picked.delete(key);
+    if (!h.lengthSet) {
+      h.length = this.headerReach;
+      this.cb.onHeaderLength?.(h.length);
+    }
 
     const plans = this.headerPlans();
     const pipes: Array<{ segments: PipeSegment[]; origin: THREE.Vector3; heading: THREE.Vector3 }> = [];

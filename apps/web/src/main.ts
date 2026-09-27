@@ -35,7 +35,6 @@ import {
   bankCylinders,
   bankMirror,
   defaultMerge,
-  openingKey,
   runnerBore,
 } from './scene/headerTool.js';
 import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatTurbos, turboHeight } from './scene/turboPlacement.js';
@@ -296,6 +295,7 @@ const editor = new PipeEditor(
     },
     onHeaderAim: (aim) => panel.setHeaderAim(aim),
     onHeaderEnded: () => panel.setHeaderToolState(false),
+    onHeaderLength: (length) => panel.setHeaderLength(length),
     onApplyHeader: (builds) => {
       freeze();
       const graph = config.graph!;
@@ -427,7 +427,7 @@ const panel = new Panel(panelEl, config, {
     // The bank of the pipe being edited, if it is a cylinder's.
     const edited = graph.ducts.find((d) => d.id === editedDuctId);
     const bank = edited?.from.kind === 'valve' ? physicalBank(spec, edited.from.cylinder) : 0;
-    // Starting out from that bank's ports, with every port picked.
+    // Starting out beside that bank's ports, with nothing picked: the user picks the openings.
     const portBore = exhaustPortDiameter(spec);
     const { merge, axis } = defaultMerge(
       bankCylinders(spec, bank).map((cylinder) => ({
@@ -441,15 +441,13 @@ const panel = new Panel(panelEl, config, {
       merge,
       axis,
       length: 0,
-      picked: new Set(ports.map((_, cylinder) => openingKey({ kind: 'port', cylinder }))),
+      picked: new Set(),
       banks: ports.map((_, cylinder) => physicalBank(spec, cylinder)),
       mirror: bankMirror(spec),
       mirrored: panel.headerMirrored,
       portBore,
+      lengthSet: false,
     });
-    const length = editor.headerReach;
-    editor.setHeaderLength(length);
-    panel.setHeaderLength(length);
   },
   onHeaderLength: (length) => editor.setHeaderLength(length),
   onHeaderMirror: (on) => editor.setHeaderMirrored(on),

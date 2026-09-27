@@ -43,7 +43,7 @@ const runner = (graph: ExhaustGraph, cylinder: number) =>
   graph.ducts.find((d) => d.from.kind === 'valve' && d.from.cylinder === cylinder)!;
 const total = (segments: { length: number }[]) => segments.reduce((a, s) => a + s.length, 0);
 
-/** The openings of `graph` the cylinders' ports give. */
+/** The openings of `graph` the cylinders' ports give, which have nothing on them yet. */
 function portOpenings(graph: ExhaustGraph, ports: ExhaustPort[], cylinders: number[]): OpeningAt[] {
   const all = headerOpenings(graph, layoutGraph(ports, graph), ports, 0.042);
   return cylinders.map((c) => all.find((o) => o.opening.kind === 'port' && o.opening.cylinder === c)!);
@@ -62,7 +62,7 @@ function planFrom(graph: ExhaustGraph, openings: OpeningAt[]): HeaderPlan {
 describe('equal-length pipes', () => {
   it('builds every primary on a bank the same length, into one collector where it was put', () => {
     const ports = portsOf(v8);
-    const graph = compileCollectorLayout(v8, [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.5, dIn: 0.06 })]);
+    const graph = compileCollectorLayout(v8, [], [makeSegment({ length: 0.5, dIn: 0.06 })]);
     const cylinders = bankCylinders(v8, 0);
     const p = planFrom(graph, portOpenings(graph, ports, cylinders));
     const collectors = graph.ducts.filter((d) => d.role === 'collector').length;
@@ -95,7 +95,7 @@ describe('equal-length pipes', () => {
 
   it('runs every port on both banks to the one place, not mirrored', () => {
     const ports = portsOf(v8);
-    const graph = compileCollectorLayout(v8, [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.5, dIn: 0.06 })]);
+    const graph = compileCollectorLayout(v8, [], [makeSegment({ length: 0.5, dIn: 0.06 })]);
     const all = Array.from({ length: 8 }, (_, c) => c);
     const openings = portOpenings(graph, ports, all);
     const { merge } = defaultMerge(openings);
@@ -118,7 +118,7 @@ describe('equal-length pipes', () => {
     ['a boxer four, whose ports both point down', boxer],
   ])('gives the other bank of %s the mirror image', (_n, spec) => {
     const ports = portsOf(spec);
-    const graph = compileCollectorLayout(spec, [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.5, dIn: 0.06 })]);
+    const graph = compileCollectorLayout(spec, [], [makeSegment({ length: 0.5, dIn: 0.06 })]);
     const p = planFrom(graph, portOpenings(graph, ports, bankCylinders(spec, 0)));
     const mirror = bankMirror(spec)!;
     expect(mirror).not.toBeNull();
@@ -134,17 +134,19 @@ describe('equal-length pipes', () => {
     for (let c = 0; c < spec.cylinders; c++) expect(total(runner(graph, c).segments)).toBeCloseTo(p.length, 2);
   });
 
-  it('carries an open pipe on to the merge, the same length as a port’s', () => {
+  it('offers a port with a pipe on it only as where that pipe ends, and carries open pipes on', () => {
     const twin = { ...defaultConfig().engine, cylinders: 2, vAngle: 0, exhaustLayout: '2into2' } as EngineSpec;
     const ports = portsOf(twin);
     const graph = compileLayout(twin, [makeSegment({ length: 0.4 })], []);
     const loose = placeLoosePipe(graph, [0.2, 0.1, 0.3], 0.05, 0.2);
-    const before = graph.ducts.find((d) => d.id === loose)!.segments.map((sg) => sg.length);
+    const lengths = (id: string) => graph.ducts.find((d) => d.id === id)!.segments.map((sg) => sg.length);
+    const before = { runner0: lengths('runner0'), [loose]: lengths(loose) };
     const all = headerOpenings(graph, layoutGraph(ports, graph), ports, 0.042);
-    // A port's own pipe's end is not an opening of its own: the port replaces that pipe.
-    expect(all.filter((o) => o.opening.kind === 'end').map((o) => (o.opening as { duct: string }).duct)).toEqual([loose]);
-    const openings = all.filter((o) => (o.opening.kind === 'port' && o.opening.cylinder === 0) || o.opening.kind === 'end');
-    const end = openings.find((o) => o.opening.kind === 'end')!;
+    // Both ports are used: what is open is where their pipes end, and the loose pipe's end.
+    expect(all.every((o) => o.opening.kind === 'end')).toBe(true);
+    expect(all.map((o) => (o.opening as { duct: string }).duct).sort()).toEqual([loose, 'runner0', 'runner1'].sort());
+    const openings = all.filter((o) => (o.opening as { duct: string }).duct !== 'runner1');
+    const end = openings.find((o) => (o.opening as { duct: string }).duct === loose)!;
     const p: HeaderPlan = {
       openings,
       merge: end.point.clone().add(new THREE.Vector3(0, -0.2, 0.25)),
@@ -155,17 +157,18 @@ describe('equal-length pipes', () => {
     p.length = shortestHeader(p) + 0.05;
     applyHeader(graph, p, headerPrimaries(p));
 
-    const pipe = graph.ducts.find((d) => d.id === loose)!;
-    // What it was, kept, and the pipe carrying it on after it.
-    expect(pipe.segments.slice(0, before.length).map((sg) => sg.length)).toEqual(before);
-    expect(total(pipe.segments.slice(before.length))).toBeCloseTo(p.length, 2);
-    expect(total(runner(graph, 0).segments)).toBeCloseTo(p.length, 2);
-    expect(pipe.to).toEqual(runner(graph, 0).to);
+    // Each keeps what it was and carries on to the merge, the same length on from its end.
+    const collector = graph.ducts.find((d) => d.role === 'collector')!;
+    for (const id of ['runner0', loose]) {
+      const pipe = graph.ducts.find((d) => d.id === id)!;
+      const was = before[id]!;
+      expect(pipe.segments.slice(0, was.length).map((sg) => sg.length)).toEqual(was);
+      expect(total(pipe.segments.slice(was.length))).toBeCloseTo(p.length, 2);
+      expect(pipe.to).toEqual({ kind: 'node', node: (collector.from as { node: string }).node });
+      expect(pipe.segments.at(-1)!.dOut).toBeCloseTo(collector.segments[0]!.dIn, 9);
+    }
     // The other cylinder was not picked, and is as it was.
     expect(runner(graph, 1).to).toEqual({ kind: 'mouth' });
-    const collector = graph.ducts.find((d) => d.role === 'collector')!;
-    expect(collector.to).toEqual({ kind: 'mouth' });
-    expect(pipe.segments.at(-1)!.dOut).toBeCloseTo(collector.segments[0]!.dIn, 9);
     expect(bankMirror(twin)).toBeNull();
     expect(validateGraph(graph, 2)).toEqual([]);
   });
