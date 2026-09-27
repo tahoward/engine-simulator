@@ -83,6 +83,15 @@ pub enum CrankType {
     Boxer,
 }
 
+/// Where a turbocharged engine's blow-off valve vents, or `None` for no valve at all. See `turbo`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum BlowOff {
+    Atmospheric,
+    Recirculating,
+    None,
+}
+
 /// How the exhausts are plumbed, as `exhaust_layout_of` normalises it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExhaustLayout {
@@ -190,6 +199,15 @@ pub struct EngineSpec {
     pub intake_runner_short_length: f64,
     pub intake_switch_rpm: f64,
 
+    // --- Turbocharger ---
+    pub turbo: bool,
+    pub turbo_count: f64,
+    pub boost_target: f64,
+    pub turbo_size: f64,
+    pub intercooler: f64,
+    pub blow_off: BlowOff,
+    pub turbo_noise: f64,
+
     // --- Operating point ---
     pub rpm: f64,
     pub rev_limit: f64,
@@ -266,6 +284,14 @@ impl Default for EngineSpec {
             intake_runner_dia: 0.0,
             intake_runner_short_length: 0.0,
             intake_switch_rpm: 5000.0,
+
+            turbo: false,
+            turbo_count: 1.0,
+            boost_target: 0.7e5,
+            turbo_size: 0.0,
+            intercooler: 0.7,
+            blow_off: BlowOff::Atmospheric,
+            turbo_noise: 1.0,
 
             rpm: 3200.0,
             rev_limit: 7000.0,
@@ -367,6 +393,26 @@ pub struct EngineSnapshot {
     pub substeps: f64,
     pub wall_temp: f64,
     pub dyno: Option<DynoSnapshot>,
+    /// The turbocharger's state, on a turbocharged engine only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub turbo: Option<TurboSnapshot>,
+}
+
+/// A turbocharger's state, sent with each snapshot.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurboSnapshot {
+    /// Charge-air pressure, gauge, Pa.
+    pub boost: f64,
+    /// Plenum pressure, gauge, Pa: below zero is vacuum.
+    pub manifold: f64,
+    /// Each turbo's shaft speed, rev/min.
+    pub shaft_rpm: f64,
+    /// Wastegate and blow-off valve openings, 0..1.
+    pub wastegate: f64,
+    pub blow_off: f64,
+    /// Whether the compressor is surging.
+    pub surging: bool,
 }
 
 /// The car and gearbox a dyno run drives through. See `DynoRun`.
@@ -500,9 +546,11 @@ pub fn displacement(spec: &EngineSpec) -> f64 {
     (PI * spec.bore * spec.bore) / 4.0 * spec.stroke
 }
 
-/// Nominal full-throttle torque of the whole engine, N*m.
+/// Nominal full-throttle torque of the whole engine, N*m: on boost, in proportion to the charge
+/// pressure the wastegate holds.
 pub fn full_load_torque(spec: &EngineSpec) -> f64 {
-    (FULL_LOAD_BMEP * displacement(spec) * spec.cylinders as f64) / (4.0 * PI)
+    let torque = (FULL_LOAD_BMEP * displacement(spec) * spec.cylinders as f64) / (4.0 * PI);
+    if spec.turbo { torque * (gas::P_AMB + spec.boost_target) / gas::P_AMB } else { torque }
 }
 
 /// The braking torque `load` asks for, N*m.

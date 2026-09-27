@@ -57,6 +57,21 @@
 - **Throttle bore** sets the throttle's size. At 0 it is sized for the engine's airflow at full
   throttle and 7000 rpm.
 
+## Turbocharger
+
+- **Turbocharged** fits a turbo. The line under it gives the boost, the turbo's speed, and whether the
+  wastegate is open, the blow-off valve is venting or the compressor is surging. See
+  [The turbocharger](engine.md#the-turbocharger).
+- **Turbos** is one, or two in parallel, each half-sized.
+- **Boost** is what the wastegate holds.
+- **Turbo size** is each compressor's airflow at full speed. Small spools early and runs out of breath
+  at the top; big lags and holds its boost to the limiter. At 0 it is sized for the engine.
+- **Intercooler** is how much of the compressor's heating it takes back out of the charge.
+- **Blow-off valve** vents the charge when the throttle shuts on boost: to the atmosphere, back to the
+  compressor inlet, or, with none, not at all, so the compressor surges.
+- **Turbo sound** sets the level of the turbo's own sounds: the whine, the blow-off valve, the flutter
+  and the wastegate. See [The turbocharger's sounds](acoustics.md#the-turbochargers-sounds).
+
 ## Combustion
 
 - **Ignition advance** is the spark timing for a charge that burns over the reference **Burn

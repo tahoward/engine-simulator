@@ -25,6 +25,7 @@ pub mod pow;
 pub mod radiation;
 pub mod simd;
 pub mod spec;
+pub mod turbo;
 pub mod valve;
 
 pub use engine_sim::EngineSim;

@@ -13,7 +13,7 @@ use crate::exhaust_graph::{
     DuctRole, End, ExhaustGraph, ends_at, node_order, path_to_air, radiating_ducts, validate_graph, valve_ducts,
 };
 use crate::math::{self, PI, clamp};
-use crate::spec::gas;
+use crate::spec::{ambient_sound_speed, gas};
 
 /// Turbulence intensity of the merge, as a fraction of the mixing mass flow.
 const MERGE_TURBULENCE: f64 = 0.14;
@@ -298,6 +298,23 @@ impl ExhaustSystem {
     /// that the first junction-fed duct.
     pub fn collector(&self) -> Option<&EulerPipe> {
         self.main_collector.map(|i| &self.ducts[i])
+    }
+
+    /// Open every radiating mouth into gas at `p` (Pa) rather than the atmosphere: the inlet of a
+    /// turbine, whose back pressure the whole exhaust then works against.
+    pub fn set_back_pressure(&mut self, p: f64) {
+        let rho = p / (gas::R * gas::T_AMB);
+        let c = ambient_sound_speed();
+        for &d in &self.radiating {
+            self.ducts[d].set_reservoir(p, rho, c);
+        }
+    }
+
+    /// Open every radiating mouth into the atmosphere again.
+    pub fn clear_back_pressure(&mut self) {
+        for &d in &self.radiating {
+            self.ducts[d].open_to_atmosphere();
+        }
     }
 
     /// How many mouths radiate.

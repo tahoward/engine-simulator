@@ -33,6 +33,17 @@ Where the model is simplified, and by how much.
   point, for torque, economy and emissions together; this one is four cam positions at two speeds,
   blended in a straight line between them, and moves the cams under load only. What cam timing does
   to part-load economy and emissions, much of what a real engine uses it for, is not modelled.
+- **The turbocharger is lumped.** Its turbine is a nozzle, not a duct in the exhaust. So the exhaust's
+  pulses reach the tailpipe without passing through it, and it works from their mean; the back pressure
+  it makes is applied where the exhaust meets the air, and its muffling of the note is a fixed filter.
+  The compressor map is one generic shape scaled to the turbo's size, not a real turbo's map, and its
+  turbine efficiency does not vary. There is no knock, so no boost is too much and the spark is not
+  retarded on boost, as a real engine's would be. The RB26DETT preset makes 376 N·m at 4400 rpm against
+  the real engine's 368, and 331 PS at 6800, against its rated 280 and the 300-320 real ones make.
+- **The turbocharger's sounds are synthesised from its state.** The whine is tones at the wheel's
+  blade-pass and shaft orders, not the flow through its blades; the blow-off jet and the flutter's
+  chuff are shaped noise. Their levels are set by ear against the exhaust. Only the surge's thump
+  is radiated from the flow itself.
 - **A sealed cavity has a tiny built-in growth.** In a nearly lossless *sealed* cavity the
   solver has a small [second-order](glossary.md#order-of-accuracy) error that grows at about 1.4 /s. Normal damping is 150 /s,
   about a hundred times larger, so it stays suppressed. It is not zero.

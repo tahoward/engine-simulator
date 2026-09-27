@@ -161,6 +161,60 @@ cam fixed late             283    292    337    363    342
 intake 40° at low speed    323    321    356    361    342
 ```
 
+## The turbocharger
+
+A turbocharger is a turbine in the exhaust and a compressor in the intake on one shaft. The throttle
+draws from the air between the compressor and itself, the charge air, rather than from the atmosphere,
+so on boost the cylinders fill from above atmospheric pressure. The pieces are lumped, one state each,
+and stepped every audio sample
+([`turbo.rs`](https://github.com/tahoward/engine-simulator/blob/main/crates/engine-sim/src/turbo.rs)):
+
+- **The turbine** passes the exhaust the valves push out, as a nozzle does: by Stodola's ellipse law,
+  its inlet pressure rises with the flow through it and with the gas's temperature. Its power is the
+  isentropic expansion from that pressure to the atmosphere, at 68% efficiency. The inlet pressure is
+  also what the exhaust's mouths open into. So the cylinders push out against it, which costs pumping
+  work, and more spent gas stays behind in the cylinder, both from the cylinder model as they would
+  from a real restriction.
+- **The wastegate** opens a bypass around the turbine as the boost reaches its target, over a few
+  hundredths of a bar, so the turbine takes less of the exhaust. It is a spring and diaphragm with a
+  40 ms lag, not a controller, so the boost settles near the target rather than exactly on it.
+- **The compressor** is a Moore-Greitzer characteristic: a cubic in the flow, scaled with the square
+  of the shaft speed. It has its peak pressure rise at 44% of the choke flow, its surge line; to the
+  left of that the pressure it makes falls as the flow falls. The air in its duct has inertia, and the
+  charge air is a volume behind it: together they have a Helmholtz resonance near 18 Hz. The efficiency
+  is best in the middle of the map and falls toward the choke, so a turbo too small for the engine
+  does ever more work for the same boost at the top end.
+- **The shaft** is accelerated by the turbine's power less the compressor's and its bearings'. Its
+  inertia grows as the wheel's diameter to the fifth, which is why a big turbo lags.
+- **The intercooler** takes a share of the compressor's heating back out of the charge.
+- **The blow-off valve** opens on the pressure across a shut throttle and vents the charge air, to
+  the atmosphere or back to the compressor inlet.
+
+Left on auto, the turbo is sized from the engine's airflow at 80% of its rev limit on full boost.
+
+The lag is not a filter on a boost map; it is the shaft spinning up. At 3500 rpm, opened from part
+throttle, the RB26's twin turbos take three quarters of a second to reach 90% of their boost.
+
+With the throttle shut on boost and no blow-off valve, the charge air has nowhere to go. Its pressure
+rises, the compressor's flow falls past the surge line, and the characteristic that is stable to the
+right of it becomes unstable to the left: the flow collapses and runs backwards through the wheel, the
+charge air empties, and the compressor recovers, over and over: on the RB26, 18 times a second. That is a
+surge, and it is where the flutter comes from. It is not scripted: it comes out of the compressor's
+characteristic and the inertia of the air, as Greitzer's model of it does.
+
+On the RB26 preset, at 0.7 bar, with its naturally aspirated self on the same cams and runners for
+comparison:
+
+```
+                          2000   3000   4000   5000   6000   7500 rpm   full throttle, N·m
+naturally aspirated        228    228    228    263    267    221
+twin turbos, 0.7 bar       324    377    366    400    387    322
+boost, bar                0.40   0.67   0.69   0.71   0.70   0.71
+```
+
+Its turbos are small, as the real engine's T28s are: full boost by 3000 rpm, and near their choke
+above 6000, where the exhaust backs up to about 0.8-1.0 bar behind the turbines.
+
 ## The flame
 
 ### How long the burn takes

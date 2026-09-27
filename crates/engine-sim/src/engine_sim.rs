@@ -30,10 +30,11 @@ use crate::radiation::FarField;
 use crate::spec::{
     BankSnapshot, CV_REF, CV_SLOPE, CrankType, DynoConfig, DynoSnapshot, EngineConfig, EngineSnapshot, EngineSpec,
     ExhaustLayout, FUEL_CUT_RPM, FUEL_CUT_THROTTLE, FUEL_RESUME_RPM, PIPE_PRESSURE_TAPS, PipeSegment,
-    REV_LIMIT_HYSTERESIS_RPM, RunnerSize, T_REF, ambient_sound_speed, displacement, exhaust_layout_of,
+    REV_LIMIT_HYSTERESIS_RPM, RunnerSize, T_REF, TurboSnapshot, ambient_sound_speed, displacement, exhaust_layout_of,
     exhaust_port_diameter, firing_plan, fuel_fraction_at, full_load_torque, gas, intake_runner_of, load_torque_of,
     physical_bank_count,
 };
+use crate::turbo::Turbo;
 use crate::valve::{valve_flow_area, valve_lift};
 
 /// Pressure, Pa, that maps to digital full scale.
@@ -227,6 +228,11 @@ pub struct EngineSim {
     displacement_m3: f64,
     load_torque_nm: f64,
     plenum: IntakePlenum,
+    /// The turbocharger, on a turbocharged engine, and the air the throttle draws from: its charge
+    /// air, or the atmosphere.
+    turbo: Option<Turbo>,
+    charge_p: f64,
+    charge_t: f64,
     graph: Option<ExhaustGraph>,
     wg_options: EulerPipeOptions,
 }
@@ -323,6 +329,9 @@ impl EngineSim {
             displacement_m3: 0.0,
             load_torque_nm: 0.0,
             plenum,
+            turbo: None,
+            charge_p: gas::P_AMB,
+            charge_t: gas::T_AMB,
             graph,
             wg_options,
         };
@@ -339,7 +348,30 @@ impl EngineSim {
         sim.omega_display = sim.omega_mean;
         sim.refresh_far_fields();
         sim.refresh_mouth_paths();
+        sim.refresh_turbo();
         sim
+    }
+
+    /// Fit, resize or remove the turbocharger to match the spec.
+    fn refresh_turbo(&mut self) {
+        let spec = &self.spec.spec;
+        if !spec.turbo {
+            if self.turbo.take().is_some() {
+                self.wg.clear_back_pressure();
+            }
+            self.charge_p = gas::P_AMB;
+            self.charge_t = gas::T_AMB;
+            return;
+        }
+        match &mut self.turbo {
+            Some(t) => t.configure(spec),
+            None => self.turbo = Some(Turbo::new(spec, self.sample_rate)),
+        }
+    }
+
+    /// The turbocharger, on a turbocharged engine.
+    pub fn turbo(&self) -> Option<&Turbo> {
+        self.turbo.as_ref()
     }
 
     fn refresh_derived(&mut self) {
@@ -427,6 +459,7 @@ impl EngineSim {
         self.refresh_mouth_paths();
         self.wg.set_turbulence(self.spec.spec.throat_noise);
         self.plenum.set_geometry(&self.spec.spec);
+        self.refresh_turbo();
         self.dyno_opening = f64::NAN;
         self.make_cylinder_variation(self.spec.spec.cylinders as usize);
         self.tune_structure();
@@ -991,7 +1024,11 @@ impl EngineSim {
 
         // --- Cylinder gas state, sub-stepped ---
         let cam_spec = if self.on_high_cam { self.high_cam_spec.as_ref().unwrap() } else { &self.spec };
+        let mut exhaust_pulses = 0;
         for b in 0..banks {
+            if self.prev_ex_lift[b] <= 0.0 && self.ex_lift[b] > 0.0 {
+                exhaust_pulses += 1;
+            }
             let ex_mdot = self.wg.result.valve_mass_flows[b];
             self.last_valve_mdot[b] = ex_mdot;
             let in_mdot = -intake.valve_mass_flows[b];
@@ -1046,14 +1083,34 @@ impl EngineSim {
                 back_fuel += f * intake.fuel[b];
             }
         }
-        self.plenum.step(
+        let throttle_flow = self.plenum.step(
             dt,
+            self.charge_p,
+            self.charge_t,
             drawn,
             back,
             if back > 0.0 { back_t / back } else { t_plenum },
             if back > 0.0 { back_burned / back } else { 0.0 },
             if back > 0.0 { back_fuel / back } else { 0.0 },
         );
+
+        // --- Turbocharger ---
+        let mut turbo_pa = 0.0;
+        if let Some(turbo) = &mut self.turbo {
+            let mut flow = 0.0;
+            let mut heat = 0.0;
+            for b in 0..banks {
+                let m = self.wg.result.valve_mass_flows[b];
+                flow += m;
+                heat += math::max(m, 0.0) * self.wg.primary(b).read_port().1;
+            }
+            let t_ex = if flow > 1e-6 { heat / math::max(flow, 1e-6) } else { self.spec.spec.port_gas_temp };
+            let out = turbo.step(dt, flow, t_ex, throttle_flow, self.plenum.pressure(), exhaust_pulses);
+            self.charge_p = out.charge_p;
+            self.charge_t = out.charge_t;
+            self.wg.set_back_pressure(out.back_pressure);
+            turbo_pa = out.sound;
+        }
 
         // --- Structure-borne noise ---
         let mut direct_pa = 0.0;
@@ -1103,7 +1160,10 @@ impl EngineSim {
                 exhaust_pa += self.far_fields[m].process(delayed) * self.mouth_gains[m];
             }
         }
-        let mut pa = self.listener.process(exhaust_pa + direct_pa);
+        let mut pa = match &mut self.turbo {
+            Some(turbo) => self.listener.process(turbo.muffle(exhaust_pa) + direct_pa + turbo_pa),
+            None => self.listener.process(exhaust_pa + direct_pa),
+        };
 
         if self.rebuild_ramp < 1.0 {
             self.rebuild_ramp = math::min(1.0, self.rebuild_ramp + self.rebuild_ramp_step);
@@ -1178,6 +1238,14 @@ impl EngineSim {
             pipe_cells: (self.wg.cells() + self.intake().cells()) as f64,
             substeps: self.substeps as f64,
             wall_temp: self.wg.mean_wall_temp(),
+            turbo: self.turbo.as_ref().map(|t| TurboSnapshot {
+                boost: t.boost(),
+                manifold: self.plenum.pressure() - gas::P_AMB,
+                shaft_rpm: t.shaft_rpm(),
+                wastegate: t.wastegate(),
+                blow_off: t.blow_off(),
+                surging: t.surging(),
+            }),
             banks,
         };
         self.peak = 0.0;

@@ -31,6 +31,7 @@ import {
   runnerTunedRpm,
   isBoxer,
   presetEngine,
+  type BlowOff,
   type ExhaustLayout,
   type DynoConfig,
   type EngineConfig,
@@ -39,6 +40,7 @@ import {
   type ChamberSection,
   type PipeSegment,
   type SegmentKind,
+  BLOW_OFFS,
   CHAMBER_SECTIONS,
   makeSegment,
   segmentDiameter,
@@ -187,6 +189,8 @@ export class Panel {
   /** Whether a two-stage intake was on its short runners at the last readout. */
   private shortRunnersNow = false;
   private camText = '';
+  private turboReadout!: HTMLElement;
+  private turboText = '';
   /** Rewrites the intake section's tuning readout if anything it shows has changed. */
   private refreshIntake: () => void = () => {};
   private readonly readoutEl: HTMLElement;
@@ -977,6 +981,102 @@ export class Panel {
       '25 m/s through it. Smaller chokes the top end; larger makes the throttle touchier at small ' +
       'openings.';
 
+    // ---- Turbocharger ----------------------------------------------------
+    const turbo = section(root, 'Turbocharger', true);
+    const turboOn = toggle(turbo, 'Turbocharged', spec.turbo, (on) => {
+      this.cb.onEngine({ turbo: on });
+      turboWrap.classList.toggle('hidden', !on);
+    });
+    turboOn.title =
+      'A turbine in the exhaust spinning a compressor that feeds the throttle above atmospheric ' +
+      'pressure. The exhaust drives it, so the boost builds with the exhaust flow and lags while the ' +
+      'shaft spins up.';
+    this.turboReadout = el('div', 'readout', turbo);
+    const turboWrap = el('div', '', turbo);
+    turboWrap.classList.toggle('hidden', !spec.turbo);
+    this.resyncers.push(() => {
+      checkbox(turboOn).checked = this.config.engine.turbo;
+      turboWrap.classList.toggle('hidden', !this.config.engine.turbo);
+    });
+    const countRow = el('div', 'row', turboWrap);
+    el('label', '', countRow).textContent = 'Turbos';
+    const countSel = el('select', '', countRow) as HTMLSelectElement;
+    countSel.appendChild(option('1', 'One'));
+    countSel.appendChild(option('2', 'Two, in parallel'));
+    countSel.value = String(spec.turboCount);
+    this.resyncers.push(() => (countSel.value = String(this.config.engine.turboCount)));
+    countSel.addEventListener('change', () => this.cb.onEngine({ turboCount: countSel.value === '2' ? 2 : 1 }));
+    countRow.title =
+      'Two share the work, each half the size of one: lighter rotors that spin up sooner, each with ' +
+      'its own whine a little apart from the other’s.';
+    this.slider(turboWrap, {
+      label: 'Boost',
+      min: 0.1,
+      max: 2,
+      step: 0.05,
+      value: spec.boostTarget / 1e5,
+      sync: () => this.config.engine.boostTarget / 1e5,
+      format: (v) => `${v.toFixed(2)} bar`,
+      onInput: (v) => this.cb.onEngine({ boostTarget: v * 1e5 }),
+    }).row.title =
+      'What the wastegate holds: as the boost reaches it, it opens a bypass around the turbine so the ' +
+      'turbine takes less of the exhaust. There is no knock here, so nothing stops you asking for more ' +
+      'than the engine would survive.';
+    this.slider(turboWrap, {
+      label: 'Turbo size',
+      min: 0,
+      max: 0.5,
+      step: 0.005,
+      value: spec.turboSize,
+      sync: () => this.config.engine.turboSize,
+      format: (v) => (v > 0 ? `${v.toFixed(3)} kg/s` : 'auto'),
+      onInput: (v) => this.cb.onEngine({ turboSize: v }),
+    }).row.title =
+      'Each compressor’s airflow at full speed. Small spools early and runs out of breath at the ' +
+      'top, nearing its choke with the exhaust backed up behind the turbine; big lags and holds its ' +
+      'boost to the limiter. At 0 it is sized for the engine’s airflow near its rev limit.';
+    this.slider(turboWrap, {
+      label: 'Intercooler',
+      min: 0,
+      max: 1,
+      step: 0.01,
+      value: spec.intercooler,
+      sync: () => this.config.engine.intercooler,
+      format: (v) => (v > 0 ? `${Math.round(v * 100)}%` : 'none'),
+      onInput: (v) => this.cb.onEngine({ intercooler: v }),
+    }).row.title =
+      'How much of the heat of compression it takes back out of the charge. Hot air is thin, so ' +
+      'without one the same boost makes less torque.';
+    const bovRow = el('div', 'row', turboWrap);
+    el('label', '', bovRow).textContent = 'Blow-off valve';
+    const bovSel = el('select', '', bovRow) as HTMLSelectElement;
+    const bovNames: Record<BlowOff, string> = {
+      atmospheric: 'Atmospheric',
+      recirculating: 'Recirculating',
+      none: 'None (surges)',
+    };
+    for (const b of BLOW_OFFS) bovSel.appendChild(option(b, bovNames[b]));
+    bovSel.value = spec.blowOff;
+    this.resyncers.push(() => (bovSel.value = this.config.engine.blowOff));
+    bovSel.addEventListener('change', () => this.cb.onEngine({ blowOff: bovSel.value as BlowOff }));
+    bovRow.title =
+      'When the throttle shuts on boost, the air between the compressor and the throttle has nowhere ' +
+      'to go. An atmospheric valve vents it to the air, with the hiss; a recirculating one back into ' +
+      'the compressor inlet, quietly. With none, the air pushes back through the compressor, which ' +
+      'stalls and recovers over and over: the flutter.';
+    this.slider(turboWrap, {
+      label: 'Turbo sound',
+      min: 0,
+      max: 2,
+      step: 0.01,
+      value: spec.turboNoise,
+      sync: () => this.config.engine.turboNoise,
+      format: (v) => `${Math.round(v * 100)}%`,
+      onInput: (v) => this.cb.onEngine({ turboNoise: v }),
+    }).row.title =
+      'The turbo’s own sounds: the compressor’s whine, the blow-off valve, the flutter of a ' +
+      'surge and the wastegate’s rattle. 100% is realistic.';
+
     // ---- Combustion ------------------------------------------------------
     const comb = section(root, 'Combustion', true);
     this.slider(comb, {
@@ -1754,6 +1854,17 @@ export class Panel {
     if (cams !== this.camText) {
       this.camText = cams;
       this.camReadout.textContent = cams;
+    }
+    const t = s.turbo;
+    const turbo = t
+      ? `${t.boost >= 0 ? 'Boost' : 'Vacuum'} ${(Math.abs(t.boost) / 1e5).toFixed(2)} bar · ` +
+        `turbo ${formatRpm(t.shaftRpm)} rpm` +
+        (t.wastegate > 0.02 ? ` · wastegate ${Math.round(t.wastegate * 100)}%` : '') +
+        (t.surging ? ' · surging' : t.blowOff > 0.05 && t.boost > 0.05e5 ? ' · blowing off' : '')
+      : 'Naturally aspirated';
+    if (turbo !== this.turboText) {
+      this.turboText = turbo;
+      this.turboReadout.textContent = turbo;
     }
     const running = s.dyno !== null;
     if (running !== this.dynoRunning) {
