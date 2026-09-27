@@ -877,7 +877,7 @@ describe('detaching a pipe from a placed pipe', () => {
 
   it('takes off the bend, and leaves the placed pipe loose where it lies', () => {
     const graph = compileLayout(spec, [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.042 })], []);
-    const loose = placeLoosePipe(graph, [0.2, -0.3, 0.4], 0.042);
+    const loose = placeLoosePipe(graph, [0.2, -0.3, 0.4], 0.042, 0.3);
     const before = layoutGraph(ports(), graph).ducts.get(loose)!;
     const runner = graph.ducts.find((d) => d.id === 'runner0')!;
     const drawn = runner.segments.length;

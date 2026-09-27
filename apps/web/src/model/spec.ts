@@ -1476,6 +1476,15 @@ export function cylinderZ(spec: EngineSpec, cylinder: number): number {
   return along + (k - (pin.cylinders.length - 1) / 2) * ROD_STAGGER;
 }
 
+/**
+ * How long the engine is along its crank, m: from its first cylinder to its last, and a cylinder's pitch
+ * over, half at each end, which is the length of the block.
+ */
+export function engineLength(spec: EngineSpec): number {
+  const zs = Array.from({ length: spec.cylinders }, (_, c) => cylinderZ(spec, c));
+  return Math.max(...zs) - Math.min(...zs) + cylinderSpacing(spec);
+}
+
 export function crankPins(spec: EngineSpec): CrankPin[] {
   const plan = firingPlan(spec);
   const pins: CrankPin[] = [];

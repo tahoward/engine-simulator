@@ -132,7 +132,8 @@ How to edit:
 
 - **Click a pipe** to select the segment you clicked. The handles move onto that pipe, and the panel's
   segment list shows it.
-- **Place a pipe** puts down a straight pipe attached to nothing: click where it should start. Select it
+- **Place a pipe** puts down a straight pipe attached to nothing: click where it should start. It runs
+  along the crank, level with the ports, as long as the engine is, at the ports' bore. Select it
   and its triad moves it with the arrows and squares and turns it with the rings, as a whole. It carries
   no gas, and the simulation does not hear it, until a pipe is drawn into one of its ends: that attaches
   it, the end becoming a junction fixed where it was, and from then on it is a pipe like any other. Drawn
