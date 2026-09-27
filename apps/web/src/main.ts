@@ -32,6 +32,7 @@ import { engineFile, engineFileName, readConfig, readEngineFile } from './model/
 import { detachDuct, loosenChildren, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
 import {
   applyHeader,
+  seatLengthwaysHeaders,
   bankCylinders,
   bankMirror,
   defaultMerge,
@@ -698,6 +699,7 @@ function rebuildPipeGeometry(): void {
 
   const ports = Array.from({ length: cylinders }, (_, b) => engineMesh.exhaustPort(b));
   seatTurbos(graph, ports, config.engine);
+  seatLengthwaysHeaders(graph, ports, config.engine);
   seatHeaders(graph, ports, config.engine);
   refitBends(graph, ports, config.engine);
   const turboPorts = turboPortsOf(graph, config.engine);

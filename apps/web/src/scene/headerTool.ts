@@ -12,6 +12,7 @@ import * as THREE from 'three';
 
 import {
   endsAt,
+  junctionAt,
   newDuctId,
   newNodeId,
   releaseBend,
@@ -277,6 +278,74 @@ export function applyHeader(graph: ExhaustGraph, plan: HeaderPlan, primaries: He
       headingYaw: 0,
       headingPitch: 0,
     });
+  }
+}
+
+/** How far out from its ports a lengthways header's merge sits, in primary bores. */
+const LENGTHWAYS_STANDOFF_BORES = 2;
+
+/**
+ * Where a lengthways header merges: out beside its ports, clear of the head, and as far back along the crank
+ * as its pipes reach at `length`, taking the collector rearwards. Where even beside the frontmost port is out
+ * of reach, there.
+ */
+export function lengthwaysPlan(graph: ExhaustGraph, openings: OpeningAt[], length: number): HeaderPlan {
+  const { axis: out } = defaultMerge(openings);
+  const bore = Math.max(...openings.map((o) => o.bore));
+  const base = new THREE.Vector3();
+  for (const o of openings) base.add(o.point);
+  base.multiplyScalar(1 / openings.length).addScaledVector(out, LENGTHWAYS_STANDOFF_BORES * bore);
+  base.z = Math.min(...openings.map((o) => o.point.z));
+  const axis = new THREE.Vector3(0, 0, 1);
+  const plan = (back: number): HeaderPlan => ({
+    openings,
+    merge: base.clone().addScaledVector(axis, back),
+    axis,
+    length,
+    collectorBore: headerCollectorBore(graph, openings),
+  });
+  let lo = 0;
+  let hi = length;
+  for (let i = 0; i < 30; i++) {
+    const mid = (lo + hi) / 2;
+    if (shortestHeader(plan(mid)) > length) hi = mid;
+    else lo = mid;
+  }
+  const p = plan(lo);
+  p.length = Math.max(length, shortestHeader(p));
+  return p;
+}
+
+/**
+ * Build every compiled header of an engine whose headers run lengthways (`EngineSpec.headerRun`) with the
+ * header tool: the ports into each merge picked, the merge put where `lengthwaysPlan` puts it, and the pipes
+ * the length they were compiled at, as the tool builds them.
+ *
+ * Only for a merge nothing has touched yet: every pipe into it a compiled runner from a port, and one
+ * collector out of it, not yet fixed in place. Once built, the merge is fixed, so it is done once.
+ */
+export function seatLengthwaysHeaders(graph: ExhaustGraph, ports: ExhaustPort[], spec: EngineSpec, dirs?: DuctDirections): void {
+  if (spec.headerRun !== 'lengthways') return;
+  const merges = new Set<string>();
+  for (const d of graph.ducts) {
+    if (d.role === 'collector' && d.from.kind === 'node' && !junctionAt(graph, d.from.node)) merges.add(d.from.node);
+  }
+  const header = (d: ExhaustDuct) => d.role === 'runner' && d.from.kind === 'valve' && !d.fitted && d.segments.length === 1;
+  for (const node of merges) {
+    const ends = endsAt(graph, node);
+    const feeds = ends.filter((e) => e.end === 'outlet').map((e) => e.duct);
+    if (feeds.length < 2 || ends.length !== feeds.length + 1 || !feeds.every(header)) continue;
+    const cylinders = feeds.map((d) => (d.from as { cylinder: number }).cylinder);
+    if (cylinders.some((c) => !ports[c])) continue;
+    const length = feeds[0]!.segments[0]!.length;
+    const openings: OpeningAt[] = cylinders.map((cylinder) => ({
+      opening: { kind: 'port', cylinder },
+      point: ports[cylinder]!.position.clone(),
+      dir: ports[cylinder]!.direction.clone().normalize(),
+      bore: runnerBore(graph, cylinder, 0),
+    }));
+    const plan = lengthwaysPlan(graph, openings, length);
+    applyHeader(graph, plan, headerPrimaries(plan), dirs);
   }
 }
 

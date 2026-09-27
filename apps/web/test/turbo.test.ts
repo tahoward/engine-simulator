@@ -34,6 +34,7 @@ import { bendAnchor, collectSnapTargets, fitCurve } from '../src/scene/drawing.j
 import { bendRadius, curveInWorld, layoutPipe } from '../src/scene/PipeMesh.js';
 import { EngineMesh } from '../src/scene/EngineMesh.js';
 import { freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustPort } from '../src/scene/exhaustLayout.js';
+import { seatLengthwaysHeaders } from '../src/scene/headerTool.js';
 import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatTurbos } from '../src/scene/turboPlacement.js';
 
 const portsOf = (spec: EngineSpec): ExhaustPort[] => {
@@ -668,7 +669,7 @@ describe('deleting a pipe in the middle', () => {
 
 /** A compiled header's primaries each finish in a bend into their collector, and stay equal-length. */
 describe('a compiled header', () => {
-  for (const name of ['V8, Chevrolet LT2', 'V8, Chevrolet LT6', 'Inline four, Honda F20C']) {
+  for (const name of ['V8, Chevrolet LT2', 'Inline four, Honda F20C']) {
     it(`bends each primary smoothly into its collector, at its own bore and length: ${name}`, () => {
       const preset = ENGINE_PRESETS.find((p) => p.name === name)!;
       const spec = presetEngine(preset, defaultConfig().engine);
@@ -724,4 +725,38 @@ describe('a compiled header', () => {
       expect(JSON.stringify(graph)).toBe(before);
     });
   }
+
+  it('builds lengthways headers with the header tool, back along each bank: V8, Chevrolet LT6', () => {
+    const preset = ENGINE_PRESETS.find((p) => p.name === 'V8, Chevrolet LT6')!;
+    const spec = presetEngine(preset, defaultConfig().engine);
+    expect(spec.headerRun).toBe('lengthways');
+    const graph = compileExhaust(spec, preset.pipe(), preset.collector!());
+    const ports = portsOf(spec);
+    const length = preset.pipe()[0]!.length;
+    seatLengthwaysHeaders(graph, ports, spec);
+    seatHeaders(graph, ports, spec);
+    refitBends(graph, ports, spec);
+    expect(validateGraph(graph, spec.cylinders)).toEqual([]);
+    const placement = layoutGraph(ports, graph);
+    const junctions = graph.junctions ?? [];
+    expect(junctions).toHaveLength(2);
+    for (const j of junctions) {
+      // The collector leaves rearwards, along the crank.
+      expect(j.axis).toEqual([0, 0, 1]);
+      const runners = graph.ducts.filter((d) => d.role === 'runner' && d.to.kind === 'node' && d.to.node === j.node);
+      expect(runners).toHaveLength(4);
+      // Equal-length, at the length they were tuned to.
+      for (const r of runners) expect(r.segments.reduce((a, s) => a + s.length, 0), r.id).toBeCloseTo(length, 3);
+      const at = runners.map((r) => ports[(r.from as { cylinder: number }).cylinder]!);
+      // Outboard of its bank's ports, and behind the frontmost of them.
+      const side = Math.sign(at[0]!.position.x);
+      expect(side * j.position[0]).toBeGreaterThan(Math.max(...at.map((p) => side * p.position.x)));
+      expect(j.position[2]).toBeGreaterThan(Math.min(...at.map((p) => p.position.z)));
+      expect(pipesMeetAt(graph, placement, j.node), j.node).toBe(true);
+    }
+    // Done once: seating again changes nothing.
+    const before = JSON.stringify(graph);
+    seatLengthwaysHeaders(graph, ports, spec);
+    expect(JSON.stringify(graph)).toBe(before);
+  });
 });

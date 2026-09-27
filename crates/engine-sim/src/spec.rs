@@ -83,6 +83,14 @@ pub enum CrankType {
     Boxer,
 }
 
+/// Which way a header's primaries run to their merge, as drawn. The scene's only: see the web app's `EngineSpec`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum HeaderRun {
+    Outward,
+    Lengthways,
+}
+
 /// Where a turbocharged engine's blow-off valve vents, or `None` for no valve at all. See `turbo`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -151,6 +159,7 @@ pub struct EngineSpec {
     pub crank_type: CrankType,
     pub exhaust_layout: ExhaustLayoutSpec,
     pub exhaust_headers: bool,
+    pub header_run: HeaderRun,
 
     // --- Geometry ---
     pub bore: f64,
@@ -239,6 +248,7 @@ impl Default for EngineSpec {
             crank_type: CrankType::Shared,
             exhaust_layout: ExhaustLayoutSpec::Open,
             exhaust_headers: false,
+            header_run: HeaderRun::Outward,
             bore: 0.089,
             stroke: 0.08,
             rod_length: 0.145,
