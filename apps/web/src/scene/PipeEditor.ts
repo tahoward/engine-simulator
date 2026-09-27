@@ -19,7 +19,7 @@ import { makeSegment, type PipeSegment, segmentDiameter } from '../model/spec.js
 import type { Vec3 } from '../model/geometry.js';
 import {
   IDENTITY,
-  fittedBend,
+  lockedFrom,
   quatFromAxisAngle,
   quatMultiply,
   quatNormalise,
@@ -37,7 +37,7 @@ import {
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
-import { layoutPipe, turnHeading, type PipeMesh } from './PipeMesh.js';
+import { PipeMesh, layoutPipe, turnHeading } from './PipeMesh.js';
 import { TurboMesh } from './TurboMesh.js';
 import {
   AXIS_COLOURS,
@@ -56,7 +56,10 @@ import {
 } from './Triad.js';
 import type { DuctPlacement, ExhaustPlacement, ExhaustPort } from './exhaustLayout.js';
 import {
+  MIN_BEND_BORES,
   MIN_DRAW_LENGTH,
+  bendSegment,
+  bendStraight,
   bendAnchor,
   collectSnapTargets,
   flipLoosePipe,
@@ -98,6 +101,8 @@ const LOOSE_PIPE_LENGTH = 0.3;
 
 /** Size of the selected segment's triad, m. */
 const PIPE_TRIAD_SIZE = 0.11;
+/** The radius the bend tool bends round, in the pipe's bores: a comfortable mandrel bend. */
+const BEND_TOOL_BORES = 3;
 
 /**
  * A triad being dragged, on a pipe segment or a turbo.
@@ -167,6 +172,13 @@ export interface PipeEditorCallbacks {
   onDrawing?: (active: boolean) => void;
   /** Where the next segment is aimed, in words — "up, 250 mm" — or `null` when nothing is. */
   onAim?: (aim: string | null) => void;
+  /** The bend the bend tool is making, described, or `null` when it is making none. */
+  onBendAim?: (aim: string | null) => void;
+  /**
+   * The bend tool bent pipe `ductId`, which was `length` long: it is that long still, but for a bend fitted
+   * into what it joins, which the owner fits to that length again.
+   */
+  onBent?: (ductId: string, length: number) => void;
   /** A turbo was put down. */
   onPlaceTurbo?: (placement: TurboPlacement) => void;
   /** A loose pipe was put down, starting at `position`. */
@@ -318,6 +330,43 @@ export class PipeEditor {
   private readonly guideGeom = new THREE.BufferGeometry();
   private readonly guideMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.35 });
   private readonly marker: THREE.Mesh;
+  /** The plane a bend being drawn turns in, faintly, so which way it goes reads in 3D. */
+  private readonly bendDisc: THREE.Mesh;
+
+  /**
+   * Whether clicks while drawing lay bends rather than corners: set from the panel, and flipped for as long
+   * as B is held.
+   */
+  bendMode = false;
+  private bendHeld = false;
+
+  /**
+   * The bend tool: click a straight where it should bend, then drag one of the two rings put there, each
+   * lying in a plane of the pipe's own, up and down or side to side, to bend it in that plane. The pipe
+   * keeps its length; a ghost shows where it is going until it is let go.
+   */
+  private bendTool = false;
+  private readonly bendTriad = new Triad(PIPE_TRIAD_SIZE);
+  /** The pipe as the bend being dragged would leave it. */
+  private readonly bendGhost = new PipeMesh(true);
+  private bendAt: {
+    ductId: string;
+    index: number;
+    /** How far along the straight, m. */
+    at: number;
+    /** The way the straight runs, in the world. */
+    dir: THREE.Vector3;
+    /** The pipe's length before it is bent, m. */
+    length: number;
+  } | null = null;
+  private bendDrag: {
+    axis: THREE.Vector3;
+    ring: RingFrame;
+    lastAngle: number;
+    turned: number;
+    proposed: PipeSegment[] | null;
+  } | null = null;
+  private lastSnap: DrawSnap = 'engine';
 
   private readonly matHover = new THREE.MeshBasicMaterial({ color: 0xffd166 });
   private readonly matSelected = new THREE.MeshBasicMaterial({ color: 0x8cff9e });
@@ -339,6 +388,7 @@ export class PipeEditor {
     dom.addEventListener('pointermove', this.onPointerMove);
     window.addEventListener('pointerup', this.onPointerUp);
     window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', this.onKeyUp);
     // Right-click finishes a route, so the browser menu must not appear over it.
     dom.addEventListener('contextmenu', this.onContextMenu);
 
@@ -362,11 +412,23 @@ export class PipeEditor {
     this.marker.renderOrder = 13;
     this.group.add(this.marker);
 
+    this.bendDisc = new THREE.Mesh(
+      new THREE.CircleGeometry(1, 48),
+      new THREE.MeshBasicMaterial({ color: PREVIEW_COLOUR, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    this.bendDisc.visible = false;
+    this.bendDisc.renderOrder = 10;
+    this.group.add(this.bendDisc);
+
     this.ghost.group.visible = false;
     this.group.add(this.ghost.group);
     this.ghostPipe.visible = false;
     this.group.add(this.ghostPipe);
-    this.group.add(this.pipeTriad.group, this.turboTriad.group);
+    this.group.add(this.pipeTriad.group, this.turboTriad.group, this.bendTriad.group, this.bendGhost.group);
+    this.bendGhost.group.visible = false;
+    // Only its rings: a bend is made by turning, and not about the pipe's own axis, which would do nothing.
+    this.bendTriad.showMoves(false);
+    this.bendTriad.hideRing(0, true);
   }
 
   get turboSize(): TurboSize {
@@ -529,7 +591,123 @@ export class PipeEditor {
 
   /** Whether a handle is being dragged, a diameter ring or a triad's: an edit that has not settled yet. */
   get dragging(): boolean {
-    return this.drag !== null || this.triadDrag !== null;
+    return this.drag !== null || this.triadDrag !== null || this.bendDrag !== null;
+  }
+
+  /** Switch the bend tool on or off. Drawing and placing stop while it is on. */
+  setBendTool(on: boolean): void {
+    if (on && this.drawMode) this.setDrawMode(false);
+    if (on && this.placeMode) this.setPlaceMode(false);
+    this.bendTool = on;
+    this.bendAt = null;
+    this.bendDrag = null;
+    this.bendTriad.setVisible(false);
+    this.hidePreview();
+    this.cb.onBendAim?.(null);
+    this.applyHandleVisibility();
+  }
+
+  get bendToolOn(): boolean {
+    return this.bendTool;
+  }
+
+  /**
+   * Put the bend tool's rings where the pointer is on a straight of some pipe, if it is on one that can be
+   * bent: a pipe's own straight, not a can, a bend, or the bend fitted into what it joins.
+   */
+  private placeBend(): boolean {
+    const ctx = this.context;
+    if (!ctx) return false;
+    let best: { distance: number; duct: ExhaustDuct; index: number; point: THREE.Vector3 } | null = null;
+    ctx.meshes.forEach((mesh, i) => {
+      const duct = ctx.graph.ducts[i];
+      const target = mesh.pickTarget;
+      if (!duct || !target) return;
+      const hit = this.raycaster.intersectObject(target, false)[0];
+      if (!hit || (best && hit.distance >= best.distance)) return;
+      const st = mesh.stationAt(hit.point);
+      if (st) best = { distance: hit.distance, duct, index: st.segment, point: hit.point.clone() };
+    });
+    if (!best) return false;
+    const { duct, index, point } = best as { duct: ExhaustDuct; index: number; point: THREE.Vector3 };
+    const seg = duct.segments[index];
+    const locked = lockedFrom(ctx.graph, duct);
+    const place = ctx.placement.ducts.get(duct.id);
+    if (!seg || !place || seg.curve || seg.kind === 'chamber' || (locked !== null && index >= locked)) return false;
+    const swept = layoutPipe(duct.segments, place.origin, place.heading);
+    const start = index === 0 ? place.origin : swept.joints[index - 1]!;
+    const end = swept.joints[index]!;
+    const dir = end.clone().sub(start).normalize();
+    const at = Math.min(Math.max(point.clone().sub(start).dot(dir), 0), seg.length);
+    this.bendAt = { ductId: duct.id, index, at, dir, length: duct.segments.reduce((a, s) => a + s.length, 0) };
+    const centre = start.clone().addScaledVector(dir, at);
+    this.bendTriad.setOrientation(frameAlong(dir));
+    this.bendTriad.setRotateOrigin(centre);
+    this.bendTriad.setMoveOrigin(centre);
+    this.bendTriad.setVisible(true);
+    this.cb.onBendAim?.('Drag a ring to bend the pipe in its plane');
+    return true;
+  }
+
+  private beginBendDrag(handle: TriadHandle): void {
+    const ring = this.bendTriad.ring(handle.axis);
+    this.bendDrag = {
+      axis: this.bendTriad.axisDir(handle.axis),
+      ring,
+      lastAngle: this.ringAngleNow(this.bendTriad.rotateOrigin, ring) ?? 0,
+      turned: 0,
+      proposed: null,
+    };
+    this.controls.enabled = false;
+  }
+
+  /** Follow the bend being dragged: the pipe it would make, ghosted, and what it is. */
+  private dragBend(snap: boolean): void {
+    const ctx = this.context;
+    const drag = this.bendDrag;
+    const at = this.bendAt;
+    if (!ctx || !drag || !at) return;
+    const duct = ctx.graph.ducts.find((d) => d.id === at.ductId);
+    const seg = duct?.segments[at.index];
+    const place = ctx.placement.ducts.get(at.ductId);
+    if (!duct || !seg || !place) return;
+    const now = this.ringAngleNow(this.bendTriad.rotateOrigin, drag.ring);
+    if (now === null) return;
+    drag.turned += angleStep(drag.lastAngle, now);
+    drag.lastAngle = now;
+    const step = (TRIAD_TURN_DEG * Math.PI) / 180;
+    const angle = snap ? snapTo(drag.turned, step) : drag.turned;
+    const bore = segmentDiameter(seg, at.at / seg.length);
+    const tightest = MIN_BEND_BORES * bore;
+    const bent = bendStraight(seg, at.dir, at.at, drag.axis, angle, BEND_TOOL_BORES * bore, tightest);
+    drag.proposed = [...duct.segments.slice(0, at.index), ...bent.segments, ...duct.segments.slice(at.index + 1)];
+    // The ghost: the pipe as it would be.
+    this.bendGhost.rebuild(drag.proposed, place.origin, place.heading);
+    this.bendGhost.group.visible = true;
+    const degrees = Math.round((Math.abs(bent.angle) * 180) / Math.PI);
+    const plane = this.bendTriad.axisDir(1).angleTo(drag.axis) < 0.1 ? 'side to side' : 'up and down';
+    this.cb.onBendAim?.(
+      `bend ${degrees}° ${plane}, radius ${Math.round(bent.radius * 1000)} mm` +
+        (bent.clamped ? ': as far as this straight has length for' : ''),
+    );
+  }
+
+  /** Let go of the bend: the pipe takes the shape the ghost showed. */
+  private endBendDrag(): void {
+    const ctx = this.context;
+    const drag = this.bendDrag;
+    const at = this.bendAt;
+    this.bendDrag = null;
+    this.controls.enabled = true;
+    this.bendGhost.group.visible = false;
+    if (!ctx || !drag?.proposed || !at) return;
+    const duct = ctx.graph.ducts.find((d) => d.id === at.ductId);
+    if (!duct || drag.proposed.length === duct.segments.length) return;
+    duct.segments = drag.proposed;
+    this.bendAt = null;
+    this.bendTriad.setVisible(false);
+    this.cb.onBendAim?.(null);
+    this.cb.onBent?.(duct.id, at.length);
   }
 
   /**
@@ -564,6 +742,7 @@ export class PipeEditor {
   private hidePreview(): void {
     this.preview.visible = false;
     this.guide.visible = false;
+    this.bendDisc.visible = false;
     this.marker.visible = false;
     this.snapped = null;
     this.cb.onAim?.(null);
@@ -603,7 +782,7 @@ export class PipeEditor {
 
   /** Handles are a nuisance while drawing: they sit exactly where the route is being aimed. */
   private applyHandleVisibility(): void {
-    const hide = this.drawMode || this.placeMode;
+    const hide = this.drawMode || this.placeMode || this.bendTool;
     for (const h of this.handles) h.visible = !hide;
     this.pipeTriad.setVisible(!hide && this.pipeTriadAt !== null);
   }
@@ -615,7 +794,53 @@ export class PipeEditor {
     if (this.drawMode) e.preventDefault();
   };
 
+  /** Whether the next click lays a bend. */
+  private get bending(): boolean {
+    return this.bendMode !== this.bendHeld;
+  }
+
+  private onKeyUp = (e: KeyboardEvent): void => {
+    if ((e.key === 'b' || e.key === 'B') && this.bendHeld) {
+      this.bendHeld = false;
+      if (this.drawMode) this.updateDrawPreview(this.lastSnap);
+    }
+  };
+
+  /**
+   * The bend a click would lay from `tip`: turning to head the way the pointer is aimed, `dir` where that is
+   * locked to one, round a radius of how far the pointer is from the tip, no tighter than `MIN_BEND_BORES`.
+   * `null` where the aim leaves no bend to make, the way the pipe already goes or straight back.
+   */
+  private bendFor(
+    tip: { point: THREE.Vector3; dir: THREE.Vector3 },
+    point: THREE.Vector3,
+    dir: THREE.Vector3 | undefined,
+    dia: number,
+  ): { bend: PipeSegment; to: THREE.Vector3; radius: number } | null {
+    const to = (dir ?? point.clone().sub(tip.point)).clone().normalize();
+    if (to.lengthSq() < 0.5) return null;
+    const radius = Math.max(quantiseLength(point.distanceTo(tip.point), LENGTH_GRID_M), MIN_BEND_BORES * dia);
+    const bend = bendSegment(tip.point, tip.dir, to, radius, { kind: 'pipe', dIn: dia, dOut: dia });
+    return bend ? { bend, to, radius } : null;
+  }
+
+  /** The bore the next segment of the route is drawn at: the bore the pipe ends at, or starts at. */
+  private routeDiameter(duct: ExhaustDuct): number {
+    const ctx = this.context!;
+    const fromTurbo = duct.from.kind === 'node' && !!ctx.graph.turbos?.some((t) => t.node === (duct.from as { node: string }).node);
+    return continuingDiameter(
+      duct.segments.length > 0 ? duct : fromTurbo ? null : this.startingDuct(duct),
+      this.startingDiameter(duct),
+    );
+  }
+
   private onKeyDown = (e: KeyboardEvent): void => {
+    const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement;
+    if ((e.key === 'b' || e.key === 'B') && !typing && !e.repeat && this.drawMode) {
+      this.bendHeld = true;
+      this.updateDrawPreview(this.lastSnap);
+      return;
+    }
     if (this.placeMode && e.key === 'Escape') {
       this.setPlaceMode(false);
       this.cb.onPlacing?.(false);
@@ -668,8 +893,11 @@ export class PipeEditor {
       if (!hit) continue;
       const st = ctx.meshes[i]!.stationAt(hit.point);
       if (!st) continue;
-      // A bend into a turbo is fitted, not drawn, so nothing branches off it.
-      if (fittedBend(ctx.graph, duct) === st.segment) continue;
+      // A bend into a turbo or a junction is fitted, not drawn, so nothing branches off it.
+      const locked = lockedFrom(ctx.graph, duct);
+      if (locked !== null && st.segment >= locked) continue;
+      // Nor off a bend drawn into it: a pipe is split along its length, and a bend is not cut.
+      if (duct.segments[st.segment]?.curve) continue;
       /**
        * Aim at the pipe's *axis*, not the skin the ray hit.
        *
@@ -794,13 +1022,9 @@ export class PipeEditor {
     if (!duct) return;
 
     const tip = routeTip(duct.segments, this.route.place);
-    const fromTurbo = duct.from.kind === 'node' && !!ctx.graph.turbos?.some((t) => t.node === (duct.from as { node: string }).node);
-    const dia = continuingDiameter(
-      duct.segments.length > 0 ? duct : fromTurbo ? null : this.startingDuct(duct),
-      this.startingDiameter(duct),
-    );
+    const dia = this.routeDiameter(duct);
 
-    const { point } = this.aim(tip, target, snap);
+    const { point, dir: locked } = this.aim(tip, target, snap);
 
     /**
      * Joining something ends the route in one smooth bend, fitted to arrive along what it joins: square
@@ -828,6 +1052,17 @@ export class PipeEditor {
     }
 
     const straightOut = target.kind === 'free' ? this.portRun(duct, tip, point) : null;
+    // A bend, from where the pipe is heading round to where it is aimed; out of a port it runs straight first.
+    const bend = target.kind === 'free' && straightOut === null && this.bending ? this.bendFor(tip, point, locked, dia) : null;
+    if (bend) {
+      if (duct.segments.length === 0) {
+        duct.headingYaw = 0;
+        duct.headingPitch = 0;
+      }
+      duct.segments.push(bend.bend);
+      this.cb.onChange(true);
+      return;
+    }
     if (straightOut !== null) {
       // Out of an exhaust port, straight on at first: the next segment turns.
       if (straightOut < MIN_DRAW_LENGTH) return;
@@ -1163,6 +1398,18 @@ export class PipeEditor {
 
     if (this.drawMode) {
       this.onDrawClick(e);
+      return;
+    }
+
+    if (this.bendTool) {
+      const ring = this.bendTriad.pick(this.raycaster);
+      if (ring) this.beginBendDrag(ring);
+      else if (!this.placeBend()) {
+        this.bendAt = null;
+        this.bendTriad.setVisible(false);
+        this.cb.onBendAim?.(null);
+      }
+      e.preventDefault();
       return;
     }
 
@@ -1540,13 +1787,23 @@ export class PipeEditor {
       name = 'straight on';
     }
 
-    // Joining something, the bend the pipe will take to arrive along it.
+    // Joining something, the bend the pipe will take to arrive along it; laying a bend, that bend.
     const anchor = this.connectionAnchor(target, this.route.ductId);
-    const path = anchor
-      ? layoutPipe([fitCurve(tip.point, tip.dir, anchor.point, anchor.dir)], tip.point, tip.dir).stations.map(
-          (st) => st.position,
-        )
-      : [tip.point, point];
+    const bend =
+      !anchor && run === null && target.kind === 'free' && this.bending ? this.bendFor(tip, point, dir, this.routeDiameter(duct)) : null;
+    const curve = anchor ? fitCurve(tip.point, tip.dir, anchor.point, anchor.dir) : bend?.bend;
+    const path = curve ? layoutPipe([curve], tip.point, tip.dir).stations.map((st) => st.position) : [tip.point, point];
+    if (bend) {
+      // The disc it turns round, centred where its radius is from.
+      const across = bend.to.clone().addScaledVector(tip.dir, -bend.to.dot(tip.dir)).normalize();
+      const normal = tip.dir.clone().cross(across).normalize();
+      this.bendDisc.position.copy(tip.point).addScaledVector(across, bend.radius);
+      this.bendDisc.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
+      this.bendDisc.scale.setScalar(bend.radius);
+      this.bendDisc.visible = true;
+    } else {
+      this.bendDisc.visible = false;
+    }
     this.previewGeom.setFromPoints(path);
     this.preview.computeLineDistances();
     this.preview.visible = true;
@@ -1563,7 +1820,10 @@ export class PipeEditor {
       this.guide.visible = false;
     }
     const length = `${Math.round(point.distanceTo(tip.point) * 1000)} mm`;
-    this.cb.onAim?.(target.kind === 'free' ? `${name ? `${name}, ` : ''}${length}` : null);
+    const described = bend
+      ? `bend ${Math.round((tip.dir.angleTo(bend.to) * 180) / Math.PI)}°${name ? ` to ${name}` : ''}, radius ${Math.round(bend.radius * 1000)} mm`
+      : `${name ? `${name}, ` : ''}${length}`;
+    this.cb.onAim?.(target.kind === 'free' ? described : null);
     // Marked only when it would *connect*, so the highlight means something.
     this.marker.visible = target.kind !== 'free';
     this.marker.position.copy(point);
@@ -1583,9 +1843,16 @@ export class PipeEditor {
       e.preventDefault();
       return;
     }
+    if (this.bendTool) {
+      this.updatePointer(e);
+      if (this.bendDrag) this.dragBend(e.shiftKey);
+      else this.bendTriad.hover(this.raycaster);
+      return;
+    }
     if (this.drawMode && !this.drag) {
       this.updatePointer(e);
-      this.updateDrawPreview(drawSnapOf(e));
+      this.lastSnap = drawSnapOf(e);
+      this.updateDrawPreview(this.lastSnap);
       return;
     }
     this.updatePointer(e);
@@ -1649,6 +1916,10 @@ export class PipeEditor {
   }
 
   private onPointerUp = (): void => {
+    if (this.bendDrag) {
+      this.endBendDrag();
+      return;
+    }
     if (this.triadDrag) {
       const drag = this.triadDrag;
       this.triadDrag = null;
@@ -1679,6 +1950,12 @@ export class PipeEditor {
     this.dom.removeEventListener('pointerdown', this.onPointerDown);
     this.dom.removeEventListener('pointermove', this.onPointerMove);
     window.removeEventListener('pointerup', this.onPointerUp);
+    window.removeEventListener('keydown', this.onKeyDown);
+    window.removeEventListener('keyup', this.onKeyUp);
+    this.bendDisc.geometry.dispose();
+    this.bendTriad.dispose();
+    this.bendGhost.dispose();
+    (this.bendDisc.material as THREE.Material).dispose();
     for (const h of this.handles) h.geometry.dispose();
     this.pipeTriad.dispose();
     this.turboTriad.dispose();

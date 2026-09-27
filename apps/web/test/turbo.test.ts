@@ -26,14 +26,15 @@ import {
   quatFromAxisAngle,
   quatMultiply,
   fittedBend,
+  lockedFrom,
   removeTurbo,
   turboPortsOf,
 } from '../src/model/turbo.js';
 import { bendAnchor, collectSnapTargets, fitCurve } from '../src/scene/drawing.js';
-import { layoutPipe } from '../src/scene/PipeMesh.js';
+import { bendRadius, curveInWorld, layoutPipe } from '../src/scene/PipeMesh.js';
 import { EngineMesh } from '../src/scene/EngineMesh.js';
 import { freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustPort } from '../src/scene/exhaustLayout.js';
-import { moveJunction, moveTurbo, refitBends, seatTurbos } from '../src/scene/turboPlacement.js';
+import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatTurbos } from '../src/scene/turboPlacement.js';
 
 const portsOf = (spec: EngineSpec): ExhaustPort[] => {
   const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
@@ -475,6 +476,60 @@ describe('a pipe drawn to join another', () => {
     expect(segmentDiameter(bend, 0.5)).toBeCloseTo(0.043, 12);
   });
 
+  const total = (d: { segments: { length: number }[] }) => d.segments.reduce((a, seg) => a + seg.length, 0);
+
+  it('matches a length: longer, with a swing on its way, locked with its bend', () => {
+    const { graph, node, runner1 } = joined();
+    refitBends(graph, ports, spec);
+    const drawn = runner1.segments.length - 1;
+    const want = total(runner1) + 0.25;
+    const fit = matchLength(graph, ports, spec, 'runner1', want)!;
+    expect(fit.reached).toBe(true);
+    expect(total(runner1)).toBeCloseTo(want, 3);
+    expect(runner1.swing).toBe(true);
+    expect(runner1.segments).toHaveLength(drawn + 2);
+    expect(lockedFrom(graph, runner1)).toBe(drawn);
+    expect(meets(graph, node)).toBe(true);
+    // Refitting on the next rebuild keeps it the length it was matched to.
+    refitBends(graph, ports, spec);
+    expect(total(runner1)).toBeCloseTo(want, 3);
+    // It survives a link, swing and all.
+    expect(graphFromJson(JSON.parse(JSON.stringify(graph)))!.ducts.find((d) => d.id === 'runner1')!.swing).toBe(true);
+  });
+
+  it('matches a length: shorter, by its last straight, with no swing', () => {
+    const { graph, node, runner1 } = joined();
+    refitBends(graph, ports, spec);
+    const count = runner1.segments.length;
+    const want = total(runner1) - 0.02;
+    const fit = matchLength(graph, ports, spec, 'runner1', want)!;
+    expect(fit.reached).toBe(true);
+    expect(total(runner1)).toBeCloseTo(want, 3);
+    expect(runner1.swing).toBeUndefined();
+    expect(runner1.segments).toHaveLength(count);
+    expect(meets(graph, node)).toBe(true);
+  });
+
+  it('says so when a length is shorter than it can be made', () => {
+    const { graph, runner1 } = joined();
+    refitBends(graph, ports, spec);
+    const fit = matchLength(graph, ports, spec, 'runner1', 0.05)!;
+    expect(fit.reached).toBe(false);
+    expect(fit.length).toBeGreaterThan(0.05);
+    expect(total(runner1)).toBeCloseTo(fit.length, 9);
+  });
+
+  it('takes its swing off with its bend when it comes off', () => {
+    const { graph, runner1 } = joined();
+    refitBends(graph, ports, spec);
+    const drawn = runner1.segments.length - 1;
+    matchLength(graph, ports, spec, 'runner1', total(runner1) + 0.25);
+    disconnectEnd(graph, 'runner1');
+    expect(runner1.segments).toHaveLength(drawn);
+    expect(runner1.swing).toBeUndefined();
+    expect(runner1.fitted).toBeUndefined();
+  });
+
   it('gives up its bend when it is taken off again', () => {
     const { graph, runner1 } = joined();
     const drawn = runner1.segments.length - 1;
@@ -590,4 +645,64 @@ describe('deleting a pipe in the middle', () => {
     expect(solverGraph(graph).ducts.map((d) => d.id)).not.toContain('tail');
     void spec;
   });
+});
+
+/** A compiled header's primaries each finish in a bend into their collector, and stay equal-length. */
+describe('a compiled header', () => {
+  for (const name of ['V8, Chevrolet LT2', 'V8, Chevrolet LT6', 'Inline four, Honda F20C']) {
+    it(`bends each primary smoothly into its collector, at its own bore and length: ${name}`, () => {
+      const preset = ENGINE_PRESETS.find((p) => p.name === name)!;
+      const spec = presetEngine(preset, defaultConfig().engine);
+      const graph = compileExhaust(spec, preset.pipe(), preset.collector!());
+      const ports = portsOf(spec);
+      const length = preset.pipe()[0]!.length;
+      const bore = preset.pipe()[0]!.dIn;
+      seatHeaders(graph, ports, spec);
+      refitBends(graph, ports, spec);
+      expect(validateGraph(graph, spec.cylinders)).toEqual([]);
+      const placement = layoutGraph(ports, graph, turboPortsOf(graph, spec));
+      const runners = graph.ducts.filter((d) => d.role === 'runner');
+      const totals = runners.map((r) => r.segments.reduce((a, s) => a + s.length, 0));
+      // Equal-length, as they were tuned.
+      totals.forEach((t, i) => expect(t, runners[i]!.id).toBeCloseTo(length, 3));
+      // Some take a swing to make their length up: a second bend on the way, fitted and locked with the one
+      // into the collector, so only the straight out of the port is edited.
+      const swinging = runners.filter((r) => r.segments.filter((s) => s.curve).length === 2);
+      expect(swinging.length).toBeGreaterThan(0);
+      for (const r of swinging) expect(lockedFrom(graph, r)).toBe(1);
+      for (const r of runners) {
+        expect(r.fitted, r.id).toBe(true);
+        for (const s of r.segments) {
+          expect(s.dIn).toBeCloseTo(bore, 9);
+          expect(s.dOut).toBeCloseTo(bore, 9);
+        }
+        // Straight out of the port, square to the head.
+        const port = ports[(r.from as { cylinder: number }).cylinder]!;
+        const place = placement.ducts.get(r.id)!;
+        const swept = layoutPipe(r.segments, place.origin, place.heading);
+        expect(swept.stations[0]!.direction.angleTo(port.direction)).toBeLessThan(1e-6);
+        // No kinks: every bend turns no tighter than one and a half bores, and each carries on the way the
+        // one before it finished.
+        r.segments.forEach((seg, k) => {
+          const entry = k === 0 ? place.origin : swept.joints[k - 1]!;
+          const entryDir = k === 0 ? place.heading : swept.jointDirections[k - 1]!;
+          if (!seg.curve) return;
+          expect(seg.yaw).toBe(0);
+          expect(seg.pitch).toBe(0);
+          const end = curveInWorld(seg.curve, entry, entryDir);
+          expect(bendRadius(entry, entryDir, end.end, end.dir), `${r.id} bend ${k}`).toBeGreaterThan(1.5 * bore - 1e-3);
+        });
+      }
+      for (const node of new Set(runners.map((r) => (r.to as { node: string }).node))) {
+        expect(pipesMeetAt(graph, placement, node), node).toBe(true);
+      }
+      // It survives a link, collector and all, to the last few bits of a renormalised direction.
+      const rounded = (g: unknown) => JSON.parse(JSON.stringify(g, (_, v) => (typeof v === 'number' ? Number(v.toFixed(12)) : v)));
+      expect(rounded(graphFromJson(JSON.parse(JSON.stringify(graph))))).toEqual(rounded(graph));
+      // Done once: seating again changes nothing.
+      const before = JSON.stringify(graph);
+      seatHeaders(graph, ports, spec);
+      expect(JSON.stringify(graph)).toBe(before);
+    });
+  }
 });

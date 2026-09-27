@@ -13,13 +13,14 @@
 
 import * as THREE from 'three';
 
-import { makeSegment, segmentDiameter, type PipeSegment } from '../model/spec.js';
+import { arcHandle, makeSegment, segmentDiameter, type PipeSegment } from '../model/spec.js';
 import {
   disconnectEnd,
   endsAt,
   junctionAt,
   newDuctId,
   nodeOrder,
+  releaseBend,
   removeDuct,
   turboAt,
   type DuctDirections,
@@ -238,9 +239,8 @@ export function loosenChildren(graph: ExhaustGraph, ductId: string, placement: E
     delete child.continues;
   }
   duct.to = { kind: 'mouth' };
-  // The bend it was fitted in goes too: it was only the way to what it joined.
-  if (duct.fitted) duct.segments.pop();
-  delete duct.fitted;
+  // The bend it was fitted in goes too, and any swing: they were only the way to what it joined.
+  releaseBend(duct);
   if (graph.junctions) {
     graph.junctions = graph.junctions.filter((j) => j.node !== node);
     if (graph.junctions.length === 0) delete graph.junctions;
@@ -269,11 +269,13 @@ export function splitDuct(graph: ExhaustGraph, ductId: string, index: number, pl
     headingPitch: turn.pitch,
     headingFrame: 'world',
     ...(duct.fitted ? { fitted: true as const } : {}),
+    ...(duct.swing ? { swing: true as const } : {}),
   };
   for (const d of graph.ducts) if (d.continues === duct.id) d.continues = rest.id;
   duct.segments = duct.segments.slice(0, index);
   duct.to = { kind: 'mouth' };
   delete duct.fitted;
+  delete duct.swing;
   graph.ducts.push(rest);
   return rest.id;
 }
@@ -432,7 +434,13 @@ export function bendAnchor(
       out && place && out.segments.length > 0
         ? layoutPipe(out.segments, place.origin, place.heading).stations[0]!.direction.clone()
         : new THREE.Vector3(...pinned.axis);
-    // The bore of the pipe leaving, or where nothing leaves yet, of the widest pipe already there.
+    // Into a header's collector, each primary keeps its own bore, as its gas does. Otherwise the bore of the
+    // pipe leaving, or where nothing leaves yet, of the widest pipe already there.
+    const self = graph.ducts.find((d) => d.id === ductId);
+    const drawn = self ? (self.fitted ? self.segments.slice(0, -1) : self.segments) : [];
+    if (pinned.collector && drawn.length > 0) {
+      return { point: new THREE.Vector3(...pinned.position), dir, dia: segmentDiameter(drawn.at(-1)!, 1) };
+    }
     let dia = out?.segments[0] ? segmentDiameter(out.segments[0], 0) : 0;
     if (!dia) {
       for (const e of ends) {
@@ -481,6 +489,7 @@ export function fitCurve(
   target: THREE.Vector3,
   targetDir: THREE.Vector3,
   template: Partial<PipeSegment> = {},
+  handle?: number,
 ): PipeSegment {
   const d0 = entryDir.clone().normalize();
   const d1 = targetDir.clone().normalize();
@@ -496,8 +505,174 @@ export function fitCurve(
   }
   const f = curveFrame(d0);
   const local = (v: THREE.Vector3): [number, number, number] => [v.dot(f.x), v.dot(f.y), v.dot(f.z)];
-  const { length } = curvePath(entry, d0, target, d1, 8);
-  return makeSegment({ ...base, length, yaw: 0, pitch: 0, curve: { end: local(chord), dir: local(d1) } });
+  const { length } = curvePath(entry, d0, target, d1, 8, handle);
+  const curve = { end: local(chord), dir: local(d1), ...(handle !== undefined ? { handle } : {}) };
+  return makeSegment({ ...base, length, yaw: 0, pitch: 0, curve });
+}
+
+/** The tightest a drawn bend may turn, in pipe bores: about what a mandrel bender makes. */
+export const MIN_BEND_BORES = 1.5;
+
+/**
+ * A bend, as a tube bender makes one: from `entry` heading `d0`, turning to head `d1` round a radius of
+ * `radius`, in the plane the two directions span. Where it ends follows from those. `null` where there is
+ * no such bend: `d1` the way the pipe already goes, or straight back the way it came.
+ */
+export function bendSegment(
+  entry: THREE.Vector3,
+  d0: THREE.Vector3,
+  d1: THREE.Vector3,
+  radius: number,
+  template: Partial<PipeSegment> = {},
+): PipeSegment | null {
+  const from = d0.clone().normalize();
+  const to = d1.clone().normalize();
+  const angle = from.angleTo(to);
+  if (angle < STRAIGHT_TURN || angle > Math.PI - STRAIGHT_TURN || radius <= 0) return null;
+  const across = to.clone().addScaledVector(from, -Math.cos(angle)).normalize();
+  const end = entry
+    .clone()
+    .addScaledVector(from, radius * Math.sin(angle))
+    .addScaledVector(across, radius * (1 - Math.cos(angle)));
+  // One arc, not the fitted bend's general cubic, so it turns round the radius it says all the way.
+  return fitCurve(entry, from, end, to, template, arcHandle(angle));
+}
+
+/**
+ * The bend `seg` is, reshaped to turn through `angle` round `radius`, in the plane it already turns in.
+ * Its bores and id are kept. `null` where the angle leaves no bend.
+ */
+export function reshapeBend(seg: PipeSegment, angle: number, radius: number): PipeSegment | null {
+  if (!seg.curve) return null;
+  const x = new THREE.Vector3(1, 0, 0);
+  const dir = new THREE.Vector3(...seg.curve.dir);
+  const across = dir.clone().addScaledVector(x, -dir.x);
+  if (across.lengthSq() < 1e-12) across.copy(new THREE.Vector3(...seg.curve.end)).addScaledVector(x, -seg.curve.end[0]);
+  if (across.lengthSq() < 1e-12) return null;
+  across.normalize();
+  const to = x.clone().multiplyScalar(Math.cos(angle)).addScaledVector(across, Math.sin(angle));
+  const bend = bendSegment(new THREE.Vector3(), x, to, radius, { ...seg });
+  if (!bend) return null;
+  bend.id = seg.id;
+  return bend;
+}
+
+/**
+ * Bend a straight segment where it lies, as a tube is bent: at `at` m along it, turning by `angle` radians
+ * about `axis`, square to the plane it bends in, round `radius`, keeping its length. `dir` is the way the
+ * segment runs, in the world, as `axis` is.
+ *
+ * The bend is centred on `at` and takes its length out of the straight either side; where one side has
+ * too little, the other gives the rest. A bend longer than the whole segment is eased to the tightest
+ * radius `tightest` allows, and then turned no further than fits, `clamped` saying so.
+ *
+ * The straight up to the bend keeps the segment's own corner and id, so the pipe before it is untouched;
+ * the pipe after it swings round with the far straight.
+ */
+export function bendStraight(
+  seg: PipeSegment,
+  dir: THREE.Vector3,
+  at: number,
+  axis: THREE.Vector3,
+  angle: number,
+  radius: number,
+  tightest: number,
+): { segments: PipeSegment[]; clamped: boolean; angle: number; radius: number } {
+  const length = seg.length;
+  // Short of doubling straight back, where a bend has no plane of its own.
+  let turn = Math.min(Math.abs(angle), Math.PI - 2 * STRAIGHT_TURN);
+  let r = Math.max(radius, tightest);
+  let clamped = false;
+  if (turn < STRAIGHT_TURN || length <= 0) return { segments: [seg], clamped, angle: 0, radius: r };
+  if (r * turn > length) {
+    r = Math.max(length / turn, tightest);
+    if (r * turn > length) {
+      turn = length / r;
+      clamped = true;
+    }
+  }
+  const signed = Math.sign(angle) * turn;
+  const from = dir.clone().normalize();
+  const to = from.clone().applyAxisAngle(axis.clone().normalize(), signed);
+  const dia = (x: number) => segmentDiameter(seg, Math.min(Math.max(x / length, 0), 1));
+  // Its length is the cubic's, a hair off the arc's, so the straights are cut to what it really is.
+  const probe = bendSegment(new THREE.Vector3(), from, to, r)!;
+  const arc = Math.min(probe.length, length);
+  let before = Math.min(Math.max(at, 0), length) - arc / 2;
+  let after = length - Math.min(Math.max(at, 0), length) - arc / 2;
+  if (before < 0) {
+    after += before;
+    before = 0;
+  }
+  if (after < 0) {
+    before += after;
+    after = 0;
+  }
+  const bend = bendSegment(new THREE.Vector3(), from, to, r, { kind: 'pipe', dIn: dia(before), dOut: dia(before + arc) })!;
+  const out: PipeSegment[] = [];
+  const MIN = 1e-3;
+  if (before > MIN) {
+    out.push(makeSegment({ ...seg, id: seg.id, length: before, dOut: dia(before) }));
+  } else {
+    // No straight before it: the bend takes the segment's own corner.
+    bend.yaw = seg.yaw;
+    bend.pitch = seg.pitch;
+    after += before;
+  }
+  out.push(bend);
+  if (after > MIN) out.push(makeSegment({ kind: seg.kind, length: after, dIn: dia(before + arc), dOut: seg.dOut }));
+  else if (out.length > 0) {
+    // What little is left goes on the straight before, so the length comes out the same.
+    const first = out[0]!;
+    if (first !== bend) first.length += after;
+  }
+  return { segments: out, clamped, angle: signed, radius: r };
+}
+
+/** Whether `seg` is a plain straight, which a bend beside it can take length from or give it to. */
+function straightPipe(seg: PipeSegment | undefined): seg is PipeSegment {
+  return !!seg && !seg.curve && seg.kind !== 'chamber';
+}
+
+/**
+ * Reshape bend `index` of `segments` to `angle` and `radius`, keeping the pipe its length: what the bend
+ * gains or loses comes out of the straights either side of it, half each, or all from one where there is
+ * only one, so far as they have it. Returns whether it was reshaped.
+ */
+export function reshapeBendKeepingLength(segments: PipeSegment[], index: number, angle: number, radius: number): boolean {
+  const seg = segments[index];
+  const next = seg ? reshapeBend(seg, angle, radius) : null;
+  if (!seg || !next) return false;
+  const sides = [segments[index - 1], segments[index + 1]].filter(straightPipe);
+  let change = next.length - seg.length;
+  const MIN = 1e-3;
+  // Each side gives up to what it has, and what one cannot, the other does.
+  for (let pass = 0; pass < 2 && sides.length > 0 && Math.abs(change) > 1e-9; pass++) {
+    const share = change / sides.length;
+    for (const side of sides) {
+      const give = Math.min(share, side.length - MIN);
+      side.length -= give;
+      change -= give;
+    }
+  }
+  segments[index] = next;
+  return true;
+}
+
+/**
+ * Slide bend `index` along its pipe so the straight before it is `before` m long, the straight after it
+ * taking up the difference, so the pipe keeps its length. Returns whether it moved.
+ */
+export function slideBend(segments: PipeSegment[], index: number, before: number): boolean {
+  const prev = segments[index - 1];
+  const next = segments[index + 1];
+  if (!segments[index]?.curve || !straightPipe(prev) || !straightPipe(next)) return false;
+  const MIN = 1e-3;
+  const span = prev.length + next.length;
+  const at = Math.min(Math.max(before, MIN), span - MIN);
+  prev.length = at;
+  next.length = span - at;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
