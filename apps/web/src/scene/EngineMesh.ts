@@ -38,6 +38,8 @@ import { valveLift } from '../model/cam.js';
 
 const STEEL = { color: 0x8d949e, metalness: 0.92, roughness: 0.34 };
 const CAST = { color: 0x5c626c, metalness: 0.55, roughness: 0.66 };
+/** The shells the main journals run in: a bronze-coloured lining. */
+const BEARING = { color: 0xb8894f, metalness: 0.7, roughness: 0.4 };
 const ALLOY = { color: 0xb9c0c9, metalness: 0.85, roughness: 0.28 };
 
 export interface ExhaustPort {
@@ -73,6 +75,8 @@ export class EngineMesh {
 
   private spec: EngineSpec;
   private readonly crank = new THREE.Group();
+  /** The main bearings, which are the block's and do not turn with the crank. */
+  private readonly bearings = new THREE.Group();
   private readonly cyls: CylinderMesh[] = [];
 
   private deckY = 0;
@@ -86,7 +90,7 @@ export class EngineMesh {
     private readonly clipPlane: THREE.Plane,
   ) {
     this.spec = { ...spec };
-    this.group.add(this.crank);
+    this.group.add(this.crank, this.bearings);
     this.rebuild();
   }
 
@@ -117,6 +121,7 @@ export class EngineMesh {
     }
     this.cyls.length = 0;
     disposeChildren(this.crank);
+    disposeChildren(this.bearings);
 
     const plan = firingPlan(this.spec);
     const pins = crankPins(this.spec);
@@ -158,29 +163,66 @@ export class EngineMesh {
     const s = this.spec;
     const a = s.stroke / 2;
 
-    const journal = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.019, 0.019, this.spacing * throws.length + 0.06, 18),
-      new THREE.MeshStandardMaterial(STEEL),
-    );
-    journal.rotation.x = Math.PI / 2;
-    this.crank.add(journal);
+    // The main journals: one either side of every throw, between its webs and the next throw's, and a
+    // length out past each end for the nose and the flywheel flange. Each runs in a main bearing.
+    const reach = (pin: (typeof pins)[number]) => pin.width / 2 + WEB_THICKNESS;
+    const spans = throws.map(({ z }) => {
+      const own = pins.filter((p) => Math.abs(p.z - z) < 0.02);
+      return { from: Math.min(...own.map((p) => p.z - reach(p))), to: Math.max(...own.map((p) => p.z + reach(p))) };
+    });
+    const steel = new THREE.MeshStandardMaterial(STEEL);
+    const shell = new THREE.MeshStandardMaterial({ ...BEARING, side: THREE.DoubleSide });
+    const mains: Array<[number, number]> = [];
+    if (spans.length > 0) {
+      mains.push([spans[0]!.from - END_JOURNAL, spans[0]!.from]);
+      for (let i = 0; i + 1 < spans.length; i++) mains.push([spans[i]!.to, spans[i + 1]!.from]);
+      mains.push([spans.at(-1)!.to, spans.at(-1)!.to + END_JOURNAL]);
+    }
+    for (const [from, to] of mains) {
+      const length = to - from;
+      if (length < 0.004) continue;
+      // Into the webs a little either side, so there is no seam where they meet.
+      const journal = new THREE.Mesh(new THREE.CylinderGeometry(MAIN_RADIUS, MAIN_RADIUS, length + 0.002, 20), steel);
+      journal.name = 'main journal';
+      journal.rotation.x = Math.PI / 2;
+      journal.position.z = (from + to) / 2;
+      journal.castShadow = true;
+      this.crank.add(journal);
+      const bearing = new THREE.Mesh(
+        new THREE.CylinderGeometry(MAIN_RADIUS + 0.0035, MAIN_RADIUS + 0.0035, Math.min(0.8 * length, 0.024), 24, 1, true),
+        shell,
+      );
+      bearing.name = 'main bearing';
+      bearing.rotation.x = Math.PI / 2;
+      bearing.position.z = (from + to) / 2;
+      this.bearings.add(bearing);
+    }
 
-    for (const { angle, z, width } of pins) {
+    const webShape = crankWebShape(a);
+    const cast = new THREE.MeshStandardMaterial(CAST);
+    for (const [i, { angle, z, width }] of pins.entries()) {
       // Local pin position: rotating the crank by -theta must carry this to
       // a*(sin(theta - angle), cos(theta - angle)), which is TDC when theta == angle.
       const phi = (angle * Math.PI) / 180;
       const x = -a * Math.sin(phi);
       const y = a * Math.cos(phi);
 
-      const web = new THREE.Mesh(
-        new THREE.CylinderGeometry(a * 1.5, a * 1.5, 0.022, 26, 1, false, Math.PI * 0.62, Math.PI * 1.76),
-        new THREE.MeshStandardMaterial(CAST),
-      );
-      web.rotation.x = Math.PI / 2;
-      web.rotation.z = -phi;
-      web.position.z = z;
-      web.castShadow = true;
-      this.crank.add(web);
+      // A web either side of the throw, each drawn with its pin up +y and turned round the shaft to it. The
+      // pins of a split throw sit side by side, so only the outer side of each has a web.
+      const first = i === 0 || pins[i - 1]!.z < z - 0.02;
+      const last = i === pins.length - 1 || pins[i + 1]!.z > z + 0.02;
+      for (const side of [-1, 1]) {
+        if ((side < 0 && !first) || (side > 0 && !last)) continue;
+        const geom = new THREE.ExtrudeGeometry(webShape, { depth: WEB_THICKNESS, bevelEnabled: false, curveSegments: 20 });
+        geom.translate(0, 0, -WEB_THICKNESS / 2);
+        const web = new THREE.Mesh(geom, cast);
+        web.name = 'web';
+        web.userData = { angle };
+        web.rotation.z = phi;
+        web.position.z = z + side * (width / 2 + WEB_THICKNESS / 2);
+        web.castShadow = true;
+        this.crank.add(web);
+      }
 
       // One big-end journal per pin, shared by the cylinders hanging off it — which is what
       // ties a V-twin's firing interval to its V angle.
@@ -543,6 +585,35 @@ const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 
 /** Empty a group, releasing GPU buffers. Materials are shared, so only geometry. */
+/** How thick each crank web is along the shaft, m. */
+const WEB_THICKNESS = 0.011;
+/** Radius of the crank's main journals, m. */
+const MAIN_RADIUS = 0.019;
+/** How far the crank runs on past its end throws, to the nose at one end and the flange at the other, m. */
+const END_JOURNAL = 0.03;
+
+/**
+ * A crank web's outline, with its pin at `(0, throwRadius)`: a boss round the pin, and the counterweight on
+ * the far side of the shaft from it, a broad sector reaching further out than the pin does, so it balances
+ * the pin, the big end and its share of the rod.
+ */
+export function crankWebShape(throwRadius: number): THREE.Shape {
+  const a = throwRadius;
+  const boss = 0.022;
+  const reach = 1.5 * a;
+  const half = (75 * Math.PI) / 180;
+  const shape = new THREE.Shape();
+  // Round the counterweight, below the shaft, from one side to the other; up to the boss; over it; back down.
+  const from = -Math.PI / 2 - half;
+  const to = -Math.PI / 2 + half;
+  shape.moveTo(reach * Math.cos(from), reach * Math.sin(from));
+  shape.absarc(0, 0, reach, from, to, false);
+  shape.lineTo(boss, a);
+  shape.absarc(0, a, boss, 0, Math.PI, false);
+  shape.closePath();
+  return shape;
+}
+
 function disposeChildren(group: THREE.Group): void {
   for (const child of [...group.children]) {
     disposeTree(child);

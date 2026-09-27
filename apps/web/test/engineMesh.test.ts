@@ -107,6 +107,91 @@ describe('the drawn mechanism', () => {
     }
   });
 
+  it('draws each crank web flat round the shaft, its counterweight opposite its pin', () => {
+    for (const over of [
+      { cylinders: 4 as const, vAngle: 0 },
+      { cylinders: 3 as const, vAngle: 0 },
+      { cylinders: 6 as const, vAngle: 60, exhaustLayout: 'perBank' as const },
+      { ...V8, crankType: 'crossplane' as const },
+    ]) {
+      const s = spec(over);
+      const mesh = new EngineMesh(s, clip);
+      mesh.group.updateMatrixWorld(true);
+      const webs: THREE.Mesh[] = [];
+      mesh.group.traverse((o) => {
+        if (o instanceof THREE.Mesh && o.name === 'web') webs.push(o);
+      });
+      expect(webs.length).toBeGreaterThanOrEqual(2 * new Set(crankPins(s).map((_, i) => i)).size);
+      const a = s.stroke / 2;
+      for (const web of webs) {
+        const phi = ((web.userData as { angle: number }).angle * Math.PI) / 180;
+        // Where its pin is, in the crank's own frame.
+        const pin = new THREE.Vector3(-Math.sin(phi), Math.cos(phi), 0);
+        const pos = web.geometry.getAttribute('position');
+        const toCrank = web.matrix;
+        let zMin = Infinity;
+        let zMax = -Infinity;
+        let towards = -Infinity;
+        let away = -Infinity;
+        for (let i = 0; i < pos.count; i++) {
+          const v = new THREE.Vector3().fromBufferAttribute(pos, i).applyMatrix4(toCrank);
+          zMin = Math.min(zMin, v.z);
+          zMax = Math.max(zMax, v.z);
+          const along = v.x * pin.x + v.y * pin.y;
+          towards = Math.max(towards, along);
+          away = Math.max(away, -along);
+          // Square across the pin's direction, it is no wider than its counterweight.
+          expect(Math.abs(v.x * pin.y - v.y * pin.x)).toBeLessThan(1.5 * a + 1e-9);
+        }
+        // Flat: only as thick as a web, not tipped out of the plane the crank turns in.
+        expect(zMax - zMin).toBeLessThan(0.012);
+        // Round the pin on one side, and reaching further out on the other, opposite it.
+        expect(towards).toBeCloseTo(a + 0.022, 6);
+        expect(away).toBeCloseTo(1.5 * a, 6);
+      }
+    }
+  });
+
+  it('runs the crank in a main bearing either side of every throw, clear of the webs', () => {
+    for (const over of [
+      { cylinders: 1 as const },
+      { cylinders: 4 as const, vAngle: 0 },
+      { cylinders: 6 as const, vAngle: 0 },
+      { cylinders: 6 as const, vAngle: 60, exhaustLayout: 'perBank' as const },
+      { ...V8, crankType: 'crossplane' as const },
+    ]) {
+      const s = spec(over);
+      const mesh = new EngineMesh(s, clip);
+      mesh.group.updateMatrixWorld(true);
+      const named = (name: string) => {
+        const found: THREE.Mesh[] = [];
+        mesh.group.traverse((o) => {
+          if (o instanceof THREE.Mesh && o.name === name) found.push(o);
+        });
+        return found;
+      };
+      const extent = (m: THREE.Mesh) => {
+        const box = new THREE.Box3().setFromObject(m);
+        return [box.min.z, box.max.z] as const;
+      };
+      const journals = named('main journal');
+      const bearings = named('main bearing');
+      // One more main than there are throws, a throw being a pin shared by the cylinders on it.
+      expect(journals, `${s.cylinders} cylinders`).toHaveLength(crankPins(s).length + 1);
+      expect(bearings).toHaveLength(journals.length);
+      const webs = named('web').map(extent);
+      for (const [i, journal] of journals.entries()) {
+        const [from, to] = extent(journal);
+        // Between the webs, into them no more than the seam allowance.
+        for (const [wFrom, wTo] of webs) expect(Math.min(to, wTo) - Math.max(from, wFrom)).toBeLessThan(0.0011);
+        // Its bearing round it, within its length.
+        const [bFrom, bTo] = extent(bearings[i]!);
+        expect(bFrom).toBeGreaterThan(from);
+        expect(bTo).toBeLessThan(to);
+      }
+    }
+  });
+
   it('puts each piston where the physics says it is', () => {
     const s = spec({ ...V8, crankType: 'crossplane' });
     const mesh = new EngineMesh(s, clip);
