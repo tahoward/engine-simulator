@@ -111,32 +111,51 @@ describe('the triad', () => {
 });
 
 describe('swinging a whole pipe about where it starts', () => {
-  it('turns it as one piece, every segment and bend kept', async () => {
-    const { swingPipe } = await import('../src/scene/drawing.js');
+  async function swung(bent: boolean, axis: THREE.Vector3, angle: number) {
+    const { bendWhole, pipeShape, swingPipe } = await import('../src/scene/drawing.js');
     const { layoutPipe, turnHeading } = await import('../src/scene/PipeMesh.js');
     const { makeSegment } = await import('../src/model/spec.js');
     const origin = new THREE.Vector3(0.2, 0.1, -0.1);
     const base = new THREE.Vector3(1, 0, 0);
+    let segments = [
+      makeSegment({ length: 0.2, yaw: 0.1 }),
+      makeSegment({ length: 0.3, yaw: 0.9, pitch: 0.4 }),
+      makeSegment({ length: 0.25, yaw: -0.6, pitch: -0.5 }),
+    ];
+    const heading = turnHeading(base, 0.3, -0.2);
+    if (bent) {
+      // Bent with the bend tool: the second straight in one plane, the third in another.
+      const at = (i: number) => pipeShape(segments, heading).starts[i]!;
+      const up = new THREE.Vector3(0, 1, 0);
+      segments[1] = bendWhole(segments[1]!, at(1), up.clone().cross(at(1)).normalize(), 0.8, 0.06).segment;
+      segments[2] = bendWhole(segments[2]!, at(2), up, -1.1, 0.06).segment;
+    }
     const duct = {
       id: 'a',
-      from: { kind: 'valve' as const, cylinder: 0 },
+      from: { kind: 'free' as const, position: [origin.x, origin.y, origin.z] as [number, number, number] },
       to: { kind: 'mouth' as const },
       headingYaw: 0.3,
       headingPitch: -0.2,
-      segments: [
-        makeSegment({ length: 0.2, yaw: 0.1 }),
-        makeSegment({ length: 0.3, yaw: 0.9, pitch: 0.4 }),
-        makeSegment({ length: 0.25, yaw: -0.6, pitch: -0.5 }),
-      ],
+      headingFrame: 'world' as const,
+      segments,
     };
-    const before = layoutPipe(duct.segments, origin, turnHeading(base, duct.headingYaw, duct.headingPitch));
-    const axis = new THREE.Vector3(0.3, 0.8, -0.5).normalize();
-    swingPipe(duct, base, before.jointDirections, axis, 0.7);
+    const before = layoutPipe(duct.segments, origin, heading);
+    const lengths = duct.segments.map((s) => s.length);
+    swingPipe(duct, base, pipeShape(duct.segments, heading), axis, angle);
     const after = layoutPipe(duct.segments, origin, turnHeading(base, duct.headingYaw, duct.headingPitch));
-    before.joints.forEach((p, i) => {
-      const expected = p.clone().sub(origin).applyAxisAngle(axis, 0.7).add(origin);
-      expect(after.joints[i]!.distanceTo(expected)).toBeLessThan(1e-9);
+    return { before, after, origin, lengths, duct };
+  }
+
+  it.each([false, true])('turns it as one piece, every segment, corner and bend kept, bent: %s', async (bent) => {
+    const axis = new THREE.Vector3(0.3, 0.8, -0.5).normalize();
+    const { before, after, origin, lengths, duct } = await swung(bent, axis, 0.7);
+    if (bent) expect(duct.segments.filter((s) => s.curve)).toHaveLength(2);
+    // Every point along it, bends included, where turning the whole pipe rigidly puts it.
+    expect(after.stations).toHaveLength(before.stations.length);
+    before.stations.forEach((st, i) => {
+      const expected = st.position.clone().sub(origin).applyAxisAngle(axis, 0.7).add(origin);
+      expect(after.stations[i]!.position.distanceTo(expected)).toBeLessThan(1e-9);
     });
-    duct.segments.forEach((s, i) => expect(s.length).toBe([0.2, 0.3, 0.25][i]));
+    duct.segments.forEach((s, i) => expect(s.length).toBe(lengths[i]));
   });
 });

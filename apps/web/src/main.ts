@@ -377,11 +377,11 @@ const panel = new Panel(panelEl, config, {
     editor.bendMode = on;
   },
   onBendTool: (on) => editor.setBendTool(on),
-  onReshapeBend: (id, index, angle, radius) => {
+  onReshapeBend: (id, index, angle, radius, changed) => {
     const duct = config.graph!.ducts.find((d) => d.id === id);
     if (!duct) return;
     freeze();
-    if (!reshapeBendKeepingLength(duct.segments, index, angle, radius)) return;
+    if (!reshapeBendKeepingLength(duct.segments, index, angle, radius, changed)) return;
     detachIfShort(id);
     rebuildPipeGeometry();
     panel.rebuildPipeList();

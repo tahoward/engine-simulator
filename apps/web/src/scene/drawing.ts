@@ -27,7 +27,7 @@ import {
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
-import { curveFrame, curvePath, layoutPipe, turnBetween } from './PipeMesh.js';
+import { curveFrame, curveInWorld, curvePath, layoutPipe, turnBetween, turnHeading } from './PipeMesh.js';
 import type { DuctPlacement, ExhaustPlacement, ExhaustPort } from './exhaustLayout.js';
 
 /** Longest segment a click may produce, m. */
@@ -357,29 +357,69 @@ export function flipLoosePipe(duct: ExhaustDuct, place: DuctPlacement): void {
 }
 
 /**
- * Swing a pipe as one piece about where it starts: its drawn segments, whose directions were `dirs`, turned
+ * A pipe's shape in the world, segment by segment: the way each sets off, after the corner into it, the way
+ * it finishes, and for a bend, where it ends from where it starts. What `swingPipe` turns.
+ */
+export interface PipeShape {
+  starts: THREE.Vector3[];
+  ends: THREE.Vector3[];
+  /** A bend's chord, start to end; `null` for a straight. */
+  chords: (THREE.Vector3 | null)[];
+}
+
+/** The shape of `segments` leaving along `heading`. */
+export function pipeShape(segments: PipeSegment[], heading: THREE.Vector3): PipeShape {
+  const shape: PipeShape = { starts: [], ends: [], chords: [] };
+  let dir = heading.clone().normalize();
+  for (const seg of segments) {
+    const start = turnHeading(dir, seg.yaw, seg.pitch);
+    if (seg.curve) {
+      const bend = curveInWorld(seg.curve, new THREE.Vector3(), start);
+      shape.chords.push(bend.end);
+      dir = bend.dir;
+    } else {
+      shape.chords.push(null);
+      dir = start.clone();
+    }
+    shape.starts.push(start);
+    shape.ends.push(dir.clone());
+  }
+  return shape;
+}
+
+/**
+ * Swing a pipe as one piece about where it starts: its drawn segments, whose shape was `shape`, turned
  * `angle` radians about `axis`.
  *
- * The way it sets off goes into its heading, turned off `base` as the layout reads it, and each corner after
- * is worked out again from the turned directions either side of it, so every segment keeps its length and
- * the bends between them stay as they were.
+ * The way it sets off goes into its heading, turned off `base` as the layout reads it. Each corner after is
+ * worked out again from the turned directions either side of it, and each bend is put back in the frame of
+ * the way it now sets off, since that frame is the world's up and not the pipe's own: so every segment keeps
+ * its length, and every corner and bend stays as it was.
  */
 export function swingPipe(
   duct: ExhaustDuct,
   base: THREE.Vector3,
-  dirs: THREE.Vector3[],
+  shape: PipeShape,
   axis: THREE.Vector3,
   angle: number,
 ): void {
-  const turned = dirs.map((d) => d.clone().applyAxisAngle(axis, angle));
-  const heading = turnBetween(base, turned[0]!);
+  const turn = (v: THREE.Vector3) => v.clone().applyAxisAngle(axis, angle);
+  const starts = shape.starts.map(turn);
+  const ends = shape.ends.map(turn);
+  const heading = turnBetween(base, starts[0]!);
   duct.headingYaw = heading.yaw;
   duct.headingPitch = heading.pitch;
-  turned.forEach((dir, i) => {
+  starts.forEach((start, i) => {
     const seg = duct.segments[i]!;
-    const corner = i === 0 ? { yaw: 0, pitch: 0 } : turnBetween(turned[i - 1]!, dir);
+    const corner = i === 0 ? { yaw: 0, pitch: 0 } : turnBetween(ends[i - 1]!, start);
     seg.yaw = corner.yaw;
     seg.pitch = corner.pitch;
+    const chord = shape.chords[i];
+    if (seg.curve && chord) {
+      const f = curveFrame(start);
+      const local = (v: THREE.Vector3): [number, number, number] => [v.dot(f.x), v.dot(f.y), v.dot(f.z)];
+      seg.curve = { ...seg.curve, end: local(turn(chord)), dir: local(ends[i]!) };
+    }
   });
 }
 
@@ -558,75 +598,40 @@ export function reshapeBend(seg: PipeSegment, angle: number, radius: number): Pi
 }
 
 /**
- * Bend a straight segment where it lies, as a tube is bent: at `at` m along it, turning by `angle` radians
- * about `axis`, square to the plane it bends in, round `radius`, keeping its length. `dir` is the way the
- * segment runs, in the world, as `axis` is.
+ * Bend a whole straight into one arc, as a tube is bent: turning by `angle` radians about `axis`, square to
+ * the plane it bends in, and as long as it was, so its radius is its length over the turn. `dir` is the way
+ * it runs, in the world, as `axis` is. Where it starts stays put, keeping its corner, its id and its bores.
  *
- * The bend is centred on `at` and takes its length out of the straight either side; where one side has
- * too little, the other gives the rest. A bend longer than the whole segment is eased to the tightest
- * radius `tightest` allows, and then turned no further than fits, `clamped` saying so.
- *
- * The straight up to the bend keeps the segment's own corner and id, so the pipe before it is untouched;
- * the pipe after it swings round with the far straight.
+ * No tighter than `tightest`: a turn that would need it tighter goes only as far as fits, `clamped` saying
+ * so.
  */
-export function bendStraight(
+export function bendWhole(
   seg: PipeSegment,
   dir: THREE.Vector3,
-  at: number,
   axis: THREE.Vector3,
   angle: number,
-  radius: number,
   tightest: number,
-): { segments: PipeSegment[]; clamped: boolean; angle: number; radius: number } {
+): { segment: PipeSegment; clamped: boolean; angle: number; radius: number } {
   const length = seg.length;
   // Short of doubling straight back, where a bend has no plane of its own.
   let turn = Math.min(Math.abs(angle), Math.PI - 2 * STRAIGHT_TURN);
-  let r = Math.max(radius, tightest);
-  let clamped = false;
-  if (turn < STRAIGHT_TURN || length <= 0) return { segments: [seg], clamped, angle: 0, radius: r };
-  if (r * turn > length) {
-    r = Math.max(length / turn, tightest);
-    if (r * turn > length) {
-      turn = length / r;
-      clamped = true;
-    }
-  }
+  if (turn < STRAIGHT_TURN || length <= 0) return { segment: seg, clamped: false, angle: 0, radius: Infinity };
+  const clamped = length / turn < tightest;
+  if (clamped) turn = length / tightest;
   const signed = Math.sign(angle) * turn;
   const from = dir.clone().normalize();
   const to = from.clone().applyAxisAngle(axis.clone().normalize(), signed);
-  const dia = (x: number) => segmentDiameter(seg, Math.min(Math.max(x / length, 0), 1));
-  // Its length is the cubic's, a hair off the arc's, so the straights are cut to what it really is.
-  const probe = bendSegment(new THREE.Vector3(), from, to, r)!;
-  const arc = Math.min(probe.length, length);
-  let before = Math.min(Math.max(at, 0), length) - arc / 2;
-  let after = length - Math.min(Math.max(at, 0), length) - arc / 2;
-  if (before < 0) {
-    after += before;
-    before = 0;
+  // The cubic is a hair off the arc it stands for, so its radius is trimmed until it is the length exactly.
+  let radius = length / turn;
+  let bend = bendSegment(new THREE.Vector3(), from, to, radius, { ...seg })!;
+  for (let i = 0; i < 3; i++) {
+    radius *= length / bend.length;
+    bend = bendSegment(new THREE.Vector3(), from, to, radius, { ...seg })!;
   }
-  if (after < 0) {
-    before += after;
-    after = 0;
-  }
-  const bend = bendSegment(new THREE.Vector3(), from, to, r, { kind: 'pipe', dIn: dia(before), dOut: dia(before + arc) })!;
-  const out: PipeSegment[] = [];
-  const MIN = 1e-3;
-  if (before > MIN) {
-    out.push(makeSegment({ ...seg, id: seg.id, length: before, dOut: dia(before) }));
-  } else {
-    // No straight before it: the bend takes the segment's own corner.
-    bend.yaw = seg.yaw;
-    bend.pitch = seg.pitch;
-    after += before;
-  }
-  out.push(bend);
-  if (after > MIN) out.push(makeSegment({ kind: seg.kind, length: after, dIn: dia(before + arc), dOut: seg.dOut }));
-  else if (out.length > 0) {
-    // What little is left goes on the straight before, so the length comes out the same.
-    const first = out[0]!;
-    if (first !== bend) first.length += after;
-  }
-  return { segments: out, clamped, angle: signed, radius: r };
+  bend.id = seg.id;
+  bend.yaw = seg.yaw;
+  bend.pitch = seg.pitch;
+  return { segment: bend, clamped, angle: signed, radius };
 }
 
 /** Whether `seg` is a plain straight, which a bend beside it can take length from or give it to. */
@@ -637,13 +642,26 @@ function straightPipe(seg: PipeSegment | undefined): seg is PipeSegment {
 /**
  * Reshape bend `index` of `segments` to `angle` and `radius`, keeping the pipe its length: what the bend
  * gains or loses comes out of the straights either side of it, half each, or all from one where there is
- * only one, so far as they have it. Returns whether it was reshaped.
+ * only one, so far as they have it. With no straight either side, the bend keeps its own length, and what
+ * was not `changed` follows: a new angle tightens or eases its radius, a new radius turns it further or
+ * less. Returns whether it was reshaped.
  */
-export function reshapeBendKeepingLength(segments: PipeSegment[], index: number, angle: number, radius: number): boolean {
+export function reshapeBendKeepingLength(
+  segments: PipeSegment[],
+  index: number,
+  angle: number,
+  radius: number,
+  changed: 'angle' | 'radius',
+): boolean {
   const seg = segments[index];
-  const next = seg ? reshapeBend(seg, angle, radius) : null;
-  if (!seg || !next) return false;
+  if (!seg) return false;
   const sides = [segments[index - 1], segments[index + 1]].filter(straightPipe);
+  if (sides.length === 0 && seg.curve) {
+    if (changed === 'angle') radius = seg.length / Math.max(angle, 1e-6);
+    else angle = Math.min(seg.length / Math.max(radius, 1e-6), Math.PI - 2 * STRAIGHT_TURN);
+  }
+  const next = reshapeBend(seg, angle, radius);
+  if (!next) return false;
   let change = next.length - seg.length;
   const MIN = 1e-3;
   // Each side gives up to what it has, and what one cannot, the other does.
