@@ -130,19 +130,13 @@ export function collectorBore(bore: number, n: number): number {
 }
 
 /**
- * The plane one bank is the mirror image of the other in, from a port on each: upright, since the banks
- * lean apart about the crank. `null` for an engine with one bank.
+ * The plane one bank is the mirror image of the other in: the engine's middle, upright through the crank,
+ * which the banks lean apart either side of (`exhaustPortOf`) — a V's, or a boxer's laid flat, whose ports
+ * both point down. `null` for an engine with one bank.
  */
-export function bankMirror(spec: EngineSpec, ports: ExhaustPort[]): { point: THREE.Vector3; normal: THREE.Vector3 } | null {
+export function bankMirror(spec: EngineSpec): { point: THREE.Vector3; normal: THREE.Vector3 } | null {
   if (physicalBankCount(spec) < 2) return null;
-  const a = ports[bankCylinders(spec, 0)[0] ?? -1];
-  const b = ports[bankCylinders(spec, 1)[0] ?? -1];
-  if (!a || !b) return null;
-  const normal = a.direction.clone().sub(b.direction);
-  if (normal.lengthSq() < 1e-10) return null;
-  normal.normalize();
-  if (Math.abs(normal.y) > 1e-6) return null;
-  return { point: a.position.clone().add(b.position).multiplyScalar(0.5), normal };
+  return { point: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
 }
 
 /** `plan` in the mirror, for the other bank's `cylinders`. */
