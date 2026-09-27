@@ -24,11 +24,13 @@ import {
   quantiseTurn,
   routeTip,
   snapToEngine,
+  splitDuct,
 } from '../src/scene/drawing.js';
 import { layoutGraph, type ExhaustPort } from '../src/scene/exhaustLayout.js';
 import { layoutPipe } from '../src/scene/PipeMesh.js';
 import {
   compileLayout,
+  disconnectEnd,
   joinDuctEnd,
   newDuctId,
   newNodeId,
@@ -341,29 +343,28 @@ describe('splitting a duct for a T', () => {
 /**
  * Merging into a pipe that ended in open air.
  *
- * Unlike a T there is no existing pipe to hand the junction's outlet, so one is invented. That is not a
- * liberty: merging two pipes physically requires a pipe after the merge, and a collector is exactly that.
+ * Only the junction is made: the pipe carrying the merged flow on is drawn from it, not invented. Until it
+ * is, the pipes meeting there end in open air, which is what the solver is given.
  */
 describe('joining the end of a pipe', () => {
   const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
 
-  it('makes a junction and a collector wide enough for both feeds', () => {
+  it('makes a junction and nothing after it, fixed where the pipe ends', async () => {
+    const { junctionAt, solverGraph } = await import('../src/model/exhaustGraph.js');
     const graph = compileLayout(spec, [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.04 })], []);
-    const area = (d: number) => (Math.PI * d * d) / 4;
-    const node = joinDuctEnd(graph, 'runner0', area(0.04))!;
+    const count = graph.ducts.length;
+    const at = { position: [0.3, 0.2, 0.1] as [number, number, number], axis: [1, 0, 0] as [number, number, number] };
+    const node = joinDuctEnd(graph, 'runner0', at)!;
     expect(node).toBeTruthy();
+    expect(graph.ducts).toHaveLength(count);
+    expect(graph.ducts.find((d) => d.id === 'runner0')!.to).toEqual({ kind: 'node', node });
+    expect(junctionAt(graph, node)!.position).toEqual(at.position);
 
-    const runner = graph.ducts.find((d) => d.id === 'runner0')!;
-    expect(runner.to).toEqual({ kind: 'node', node });
-
-    const onward = graph.ducts.find((d) => d.from.kind === 'node' && d.from.node === node)!;
-    expect(onward.to).toEqual({ kind: 'mouth' });
-    // Area of the two feeds added, so the merge does not choke.
-    expect(area(onward.segments[0]!.dIn)).toBeCloseTo(2 * area(0.04), 6);
-
-    // Point the other runner at it and the graph stands up as a 2-into-1.
+    // Point the other runner at it too: a merge waiting for the pipe after it, which the app accepts.
     graph.ducts.find((d) => d.id === 'runner1')!.to = { kind: 'node', node };
     expect(validateGraph(graph, 2)).toEqual([]);
+    // Until that pipe is drawn, both end in open air as far as the solver is concerned.
+    expect(solverGraph(graph).ducts.every((d) => d.to.kind === 'mouth')).toBe(true);
   });
 
   it('declines a duct that already ends at a junction', () => {
@@ -482,24 +483,31 @@ describe('deleting', () => {
     expect(graph.ducts.some((d) => d.id === 'runner0')).toBe(true);
   });
 
-  it('a collector deleted leaves its runners open', async () => {
-    const { removeDuct } = await import('../src/model/exhaustGraph.js');
+  it('a collector deleted leaves its runners merging, open to the air until another is drawn', async () => {
+    const { removeDuct, solverGraph } = await import('../src/model/exhaustGraph.js');
     const graph = compileLayout(twin, runner(), collector());
     expect(removeDuct(graph, 'collector0')).toBe(true);
     expect(graph.ducts.map((d) => d.id).sort()).toEqual(['runner0', 'runner1']);
-    expect(graph.ducts.every((d) => d.to.kind === 'mouth')).toBe(true);
+    // Still meeting at their junction, a merge waiting for the pipe after it.
+    expect(graph.ducts.every((d) => d.to.kind === 'node')).toBe(true);
     expect(validateGraph(graph, 2)).toEqual([]);
+    expect(solverGraph(graph).ducts.every((d) => d.to.kind === 'mouth')).toBe(true);
   });
 
-  it('a collector junction deleted: runners open, what came after it goes', async () => {
-    const { removeJunction, compileCollectorLayout } = await import('../src/model/exhaustGraph.js');
+  it('a collector junction is only deleted once the collector after it is: then its runners end open', async () => {
+    const { removeDuct, removeJunction, compileCollectorLayout } = await import('../src/model/exhaustGraph.js');
     const graph = compileCollectorLayout(v8, runner(), collector());
     const joint = layoutGraph(portsOf(v8), graph).joints.get('merge0')!;
     const { throughPipe } = await import('../src/scene/jointMesh.js');
-    // Four runners into a collector: nothing runs straight through.
+    // Four runners into a collector: nothing runs straight through, so the collector leaving it holds it.
     expect(throughPipe(joint)).toBeNull();
-    removeJunction(graph, 'merge0', throughPipe(joint));
+    const before = JSON.stringify(graph);
+    expect(removeJunction(graph, 'merge0', throughPipe(joint))).toBe(false);
+    expect(JSON.stringify(graph)).toBe(before);
+    expect(removeDuct(graph, 'collector0')).toBe(true);
+    expect(removeJunction(graph, 'merge0', null)).toBe(true);
     expect(graph.ducts.some((d) => d.id === 'collector0')).toBe(false);
+    for (const d of graph.ducts) if (d.from.kind === 'valve' && d.to.kind === 'node') expect(d.to.node).not.toBe('merge0');
     // The other bank is untouched.
     expect(graph.ducts.some((d) => d.id === 'collector1')).toBe(true);
     expect(graph.ducts.filter((d) => d.from.kind === 'valve')).toHaveLength(8);
@@ -526,7 +534,7 @@ describe('deleting', () => {
     expect(validateGraph(graph, 8)).toEqual([]);
   });
 
-  /** A tee deleted takes the branch away and rejoins the pipe it was teed onto. */
+  /** A tee deleted rejoins the pipe it was teed onto, once no branch leaves it. */
   it.each(['into', 'out of'])('a tee branching %s a pipe: deleting it rejoins the pipe', async (way) => {
     const { removeJunction } = await import('../src/model/exhaustGraph.js');
     const { throughPipe } = await import('../src/scene/jointMesh.js');
@@ -561,7 +569,12 @@ describe('deleting', () => {
     const through = throughPipe(joint);
     expect(through?.[0]).toBe('runner0');
 
-    removeJunction(graph, node, through);
+    // A branch leaving it holds it, until the branch is deleted.
+    if (way === 'out of') {
+      expect(removeJunction(graph, node, through)).toBe(false);
+      graph.ducts = graph.ducts.filter((d) => d.id !== 'drawn0');
+    }
+    expect(removeJunction(graph, node, through)).toBe(true);
     const pipe = graph.ducts.find((d) => d.id === 'runner0')!;
     expect(pipe.to).toEqual({ kind: 'mouth' });
     expect(pipe.segments.reduce((a, sg) => a + sg.length, 0)).toBeCloseTo(before, 9);
@@ -582,7 +595,7 @@ describe('deleting', () => {
   });
 
   /** Deleting the middle of a two-stage merge must not leave a junction nothing flows into. */
-  it('never deletes a pipe others carry on from, through a tri-Y', async () => {
+  it('deletes a pipe in the middle of a tri-Y, what carries on from it still fed', async () => {
     const { removeDuct } = await import('../src/model/exhaustGraph.js');
     const four = { ...defaultConfig().engine, cylinders: 4, vAngle: 0 } as EngineSpec;
     const graph: ExhaustGraph = {
@@ -598,17 +611,23 @@ describe('deleting', () => {
         { id: 'tailpipe', segments: collector(), from: { kind: 'node', node: 'tail' }, to: { kind: 'mouth' } },
       ],
     };
-    // The tailpipe carries on from midA, so midA is not deleted: that would take the tailpipe with it.
+    // The tailpipe carries on from midA and midB: midA goes, and with only midB left feeding it, the two
+    // rejoin into one pipe that still reaches the air.
     const before = JSON.stringify(graph);
-    expect(removeDuct(graph, 'midA')).toBe(false);
+    const copy = JSON.parse(before) as ExhaustGraph;
+    expect(removeDuct(copy, 'midA')).toBe(true);
+    const midB = copy.ducts.find((d) => d.id === 'midB')!;
+    expect(midB.to).toEqual({ kind: 'mouth' });
+    expect(midB.segments).toHaveLength(runner().length + collector().length);
+    expect(validateGraph(copy, 4)).toEqual([]);
     // Nor is the junction midA leaves, which would delete midA.
     const { removeJunction } = await import('../src/model/exhaustGraph.js');
     expect(removeJunction(graph, 'pairA')).toBe(false);
     expect(JSON.stringify(graph)).toBe(before);
-    // The tailpipe has nothing after it, so it goes, and the pipes that fed it end in air.
+    // The tailpipe has nothing after it, so it goes, and the pipes that fed it still meet, open to the air.
     expect(removeDuct(graph, 'tailpipe')).toBe(true);
-    expect(graph.ducts.find((d) => d.id === 'midA')!.to).toEqual({ kind: 'mouth' });
-    expect(graph.ducts.find((d) => d.id === 'midB')!.to).toEqual({ kind: 'mouth' });
+    expect(graph.ducts.find((d) => d.id === 'midA')!.to).toEqual({ kind: 'node', node: 'tail' });
+    expect(graph.ducts.find((d) => d.id === 'midB')!.to).toEqual({ kind: 'node', node: 'tail' });
     expect(validateGraph(graph, 4)).toEqual([]);
     void four;
   });
@@ -653,13 +672,16 @@ describe('attaching leaves the pipe attached to alone', () => {
     expect(placement.ducts.get('runner0')!.heading.angleTo(before)).toBeLessThan(1e-9);
   });
 
-  it('onto its end: the new pipe carries on the way it was going', () => {
+  it('onto its end: a pipe drawn on from the junction carries on the way it was going', () => {
     const graph = compileLayout(spec, pipe(), []);
-    const node = joinDuctEnd(graph, 'runner0', Math.PI * 0.021 ** 2)!;
+    const end = layoutPipe(graph.ducts[0]!.segments, ports()[0]!.position, ports()[0]!.direction);
+    const at = end.joints.at(-1)!;
+    const dir = end.jointDirections.at(-1)!;
+    const node = joinDuctEnd(graph, 'runner0', { position: [at.x, at.y, at.z], axis: [dir.x, dir.y, dir.z] })!;
     graph.ducts.find((d) => d.id === 'runner1')!.to = { kind: 'node', node };
+    graph.ducts.push({ id: 'onward', segments: [makeSegment({ length: 0.3 })], from: { kind: 'node', node }, to: { kind: 'mouth' } });
     const placement = layoutGraph(ports(), graph);
-    const onward = graph.ducts.find((d) => d.from.kind === 'node' && d.from.node === node)!;
-    expect(placement.ducts.get(onward.id)!.heading.angleTo(directionAt(0.8))).toBeLessThan(1e-6);
+    expect(placement.ducts.get('onward')!.heading.angleTo(directionAt(0.8))).toBeLessThan(1e-6);
   });
 
   it('cut inside a turned segment, the second half does not turn again', () => {
@@ -749,5 +771,89 @@ describe('deleting keeps the exhaust in one piece', async () => {
         check(`delete ${d.id} segment ${i + 1}`, g, d.id);
       });
     }
+  });
+});
+
+/** Deleting a segment in the middle of a pipe leaves the segments after it loose, where they lie. */
+describe('deleting from the middle of a pipe', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
+  const ports = (): ExhaustPort[] => {
+    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    return [0, 1].map((i) => mesh.exhaustPort(i));
+  };
+  const pipe = () => [
+    makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.042 }),
+    makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042, yaw: 0.4 }),
+    makeSegment({ kind: 'pipe', length: 0.25, dIn: 0.042, pitch: -0.3 }),
+  ];
+
+  it('keeps the segments after it where they were, as a loose pipe that takes over the far end', () => {
+    const graph = compileLayout(spec, pipe(), []);
+    const before = layoutGraph(ports(), graph);
+    const place = before.ducts.get('runner0')!;
+    const swept = layoutPipe(graph.ducts[0]!.segments, place.origin, place.heading);
+    const tail = graph.ducts[0]!.segments[2]!.id;
+    const loose = splitDuct(graph, 'runner0', 1, place)!;
+
+    expect(graph.ducts.find((d) => d.id === 'runner0')!.segments).toHaveLength(1);
+    const rest = graph.ducts.find((d) => d.id === loose)!;
+    expect(rest.from.kind).toBe('free');
+    expect(rest.segments.map((s) => s.id)).toEqual([tail]);
+    expect(rest.to.kind).toBe('mouth');
+    expect(validateGraph(graph, 2)).toEqual([]);
+
+    const after = layoutGraph(ports(), graph).ducts.get(loose)!;
+    const moved = layoutPipe(rest.segments, after.origin, after.heading);
+    expect(moved.joints.at(-1)!.distanceTo(swept.joints.at(-1)!)).toBeLessThan(1e-9);
+    expect(moved.jointDirections.at(-1)!.angleTo(swept.jointDirections.at(-1)!)).toBeLessThan(1e-9);
+  });
+
+  it('does nothing to the last segment, which is deleted from the end as usual', () => {
+    const graph = compileLayout(spec, pipe(), []);
+    const place = layoutGraph(ports(), graph).ducts.get('runner0')!;
+    expect(splitDuct(graph, 'runner0', 2, place)).toBeNull();
+    expect(graph.ducts[0]!.segments).toHaveLength(3);
+  });
+});
+
+/** Taking a branch's fitted bend off the side of a straight pipe rejoins the pipe it split. */
+describe('detaching a branch from the side of a pipe', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
+  const ports = (): ExhaustPort[] => {
+    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    return [0, 1].map((i) => mesh.exhaustPort(i));
+  };
+  const pipe = () => [
+    makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.042 }),
+    makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.042 }),
+  ];
+
+  it.each([false, true])('merges the straight pipe back into one, fixed in place: %s', (pinned) => {
+    const graph = compileLayout(spec, pipe(), []);
+    const before = layoutGraph(ports(), graph).ducts.get('runner0')!;
+    const swept = layoutPipe(graph.ducts[0]!.segments, before.origin, before.heading);
+    const node = splitDuctAt(graph, 'runner0', 0.5)!;
+    if (pinned) graph.junctions = [{ node, position: [0, 0, 0], axis: [1, 0, 0] }];
+    const branch = graph.ducts.find((d) => d.id === 'runner1')!;
+    branch.segments.push(makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 }));
+    branch.to = { kind: 'node', node };
+    branch.fitted = true;
+    const count = branch.segments.length;
+
+    expect(disconnectEnd(graph, 'runner1')).toBe(true);
+    const runner = graph.ducts.find((d) => d.id === 'runner0')!;
+    expect(runner.to.kind).toBe('mouth');
+    expect(runner.fitted).toBeUndefined();
+    expect(graph.ducts).toHaveLength(2);
+    expect(graph.junctions).toBeUndefined();
+    // The segment the branch cut in two is one again.
+    expect(runner.segments.map((s) => s.length)).toEqual(pipe().map((s) => s.length));
+    // The bend it was fitted in goes with it.
+    expect(branch.segments).toHaveLength(count - 1);
+    expect(branch.to.kind).toBe('mouth');
+    // And the pipe is where it was.
+    const place = layoutGraph(ports(), graph).ducts.get('runner0')!;
+    const after = layoutPipe(runner.segments, place.origin, place.heading);
+    expect(after.joints.at(-1)!.distanceTo(swept.joints.at(-1)!)).toBeLessThan(1e-9);
   });
 });

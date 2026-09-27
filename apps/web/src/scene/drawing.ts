@@ -17,6 +17,7 @@ import { makeSegment, segmentDiameter, type PipeSegment } from '../model/spec.js
 import {
   endsAt,
   junctionAt,
+  newDuctId,
   nodeOrder,
   type ExhaustDuct,
   type ExhaustGraph,
@@ -209,6 +210,123 @@ export function fitSegment(
 }
 
 /**
+ * Free the pipes carrying on from `ductId`'s end, as it is deleted: where it is the only pipe into its
+ * junction, the pipes leaving that junction are left as loose pipes, each where it lies, heading as it
+ * does, and what was attached to them stays attached to them. Its end is left open.
+ */
+export function loosenChildren(graph: ExhaustGraph, ductId: string, placement: ExhaustPlacement): void {
+  const duct = graph.ducts.find((d) => d.id === ductId);
+  if (!duct || duct.to.kind !== 'node') return;
+  const node = duct.to.node;
+  const ends = endsAt(graph, node);
+  const others = ends.filter((e) => e.end === 'outlet' && e.duct !== duct);
+  if (others.length > 0) return;
+  for (const e of ends) {
+    if (e.end !== 'inlet') continue;
+    const child = e.duct;
+    const place = placement.ducts.get(child.id);
+    if (!place) continue;
+    const turn = turnBetween(new THREE.Vector3(1, 0, 0), place.heading);
+    child.from = { kind: 'free', position: [place.origin.x, place.origin.y, place.origin.z] };
+    child.headingYaw = turn.yaw;
+    child.headingPitch = turn.pitch;
+    child.headingFrame = 'world';
+    delete child.continues;
+  }
+  duct.to = { kind: 'mouth' };
+  delete duct.fitted;
+  if (graph.junctions) {
+    graph.junctions = graph.junctions.filter((j) => j.node !== node);
+    if (graph.junctions.length === 0) delete graph.junctions;
+  }
+}
+
+/**
+ * Delete segment `index` from the middle of a pipe, leaving the segments after it as a loose pipe where
+ * they lie. That pipe takes over the far end, and whatever it joined, so the pipes carrying on from it stay
+ * joined. The pipe before the gap ends in open air.
+ *
+ * Returns the loose pipe's id, or `null` when there is nothing after the segment to split off.
+ */
+export function splitDuct(graph: ExhaustGraph, ductId: string, index: number, place: DuctPlacement): string | null {
+  const duct = graph.ducts.find((d) => d.id === ductId);
+  if (!duct || index < 0 || index >= duct.segments.length - 1) return null;
+  const swept = layoutPipe(duct.segments, place.origin, place.heading);
+  const start = swept.joints[index]!;
+  const turn = turnBetween(new THREE.Vector3(1, 0, 0), swept.jointDirections[index]!);
+  const rest: ExhaustDuct = {
+    id: newDuctId(graph, 'pipe'),
+    segments: duct.segments.slice(index + 1),
+    from: { kind: 'free', position: [start.x, start.y, start.z] },
+    to: duct.to,
+    headingYaw: turn.yaw,
+    headingPitch: turn.pitch,
+    headingFrame: 'world',
+    ...(duct.fitted ? { fitted: true as const } : {}),
+  };
+  for (const d of graph.ducts) if (d.continues === duct.id) d.continues = rest.id;
+  duct.segments = duct.segments.slice(0, index);
+  duct.to = { kind: 'mouth' };
+  delete duct.fitted;
+  graph.ducts.push(rest);
+  return rest.id;
+}
+
+/**
+ * Turn a loose pipe round, end for end, where it lies: its far end becomes where it starts, so a pipe
+ * drawn into that end can carry on through it. Every segment keeps its length and its place, its bores
+ * swapped end for end and a bend run the other way, so it looks just as it did.
+ */
+export function flipLoosePipe(duct: ExhaustDuct, place: DuctPlacement): void {
+  if (duct.from.kind !== 'free' || duct.segments.length === 0) return;
+  const swept = layoutPipe(duct.segments, place.origin, place.heading);
+  const points = [place.origin.clone(), ...swept.joints.map((p) => p.clone())];
+  // Each segment's direction where it starts and where it ends.
+  const starts: THREE.Vector3[] = [];
+  duct.segments.forEach((_, i) => {
+    const first = swept.stations.find((st) => st.segment === i)!;
+    starts.push(first.direction.clone());
+  });
+  const ends = swept.jointDirections.map((d) => d.clone());
+
+  const flipped: PipeSegment[] = [];
+  let prevEnd: THREE.Vector3 | null = null;
+  let heading = new THREE.Vector3(1, 0, 0);
+  for (let i = duct.segments.length - 1; i >= 0; i--) {
+    const seg = duct.segments[i]!;
+    const startDir = ends[i]!.clone().negate();
+    const endDir = starts[i]!.clone().negate();
+    const corner = prevEnd ? turnBetween(prevEnd, startDir) : { yaw: 0, pitch: 0 };
+    if (!prevEnd) heading = startDir.clone();
+    const next: Partial<PipeSegment> = {
+      ...seg,
+      id: undefined,
+      dIn: seg.kind === 'chamber' ? seg.dIn : seg.dOut,
+      dOut: seg.kind === 'chamber' ? seg.dOut : seg.dIn,
+      yaw: corner.yaw,
+      pitch: corner.pitch,
+      offsetIn: seg.offsetOut,
+      offsetOut: seg.offsetIn,
+      curve: undefined,
+    };
+    if (seg.curve) {
+      const f = curveFrame(startDir);
+      const local = (v: THREE.Vector3): [number, number, number] => [v.dot(f.x), v.dot(f.y), v.dot(f.z)];
+      next.curve = { end: local(points[i]!.clone().sub(points[i + 1]!)), dir: local(endDir) };
+    }
+    flipped.push(makeSegment(next));
+    prevEnd = endDir;
+  }
+  const h = turnBetween(new THREE.Vector3(1, 0, 0), heading);
+  const start = points[points.length - 1]!;
+  duct.from = { kind: 'free', position: [start.x, start.y, start.z] };
+  duct.headingYaw = h.yaw;
+  duct.headingPitch = h.pitch;
+  duct.headingFrame = 'world';
+  duct.segments = flipped;
+}
+
+/**
  * Swing a pipe as one piece about where it starts: its drawn segments, whose directions were `dirs`, turned
  * `angle` radians about `axis`.
  *
@@ -286,7 +404,15 @@ export function bendAnchor(
       out && place && out.segments.length > 0
         ? layoutPipe(out.segments, place.origin, place.heading).stations[0]!.direction.clone()
         : new THREE.Vector3(...pinned.axis);
-    const dia = out?.segments[0] ? segmentDiameter(out.segments[0], 0) : 0.042;
+    // The bore of the pipe leaving, or where nothing leaves yet, of the widest pipe already there.
+    let dia = out?.segments[0] ? segmentDiameter(out.segments[0], 0) : 0;
+    if (!dia) {
+      for (const e of ends) {
+        const last = e.end === 'outlet' && e.duct.id !== ductId ? e.duct.segments.at(-1) : undefined;
+        if (last) dia = Math.max(dia, segmentDiameter(last, 1));
+      }
+    }
+    if (!dia) dia = 0.042;
     return { point: new THREE.Vector3(...pinned.position), dir, dia };
   }
   const onward = ends.find((e) => e.end === 'inlet' && e.duct.continues !== undefined)?.duct;

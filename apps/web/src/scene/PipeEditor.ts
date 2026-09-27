@@ -38,7 +38,7 @@ import {
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
-import { layoutPipe, type PipeMesh } from './PipeMesh.js';
+import { layoutPipe, turnHeading, type PipeMesh } from './PipeMesh.js';
 import { TurboMesh } from './TurboMesh.js';
 import {
   AXIS_COLOURS,
@@ -60,6 +60,7 @@ import {
   MIN_DRAW_LENGTH,
   bendAnchor,
   collectSnapTargets,
+  flipLoosePipe,
   diameterAt,
   type BendAnchor,
   swingPipe,
@@ -88,6 +89,10 @@ interface HandleData {
   kind: HandleKind;
   segment: number;
 }
+
+/** The attachment dot's colours: on a port, pipe or turbo, and on a junction. */
+const ATTACH_MARKER = 0xffd166;
+const JUNCTION_MARKER = 0xc792ff;
 
 /** Length of a loose pipe as it is put down, m: `placeLoosePipe`'s. */
 const LOOSE_PIPE_LENGTH = 0.3;
@@ -352,7 +357,7 @@ export class PipeEditor {
 
     this.marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.016, 16, 12),
-      new THREE.MeshBasicMaterial({ color: 0xffd166, transparent: true, opacity: 0.85 }),
+      new THREE.MeshBasicMaterial({ color: ATTACH_MARKER, transparent: true, opacity: 0.85 }),
     );
     this.marker.visible = false;
     this.marker.renderOrder = 13;
@@ -548,6 +553,13 @@ export class PipeEditor {
     this.route = null;
     this.hidePreview();
     this.cb.onDrawing?.(false);
+  }
+
+  /** The attachment dot: violet on a junction, so it reads apart from a pipe end or port's yellow. */
+  private colourMarker(target: SnapTarget): void {
+    (this.marker.material as THREE.MeshBasicMaterial).color.setHex(
+      target.kind === 'node' ? JUNCTION_MARKER : ATTACH_MARKER,
+    );
   }
 
   private hidePreview(): void {
@@ -803,7 +815,7 @@ export class PipeEditor {
       // Tapering from the bore it leaves at to the bore of what it joins, so it matches at both.
       duct.segments.push(fitCurve(tip.point, tip.dir, anchor.point, anchor.dir, { dIn: dia, dOut: anchor.dia }));
       duct.fitted = true;
-      const node = this.connect(target, dia);
+      const node = this.connect(target);
       if (node) {
         this.finishRoute({ kind: 'node', node });
         return;
@@ -853,8 +865,7 @@ export class PipeEditor {
       }
     }
     if (target.kind === 'ductEnd') {
-      const area = (Math.PI * dia * dia) / 4;
-      const node = joinDuctEnd(ctx.graph, target.duct, area);
+      const node = joinDuctEnd(ctx.graph, target.duct);
       if (node) {
         this.finishRoute({ kind: 'node', node });
         return;
@@ -894,9 +905,12 @@ export class PipeEditor {
         const place = ctx.placement.ducts.get(target.duct);
         if (!other || !place || other.segments.length === 0) return null;
         const swept = layoutPipe(other.segments, place.origin, place.heading);
+        // A loose pipe is turned round to carry on from here, so the bend arrives going the way it will.
+        const loose = other.from.kind === 'free';
+        const dir = swept.jointDirections.at(-1)!.clone();
         return {
           point: swept.joints.at(-1)!.clone(),
-          dir: swept.jointDirections.at(-1)!.clone(),
+          dir: loose ? dir.negate() : dir,
           dia: segmentDiameter(other.segments.at(-1)!, 1),
         };
       }
@@ -911,7 +925,7 @@ export class PipeEditor {
    * Join the route's duct onto `target`, making the junction that takes where needed: on another pipe's
    * side or open end, or at a turbo's inlet. Returns the node it now ends at.
    */
-  private connect(target: SnapTarget, dia: number): string | null {
+  private connect(target: SnapTarget): string | null {
     const ctx = this.context!;
     switch (target.kind) {
       case 'turboInlet': {
@@ -928,8 +942,26 @@ export class PipeEditor {
         return attachToLooseStart(ctx.graph, this.route!.ductId, target.duct, [target.dir.x, target.dir.y, target.dir.z]);
       case 'ductSurface':
         return splitDuctAt(ctx.graph, target.duct, target.x);
-      case 'ductEnd':
-        return joinDuctEnd(ctx.graph, target.duct, (Math.PI * dia * dia) / 4);
+      case 'ductEnd': {
+        // A loose pipe's far end: turned round so that end is where it starts, it carries on from the
+        // pipe drawn into it, with no junction of pipes and nothing added. Anything else's is a merge.
+        const other = ctx.graph.ducts.find((d) => d.id === target.duct);
+        const place = ctx.placement.ducts.get(target.duct);
+        if (other?.from.kind === 'free' && place) {
+          flipLoosePipe(other, place);
+          const start = new THREE.Vector3(...other.from.position);
+          const heading = turnHeadingWorld(other);
+          const first = layoutPipe(other.segments, start, heading).stations[0]!.direction;
+          return attachToLooseStart(ctx.graph, this.route!.ductId, other.id, [first.x, first.y, first.z]);
+        }
+        // Fixed where the pipe ends, which way it points: the drawn pipe bends in alongside it.
+        const anchor = this.connectionAnchor(target, this.route!.ductId);
+        return joinDuctEnd(
+          ctx.graph,
+          target.duct,
+          anchor ? { position: [anchor.point.x, anchor.point.y, anchor.point.z], axis: [anchor.dir.x, anchor.dir.y, anchor.dir.z] } : undefined,
+        );
+      }
       default:
         return null;
     }
@@ -1476,7 +1508,10 @@ export class PipeEditor {
       const target = this.resolveSnap(this.origin);
       const startable = PipeEditor.startable(target);
       this.marker.visible = startable;
-      if (startable) this.marker.position.copy(target!.point);
+      if (startable) {
+        this.marker.position.copy(target!.point);
+        this.colourMarker(target!);
+      }
       this.preview.visible = false;
       return;
     }
@@ -1527,6 +1562,7 @@ export class PipeEditor {
     // Marked only when it would *connect*, so the highlight means something.
     this.marker.visible = target.kind !== 'free';
     this.marker.position.copy(point);
+    this.colourMarker(target);
     this.snapped = target;
   }
 
@@ -1650,6 +1686,11 @@ export class PipeEditor {
       m.dispose();
     }
   }
+}
+
+/** The way a loose pipe heads where it starts: its heading, stored off world +x. */
+function turnHeadingWorld(duct: ExhaustDuct): THREE.Vector3 {
+  return turnHeading(new THREE.Vector3(1, 0, 0), duct.headingYaw, duct.headingPitch);
 }
 
 function clamp(x: number, lo: number, hi: number): number {
