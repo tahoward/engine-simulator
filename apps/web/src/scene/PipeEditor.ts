@@ -159,8 +159,11 @@ export interface TurboPlacement {
 }
 
 export interface PipeEditorCallbacks {
-  /** Geometry changed. `commit` is false for intermediate frames of a drag. */
-  onChange: (commit: boolean) => void;
+  /**
+   * Geometry changed. `commit` is false for intermediate frames of a drag. `edited` is the duct whose
+   * shape was drawn or dragged, when it was one, for the owner to copy onto the other runners if linked.
+   */
+  onChange: (commit: boolean, edited?: string) => void;
   /** A handle of the duct being edited was grabbed, selecting its segment. */
   onSelect: (index: number | null) => void;
   /**
@@ -995,7 +998,7 @@ export class PipeEditor {
     ctx.graph.ducts.push({ id, segments: [], from, to: { kind: 'mouth' } });
     this.route = { ductId: id, place, snapshot, base: 0 };
     this.cb.onDrawing?.(true);
-    this.cb.onChange(true);
+    this.cb.onChange(true, id);
   }
 
   private finishRoute(sink: DuctSink): void {
@@ -1016,7 +1019,7 @@ export class PipeEditor {
     this.route = null;
     this.hidePreview();
     this.cb.onDrawing?.(false);
-    this.cb.onChange(true);
+    this.cb.onChange(true, duct.id);
   }
 
   /** Extend the route to a point, or connect it to whatever the point belongs to. */
@@ -1065,7 +1068,7 @@ export class PipeEditor {
         duct.headingPitch = 0;
       }
       duct.segments.push(bend.bend);
-      this.cb.onChange(true);
+      this.cb.onChange(true, duct.id);
       return;
     }
     if (straightOut !== null) {
@@ -1114,7 +1117,7 @@ export class PipeEditor {
         return;
       }
     }
-    this.cb.onChange(true);
+    this.cb.onChange(true, duct.id);
   }
 
   /**
@@ -1925,7 +1928,7 @@ export class PipeEditor {
     const now = performance.now();
     const commit = now - this.drag.lastCommit > AUDIO_COMMIT_MS;
     if (commit) this.drag.lastCommit = now;
-    this.cb.onChange(commit);
+    this.cb.onChange(commit, this.pipeDuctId());
     e.preventDefault();
   };
 
@@ -1959,6 +1962,11 @@ export class PipeEditor {
 
     this.propagate(i);
     if (graph && duct && i === this.pipe.length - 1) carryBore(graph, duct, 'end', was, d);
+  }
+
+  /** The duct whose segments the handles are on. */
+  private pipeDuctId(): string | undefined {
+    return this.context?.graph.ducts.find((d) => d.segments === this.pipe)?.id;
   }
 
   /** Keep the duct continuous: the next segment starts where this one ends. */
@@ -1996,7 +2004,7 @@ export class PipeEditor {
     this.controls.enabled = true;
     this.dom.style.cursor = '';
     // Final authoritative push, since intermediate frames were throttled.
-    this.cb.onChange(true);
+    this.cb.onChange(true, this.pipeDuctId());
     this.rebuildHandles();
   };
 

@@ -1550,6 +1550,11 @@ export class Panel {
     this.cb.onSelect(this.selected);
   }
 
+  /** Whether "Apply to every cylinder" is on. */
+  get runnersLinked(): boolean {
+    return this.linkRunners;
+  }
+
   /**
    * Publish an edit, copying it to the other runners when they are linked.
    *

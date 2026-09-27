@@ -774,11 +774,17 @@ export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct): 
    * onto the stubs would put a length of manifold on every cylinder.
    */
   const carries = (d: ExhaustDuct) => graph.ducts.some((o) => o.continues === d.id);
-  if (carries(source)) return;
+  // A pipe just started from a port has nothing drawn yet, and would leave every cylinder without a pipe.
+  if (carries(source) || drawn(source).length === 0) return;
   for (const other of graph.ducts) {
     if (other === source || other.from.kind !== 'valve' || carries(other)) continue;
     const bend = other.segments.slice(other.segments.length - fittedCount(other));
     other.segments = [...drawn(source).map((sg) => makeSegment(sg)), ...bend];
+    // The way it sets off from its port, too, which a runner's heading is turned from.
+    if (source.headingYaw === undefined) delete other.headingYaw;
+    else other.headingYaw = source.headingYaw;
+    if (source.headingPitch === undefined) delete other.headingPitch;
+    else other.headingPitch = source.headingPitch;
   }
 }
 
