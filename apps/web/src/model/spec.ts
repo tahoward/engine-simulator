@@ -2023,6 +2023,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 0,
       exhaustLayout: 'merged',
       exhaustHeaders: true,
+      headerRun: 'lengthways',
       ...idling(F20C_IDLE_THROTTLE),
       // Its fuel cut; the redline is 9000.
       revLimit: 9150,
@@ -2062,7 +2063,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.04 })],
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.14, dIn: 0.05, dOut: 0.06 }),
-      makeSegment({ kind: 'pipe', length: 1.0, dIn: 0.06, yaw: 0.25 }),
+      makeSegment({ kind: 'pipe', length: 1.0, dIn: 0.06 }),
       makeSegment({ kind: 'chamber', length: 0.38, dIn: 0.06, dOut: 0.16 }),
       makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.055 }),
     ],
@@ -2197,6 +2198,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       crankType: 'crossplane',
       exhaustLayout: 'perBank',
       exhaustHeaders: true,
+      headerRun: 'lengthways',
       ...idling(LT2_IDLE_THROTTLE),
       revLimit: 6600,
       mouthSpacing: 1.3,
@@ -2223,7 +2225,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.6, dIn: 0.044 })],
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.16, dIn: 0.066, dOut: 0.076 }),
-      makeSegment({ kind: 'pipe', length: 1.0, dIn: 0.076, yaw: 0.18 }),
+      makeSegment({ kind: 'pipe', length: 1.0, dIn: 0.076 }),
       makeSegment({ kind: 'chamber', length: 0.45, dIn: 0.076, dOut: 0.2 }),
       makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.07 }),
     ],
@@ -2238,7 +2240,6 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       crankType: 'flatplane',
       exhaustLayout: 'perBank',
       exhaustHeaders: true,
-      // Its primaries sweep back along each bank to a merge behind it.
       headerRun: 'lengthways',
       ...idling(LT6_IDLE_THROTTLE),
       revLimit: 8600,
