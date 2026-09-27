@@ -76,6 +76,10 @@ export interface PanelCallbacks {
   onDrawFromJoint: (node: string) => void;
   /** A pipe had its last segment deleted and should go, tidying the junctions around it. */
   onRemoveDuct: (id: string) => void;
+  /** Take this pipe's far end off what it joins, with the bend it was fitted in. */
+  onDetachDuct: (id: string) => void;
+  /** Delete segment `index` from the middle of this pipe, leaving the segments after it loose. */
+  onSplitDuct: (id: string, index: number) => void;
   onToggleAudio: () => void;
   /** The user picked a different audio sample rate, Hz. */
   onSampleRate: (hz: number) => void;
@@ -1732,19 +1736,27 @@ export class Panel {
 
   private remove(list: PipeSegment[], index: number): void {
     const locked = this.lockedFrom();
-    if (locked !== null && index >= locked) return;
-    // Nothing is deleted that something else carries on from: a segment with more after it, or the pipe
-    // itself, its last segment, while other pipes carry on from its end. A bend fitted at its end is not
-    // one: it is fitted again from wherever the drawn pipe now ends.
+    // Deleting a fitted bend takes the pipe off what it joined, ending where it was drawn to; a pipe that
+    // is nothing but a bend goes whole.
+    if (locked !== null && index >= locked) {
+      const duct = this.currentDuct();
+      this.selected = null;
+      if (duct) this.cb.onDetachDuct(duct.id);
+      this.rebuildPipeList();
+      this.cb.onSelect(null);
+      return;
+    }
+    // A segment with more after it leaves them as a loose pipe where they lie, which the owner splits off,
+    // since it needs the layout. A bend fitted at the pipe's end does not count: it is fitted again from
+    // wherever the drawn pipe now ends.
     const graph = this.config.graph;
     const duct = this.currentDuct();
     const drawn = locked ?? list.length;
-    if (index < drawn - 1) {
-      this.notify('Segments carry on from this one: delete from the end of the pipe.');
-      return;
-    }
-    if (drawn <= 1 && graph && duct && childDucts(graph, duct).length > 0) {
-      this.notify('Pipes carry on from this one: delete them first.');
+    if (index < drawn - 1 && graph && duct) {
+      this.selected = null;
+      this.cb.onSplitDuct(duct.id, index);
+      this.rebuildPipeList();
+      this.cb.onSelect(null);
       return;
     }
     list.splice(index, 1);
@@ -1755,7 +1767,10 @@ export class Panel {
      * An empty duct is drawn as nothing but still solved as a short stub, so leaving it would keep a pipe
      * the user can no longer see or select. A runner is kept, empty, because a cylinder must have one.
      */
-    if (list.length === 0 && graph && duct && duct.from.kind !== 'valve') {
+    // A pipe others carry on from, emptied, goes too, leaving them loose; the owner does that, since it
+    // needs the layout to leave them where they lie.
+    const orphans = list.length === 0 && graph && duct && childDucts(graph, duct).length > 0;
+    if (orphans || (list.length === 0 && graph && duct && duct.from.kind !== 'valve')) {
       // The owner removes it, because tidying the junctions needs the layout to keep pipes where they were.
       this.cb.onRemoveDuct(duct.id);
     } else {
@@ -1777,8 +1792,7 @@ export class Panel {
   deleteSelected(): boolean {
     const list = this.currentSegments();
     if (this.selected === null || !list[this.selected]) return false;
-    const locked = this.lockedFrom();
-    if (locked !== null && this.selected >= locked) return true;
+
     this.remove(list, this.selected);
     return true;
   }

@@ -88,8 +88,9 @@ matters.
 - **Pipes drawn to join another.** A pipe joined onto another's open end must finish in one smooth bend,
   marked as not editable, that meets the junction and arrives along the pipe it joins; lengthening either
   pipe must bring the bend along; and taking it off again must take the bend with it.
-- **Deleting.** A pipe others carry on from must not be deleted, nor a junction whose outgoing pipes have
-  pipes after them, nor a turbo whose outlet pipe does, and a refused delete must change nothing; a pipe
+- **Deleting.** A pipe in the middle must be deleted, what carried on from it left loose where it lay, or
+  still fed where another pipe feeds its junction; a turbo whose outlet pipe has pipes after it must not be
+  taken out, and a refused delete must change nothing; a pipe
   with nothing after it must still be deleted. Across every preset, deleting any junction or segment that
   is allowed must leave a graph the solver accepts, with no untouched pipe moving.
 - **Diameters.** A pipe must taper in a straight line between its two ends, and one given only its inlet
@@ -99,6 +100,12 @@ matters.
 - **Loose pipes.** A loose pipe must be where it was put down, in a graph the app accepts, without the
   solver being given it, and must survive a link. Drawn into, it must stay where it was, be fed and given
   to the solver, and the pipe drawn into it must meet its start in a fitted bend.
+- **Turning a loose pipe round.** Drawn into at its far end, a loose pipe must lie exactly where it did,
+  corner for corner, running the other way, with the same lengths and each bore swapped end for end; and
+  attached there it must meet the pipe drawn into it with no pipe added.
+- **Joining a pipe's end.** It must make a junction and nothing after it, fixed where the pipe ends; with
+  a second pipe into it the app must accept it, and the solver must be given both pipes ending in open air
+  until a pipe is drawn on from it, which must carry on the way the joined pipe was going.
 - **Moving a junction.** Moved, a junction must be where it was put, the pipe leaving it must start
   there, and both pipes into it must meet it in fitted bends arriving along the pipe leaving; and it must
   survive a link.

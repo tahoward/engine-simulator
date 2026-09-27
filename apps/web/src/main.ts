@@ -26,8 +26,9 @@ import { EngineMesh } from './scene/EngineMesh.js';
 import { PipeEditor } from './scene/PipeEditor.js';
 import { PipeMesh } from './scene/PipeMesh.js';
 import { ductDirections, freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustPlacement } from './scene/exhaustLayout.js';
-import { JointMesh, throughPipe } from './scene/jointMesh.js';
+import { JointMesh } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
+import { loosenChildren, splitDuct } from './scene/drawing.js';
 import { moveJunction, moveTurbo, refitBends, seatTurbos, turboHeight } from './scene/turboPlacement.js';
 import {
   fittedBend,
@@ -47,7 +48,6 @@ import {
   hasBeenEdited,
   placeLoosePipe,
   removeDuct,
-  removeJunction,
   validateGraph,
   type DuctDirections,
 } from './model/exhaustGraph.js';
@@ -116,8 +116,6 @@ const turboMeshes: TurboMesh[] = [];
 const jointMeshes: JointMesh[] = [];
 /** Which junction each of `jointMeshes` is, by index. */
 let jointNodes: string[] = [];
-/** The layout the scene was last built from, for questions about geometry such as a tee's through pipe. */
-let lastPlacement: ExhaustPlacement | null = null;
 /**
  * The layout as it was before the edit in progress: not updated during a drag.
  *
@@ -313,23 +311,14 @@ window.addEventListener('keydown', (e) => {
     return;
   }
 
+  // A junction is not deleted on its own: it goes when the pipes attached to it do, dissolving once only one
+  // is left, and a pipe running straight through it rejoins.
   if (selectedJoint) {
-    const joint = lastPlacement?.joints.get(selectedJoint);
-    freeze();
-    if (!removeJunction(config.graph!, selectedJoint, joint ? throughPipe(joint) : null, directionsOf(stablePlacement))) {
-      panel.notify('Pipes carry on from the pipes leaving this junction: delete them first.');
-      e.preventDefault();
-      return;
-    }
-    selectJoint(null);
-    editor.select(null);
-    panel.rebuildPipeList();
-    rebuildPipeGeometry();
-    audio.setGraph(config.graph!);
-    saveConfig();
+    panel.notify('A junction goes when its pipes do: delete the pipes attached to it.');
     e.preventDefault();
     return;
   }
+
   // The panel owns segment deletion, so linked runners stay linked however the delete was asked for.
   if (panel.deleteSelected()) e.preventDefault();
 });
@@ -374,7 +363,41 @@ const panel = new Panel(panelEl, config, {
   },
   onRemoveDuct: (id) => {
     freeze();
-    removeDuct(config.graph!, id, directionsOf(stablePlacement));
+    // The pipes carrying on from it are left loose, where they lie.
+    if (stablePlacement) loosenChildren(config.graph!, id, stablePlacement);
+    const duct = config.graph!.ducts.find((d) => d.id === id);
+    // A cylinder's own pipe stays, since every cylinder needs one, but comes off whatever it joined.
+    if (duct?.from.kind === 'valve') disconnectEnd(config.graph!, id, directionsOf(stablePlacement));
+    else removeDuct(config.graph!, id, directionsOf(stablePlacement));
+    rebuildPipeGeometry();
+    audio.setGraph(config.graph!);
+    saveConfig();
+  },
+  onDetachDuct: (id) => {
+    freeze();
+    const graph = config.graph!;
+    if (!disconnectEnd(graph, id, directionsOf(stablePlacement))) {
+      panel.notify('Pipes carry on from where this pipe joins: delete them first.');
+      return;
+    }
+    const duct = graph.ducts.find((d) => d.id === id);
+    // A pipe that was nothing but its bend goes, unless it is a cylinder's.
+    if (duct && duct.segments.length === 0 && duct.from.kind !== 'valve') {
+      removeDuct(graph, id, directionsOf(stablePlacement));
+    }
+    rebuildPipeGeometry();
+    audio.setGraph(graph);
+    saveConfig();
+  },
+  onSplitDuct: (id, index) => {
+    freeze();
+    const place = stablePlacement?.ducts.get(id);
+    if (!place || !splitDuct(config.graph!, id, index, place)) return;
+    const duct = config.graph!.ducts.find((d) => d.id === id);
+    // Split at its first segment, a pipe is left with nothing in it, and goes unless it is a cylinder's.
+    if (duct && duct.segments.length === 0 && duct.from.kind !== 'valve') {
+      removeDuct(config.graph!, id, directionsOf(stablePlacement));
+    }
     rebuildPipeGeometry();
     audio.setGraph(config.graph!);
     saveConfig();
@@ -539,7 +562,6 @@ function rebuildPipeGeometry(): void {
   refitBends(graph, ports, config.engine);
   const turboPorts = turboPortsOf(graph, config.engine);
   const placement = layoutGraph(ports, graph, turboPorts);
-  lastPlacement = placement;
   if (!editor.dragging) stablePlacement = placement;
 
   graph.ducts.forEach((duct, i) => {

@@ -114,7 +114,9 @@ describe('a turbo put down on the open end of a pipe', () => {
   it('stays in while pipes carry on from its outlet pipe', () => {
     const { graph, mount } = singleWithTurbo();
     const outlet = endsAt(graph, mount.node).find((e) => e.end === 'inlet')!.duct;
-    joinDuctEnd(graph, outlet.id, 0);
+    // A junction at its end, and a pipe drawn on from it.
+    const node = joinDuctEnd(graph, outlet.id)!;
+    graph.ducts.push({ id: 'onward', segments: [makeSegment({ length: 0.3 })], from: { kind: 'node', node }, to: { kind: 'mouth' } });
     const before = JSON.stringify(graph);
     expect(removeTurbo(graph, mount.id)).toBe(false);
     expect(JSON.stringify(graph)).toBe(before);
@@ -323,7 +325,16 @@ describe('a pipe drawn to join another', () => {
     };
     const target = endOf('runner0');
     const tip = endOf('runner1');
-    const node = joinDuctEnd(graph, 'runner0', 0)!;
+    const t = target.point;
+    const d = target.dir;
+    const node = joinDuctEnd(graph, 'runner0', { position: [t.x, t.y, t.z], axis: [d.x, d.y, d.z] })!;
+    // The pipe carrying the merged flow on, drawn from the junction.
+    graph.ducts.push({
+      id: 'onward',
+      segments: [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.06 })],
+      from: { kind: 'node', node },
+      to: { kind: 'mouth' },
+    });
     const runner1 = graph.ducts.find((d) => d.id === 'runner1')!;
     runner1.segments.push(fitCurve(tip.point, tip.dir, target.point, target.dir, { dIn: 0.04, dOut: 0.04 }));
     runner1.fitted = true;
@@ -416,11 +427,11 @@ describe('a pipe drawn to join another', () => {
     expect(graphFromJson(JSON.parse(JSON.stringify(graph)))!.junctions).toEqual(graph.junctions);
   });
 
-  it('matches the bore of the pipe before it and of the pipe it joins, tapering between them', () => {
+  it('matches the bore of the pipe before it and of the pipe it merges into, tapering between them', () => {
     const { graph, runner1 } = joined();
-    const runner0 = graph.ducts.find((d) => d.id === 'runner0')!;
+    const onward = graph.ducts.find((d) => d.id === 'onward')!;
     // Different bores either side, so the bend has something to match.
-    runner0.segments.at(-1)!.dOut = 0.05;
+    onward.segments[0]!.dIn = 0.05;
     runner1.segments.at(-2)!.dOut = 0.036;
     refitBends(graph, ports, spec);
     const bend = runner1.segments.at(-1)!;
@@ -483,5 +494,65 @@ describe('a loose pipe', () => {
     expect(pipesMeetAt(graph, placement, node)).toBe(true);
     expect(graph.ducts.find((d) => d.id === 'runner0')!.fitted).toBe(true);
     void loose;
+  });
+});
+
+describe('drawing into a loose pipe’s far end', () => {
+  it('turns it round where it lies, so it carries on from the pipe drawn into it', async () => {
+    const { attachToLooseStart, placeLoosePipe } = await import('../src/model/exhaustGraph.js');
+    const { flipLoosePipe } = await import('../src/scene/drawing.js');
+    const { spec, graph, ports } = single();
+    const id = placeLoosePipe(graph, [0.5, 0.25, 0.1], 0.04);
+    const loose = graph.ducts.find((d) => d.id === id)!;
+    // Bent and tapering, so turning it round has something to keep.
+    loose.segments.push(makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.04, dOut: 0.055, yaw: 0.6, pitch: 0.3 }));
+    loose.segments.push(makeSegment({ kind: 'pipe', length: 0.15, dIn: 0.055, yaw: -0.4 }));
+    const place = layoutGraph(ports, graph).ducts.get(id)!;
+    const before = layoutPipe(loose.segments, place.origin, place.heading);
+    const beforePoints = [place.origin.clone(), ...before.joints];
+    flipLoosePipe(loose, place);
+    const flippedPlace = layoutGraph(ports, graph).ducts.get(id)!;
+    const after = layoutPipe(loose.segments, flippedPlace.origin, flippedPlace.heading);
+    const afterPoints = [flippedPlace.origin.clone(), ...after.joints];
+    // The same corners, the other way round, and the same bores at each.
+    afterPoints.forEach((p, i) => expect(p.distanceTo(beforePoints[beforePoints.length - 1 - i]!)).toBeLessThan(1e-9));
+    expect(loose.segments.map((s) => s.length)).toEqual([0.15, 0.2, 0.3]);
+    expect(loose.segments[1]!.dIn).toBeCloseTo(0.055, 12);
+    expect(loose.segments[1]!.dOut).toBeCloseTo(0.04, 12);
+
+    // Drawn into, where its far end was: attached, with no junction of pipes and nothing added.
+    const dir = after.stations[0]!.direction;
+    const count = graph.ducts.length;
+    const node = attachToLooseStart(graph, 'runner0', id, [dir.x, dir.y, dir.z])!;
+    refitBends(graph, ports, spec);
+    expect(graph.ducts).toHaveLength(count);
+    expect(validateGraph(graph, 1)).toEqual([]);
+    expect(pipesMeetAt(graph, layoutGraph(ports, graph), node)).toBe(true);
+  });
+});
+
+describe('deleting a pipe in the middle', () => {
+  it('leaves the pipes that carried on from it loose, where they lie', async () => {
+    const { loosenChildren } = await import('../src/scene/drawing.js');
+    const { removeDuct, solverGraph } = await import('../src/model/exhaustGraph.js');
+    const { spec, graph, ports } = single();
+    // Port → runner → junction → middle pipe → junction → tail, as drawing them would make.
+    graph.ducts[0]!.to = { kind: 'node', node: 'a' };
+    graph.ducts.push(
+      { id: 'middle', segments: [makeSegment({ length: 0.25 })], from: { kind: 'node', node: 'a' }, to: { kind: 'node', node: 'b' } },
+      { id: 'tail', segments: [makeSegment({ length: 0.3, yaw: 0.5 })], from: { kind: 'node', node: 'b' }, to: { kind: 'mouth' } },
+    );
+    const placement = layoutGraph(ports, graph);
+    const was = placement.ducts.get('tail')!;
+    loosenChildren(graph, 'middle', placement);
+    expect(removeDuct(graph, 'middle')).toBe(true);
+    const tail = graph.ducts.find((d) => d.id === 'tail')!;
+    expect(tail.from.kind).toBe('free');
+    const now = layoutGraph(ports, graph).ducts.get('tail')!;
+    expect(now.origin.distanceTo(was.origin)).toBeLessThan(1e-9);
+    expect(now.heading.angleTo(was.heading)).toBeLessThan(1e-9);
+    expect(validateGraph(graph, 1)).toEqual([]);
+    expect(solverGraph(graph).ducts.map((d) => d.id)).not.toContain('tail');
+    void spec;
   });
 });

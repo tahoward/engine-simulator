@@ -126,8 +126,13 @@ How to edit:
   segment list shows it.
 - **Place a pipe** puts down a straight pipe attached to nothing: click where it should start. Select it
   and its triad moves it with the arrows and squares and turns it with the rings, as a whole. It carries
-  no gas, and the simulation does not hear it, until a pipe is drawn into its start: that attaches it,
-  its start becoming a junction fixed where it was, and from then on it is a pipe like any other.
+  no gas, and the simulation does not hear it, until a pipe is drawn into one of its ends: that attaches
+  it, the end becoming a junction fixed where it was, and from then on it is a pipe like any other. Drawn
+  into its far end, it is turned round where it lies to carry on from the pipe drawn into it, with no
+  extra pipe added. A pipe fed by a cylinder, finished on at its end, is a merge instead: the pipe drawn
+  into it curves in beside it at a junction fixed where the pipe ended. Nothing is added after the
+  junction: draw the pipe that carries the merged flow on from it (select it, then **Draw a pipe from
+  here**). Until you do, both pipes end in open air there.
 - **Turn or move the selected pipe** with its [triad](#the-triad), which sits where the pipe starts: its
   junction, or where a loose pipe was put down, turned with the pipe, red along the way it sets off. A pipe
   on an exhaust port has none, since the port is part of the engine and holds it. A pipe that carries straight on
@@ -195,21 +200,34 @@ Click **Draw a pipe** to switch to draw mode.
    place of its own to arrive at, and a pipe drawn to one ends in a corner. To leave the end open,
    right-click, double-click or press <kbd>Enter</kbd>. Press <kbd>Escape</kbd> to cancel the pipe.
 
-Joining onto a pipe is how you make a merge. The simulator solves exactly the pipe network you draw.
+Joining onto a pipe is how you make a merge, and you draw the pipe after it yourself. The simulator
+solves exactly the pipe network you draw: a junction with nothing after it yet is its pipes ending in
+open air there. Deleting the pipe after a merge leaves the merge the same way.
 
 ## Selecting and deleting
 
 - **Click a junction**, where pipes meet, to select it and see which pipes meet there. Junctions are not
-  drawn, since joined pipes merge in bends of their own; a selected one shows as a see-through green
-  fitting.
-- <kbd>Delete</kbd> or <kbd>Backspace</kbd> removes the selected segment, junction or turbo. If you delete a
-  junction that one pipe runs straight through, that pipe joins back into one piece.
-- **Nothing is deleted that something else carries on from.** Delete a pipe from its end: a segment with
-  more segments after it is not deleted, and nor is a pipe's last segment while other pipes carry on from
-  its end. Nor is a junction whose outgoing pipes have pipes after them, or a turbo whose outlet pipe
-  does. The panel says so; delete what comes after first. A bend fitted at a pipe's end does not count: it
-  re-forms from wherever the pipe now ends. For the same reason, the only pipe into a junction is not
-  taken off it when an edit leaves it short.
+  drawn, since joined pipes merge in bends of their own; you pick one by a small sphere where its pipes
+  meet, which shows in green while it is selected.
+- <kbd>Delete</kbd> or <kbd>Backspace</kbd> removes the selected segment or turbo.
+- **A junction is not deleted on its own.** It goes when the pipes attached to it do: once only one pipe
+  is left at it, it dissolves, and a pipe running straight through it joins back into one piece. A turbo's
+  own outlet pipe goes with the turbo.
+- **Deleting a segment in the middle of a pipe** leaves the segments after it as a loose pipe, where they
+  lie, still joined to whatever the pipe ran into; the pipe before the gap ends in open air. A bend fitted at
+  a pipe's end re-forms from wherever the pipe now ends.
+- **Deleting a fitted bend** takes the pipe off whatever it joined, ending where it was drawn to; a pipe
+  that is nothing but a bend goes whole. Taken off the side of a straight pipe, the two halves that pipe was
+  split into for it merge back into one, and so does the segment the join cut in two: two straight
+  segments in line, of one taper, always become one. The last pipe into a turbo takes the turbo's outlet pipe with it,
+  unless pipes carry on from that.
+- **A pipe in the middle can be deleted**, one running between junctions with pipes carrying on after it:
+  delete its last segment and it goes. Where it was the only pipe into the junction at its end, the pipes
+  that carried on from it are left as loose pipes, where they lie, still attached to whatever was drawn on
+  from them; the simulation does not hear them until they are attached again. A cylinder's own pipe is not
+  deleted, since every cylinder needs one: emptied, it frees the pipes after it the same way.
+- A turbo whose outlet pipe has pipes after it is not taken out; the panel says so. And the only pipe into a
+  junction is not taken off it when an edit leaves it short.
 
 ## Sharing
 

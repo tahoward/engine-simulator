@@ -200,6 +200,9 @@ function continuationOf(limbs: JointLimb[], i: number): number {
   return i;
 }
 
+/** How much wider than the widest pipe at it a junction's mark is. */
+const JOINT_MARK_RATIO = 1.35;
+
 /**
  * A junction's fitting, not drawn: pipes that join merge in smooth bends of their own, so the fitting is
  * only there to be picked. It shows, see-through and green, while the junction is selected.
@@ -235,13 +238,22 @@ export class JointMesh {
     if (this.mesh) this.mesh.visible = on;
   }
 
+  /**
+   * A small sphere where the pipes meet, a little wider than the widest of them: all there is to pick a
+   * junction by, and what shows when it is selected.
+   *
+   * Not the fitting `buildJointGeometry` would make. Where pipes arrive spread apart that is a collector
+   * tens of centimetres long, which, even hidden, would catch the clicks meant for the pipes around it.
+   */
   rebuild(placement: JointPlacement | undefined): void {
     this.clear();
-    if (!placement) return;
-    const geom = buildJointGeometry(placement);
-    if (!geom) return;
+    if (!placement || placement.limbs.length < 2) return;
+    let radius = 0;
+    for (const limb of placement.limbs) radius = Math.max(radius, limb.radius);
+    const geom = new THREE.SphereGeometry(Math.max(radius, 0.01) * JOINT_MARK_RATIO, 24, 16);
     this.geometry = geom;
     const mesh = new THREE.Mesh(geom, this.material);
+    mesh.position.copy(placement.centre);
     // Hidden, but still there to pick: a ray tests an object whether or not it is drawn.
     mesh.visible = this.selected;
     this.mesh = mesh;

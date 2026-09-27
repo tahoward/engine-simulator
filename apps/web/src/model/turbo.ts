@@ -245,9 +245,9 @@ export function removeTurbo(graph: ExhaustGraph, turboId: string, dirs?: DuctDir
   if (!mount) return false;
   const inUse = endsAt(graph, mount.node).length > 0;
   // Refused where its outlet pipe carries on into others, as deleting that pipe would take them with it.
-  if (inUse && !junctionRemoval(graph, mount.node, null)) return false;
+  if (inUse && !junctionRemoval(graph, mount.node, null, true)) return false;
   graph.turbos = graph.turbos!.filter((t) => t !== mount);
   if (graph.turbos.length === 0) delete graph.turbos;
-  if (inUse) removeJunction(graph, mount.node, null, dirs);
+  if (inUse) removeJunction(graph, mount.node, null, dirs, true);
   return true;
 }
