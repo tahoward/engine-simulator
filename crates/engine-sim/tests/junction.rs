@@ -21,7 +21,7 @@ use common::{EnginePreset, FS};
 use engine_sim::EngineSim;
 use engine_sim::engine_sim::grid_budget_cells;
 use engine_sim::euler_pipe::EulerPipe;
-use engine_sim::exhaust_graph::{compile_collector_layout, compile_layout, node_order};
+use engine_sim::exhaust_graph::{compile_collector_layout, compile_exhaust, node_order};
 use engine_sim::spec::{EngineConfig, EngineSpec, PipeSegment, SegmentKind, SegmentPartial, firing_plan, make_segment};
 use serde_json::{Value, json};
 
@@ -49,7 +49,7 @@ fn chamber(length: f64, d_in: f64, d_out: f64) -> PipeSegment {
 
 /// The grid budget for an engine as configured, from the graph it builds.
 fn budget_of(cfg: &EngineConfig) -> f64 {
-    let graph = cfg.graph.clone().unwrap_or_else(|| compile_layout(&cfg.engine, &cfg.pipe, &cfg.collector));
+    let graph = cfg.graph.clone().unwrap_or_else(|| compile_exhaust(&cfg.engine, &cfg.pipe, &cfg.collector));
     grid_budget_cells(cfg.engine.cylinders as usize, node_order(&graph).len())
 }
 
@@ -476,14 +476,15 @@ mod junctions_conserve_mass_and_the_grid_stays_affordable {
     }
 }
 
-/// The manifolds every preset compiles to stay solvable and affordable.
+/// The exhausts every preset compiles stay solvable and affordable: the headers most have, and the
+/// manifold the twin-turbo six keeps.
 ///
 /// Each junction on a manifold takes the full blowdown from a stub a few centimetres away, where a
 /// collector's half-metre runners would spread it out, so these are the hardest junctions the solver sees.
 /// Their peak imbalance is larger than a collector's — it spikes where flow through a junction reverses —
 /// so what is held here is what matters for the sound: nothing blows up, nothing is clamped, no duct
 /// needs recovering, the gas stays at physical temperatures, and the grid stays inside its budget.
-mod manifolds_stay_solvable_and_affordable {
+mod presets_stay_solvable_and_affordable {
     use super::*;
 
     /// %s at 8000 rpm, full throttle

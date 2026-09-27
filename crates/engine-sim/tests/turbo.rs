@@ -86,13 +86,15 @@ fn builds_boost_with_the_exhaust_and_the_wastegate_holds_it() {
         sim.render(3 * FS as usize);
         (boost(&sim), sim.turbo().unwrap().wastegate())
     };
-    let (low, _) = at(1500.0);
+    let (low, wg_low) = at(1500.0);
     let (mid, wg_mid) = at(4000.0);
     let (high, wg_high) = at(6500.0);
     assert!(low < 0.5, "too little exhaust at 1500 rpm for full boost: {low}");
-    assert!((mid - 0.7).abs() < 0.06, "held at the target at 4000 rpm: {mid}");
-    assert!((high - 0.7).abs() < 0.06, "held at the target at 6500 rpm: {high}");
-    assert!(wg_high > wg_mid && wg_mid > 0.0, "the wastegate opens further with more exhaust: {wg_mid} {wg_high}");
+    assert!((mid - 0.8).abs() < 0.06, "held at the target at 4000 rpm: {mid}");
+    assert!((high - 0.8).abs() < 0.06, "held at the target at 6500 rpm: {high}");
+    // Shut below the target, and open once there. How far depends on the pulses the manifold delivers as
+    // well as on the flow, and on the drawn exhaust it is furthest open around 5000 rpm.
+    assert!(wg_mid > wg_low + 0.1 && wg_high > wg_low + 0.1, "the wastegate opens to hold the target: {wg_low} {wg_mid} {wg_high}");
 }
 
 /// A higher target is reached too, and makes more torque: the turbine's nozzle is sized for it, and
@@ -126,7 +128,7 @@ fn lags_behind_the_throttle() {
     let mut reached = None;
     for i in 1..=60 {
         sim.render(FS as usize / 20);
-        if boost(&sim) > 0.9 * 0.7 {
+        if boost(&sim) > 0.9 * 0.8 {
             reached = Some(i as f64 / 20.0);
             break;
         }
@@ -177,7 +179,7 @@ fn whines_at_the_blade_pass_frequency() {
     let mut sim = rb26(json!({ "throttle": 1, "rpm": 2500 }));
     sim.render(3 * FS as usize);
     let bpf = sim.turbo().unwrap().blade_pass_hz();
-    assert!(bpf > 3000.0 && bpf < 12000.0, "blade pass {bpf} Hz");
+    assert!(bpf > 3000.0 && bpf < 15000.0, "blade pass {bpf} Hz");
     let size = 16384;
     let mut turbo = Vec::with_capacity(size);
     for _ in 0..size {

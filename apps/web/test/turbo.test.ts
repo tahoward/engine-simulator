@@ -11,6 +11,7 @@ import {
   disconnectEnd,
   endsAt,
   joinDuctEnd,
+  junctionAt,
   graphFromJson,
   pathToAir,
   solverGraph,
@@ -18,7 +19,16 @@ import {
   validateGraph,
   type ExhaustGraph,
 } from '../src/model/exhaustGraph.js';
-import { ENGINE_PRESETS, defaultConfig, makeSegment, presetEngine, segmentDiameter, type EngineSpec } from '../src/model/spec.js';
+import {
+  ENGINE_PRESETS,
+  collectorGroups,
+  defaultConfig,
+  exhaustLayoutOf,
+  makeSegment,
+  presetEngine,
+  segmentDiameter,
+  type EngineSpec,
+} from '../src/model/spec.js';
 import {
   graphTurboSize,
   newTurbo,
@@ -35,7 +45,7 @@ import { bendRadius, curveInWorld, layoutPipe } from '../src/scene/PipeMesh.js';
 import { EngineMesh } from '../src/scene/EngineMesh.js';
 import { freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustPort } from '../src/scene/exhaustLayout.js';
 import { seatLengthwaysHeaders } from '../src/scene/headerTool.js';
-import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatTurbos } from '../src/scene/turboPlacement.js';
+import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatManifolds, seatTurbos } from '../src/scene/turboPlacement.js';
 
 const portsOf = (spec: EngineSpec): ExhaustPort[] => {
   const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
@@ -726,31 +736,39 @@ describe('a compiled header', () => {
     });
   }
 
-  it.each(['V8, Chevrolet LT2', 'V8, Chevrolet LT6', 'Inline four, Honda F20C'])('builds lengthways headers with the header tool, back along the engine: %s', (name) => {
+  const lengthways = ENGINE_PRESETS.filter((p) => presetEngine(p, defaultConfig().engine).headerRun === 'lengthways').map((p) => p.name);
+  it('builds every preset with a merge with lengthways headers, but those with manifolds', () => {
+    const manifolds = ['Inline six, Nissan RB26DETT', 'V6, Toyota 2GR'];
+    const merging = ENGINE_PRESETS.filter((p) => exhaustLayoutOf(presetEngine(p, defaultConfig().engine)) !== 'open');
+    expect(lengthways).toEqual(merging.map((p) => p.name).filter((n) => !manifolds.includes(n)));
+  });
+
+  it.each(lengthways)('builds lengthways headers with the header tool, back along the engine: %s', (name) => {
     const preset = ENGINE_PRESETS.find((p) => p.name === name)!;
     const spec = presetEngine(preset, defaultConfig().engine);
     expect(spec.headerRun).toBe('lengthways');
     const graph = compileExhaust(spec, preset.pipe(), preset.collector!());
     const ports = portsOf(spec);
-    const length = preset.pipe()[0]!.length;
+    const length = preset.pipe().reduce((a, s) => a + s.length, 0);
     seatLengthwaysHeaders(graph, ports, spec);
     seatHeaders(graph, ports, spec);
     refitBends(graph, ports, spec);
     expect(validateGraph(graph, spec.cylinders)).toEqual([]);
     const placement = layoutGraph(ports, graph);
     const junctions = graph.junctions ?? [];
-    expect(junctions).toHaveLength(spec.exhaustLayout === 'perBank' ? 2 : 1);
+    expect(junctions).toHaveLength(new Set(collectorGroups(spec).filter((g) => g >= 0)).size);
     for (const j of junctions) {
       // The collector leaves rearwards, along the crank.
       expect(j.axis).toEqual([0, 0, 1]);
       const runners = graph.ducts.filter((d) => d.role === 'runner' && d.to.kind === 'node' && d.to.node === j.node);
-      expect(runners).toHaveLength(4);
+      expect(runners.length).toBeGreaterThan(1);
       // Equal-length, at the length they were tuned to.
       for (const r of runners) expect(r.segments.reduce((a, s) => a + s.length, 0), r.id).toBeCloseTo(length, 3);
       const at = runners.map((r) => ports[(r.from as { cylinder: number }).cylinder]!);
-      // Outboard of its bank's ports, and behind the frontmost of them.
-      const side = Math.sign(at[0]!.position.x);
-      expect(side * j.position[0]).toBeGreaterThan(Math.max(...at.map((p) => side * p.position.x)));
+      // Out from its ports the way they point, clear of the head, and behind the frontmost of them.
+      const out = at.reduce((v, p) => v.add(p.direction), new THREE.Vector3()).normalize();
+      const merge = new THREE.Vector3(...j.position);
+      for (const p of at) expect(merge.clone().sub(p.position).dot(out)).toBeGreaterThan(0);
       expect(j.position[2]).toBeGreaterThan(Math.min(...at.map((p) => p.position.z)));
       expect(pipesMeetAt(graph, placement, j.node), j.node).toBe(true);
     }
@@ -760,3 +778,95 @@ describe('a compiled header', () => {
     expect(JSON.stringify(graph)).toBe(before);
   });
 });
+
+/** A compiled manifold, laid along the engine with each port's stub bent into it, as one is drawn: each preset's engine, its exhaust compiled rather than any drawn for it. */
+describe('a compiled manifold', () => {
+  const seat = (name: string) => {
+    const preset = ENGINE_PRESETS.find((p) => p.name === name)!;
+    const spec = presetEngine(preset, defaultConfig().engine);
+    const graph = compileExhaust(spec, preset.pipe(), preset.collector!(), preset.turbos ?? 0);
+    const compiled = JSON.parse(JSON.stringify(graph)) as ExhaustGraph;
+    const ports = portsOf(spec);
+    seatManifolds(graph, ports, spec);
+    seatTurbos(graph, ports, spec);
+    refitBends(graph, ports, spec);
+    return { spec, graph, compiled, ports };
+  };
+
+  it.each(['V6, Toyota 2GR', 'Inline six, Nissan RB26DETT'])('keeps every stub, and each cylinder\'s path to air, its compiled length: %s', (name) => {
+    const { spec, graph, compiled } = seat(name);
+    expect(validateGraph(graph, spec.cylinders)).toEqual([]);
+    const total = (ducts: { segments: { length: number }[] }[]) => ducts.reduce((a, d) => a + d.segments.reduce((b, s) => b + s.length, 0), 0);
+    for (const d of graph.ducts.filter((d) => d.role === 'stub')) {
+      expect(total([d]), d.id).toBeCloseTo(compiled.ducts.find((c) => c.id === d.id)!.segments[0]!.length, 3);
+    }
+    // Up to the turbos, whose downpipes are bent to meet below them.
+    const upstream = (g: ExhaustGraph, c: number) => pathToAir(g, c).filter((d) => d.role === 'stub' || d.role === 'manifold');
+    for (let c = 0; c < spec.cylinders; c++) expect(total(upstream(graph, c)), `cylinder ${c}`).toBeCloseTo(total(upstream(compiled, c)), 3);
+  });
+
+  it.each(['V6, Toyota 2GR', 'Inline six, Nissan RB26DETT'])('fixes only where each pipe along the engine starts: %s', (name) => {
+    const { graph } = seat(name);
+    const starts = graph.ducts.filter((d) => d.role === 'manifold' && d.from.kind === 'node' && junctionAt(graph, d.from.node));
+    const firsts = graph.ducts.filter((d) => d.role === 'stub' && d.to.kind === 'node' && junctionAt(graph, d.to.node));
+    expect(starts.length).toBe(firsts.length);
+    for (const d of graph.ducts.filter((d) => d.role === 'manifold' && !starts.includes(d))) {
+      expect(junctionAt(graph, (d.from as { node: string }).node), d.id).toBeUndefined();
+    }
+    for (const d of starts) expect(d.headingFrame).toBe('world');
+  });
+
+  it.each(['V6, Toyota 2GR', 'Inline six, Nissan RB26DETT'])('bends each stub into a pipe along the engine: %s', (name) => {
+    const { spec, graph, ports } = seat(name);
+    const placement = layoutGraph(ports, graph, turboPortsOf(graph, spec));
+    for (const node of new Set(graph.ducts.flatMap((d) => (d.role === 'stub' && d.to.kind === 'node' ? [d.to.node] : [])))) {
+      expect(pipesMeetAt(graph, placement, node) || turboPortsOf(graph, spec).has(node), node).toBe(true);
+    }
+    for (const j of graph.junctions ?? []) expect(j.axis).toEqual([0, 0, 1]);
+    // Each stub arrives along the engine, one smooth bend from its port.
+    for (const d of graph.ducts.filter((d) => d.role === 'stub')) {
+      const place = placement.ducts.get(d.id)!;
+      const bend = d.segments[0]!;
+      expect(bend.curve, d.id).toBeDefined();
+      const end = curveInWorld(bend.curve!, place.origin, place.heading);
+      expect(Math.abs(end.dir.z), d.id).toBeCloseTo(1, 6);
+    }
+    // Done once: seating again changes nothing.
+    const before = JSON.stringify(graph);
+    seatManifolds(graph, ports, spec);
+    expect(JSON.stringify(graph)).toBe(before);
+  });
+
+  it.each(['V6, Toyota 2GR', 'Inline six, Nissan RB26DETT'])('loads the exhaust drawn for it, which fits it and nothing reseats: %s', (name) => {
+    const preset = ENGINE_PRESETS.find((p) => p.name === name)!;
+    const spec = presetEngine(preset, defaultConfig().engine);
+    const graph = graphFromJson(preset.graph!())!;
+    expect(validateGraph(graph, spec.cylinders)).toEqual([]);
+    const ports = portsOf(spec);
+    const before = JSON.stringify(graph);
+    seatManifolds(graph, ports, spec);
+    seatTurbos(graph, ports, spec);
+    seatLengthwaysHeaders(graph, ports, spec);
+    seatHeaders(graph, ports, spec);
+    expect(JSON.stringify(graph)).toBe(before);
+    refitBends(graph, ports, spec);
+    const turbos = turboPortsOf(graph, spec);
+    expect(turbos.size).toBe(preset.turbos ?? 0);
+    const placement = layoutGraph(ports, graph, turbos);
+    for (const node of new Set(graph.ducts.flatMap((d) => (d.to.kind === 'node' && !turbos.has(d.to.node) ? [d.to.node] : [])))) {
+      expect(pipesMeetAt(graph, placement, node), node).toBe(true);
+    }
+  });
+
+  it('seats twin turbos on their manifolds, their downpipes meeting below the rear one and the collector leaving rearwards', () => {
+    const { spec, graph, ports } = seat('Inline six, Nissan RB26DETT');
+    const turbos = turboPortsOf(graph, spec);
+    expect(turbos.size).toBe(2);
+    for (const { outlet } of turbos.values()) expect(outlet.dir[1]).toBeCloseTo(-1, 6);
+    const placement = layoutGraph(ports, graph, turbos);
+    const merge = graph.ducts.find((d) => d.role === 'downpipe')!.to as { node: string };
+    expect(junctionAt(graph, merge.node)?.axis).toEqual([0, 0, 1]);
+    expect(pipesMeetAt(graph, placement, merge.node)).toBe(true);
+  });
+});
+

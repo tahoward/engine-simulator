@@ -7,10 +7,20 @@
 
 import * as THREE from 'three';
 
-import { drawnSegments, endsAt, junctionAt, type ExhaustDuct, type ExhaustGraph, type Quat } from '../model/exhaustGraph.js';
+import {
+  drawnSegments,
+  endsAt,
+  junctionAt,
+  newDuctId,
+  newNodeId,
+  type ExhaustDuct,
+  type ExhaustGraph,
+  type Quat,
+  type TurboMount,
+} from '../model/exhaustGraph.js';
 import type { Vec3 } from '../model/geometry.js';
 import { makeSegment, segmentDiameter, type EngineSpec, type PipeSegment } from '../model/spec.js';
-import { graphTurboSize, seatTurbo, turboPortsOf } from '../model/turbo.js';
+import { graphTurboSize, quatFromAxisAngle, quatMultiply, seatTurbo, turboPorts, turboPortsOf, type TurboSize } from '../model/turbo.js';
 import { MIN_BEND_BORES, bendAnchor, fitCurve, type BendAnchor } from './drawing.js';
 import { bendRadius } from './PipeMesh.js';
 import { layoutGraph, type ExhaustPort } from './exhaustLayout.js';
@@ -188,6 +198,146 @@ export function seatHeaders(graph: ExhaustGraph, ports: ExhaustPort[], _spec: En
       fitToLength(p.duct, p.port.position, p.port.direction, { point: merge, dir: axis, dia: p.bore }, p.length);
     }
   }
+}
+
+/**
+ * Give every compiled manifold the shape one is drawn in: a pipe laid along the engine beside its ports, and
+ * a pipe from each port bent to join it, arriving along it, as the editor fits one drawn from a port to the
+ * side of another. The pipe along the engine starts where the first cylinder's pipe joins it, a junction
+ * fixed there, and runs on from it in the world's frame; the junctions after that are where the ports' pipes
+ * join it, wherever it runs. Move its start, and the whole manifold follows.
+ *
+ * It sits as far out from the ports, and as far along from each, as makes each port's bend the length its
+ * stub was compiled at, and it runs a cylinder's pitch between joins, so the manifold sounds as it did.
+ *
+ * Only for a manifold nothing has touched yet, from its first cylinder's stub to where it ends: a collector,
+ * or a turbo, which is seated on its end facing along it. One that goes on through a downpipe to meet another
+ * bank's is left to the layout.
+ */
+export function seatManifolds(graph: ExhaustGraph, ports: ExhaustPort[], spec: EngineSpec): void {
+  const size = graphTurboSize(graph, spec);
+  const seated: TurboMount[] = [];
+  const firsts = graph.ducts.filter(
+    (d) => d.role === 'stub' && d.from.kind === 'valve' && !d.fitted && d.segments.length === 2 && d.to.kind === 'node',
+  );
+  for (const first of firsts) {
+    // The manifold's junctions in order, and the stub into each after the first.
+    const nodes: string[] = [];
+    const links: ExhaustDuct[] = [];
+    let node = (first.to as { node: string }).node;
+    for (;;) {
+      nodes.push(node);
+      const link = graph.ducts.find((d) => d.role === 'manifold' && d.from.kind === 'node' && d.from.node === node);
+      if (!link || link.to.kind !== 'node') break;
+      links.push(link);
+      node = link.to.node;
+    }
+    const last = nodes.at(-1)!;
+    const turbo = graph.turbos?.find((t) => t.node === last);
+    const collector = graph.ducts.find((d) => d.role === 'collector' && d.from.kind === 'node' && d.from.node === last);
+    if ((!turbo && !collector) || (turbo && turbo.position) || nodes.some((n) => junctionAt(graph, n))) continue;
+    const stubs = nodes.map((n) =>
+      graph.ducts.find((d) => d.role === 'stub' && d.from.kind === 'valve' && d !== first && d.to.kind === 'node' && d.to.node === n),
+    );
+    if (stubs.some((s) => !s || s.fitted || s.segments.length !== 1)) continue;
+    const cylinderOf = (d: ExhaustDuct) => (d.from as { cylinder: number }).cylinder;
+    const firstPort = ports[cylinderOf(first)];
+    const stubPorts = stubs.map((s) => ports[cylinderOf(s!)]);
+    if (!firstPort || stubPorts.some((p) => !p)) continue;
+
+    const out = firstPort.direction.clone().normalize();
+    const along = new THREE.Vector3(0, 0, Math.sign(stubPorts[0]!.position.z - firstPort.position.z) || 1);
+    const stubLength = stubs[0]!.segments[0]!.length;
+    // As far out and along as makes the bend from a port to the pipe the stub's length.
+    const bendTo = (port: ExhaustPort, reach: number) => port.position.clone().addScaledVector(out, reach).addScaledVector(along, reach);
+    let lo = 0;
+    let hi = stubLength;
+    for (let i = 0; i < 40; i++) {
+      const mid = (lo + hi) / 2;
+      if (fitCurve(firstPort.position, out, bendTo(firstPort, mid), along).length < stubLength) lo = mid;
+      else hi = mid;
+    }
+    const reach = (lo + hi) / 2;
+    const bore = (d: ExhaustDuct) => segmentDiameter(d.segments[0]!, 0);
+    const bend = (port: ExhaustPort, dOut: number) =>
+      fitCurve(port.position, port.direction, bendTo(port, reach), along, { dIn: bore(first), dOut });
+    // Laid along the engine: world +x turned a quarter turn about the vertical onto `along`.
+    const laid = (d: ExhaustDuct) => {
+      d.headingYaw = -Math.sign(along.z) * (Math.PI / 2);
+      d.headingPitch = 0;
+      d.headingFrame = 'world';
+    };
+
+    // The pipe along the engine starts where the first cylinder's pipe joins it.
+    const start = newNodeId(graph);
+    const at = bendTo(firstPort, reach);
+    (graph.junctions ??= []).push({ node: start, position: [at.x, at.y, at.z], axis: [along.x, along.y, along.z] });
+    const run = first.segments[1]!;
+    const head: ExhaustDuct = {
+      id: newDuctId(graph, `${first.id}-log`),
+      segments: [makeSegment({ ...run, id: run.id, yaw: 0, pitch: 0 })],
+      from: { kind: 'node', node: start },
+      to: first.to,
+      role: 'manifold',
+    };
+    laid(head);
+    graph.ducts.splice(graph.ducts.indexOf(first) + 1, 0, head);
+    for (const d of graph.ducts) if (d.continues === first.id) d.continues = head.id;
+    first.segments = [bend(firstPort, run.dIn)];
+    first.to = { kind: 'node', node: start };
+    first.fitted = true;
+    first.headingYaw = 0;
+    first.headingPitch = 0;
+
+    // Each port's pipe after it bends in where its port is along the pipe.
+    stubs.forEach((stub, k) => {
+      const onward = k < links.length ? links[k]! : collector;
+      stub!.segments = [bend(stubPorts[k]!, onward?.segments[0] ? bore(onward) : bore(stub!))];
+      stub!.fitted = true;
+      stub!.headingYaw = 0;
+      stub!.headingPitch = 0;
+    });
+    for (const d of [...links, ...(turbo ? [] : [collector!])]) laid(d);
+    if (turbo) {
+      const end = bendTo(stubPorts.at(-1)!, reach);
+      seatTurbo(turbo, [end.x, end.y, end.z], [along.x, along.y, along.z], size);
+      // Rolled about its inlet so its outlet faces down, clear of the head, rather than back at it.
+      turbo.rotation = quatMultiply(turbo.rotation, quatFromAxisAngle([0, 0, 1], Math.PI / 2));
+      seated.push(turbo);
+    }
+  }
+  seatTwinDownpipes(graph, seated, size);
+}
+
+/** How far below the lower of two turbos' outlets their downpipes meet, m. */
+const DOWNPIPE_DROP = 0.12;
+
+/**
+ * Where twin turbos seated on their manifolds (`seatManifolds`) each have a downpipe to one junction and a
+ * collector out of it: the junction fixed below the rearmost turbo's outlet, the collector leaving it
+ * rearwards, and each downpipe one bend from its turbo's outlet into it.
+ */
+function seatTwinDownpipes(graph: ExhaustGraph, turbos: TurboMount[], size: TurboSize): void {
+  if (turbos.length < 2) return;
+  const downpipes = turbos.map((t) => graph.ducts.find((d) => d.role === 'downpipe' && d.from.kind === 'node' && d.from.node === t.node));
+  const node = downpipes[0]?.to.kind === 'node' ? downpipes[0].to.node : null;
+  if (!node || junctionAt(graph, node) || downpipes.some((d) => !d || d.fitted || d.to.kind !== 'node' || d.to.node !== node)) return;
+  const collector = graph.ducts.find((d) => d.role === 'collector' && d.from.kind === 'node' && d.from.node === node);
+  if (!collector) return;
+  const outlets = turbos.map((t) => turboPorts(t as TurboMount & { position: Vec3 }, size).outlet);
+  const rear = outlets.reduce((a, o) => (o.point[2] > a.point[2] ? o : a));
+  const lowest = Math.min(...outlets.map((o) => o.point[1]));
+  const merge = new THREE.Vector3(rear.point[0], lowest - DOWNPIPE_DROP, rear.point[2]);
+  const axis = new THREE.Vector3(0, 0, 1);
+  (graph.junctions ??= []).push({ node, position: [merge.x, merge.y, merge.z], axis: [0, 0, 1] });
+  collector.headingYaw = 0;
+  collector.headingPitch = 0;
+  downpipes.forEach((d, i) => {
+    const o = outlets[i]!;
+    const bore = segmentDiameter(d!.segments[0]!, 0);
+    d!.segments = [fitCurve(new THREE.Vector3(...o.point), new THREE.Vector3(...o.dir), merge, axis, { dIn: bore, dOut: bore })];
+    d!.fitted = true;
+  });
 }
 
 interface Primary {

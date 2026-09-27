@@ -435,9 +435,8 @@ export function compileLayout(
      * not a junction — and the junction solve does not hold one: measured on a V8 at 8500 rpm, those two
      * nodes go fully out of balance on 43 samples in a second while every three-way node stays under 1.3%.
      */
-    const chain = (bankMembers: number[], last: string, tag: string, reverse = false): string | null => {
+    const chain = (bankMembers: number[], last: string, tag: string): string | null => {
       const order = [...bankMembers].sort((a, b) => (pinOf.get(a) ?? a) - (pinOf.get(b) ?? b));
-      if (reverse) order.reverse();
       if (order.length < 2) {
         if (order[0] !== undefined) runnerTo.set(order[0], last);
         return null;
@@ -492,9 +491,9 @@ export function compileLayout(
     };
 
     /**
-     * Twin turbos on one bank, as on the RB26: the bank's front and rear halves each chain out to a turbo
-     * at their own end of the engine, and the turbos' downpipes meet between them. Each downpipe's length
-     * comes out of the collector, as the downpipes of a V's two banks do.
+     * Twin turbos on one bank, as on the RB26: the bank's front and rear halves each chain rearwards to a
+     * turbo at their own rear end, over the middle and the back of the engine, and the turbos' downpipes
+     * meet. Each downpipe's length comes out of the collector, as the downpipes of a V's two banks do.
      */
     if (banks.length === 1 && turbos === 2 && mounts.length === 0 && members.length >= 2) {
       const order = [...members].sort((a, b) => (pinOf.get(a) ?? a) - (pinOf.get(b) ?? b));
@@ -503,8 +502,7 @@ export function compileLayout(
       let downDia = 0;
       halves.forEach((halfMembers, h) => {
         const node = `merge${g}-t${h}`;
-        // The front half chains towards the front, the rear half towards the rear.
-        chain(halfMembers, node, `${g}-t${h}`, h === 0);
+        chain(halfMembers, node, `${g}-t${h}`);
         const dia = gathering(halfMembers.length) * 1.25;
         downDia = Math.max(downDia, dia);
         tail.push({
