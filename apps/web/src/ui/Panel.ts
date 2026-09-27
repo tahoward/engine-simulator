@@ -664,9 +664,9 @@ export class Panel {
     this.headerBtn = el('button', '', headerRow) as HTMLButtonElement;
     this.headerBtn.textContent = 'Equal-length header';
     this.headerBtn.title =
-      'Runs pipes all the same length from any openings to one collector: from exhaust ports, bending ' +
-      'straight out of them, or on from the open ends of pipes. Every port starts picked; click an opening’s ' +
-      'dot to pick it or leave it out. Drag the triad’s arrows to put the collector where it goes, and its ' +
+      'Runs pipes all the same length from any openings to one collector: from exhaust ports with nothing ' +
+      'on them, bending straight out of them, or on from the open ends of pipes. Click an opening’s dot to ' +
+      'pick it or leave it out; until a length is set, it is the shortest that reaches. Drag the triad’s arrows to put the collector where it goes, and its ' +
       'rings to point it; a ghost shows the pipes, the nearer ones swinging on their way to make their length ' +
       'up. Apply or Enter builds it, Escape abandons it.';
     this.headerApplyBtn = el('button', 'hidden', headerRow) as HTMLButtonElement;

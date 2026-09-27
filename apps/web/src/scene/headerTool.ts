@@ -78,8 +78,8 @@ export function runnerBore(graph: ExhaustGraph, cylinder: number, fallback: numb
 }
 
 /**
- * Every opening a pipe could be run from: each port, and each pipe's open end, where it lies in `placement`.
- * A port's pipe's own open end is not one, since running a pipe from the port replaces that pipe.
+ * Every opening a pipe could be run from, where it lies in `placement`: each pipe's open end, and each port
+ * with nothing on it yet. A port with a pipe on it is used; the opening is where that pipe ends, if it is open.
  */
 export function headerOpenings(
   graph: ExhaustGraph,
@@ -87,14 +87,19 @@ export function headerOpenings(
   ports: ExhaustPort[],
   portBore: number,
 ): OpeningAt[] {
-  const out: OpeningAt[] = ports.map((port, cylinder) => ({
-    opening: { kind: 'port', cylinder },
-    point: port.position.clone(),
-    dir: port.direction.clone().normalize(),
-    bore: runnerBore(graph, cylinder, portBore),
-  }));
+  const out: OpeningAt[] = [];
+  ports.forEach((port, cylinder) => {
+    const used = graph.ducts.some((d) => d.from.kind === 'valve' && d.from.cylinder === cylinder && d.segments.length > 0);
+    if (used) return;
+    out.push({
+      opening: { kind: 'port', cylinder },
+      point: port.position.clone(),
+      dir: port.direction.clone().normalize(),
+      bore: runnerBore(graph, cylinder, portBore),
+    });
+  });
   for (const duct of graph.ducts) {
-    if (duct.to.kind !== 'mouth' || duct.segments.length === 0 || duct.from.kind === 'valve') continue;
+    if (duct.to.kind !== 'mouth' || duct.segments.length === 0) continue;
     const place = placement.ducts.get(duct.id);
     if (!place) continue;
     const swept = layoutPipe(duct.segments, place.origin, place.heading);
