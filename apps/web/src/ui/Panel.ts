@@ -664,23 +664,26 @@ export class Panel {
     this.headerBtn = el('button', '', headerRow) as HTMLButtonElement;
     this.headerBtn.textContent = 'Equal-length header';
     this.headerBtn.title =
-      'Builds a bank’s primaries all the same length, each straight out of its port and bending into one ' +
-      'collector. Drag the triad’s arrows to put the collector where it goes, and its rings to point it; ' +
-      'a ghost shows the header, the nearer primaries swinging on their way to make their length up. Apply ' +
-      'or Enter builds it, Escape abandons it.';
+      'Runs pipes all the same length from any openings to one collector: from exhaust ports, bending ' +
+      'straight out of them, or on from the open ends of pipes. Every port starts picked; click an opening’s ' +
+      'dot to pick it or leave it out. Drag the triad’s arrows to put the collector where it goes, and its ' +
+      'rings to point it; a ghost shows the pipes, the nearer ones swinging on their way to make their length ' +
+      'up. Apply or Enter builds it, Escape abandons it.';
     this.headerApplyBtn = el('button', 'hidden', headerRow) as HTMLButtonElement;
     this.headerApplyBtn.textContent = 'Apply';
     this.headerHint = el('span', 'hint', headerRow);
     this.headerOptions = el('div', 'row hidden', exhaust);
-    this.headerLengthInput = numberField(this.headerOptions, 'Primary length', 400, 50, 3000, 1, 'mm', (v) =>
+    this.headerLengthInput = numberField(this.headerOptions, 'Pipe length', 400, 50, 3000, 1, 'mm', (v) =>
       this.cb.onHeaderLength(v / MM),
     );
     this.headerMirrorLabel = el('label', '', this.headerOptions) as HTMLLabelElement;
     const mirrorBox = el('input', '', this.headerMirrorLabel) as HTMLInputElement;
     mirrorBox.type = 'checkbox';
     mirrorBox.checked = this.headerMirror;
-    this.headerMirrorLabel.append(' Mirror onto other bank');
-    this.headerMirrorLabel.title = 'Gives the other bank the mirror image of this header, its collector at the mirrored place.';
+    this.headerMirrorLabel.append(' Mirror ports onto other bank');
+    this.headerMirrorLabel.title =
+      'The ports on the bank away from the triad get the mirror image, merging at the mirrored place. Off, ' +
+      'every opening merges at the triad. Open pipe ends always merge at the triad.';
     mirrorBox.addEventListener('change', () => {
       this.headerMirror = mirrorBox.checked;
       this.cb.onHeaderMirror(this.headerMirror);

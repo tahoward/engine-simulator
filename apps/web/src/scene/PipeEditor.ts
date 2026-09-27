@@ -81,7 +81,18 @@ import {
   snapToEngine,
   type SnapTarget,
 } from './drawing.js';
-import { collectorGhost, headerPrimaries, mirrorPlan, shortestHeader, type HeaderPlan } from './headerTool.js';
+import {
+  collectorGhost,
+  headerCollectorBore,
+  headerOpenings,
+  headerPrimaries,
+  mirrorPlan,
+  openingKey,
+  shortestHeader,
+  type HeaderPlan,
+  type HeaderPrimary,
+  type OpeningAt,
+} from './headerTool.js';
 
 const MIN_RADIUS = 0.006;
 const MAX_RADIUS = 0.22;
@@ -203,21 +214,34 @@ export interface PipeEditorCallbacks {
   onMoveTurbo?: (turbo: string, position: Vec3, rotation: Quat, commit: boolean) => void;
   /** What the header being placed comes to, in words. */
   onHeaderAim?: (aim: string) => void;
-  /** Build the headers the ghost shows: one per bank. */
-  onApplyHeader?: (plans: HeaderPlan[]) => void;
+  /** Build the pipes the ghost shows: each merge's plan and its pipes. */
+  onApplyHeader?: (builds: Array<{ plan: HeaderPlan; primaries: HeaderPrimary[] }>) => void;
   /** The header tool was ended from the view, by Escape. */
   onHeaderEnded?: () => void;
 }
 
 /**
- * The equal-length header being placed: one bank's plan, which the triad moves, and the other bank's
- * mirror, if the engine has one, and whether it is built too.
+ * The equal-length pipes being placed: where they merge, which the triad moves and turns, how long they are,
+ * and which openings they run from. With `mirrored`, on an engine with two banks, the ports on the bank away
+ * from the triad merge at its mirror image instead.
  */
 export interface HeaderSetup {
-  plan: HeaderPlan;
-  mirror: { point: THREE.Vector3; normal: THREE.Vector3; cylinders: number[] } | null;
+  merge: THREE.Vector3;
+  axis: THREE.Vector3;
+  length: number;
+  /** The openings picked, by `openingKey`. */
+  picked: Set<string>;
+  /** Each cylinder's bank, and the engine's middle, which one bank is the mirror image of the other in. */
+  banks: number[];
+  mirror: { point: THREE.Vector3; normal: THREE.Vector3 } | null;
   mirrored: boolean;
+  /** The bore a pipe from a port with none on it starts at. */
+  portBore: number;
 }
+
+/** The openings' dots: picked, and not. */
+const OPENING_PICKED = 0xff8c42;
+const OPENING_UNPICKED = 0x9aa3ad;
 
 /**
  * How a free click is tidied while drawing.
@@ -396,6 +420,9 @@ export class PipeEditor {
   private header: HeaderSetup | null = null;
   private readonly headerTriad = new Triad(PIPE_TRIAD_SIZE * 1.4);
   private readonly headerGhosts: PipeMesh[] = [];
+  /** A dot on every opening the pipes could run from, and where each is. */
+  private readonly openingDots: THREE.Mesh[] = [];
+  private openings: OpeningAt[] = [];
 
   private readonly matHover = new THREE.MeshBasicMaterial({ color: 0xffd166 });
   private readonly matSelected = new THREE.MeshBasicMaterial({ color: 0x8cff9e });
@@ -658,8 +685,9 @@ export class PipeEditor {
   // -------------------------------------------------------------------------
 
   /**
-   * Start the equal-length header tool on `setup`, or with `null` end it. A triad sits where the collector
-   * is: its arrows move it and its rings point it, and a ghost shows the header it would build.
+   * Start the equal-length pipes tool on `setup`, or with `null` end it. A triad sits where they merge: its
+   * arrows move it and its rings point it. Each opening has a dot, which a click picks or leaves out, and a
+   * ghost shows the pipes it would build.
    */
   setHeaderTool(setup: HeaderSetup | null): void {
     if (setup) {
@@ -672,7 +700,7 @@ export class PipeEditor {
       this.triadDrag = null;
       this.controls.enabled = true;
     }
-    if (setup) this.headerTriad.setOrientation(frameAlong(setup.plan.axis));
+    if (setup) this.headerTriad.setOrientation(frameAlong(setup.axis));
     this.updateHeader();
     this.applyHandleVisibility();
   }
@@ -681,55 +709,105 @@ export class PipeEditor {
     return this.header !== null;
   }
 
-  /** Make the header's primaries `length` m each. */
+  /** The shortest the pipes can all be and reach where they merge, m: 0 with no openings picked. */
+  get headerReach(): number {
+    return Math.max(0, ...this.headerPlans().map((p) => shortestHeader(p)));
+  }
+
+  /** Make the pipes `length` m each. */
   setHeaderLength(length: number): void {
     if (!this.header) return;
-    this.header.plan.length = length;
+    this.header.length = length;
     this.updateHeader();
   }
 
-  /** Build the header onto the other bank too, mirrored, or not. */
+  /** Merge the other bank's ports at the mirror image, or all at the one place. */
   setHeaderMirrored(on: boolean): void {
     if (!this.header) return;
     this.header.mirrored = on;
     this.updateHeader();
   }
 
-  /** The plans the ghost shows: the bank's, and its mirror where that is built too. */
+  /**
+   * The merges the ghost shows. Everything picked merges at the triad; mirrored, the ports on the bank away
+   * from it merge at its mirror image instead, which only ports have.
+   */
   private headerPlans(): HeaderPlan[] {
+    const ctx = this.context;
     const h = this.header;
-    if (!h) return [];
-    const plans = [h.plan];
-    if (h.mirrored && h.mirror) plans.push(mirrorPlan(h.plan, h.mirror, h.mirror.cylinders));
+    if (!ctx || !h) return [];
+    const picked = this.openings.filter((o) => h.picked.has(openingKey(o.opening)));
+    const plan = (openings: OpeningAt[], merge: THREE.Vector3, axis: THREE.Vector3): HeaderPlan => ({
+      openings,
+      merge,
+      axis,
+      length: h.length,
+      collectorBore: headerCollectorBore(ctx.graph, openings),
+    });
+    const bankOf = (o: OpeningAt) => (o.opening.kind === 'port' ? (h.banks[o.opening.cylinder] ?? 0) : -1);
+    const ports = picked.filter((o) => bankOf(o) >= 0);
+    if (!h.mirrored || !h.mirror || ports.length === 0) return picked.length > 0 ? [plan(picked, h.merge, h.axis)] : [];
+    // The triad's side: the bank whose picked ports are nearer it on average.
+    const near = (bank: number) => {
+      const own = ports.filter((o) => bankOf(o) === bank);
+      return own.length > 0 ? own.reduce((a, o) => a + o.point.distanceTo(h.merge), 0) / own.length : Infinity;
+    };
+    const here = near(0) <= near(1) ? 0 : 1;
+    const there = picked.filter((o) => bankOf(o) === 1 - here);
+    const main = plan(picked.filter((o) => bankOf(o) !== 1 - here), h.merge, h.axis);
+    const plans = main.openings.length > 0 ? [main] : [];
+    if (there.length > 0) plans.push({ ...mirrorPlan(main, h.mirror, there), collectorBore: headerCollectorBore(ctx.graph, there) });
     return plans;
   }
 
   /** Build what the ghost shows, and end the tool. */
   applyHeader(): void {
     if (!this.header) return;
-    const plans = this.headerPlans().map((p) => ({ ...p, merge: p.merge.clone(), axis: p.axis.clone() }));
+    const builds = this.headerPlans().map((plan) => ({ plan, primaries: headerPrimaries(plan) }));
     this.setHeaderTool(null);
-    this.cb.onApplyHeader?.(plans);
+    if (builds.length > 0) this.cb.onApplyHeader?.(builds);
   }
 
-  /** Put the triad on the collector, ghost the header, and say what it comes to. */
+  /** Put the triad where the pipes merge, a dot on each opening, ghost the pipes, and say what they come to. */
   private updateHeader(): void {
     const ctx = this.context;
     const h = this.header;
     this.headerTriad.setVisible(!!h && !!ctx);
     if (!h || !ctx) {
       for (const g of this.headerGhosts) g.group.visible = false;
+      for (const d of this.openingDots) d.visible = false;
+      this.openings = [];
       return;
     }
-    this.headerTriad.setMoveOrigin(h.plan.merge);
-    this.headerTriad.setRotateOrigin(h.plan.merge);
+    this.headerTriad.setMoveOrigin(h.merge);
+    this.headerTriad.setRotateOrigin(h.merge);
 
+    this.openings = headerOpenings(ctx.graph, ctx.placement, ctx.ports, h.portBore);
+    while (this.openingDots.length < this.openings.length) {
+      const dot = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 16, 12),
+        new THREE.MeshBasicMaterial({ color: OPENING_UNPICKED, transparent: true, opacity: 0.9, depthTest: false }),
+      );
+      dot.renderOrder = 14;
+      this.openingDots.push(dot);
+      this.group.add(dot);
+    }
+    this.openingDots.forEach((dot, i) => {
+      const o = this.openings[i];
+      dot.visible = !!o;
+      if (!o) return;
+      dot.position.copy(o.point);
+      dot.scale.setScalar(Math.max(o.bore * 0.35, 0.008));
+      (dot.material as THREE.MeshBasicMaterial).color.setHex(h.picked.has(openingKey(o.opening)) ? OPENING_PICKED : OPENING_UNPICKED);
+    });
+
+    const plans = this.headerPlans();
     const pipes: Array<{ segments: PipeSegment[]; origin: THREE.Vector3; heading: THREE.Vector3 }> = [];
-    for (const plan of this.headerPlans()) {
-      for (const p of headerPrimaries(ctx.ports, plan)) {
-        const port = ctx.ports[p.cylinder]!;
-        pipes.push({ segments: p.segments, origin: port.position, heading: port.direction });
-      }
+    for (const plan of plans) {
+      headerPrimaries(plan).forEach((p, i) => {
+        const o = plan.openings[i]!;
+        pipes.push({ segments: p.segments, origin: o.point, heading: o.dir });
+      });
       pipes.push({ segments: collectorGhost(plan), origin: plan.merge, heading: plan.axis });
     }
     while (this.headerGhosts.length < pipes.length) {
@@ -743,14 +821,39 @@ export class PipeEditor {
       if (pipe) g.rebuild(pipe.segments, pipe.origin, pipe.heading);
     });
 
-    const shortest = shortestHeader(ctx.ports, h.plan);
     const mm = (m: number) => `${Math.round(m * 1000)} mm`;
-    const reach = h.mirror && h.mirrored ? Math.max(shortest, shortestHeader(ctx.ports, this.headerPlans()[1]!)) : shortest;
+    const count = plans.reduce((a, p) => a + p.openings.length, 0);
+    const reach = this.headerReach;
     this.cb.onHeaderAim?.(
-      h.plan.length < reach - 5e-4
-        ? `Too short to reach: the furthest primary needs ${mm(reach)}`
-        : `${h.plan.cylinders.length} primaries of ${mm(h.plan.length)} · the shortest that reaches is ${mm(reach)}`,
+      count === 0
+        ? 'Click the openings to run pipes from'
+        : h.length < reach - 5e-4
+          ? `Too short to reach: the furthest needs ${mm(reach)}`
+          : `${count} pipes of ${mm(h.length)} · the shortest that reaches is ${mm(reach)} · click an opening to add or leave it out`,
     );
+  }
+
+  /** The opening whose dot is under the pointer, within a few pixels, if any. */
+  private openingUnderPointer(): OpeningAt | null {
+    const rect = this.dom.getBoundingClientRect();
+    let best: { d: number; o: OpeningAt } | null = null;
+    for (const o of this.openings) {
+      const p = o.point.clone().project(this.camera);
+      if (p.z > 1) continue;
+      const d = Math.hypot(((p.x - this.pointer.x) * rect.width) / 2, ((p.y - this.pointer.y) * rect.height) / 2);
+      if (d <= SNAP_PIXELS && (!best || d < best.d)) best = { d, o };
+    }
+    return best?.o ?? null;
+  }
+
+  /** Pick an opening for the pipes, or leave it out. */
+  private toggleOpening(o: OpeningAt): void {
+    const h = this.header;
+    if (!h) return;
+    const key = openingKey(o.opening);
+    if (h.picked.has(key)) h.picked.delete(key);
+    else h.picked.add(key);
+    this.updateHeader();
   }
 
   /** The header's triad: its arrows move the collector, its rings turn the way it points. */
@@ -762,12 +865,12 @@ export class PipeEditor {
       if (turn === null) return;
       if (snap) turn = snapTurnToEngine(drag.axis0, turn, drag.axis, (TRIAD_TURN_DEG * Math.PI) / 180);
       const q = new THREE.Quaternion().setFromAxisAngle(drag.axis, turn);
-      h.plan.axis = drag.axis0.clone().applyQuaternion(q).normalize();
+      h.axis = drag.axis0.clone().applyQuaternion(q).normalize();
       this.headerTriad.setOrientation(q.multiply(drag.frame0));
     } else {
       const at = this.triadMove(drag, snap);
       if (!at) return;
-      h.plan.merge = at;
+      h.merge = at;
     }
     drag.moved = true;
     this.updateHeader();
@@ -1594,10 +1697,10 @@ export class PipeEditor {
     if (this.header) {
       // Only the triad: anywhere else turns the view, to see the header from all round.
       const handle = this.headerTriad.pick(this.raycaster);
-      if (handle) {
-        this.beginTriadDrag('header', handle);
-        e.preventDefault();
-      }
+      const opening = handle ? null : this.openingUnderPointer();
+      if (handle) this.beginTriadDrag('header', handle);
+      else if (opening) this.toggleOpening(opening);
+      if (handle || opening) e.preventDefault();
       return;
     }
 
@@ -1744,8 +1847,8 @@ export class PipeEditor {
 
     if (on === 'header') {
       if (!this.header) return;
-      drag.axis0 = this.header.plan.axis.clone();
-      drag.frame0 = frameAlong(this.header.plan.axis);
+      drag.axis0 = this.header.axis.clone();
+      drag.frame0 = frameAlong(this.header.axis);
     } else if (on === 'pipe') {
       const ctx = this.context;
       const duct = ctx?.graph.ducts.find((d) => d.segments === this.pipe);
@@ -2092,7 +2195,7 @@ export class PipeEditor {
     }
     if (this.header) {
       this.updatePointer(e);
-      this.dom.style.cursor = this.headerTriad.hover(this.raycaster) ? 'grab' : '';
+      this.dom.style.cursor = this.headerTriad.hover(this.raycaster) ? 'grab' : this.openingUnderPointer() ? 'pointer' : '';
       return;
     }
     if (this.bendTool) {
@@ -2226,6 +2329,10 @@ export class PipeEditor {
     this.turboTriad.dispose();
     this.headerTriad.dispose();
     for (const g of this.headerGhosts) g.dispose();
+    for (const d of this.openingDots) {
+      d.geometry.dispose();
+      (d.material as THREE.Material).dispose();
+    }
     this.previewGeom.dispose();
     this.guideGeom.dispose();
     this.ghost.dispose();
