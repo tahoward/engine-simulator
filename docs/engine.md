@@ -169,8 +169,9 @@ so on boost the cylinders fill from above atmospheric pressure. The turbine is p
 gas dynamics; the rest is lumped, one state each, and stepped every audio sample
 ([`turbo.rs`](https://github.com/tahoward/engine-simulator/blob/main/crates/engine-sim/src/turbo.rs)):
 
-- **The turbine** sits in the exhaust, at the last junction before the tailpipe: the collector's merge
-  on a one-bank engine, one on each bank of a V with a collector per bank. The ducts arriving at it meet
+- **The turbine** sits in the exhaust, wherever the turbo was placed: the pipes drawn into its inlet
+  meet at one pressure and its outlet pipe leaves at another
+  ([Controls](controls.md#turbocharger)). The ducts arriving at it meet
   at one pressure and the tailpipe leaves at another, and between them the turbine and its wastegate
   pass the flow Stodola's ellipse law gives for the two: `m = K sqrt(p_in^2 - p_out^2) / sqrt(T)`. It
   is solved every substep with the junctions, against the waves arriving from both sides, so every
@@ -179,9 +180,8 @@ gas dynamics; the rest is lumped, one state each, and stepped every audio sample
   Its power is the isentropic expansion across it at 68% efficiency, and the gas leaves it cooler by
   the work it did. The cylinders push out against its inlet pressure, which costs pumping work and
   leaves more spent gas in the cylinder.
-- **On an engine where nothing merges,** a single or a twin with a pipe each, there is no junction for
-  it to sit in. There it is a nozzle on the valves' mean flow, and the exhaust's mouths open into its
-  inlet pressure.
+- **Twin turbos** share one lumped shaft and the settings, with the airflow split evenly between them;
+  each turbine is solved on its own, on the pulses of the cylinders feeding it.
 - **The wastegate** opens a bypass around the turbine as the boost reaches its target, over a few
   hundredths of a bar, so the turbine takes less of the exhaust. It is a spring and diaphragm with a
   40 ms lag, not a controller, so the boost settles near the target rather than exactly on it.
@@ -200,7 +200,7 @@ gas dynamics; the rest is lumped, one state each, and stepped every audio sample
 Left on auto, the turbo is sized from the engine's airflow at 80% of its rev limit on full boost.
 
 The lag is not a filter on a boost map; it is the shaft spinning up. At 3500 rpm, opened from part
-throttle, the RB26's twin turbos take just over a second to reach 90% of their boost.
+throttle, the RB26's twin turbos take 0.7 s to reach 90% of their boost.
 
 With the throttle shut on boost and no blow-off valve, the charge air has nowhere to go. Its pressure
 rises, the compressor's flow falls past the surge line, and the characteristic that is stable to the
@@ -209,19 +209,21 @@ charge air empties, and the compressor recovers, over and over: on the RB26, 18 
 surge, and it is where the flutter comes from. It is not scripted: it comes out of the compressor's
 characteristic and the inertia of the air, as Greitzer's model of it does.
 
-On the RB26 preset, at 0.7 bar, with its naturally aspirated self on the same cams and runners for
-comparison:
+The RB26 preset's exhaust has the real engine's layout: the front three cylinders' manifold feeds one
+turbo at the front of the engine, the rear three's another at the rear, and the two downpipes meet
+between them. At 0.7 bar, with its naturally aspirated self on the same cams and runners for comparison:
 
 ```
                           2000   3000   4000   5000   6000   7500 rpm   full throttle, N·m
 naturally aspirated        228    228    228    263    267    221
-twin turbos, 0.7 bar       285    378    364    398    389    320
-boost, bar                0.26   0.66   0.67   0.71   0.70   0.69
+twin turbos, 0.7 bar       368    398    387    405    387    308
+boost, bar                0.68   0.69   0.69   0.72   0.69   0.70
 ```
 
-Its turbos are small, as the real engine's T28s are: full boost by 3000 rpm, and near their choke
-above 6000, where the exhaust backs up to 0.7-1.0 bar behind the turbines. At 4400 rpm each pulse
-arriving at the turbine swings the pressure there by about 15 kPa; past it, by 9.
+Its turbos are small, as the real engine's T28s are, and each is fed the pulses of three cylinders:
+full boost from 2000 rpm, and near their choke above 6000, where the exhaust backs up to 0.8-1.1 bar
+behind them. At 4400 rpm each pulse arriving at a turbine swings the pressure there by about 18 kPa;
+past it, by 8.
 
 ## The flame
 

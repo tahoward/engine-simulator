@@ -27,6 +27,9 @@ import { PipeEditor } from './scene/PipeEditor.js';
 import { PipeMesh } from './scene/PipeMesh.js';
 import { ductDirections, freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustPlacement } from './scene/exhaustLayout.js';
 import { JointMesh, throughPipe } from './scene/jointMesh.js';
+import { TurboMesh } from './scene/TurboMesh.js';
+import { moveTurbo, seatTurbos, turboHeight } from './scene/turboPlacement.js';
+import { graphTurboSize, isTurbocharged, newTurbo, placeTurbo, removeTurbo, turboPortsOf } from './model/turbo.js';
 import {
   carriedGeometry,
   compileExhaust,
@@ -96,6 +99,10 @@ const pipeMeshes: PipeMesh[] = [];
 let editedDuctId = defaultDuctId(config.graph!) ?? 'runner0';
 /** The junction selected in the scene, if one is. Segments and junctions are selected one or the other. */
 let selectedJoint: string | null = null;
+/** The turbo selected in the scene, if one is. */
+let selectedTurbo: string | null = null;
+/** One mesh per turbo, in the order of `config.graph.turbos`. */
+const turboMeshes: TurboMesh[] = [];
 /** One mesh per junction, blended from the pipes that meet there. */
 const jointMeshes: JointMesh[] = [];
 /** Which junction each of `jointMeshes` is, by index. */
@@ -134,7 +141,7 @@ function detachIfShort(ductId: string): void {
   const duct = graph.ducts.find((d) => d.id === ductId);
   if (!duct || duct.to.kind !== 'node') return;
   const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
-  if (!pipesMeetAt(graph, layoutGraph(ports, graph), duct.to.node)) {
+  if (!pipesMeetAt(graph, layoutGraph(ports, graph, turboPortsOf(graph, config.engine)), duct.to.node)) {
     disconnectEnd(graph, duct.id, directionsOf(stablePlacement));
   }
 }
@@ -158,6 +165,7 @@ const editor = new PipeEditor(
       if (!editor.dragging && !editor.drawing) detachIfShort(editedDuctId);
       rebuildPipeGeometry();
       panel.syncPipe();
+      panel.syncTurbos();
       // Rebuilding the waveguide reallocates and briefly ramps the audio, so during
       // a drag it is throttled; the editor always sends a final commit on release.
       if (commit) audio.setGraph(config.graph!);
@@ -167,6 +175,14 @@ const editor = new PipeEditor(
       panel.setSelected(i);
     },
     onPick: (pick) => {
+      if (pick?.kind === 'turbo') {
+        selectJoint(null);
+        selectTurbo(pick.turbo);
+        editor.select(null);
+        panel.setSelected(null);
+        return;
+      }
+      selectTurbo(null);
       if (pick?.kind === 'joint') {
         selectJoint(pick.node);
         editor.select(null);
@@ -190,8 +206,49 @@ const editor = new PipeEditor(
     },
     onDrawing: (active) => panel.setDrawingState(active),
     onAim: (aim) => panel.setDrawAim(aim),
+    onPlaceTurbo: ({ position, rotation, attach }) => {
+      freeze();
+      const graph = config.graph!;
+      const mount = newTurbo(graph, position, rotation);
+      placeTurbo(graph, mount, turboOutletDia(), attach);
+      afterTurboEdit(true);
+      selectTurbo(mount.id);
+    },
+    onPlacing: (active) => panel.setPlacingState(active),
+    onMoveTurbo: (id, position, rotation, commit) => {
+      freeze();
+      const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
+      moveTurbo(config.graph!, ports, config.engine, id, position, rotation, directionsOf(stablePlacement));
+      afterTurboEdit(commit);
+    },
   },
 );
+
+/** The bore a turbo's outlet pipe is given: the size of turbo this engine is drawn with. */
+function turboOutletDia(): number {
+  return graphTurboSize(config.graph!, config.engine).outletDia;
+}
+
+/** Rebuild and resend after a turbo was placed, moved or taken out. */
+function afterTurboEdit(commit: boolean): void {
+  rebuildPipeGeometry();
+  panel.rebuildPipeList();
+  panel.syncTurbos();
+  if (commit) {
+    audio.setGraph(config.graph!);
+    saveConfig();
+  }
+}
+
+/** Select a turbo, or none: highlight it and describe it in the panel. */
+function selectTurbo(id: string | null): void {
+  selectedTurbo = id;
+  editor.setSelectedTurbo(id);
+  const turbos = config.graph!.turbos ?? [];
+  turboMeshes.forEach((m, i) => m.setSelected(turbos[i]?.id === id));
+  panel.showTurbo(id);
+}
+
 
 /**
  * Delete or Backspace removes whatever is selected in the scene: a junction, or a pipe segment.
@@ -206,6 +263,15 @@ window.addEventListener('keydown', (e) => {
     return;
   }
   if (editor.drawing) return;
+
+  if (selectedTurbo) {
+    freeze();
+    removeTurbo(config.graph!, selectedTurbo, directionsOf(stablePlacement));
+    selectTurbo(null);
+    afterTurboEdit(true);
+    e.preventDefault();
+    return;
+  }
 
   if (selectedJoint) {
     const joint = lastPlacement?.joints.get(selectedJoint);
@@ -280,8 +346,15 @@ const panel = new Panel(panelEl, config, {
     editor.setDrawMode(true);
     editor.startAtJunction(node);
   },
-  onReseed: () => {
-    reseedGraph(true);
+  onPlaceMode: (on) => editor.setPlaceMode(on),
+  onRemoveTurbo: (id) => {
+    freeze();
+    removeTurbo(config.graph!, id, directionsOf(stablePlacement));
+    selectTurbo(null);
+    afterTurboEdit(true);
+  },
+  onReseed: (turbos) => {
+    reseedGraph(true, turbos);
     rebuildPipeGeometry();
     audio.setGraph(config.graph!);
     saveConfig();
@@ -383,7 +456,9 @@ function touchesGeometry(partial: Partial<EngineSpec>): boolean {
  * With `fromConfig` the graph is built from `config.pipe` and `config.collector` as they stand, which is
  * what loading a preset wants.
  */
-function reseedGraph(fromConfig = false): void {
+function reseedGraph(fromConfig = false, turbos?: number): void {
+  // As many turbos as there were, unless a preset says how many it has.
+  const count = turbos ?? config.graph?.turbos?.length ?? 0;
   if (!fromConfig) {
     // Carry the drawn geometry across: a runner that was lengthened should stay lengthened even
     // though its routing cannot survive a change of topology.
@@ -391,7 +466,7 @@ function reseedGraph(fromConfig = false): void {
     if (carried.pipe) config.pipe = carried.pipe;
     if (carried.collector) config.collector = carried.collector;
   }
-  config.graph = compileExhaust(config.engine, config.pipe, config.collector);
+  config.graph = compileExhaust(config.engine, config.pipe, config.collector, count);
   editedDuctId = defaultDuctId(config.graph) ?? editedDuctId;
 }
 
@@ -412,7 +487,9 @@ function rebuildPipeGeometry(): void {
   }
 
   const ports = Array.from({ length: cylinders }, (_, b) => engineMesh.exhaustPort(b));
-  const placement = layoutGraph(ports, graph);
+  seatTurbos(graph, ports, config.engine);
+  const turboPorts = turboPortsOf(graph, config.engine);
+  const placement = layoutGraph(ports, graph, turboPorts);
   lastPlacement = placement;
   if (!editor.dragging) stablePlacement = placement;
 
@@ -448,14 +525,38 @@ function rebuildPipeGeometry(): void {
    * with — not the bare port direction. With a collector those differ by however far the runner had to
    * be aimed to reach the collar, and handles laid out on the port direction would sit off the pipe.
    */
+  // One mesh per turbo, where it was put.
+  const turbos = graph.turbos ?? [];
+  while (turboMeshes.length < turbos.length) {
+    const m = new TurboMesh();
+    turboMeshes.push(m);
+    viewer.scene.add(m.group);
+  }
+  while (turboMeshes.length > turbos.length) {
+    const m = turboMeshes.pop()!;
+    viewer.scene.remove(m.group);
+    m.dispose();
+  }
+  const size = graphTurboSize(graph, config.engine);
+  turbos.forEach((t, i) => {
+    turboMeshes[i]!.rebuild(size);
+    if (t.position) turboMeshes[i]!.place(t.position, t.rotation);
+    turboMeshes[i]!.setSelected(t.id === selectedTurbo);
+  });
+  if (selectedTurbo && !turbos.some((t) => t.id === selectedTurbo)) selectTurbo(null);
+
   editor.setDrawContext({
     graph,
     placement,
     ports,
     meshes: pipeMeshes,
     joints: bodies.map(([node], i) => ({ node, target: jointMeshes[i]!.pickTarget })),
+    turbos: turbos.map((t, i) => ({ turbo: t.id, target: turboMeshes[i]!.pickTarget })),
   });
   editor.portDiameter = exhaustPortDiameter(config.engine);
+  editor.turboSize = size;
+  editor.turboHeight = turboHeight(ports);
+  editor.turboOutletDia = size.outletDia;
 
   const editedDuct = graph.ducts.find((d) => d.id === editedDuctId) ?? graph.ducts[0];
   if (editedDuct) {
@@ -586,7 +687,7 @@ function loadConfig(): EngineConfig {
       // A link may carry the load as a torque in N*m, `loadTorque`, rather than as a fraction.
       const loadTorque = (parsed.engine as { loadTorque?: unknown }).loadTorque;
       if (typeof loadTorque === 'number' && parsed.engine.load === undefined) {
-        base.engine.load = Math.min(Math.max(loadTorque / fullLoadTorque(base.engine), 0), 1.5);
+        base.engine.load = Math.min(Math.max(loadTorque / fullLoadTorque(base.engine, isTurbocharged(graphFromJson(parsed.graph) ?? undefined)), 0), 1.5);
       }
       delete (base.engine as { loadTorque?: unknown }).loadTorque;
       base.engine.freeRunning = true;

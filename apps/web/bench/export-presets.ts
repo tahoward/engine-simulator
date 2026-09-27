@@ -17,6 +17,7 @@ import {
   fitDyno,
   fittedExhaust,
 } from '../src/model/spec.js';
+import { compileExhaust } from '../src/model/exhaustGraph.js';
 
 // Run from `bench/dist`, four levels below the repository root.
 const root = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -27,11 +28,13 @@ const engines = ENGINE_PRESETS.map((preset) => {
   cfg.engine = { ...cfg.engine, ...preset.engine };
   cfg.pipe = preset.pipe();
   if (preset.collector) cfg.collector = preset.collector();
+  // A preset with turbos carries its exhaust as the app compiles it, since the turbos are part of it.
+  if (preset.turbos) cfg.graph = compileExhaust(cfg.engine, cfg.pipe, cfg.collector, preset.turbos);
   return {
     name: preset.name,
     engine: preset.engine,
     config: cfg,
-    dyno: fitDyno(cfg.engine),
+    dyno: fitDyno(cfg.engine, (preset.turbos ?? 0) > 0),
     fittedExhaust: fittedExhaust(cfg.engine),
   };
 });

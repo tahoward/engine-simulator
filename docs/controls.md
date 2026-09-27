@@ -59,10 +59,25 @@
 
 ## Turbocharger
 
-- **Turbocharged** fits a turbo. The line under it gives the boost, the turbo's speed, and whether the
-  wastegate is open, the blow-off valve is venting or the compressor is surging. See
+Turbos are part of the exhaust: you put them in the view and pipe them up.
+
+- **Place a turbo** puts one down where you click, level with the exhaust ports. Near the open end of a
+  pipe it snaps onto it, its inlet flange on the pipe's end, turned to take it, and the pipe is attached
+  as it goes down. <kbd>R</kbd> turns it 15 degrees, <kbd>Shift</kbd>+<kbd>R</kbd> back. Press
+  <kbd>Escape</kbd> or the button again to stop.
+- **Attach pipes** by drawing into its inlet, the flange on the side of its turbine: see
+  [Drawing pipes](#drawing-pipes). The first pipe into a turbo gives it a short outlet pipe to the air;
+  draw on from that pipe's open end to make the downpipe. Several pipes can feed one turbo.
+- **Click a turbo** to select it and see what feeds it. Drag it to move it, and the pipes feeding it
+  follow, each re-fitted to the inlet; <kbd>Shift</kbd>-drag raises or lowers it, and <kbd>R</kbd> turns
+  it. <kbd>Delete</kbd> takes it out, leaving the pipes that fed it open.
+- The line under the button says how many turbos there are. The next gives the boost, the turbos'
+  speed, the pressure the exhaust works against at their inlets, and whether the wastegate is open, the
+  blow-off valve is venting or the compressor is surging. See
   [The turbocharger](engine.md#the-turbocharger).
-- **Turbos** is one, or two in parallel, each half-sized.
+
+The settings below apply to every turbo, and show once there is one:
+
 - **Boost** is what the wastegate holds.
 - **Turbo size** is each compressor's airflow at full speed. Small spools early and runs out of breath
   at the top; big lags and holds its boost to the limiter. At 0 it is sized for the engine.
@@ -130,7 +145,7 @@ shortcut: real sound waves in a pipe behave the same way.
 Click **Draw a pipe** to switch to draw mode.
 
 1. **Start** from an exhaust port, a junction, the open end of a pipe (to extend it), or the side of
-   a pipe (to branch off it).
+   a pipe (to branch off it). A turbo's outlet pipe is an open end like any other.
 2. **Click** to add each corner. Each segment locks to a direction square to the engine: across it
    (red), up or down (green), along the crank (blue), or 45 degrees between two of them, drawn in the
    mix of their colours. It can also carry straight on from the pipe it leaves, drawn in white. Point
@@ -138,7 +153,8 @@ Click **Draw a pipe** to switch to draw mode.
    says which way the next segment runs and how long it is.
    Hold <kbd>Alt</kbd> to round the bend to 15 degrees off the pipe it leaves instead, or
    <kbd>Shift</kbd> to place the corner freely.
-3. **Finish** by clicking a junction, a pipe or a pipe end to join onto it. To leave the end open,
+3. **Finish** by clicking a junction, a pipe or a pipe end to join onto it, or a turbo's inlet flange to
+   feed it. To leave the end open,
    right-click, double-click or press <kbd>Enter</kbd>. Press <kbd>Escape</kbd> to cancel the pipe.
 
 Joining onto a pipe is how you make a merge. The simulator solves exactly the pipe network you draw.
@@ -146,7 +162,7 @@ Joining onto a pipe is how you make a merge. The simulator solves exactly the pi
 ## Selecting and deleting
 
 - **Click a junction** to select it and see which pipes meet there.
-- <kbd>Delete</kbd> or <kbd>Backspace</kbd> removes the selected segment or junction. If you delete a
+- <kbd>Delete</kbd> or <kbd>Backspace</kbd> removes the selected segment, junction or turbo. If you delete a
   junction that one pipe runs straight through, that pipe joins back into one piece.
 
 ## Sharing

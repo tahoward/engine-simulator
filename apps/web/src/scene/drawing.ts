@@ -217,7 +217,8 @@ export function fitSegment(
  * `port` starts a runner, `node` joins an existing junction, `ductEnd` joins the far end of a duct — which
  * means making a junction there if it does not already have one — and `ductSurface` is a T, which splits
  * the duct it lands on. As a *start*, the last two continue a pipe from its open end and branch off its
- * side. `free` is the fallback: no target, so the route just carries on to a point in
+ * side. `turboInlet` is a turbo's inlet flange, which a route can end on but not start from. `free` is the
+ * fallback: no target, so the route just carries on to a point in
  * space and the duct ends in open air.
  */
 export type SnapTarget =
@@ -239,6 +240,7 @@ export type SnapTarget =
       /** The pipe's direction there, which a branch drawn *from* the side leaves along. */
       dir?: THREE.Vector3;
     }
+  | { kind: 'turboInlet'; point: THREE.Vector3; dir: THREE.Vector3; turbo: string }
   | { kind: 'free'; point: THREE.Vector3 };
 
 /**
@@ -277,7 +279,20 @@ export function collectSnapTargets(
     });
   });
 
+  for (const turbo of graph.turbos ?? []) {
+    const ports = placement.turbos.get(turbo.node);
+    if (!ports) continue;
+    targets.push({
+      kind: 'turboInlet',
+      point: new THREE.Vector3(...ports.inlet.point),
+      dir: new THREE.Vector3(...ports.inlet.dir),
+      turbo: turbo.id,
+    });
+  }
+
   for (const node of nodeOrder(graph)) {
+    // A turbo's node is reached through its inlet flange, above.
+    if (placement.turbos.has(node)) continue;
     const joint = placement.joints.get(node);
     if (joint) {
       targets.push({ kind: 'node', point: joint.centre.clone(), node });

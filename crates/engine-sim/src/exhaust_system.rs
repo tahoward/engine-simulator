@@ -13,7 +13,7 @@ use crate::exhaust_graph::{
     DuctRole, End, ExhaustGraph, ends_at, node_order, path_to_air, radiating_ducts, validate_graph, valve_ducts,
 };
 use crate::math::{self, PI, clamp};
-use crate::spec::{ambient_sound_speed, gas};
+use crate::spec::gas;
 
 /// Turbulence intensity of the merge, as a fraction of the mixing mass flow.
 const MERGE_TURBULENCE: f64 = 0.14;
@@ -103,7 +103,7 @@ pub struct ExhaustSystem {
     /// Worst relative mass-flux imbalance a junction's per-duct solves produced. Diagnostic only.
     pub junction_residual: f64,
     turbulence: f64,
-    /// Per node, whether it can carry a turbine: it feeds a duct that opens to the air.
+    /// Per node, whether a turbo placed in the graph has its turbine there.
     turbine_capable: Vec<bool>,
     turbine_nodes: Vec<TurbineNode>,
     turbine: Option<TurbineSetting>,
@@ -295,8 +295,7 @@ impl ExhaustSystem {
         }
         let fed_flow = vec![0.0; fed_by_node.len()];
 
-        let turbine_capable: Vec<bool> =
-            nodes.iter().map(|n| n.inlets.iter().any(|&d| radiating.contains(&d))).collect();
+        let turbine_capable: Vec<bool> = order.iter().map(|id| graph.is_turbo_node(id)).collect();
         let turbine_nodes: Vec<TurbineNode> = (0..nodes.len())
             .map(|n| TurbineNode {
                 noise: Noise::new(0x51ed_2705 as f64 + n as f64 * 0x9e3779b as f64),
@@ -353,31 +352,14 @@ impl ExhaustSystem {
         self.main_collector.map(|i| &self.ducts[i])
     }
 
-    /// How many junctions a turbine goes in: every one that feeds a duct opening to the air.
+    /// How many turbines are in the exhaust: turbos placed at a junction pipes meet at.
     pub fn turbine_count(&self) -> usize {
         self.turbine_capable.iter().filter(|&&c| c).count()
     }
 
-    /// Fit turbines at the junctions that can take one, or with `None` take them out.
+    /// The turbines' setting this sample, or `None` for none.
     pub fn set_turbine(&mut self, setting: Option<TurbineSetting>) {
         self.turbine = setting;
-    }
-
-    /// Open every radiating mouth into gas at `p` (Pa) rather than the atmosphere: the inlet of a
-    /// turbine, whose back pressure the whole exhaust then works against.
-    pub fn set_back_pressure(&mut self, p: f64) {
-        let rho = p / (gas::R * gas::T_AMB);
-        let c = ambient_sound_speed();
-        for &d in &self.radiating {
-            self.ducts[d].set_reservoir(p, rho, c);
-        }
-    }
-
-    /// Open every radiating mouth into the atmosphere again.
-    pub fn clear_back_pressure(&mut self) {
-        for &d in &self.radiating {
-            self.ducts[d].open_to_atmosphere();
-        }
     }
 
     /// How many mouths radiate.

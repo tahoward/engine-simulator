@@ -64,6 +64,7 @@ fn twin_graph() -> ExhaustGraph {
             duct("runner1", vec![pipe(0.6, 0.042)], DuctSource::Valve { cylinder: 1 }, merge()),
             duct("collector", vec![pipe(0.9, 0.055)], DuctSource::Node { node: "merge".into() }, DuctSink::Mouth),
         ],
+        ..Default::default()
     }
 }
 

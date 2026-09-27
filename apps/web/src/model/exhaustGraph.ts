@@ -86,8 +86,34 @@ export interface ExhaustDuct {
   role?: 'runner' | 'stub' | 'manifold' | 'downpipe' | 'collector';
 }
 
+/**
+ * A turbocharger placed in the exhaust: its turbine sits at `node`, so the ducts ending there feed its
+ * inlet and the one leaving it is its outlet. See `turbo.ts`.
+ *
+ * Unlike a junction, which is wherever the pipes meeting at it end, a turbo has a place of its own: where
+ * it was put down, `position` (m, world), turned by `rotation`, a unit quaternion `[x, y, z, w]` from its
+ * own frame (see `turbo.ts`) into the world's. A `position` of `null` is a turbo a compiled
+ * layout asked for and nobody has placed yet, which the app seats where that layout's junction is.
+ */
+export interface TurboMount {
+  id: string;
+  node: string;
+  position: Vec3 | null;
+  rotation: Quat;
+}
+
+/** A rotation as a unit quaternion, `[x, y, z, w]`. */
+export type Quat = [number, number, number, number];
+
 export interface ExhaustGraph {
   ducts: ExhaustDuct[];
+  /** Turbochargers, each at one node. One whose node no duct names is not connected yet. */
+  turbos?: TurboMount[];
+}
+
+/** The turbo whose turbine sits at `node`, if one does. */
+export function turboAt(graph: ExhaustGraph, node: string): TurboMount | undefined {
+  return graph.turbos?.find((t) => t.node === node);
 }
 
 const ROLES = new Set(['runner', 'stub', 'manifold', 'downpipe', 'collector']);
@@ -105,7 +131,22 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
   const ducts = (raw as { ducts?: unknown } | null)?.ducts;
   if (!Array.isArray(ducts) || ducts.length === 0) return null;
   const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const turbos = (raw as { turbos?: unknown }).turbos;
+  const mounts: TurboMount[] = Array.isArray(turbos)
+    ? turbos.flatMap((t: Record<string, unknown>) => {
+        if (typeof t?.id !== 'string' || typeof t.node !== 'string') return [];
+        const p = t.position;
+        const position =
+          Array.isArray(p) && p.length === 3 && p.every(finite) ? ([p[0], p[1], p[2]] as Vec3) : null;
+        const r = (Array.isArray(t.rotation) ? t.rotation : []) as number[];
+        const norm = r.length === 4 && r.every(finite) ? Math.hypot(...r) : 0;
+        const rotation: Quat =
+          norm > 1e-9 ? [r[0] / norm, r[1] / norm, r[2] / norm, r[3] / norm] : [0, 0, 0, 1];
+        return [{ id: t.id, node: t.node, position, rotation }];
+      })
+    : [];
   return {
+    ...(mounts.length > 0 ? { turbos: mounts } : {}),
     ducts: ducts.map((d: Record<string, unknown>) => ({
       id: String(d.id),
       segments: (Array.isArray(d.segments) ? d.segments : []).map((sg) => makeSegment(sg)),
@@ -204,7 +245,9 @@ export function ductLabel(graph: ExhaustGraph, duct: ExhaustDuct): string {
     if (duct.to.kind === 'mouth') return `Cylinder ${n} exhaust`;
     return `Cylinder ${n} primary`;
   }
-  const nodes = nodeOrder(graph);
+  const turbo = graph.turbos?.findIndex((t) => t.node === (duct.from as { node: string }).node) ?? -1;
+  if (turbo >= 0) return `After turbo ${turbo + 1}`;
+  const nodes = nodeOrder(graph).filter((n) => !turboAt(graph, n));
   const at = nodes.indexOf(duct.from.node) + 1;
   const siblings = endsAt(graph, duct.from.node).filter((e) => e.end === 'inlet');
   if (siblings.length <= 1) return `After junction ${at}`;
@@ -227,9 +270,11 @@ export function compileLayout(
   spec: EngineSpec,
   pipe: PipeSegment[],
   collector: PipeSegment[],
+  turbos = 0,
 ): ExhaustGraph {
   const groups = collectorGroups(spec);
   const ducts: ExhaustDuct[] = [];
+  const mounts: TurboMount[] = [];
   const copy = (segments: PipeSegment[]) => segments.map((s) => makeSegment(s));
 
   // Where each cylinder sits along the crank, for chaining a bank's runners in order.
@@ -292,8 +337,9 @@ export function compileLayout(
      * not a junction — and the junction solve does not hold one: measured on a V8 at 8500 rpm, those two
      * nodes go fully out of balance on 43 samples in a second while every three-way node stays under 1.3%.
      */
-    const chain = (bankMembers: number[], last: string, tag: string): string | null => {
+    const chain = (bankMembers: number[], last: string, tag: string, reverse = false): string | null => {
       const order = [...bankMembers].sort((a, b) => (pinOf.get(a) ?? a) - (pinOf.get(b) ?? b));
+      if (reverse) order.reverse();
       if (order.length < 2) {
         if (order[0] !== undefined) runnerTo.set(order[0], last);
         return null;
@@ -346,6 +392,41 @@ export function compileLayout(
       }
       return carrying;
     };
+
+    /**
+     * Twin turbos on one bank, as on the RB26: the bank's front and rear halves each chain out to a turbo
+     * at their own end of the engine, and the turbos' downpipes meet between them. Each downpipe's length
+     * comes out of the collector, as the downpipes of a V's two banks do.
+     */
+    if (banks.length === 1 && turbos === 2 && mounts.length === 0 && members.length >= 2) {
+      const order = [...members].sort((a, b) => (pinOf.get(a) ?? a) - (pinOf.get(b) ?? b));
+      const half = Math.ceil(order.length / 2);
+      const halves = [order.slice(0, half), order.slice(half)];
+      let downDia = 0;
+      halves.forEach((halfMembers, h) => {
+        const node = `merge${g}-t${h}`;
+        // The front half chains towards the front, the rear half towards the rear.
+        chain(halfMembers, node, `${g}-t${h}`, h === 0);
+        const dia = gathering(halfMembers.length) * 1.25;
+        downDia = Math.max(downDia, dia);
+        tail.push({
+          id: `down${g}-t${h}`,
+          segments: [makeSegment({ kind: 'pipe', length: TWIN_DOWNPIPE, dIn: dia, dOut: dia })],
+          from: { kind: 'node', node },
+          to: { kind: 'node', node: `merge${g}` },
+          role: 'downpipe',
+        });
+        mounts.push({ id: `turbo${h + 1}`, node, position: null, rotation: [0, 0, 0, 1] });
+      });
+      tail.push({
+        id: `collector${g}`,
+        segments: shortened(collectorAfter(downDia), TWIN_DOWNPIPE),
+        from: { kind: 'node', node: `merge${g}` },
+        to: { kind: 'mouth' },
+        role: 'collector',
+      });
+      continue;
+    }
 
     if (banks.length === 1) {
       const lastLink = chain(members, `merge${g}`, `${g}`);
@@ -429,8 +510,11 @@ export function compileLayout(
     });
   });
   ducts.push(...tail);
-  return { ducts };
+  return { ducts, ...(mounts.length > 0 ? { turbos: mounts } : {}) };
 }
+
+/** How long each of a single bank's twin turbos' downpipes is, m. */
+const TWIN_DOWNPIPE = 0.3;
 
 /**
  * The equal-length alternative: every runner of a group into one junction, then its collector.
@@ -445,10 +529,25 @@ export function compileLayout(
  * The exhaust `spec` asks for: equal-length headers into one merge per collector where it has
  * `exhaustHeaders` and something to merge, and a manifold along the ports otherwise.
  */
-export function compileExhaust(spec: EngineSpec, pipe: PipeSegment[], collector: PipeSegment[]): ExhaustGraph {
-  return spec.exhaustHeaders && exhaustLayoutOf(spec) !== 'open'
-    ? compileCollectorLayout(spec, pipe, collector)
-    : compileLayout(spec, pipe, collector);
+export function compileExhaust(
+  spec: EngineSpec,
+  pipe: PipeSegment[],
+  collector: PipeSegment[],
+  turbos = 0,
+): ExhaustGraph {
+  const graph =
+    spec.exhaustHeaders && exhaustLayoutOf(spec) !== 'open'
+      ? compileCollectorLayout(spec, pipe, collector)
+      : compileLayout(spec, pipe, collector, turbos);
+  // Otherwise a turbo goes where each collector starts, as many as asked for and there are collectors.
+  if (turbos > 0 && !graph.turbos) {
+    const at = graph.ducts.filter((d) => d.role === 'collector' && d.from.kind === 'node').slice(0, turbos);
+    const mounts = at.map(
+      (d, i): TurboMount => ({ id: `turbo${i + 1}`, node: (d.from as { node: string }).node, position: null, rotation: [0, 0, 0, 1] }),
+    );
+    if (mounts.length > 0) graph.turbos = mounts;
+  }
+  return graph;
 }
 
 export function compileCollectorLayout(
@@ -802,6 +901,19 @@ export function tidyJunctions(graph: ExhaustGraph, nodes: Iterable<string>, dirs
     if (feeds.length === 0) {
       graph.ducts = graph.ducts.filter((d) => !outs.includes(d));
       for (const out of outs) for (const n of touchedNodes(out)) if (n !== node) queue.push(n);
+    } else if (turboAt(graph, node)) {
+      // A turbo is fed and always has an outlet, and one pipe in and one out is what it normally has.
+      if (outs.length === 0) {
+        const feed = feeds[0]!;
+        const last = feed.segments[feed.segments.length - 1];
+        const dia = last ? segmentDiameter(last, 1) * 1.3 : 0.058;
+        graph.ducts.push({
+          id: newDuctId(graph, 'turbo-out'),
+          segments: [makeSegment({ kind: 'pipe', length: 0.2, dIn: dia, dOut: dia })],
+          from: { kind: 'node', node },
+          to: { kind: 'mouth' },
+        });
+      }
     } else if (outs.length === 0) {
       for (const feed of feeds) feed.to = { kind: 'mouth' };
     } else if (feeds.length === 1 && outs.length === 1) {
@@ -923,6 +1035,9 @@ export function validateGraph(graph: ExhaustGraph, cylinders: number): string[] 
     if (ends.length < 2) problems.push(`junction "${node}" joins only one pipe`);
     if (upstream.length === 0) problems.push(`junction "${node}" has nothing flowing into it`);
     if (downstream.length === 0) problems.push(`junction "${node}" has no pipe leaving it`);
+    if (downstream.length > 1 && turboAt(graph, node)) {
+      problems.push(`the turbo at "${node}" has ${downstream.length} pipes leaving its one outlet`);
+    }
   }
 
   // Every duct must trace back to a valve, or the gas in it came from nowhere.

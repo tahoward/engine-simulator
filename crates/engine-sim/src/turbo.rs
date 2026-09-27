@@ -32,9 +32,6 @@ use crate::valve::orifice_mass_flow;
 /// Ratio of specific heats and specific heat at constant pressure of the air, J/(kg*K).
 const GAMMA_AIR: f64 = gas::GAMMA_AIR;
 const CP_AIR: f64 = GAMMA_AIR * gas::R / (GAMMA_AIR - 1.0);
-/// The same of the exhaust gas through the turbine.
-const GAMMA_EXH: f64 = gas::GAMMA_EXH;
-const CP_EXH: f64 = GAMMA_EXH * gas::R / (GAMMA_EXH - 1.0);
 
 /// Isentropic efficiencies of the compressor and the turbine, at best.
 const ETA_COMPRESSOR: f64 = 0.72;
@@ -116,9 +113,6 @@ const WINDMILL_LOSS: f64 = 1.0;
 /// characteristic only, so it does not divide by zero.
 const MIN_SPEED_FRACTION: f64 = 0.02;
 
-/// Smoothing of the exhaust flow into the turbine, Hz: the rotor sees the mean of the pulses.
-const EXHAUST_SMOOTHING_HZ: f64 = 40.0;
-
 // --- Sound ---
 
 /// Blades on the compressor wheel, not counting splitters: the order of the blade-pass tone.
@@ -181,8 +175,9 @@ struct Sizing {
     noise: f64,
 }
 
-fn sizing(spec: &EngineSpec) -> Sizing {
-    let count = if spec.turbo_count >= 2.0 { 2.0 } else { 1.0 };
+/// `turbos` is how many there are; they share the engine's airflow.
+fn sizing(spec: &EngineSpec, turbos: usize) -> Sizing {
+    let count = math::max(turbos as f64, 1.0);
     let boost_target = math::max(spec.boost_target, 0.05e5);
     let swept = displacement(spec) * math::max(spec.cylinders as f64, 1.0);
 
@@ -316,11 +311,6 @@ pub struct Turbo {
     wastegate: f64,
     blow_off: f64,
     blow_off_flow: f64,
-    /// For a turbine not in the exhaust, where nothing merges: the exhaust flow into it, kg/s, and
-    /// its temperature, K, smoothed over the pulses.
-    exhaust_flow: f64,
-    exhaust_temp: f64,
-    smoothing_c: f64,
     back_pressure: f64,
     /// Seconds since the compressor flow last ran backwards.
     since_reverse: f64,
@@ -346,8 +336,8 @@ pub struct Turbo {
 }
 
 impl Turbo {
-    pub fn new(spec: &EngineSpec, sample_rate: f64) -> Turbo {
-        let size = sizing(spec);
+    pub fn new(spec: &EngineSpec, turbos: usize, sample_rate: f64) -> Turbo {
+        let size = sizing(spec, turbos);
         let mass = (gas::P_AMB * size.charge_volume) / (gas::R * gas::T_AMB);
         let c = math::sqrt(GAMMA_AIR * gas::R * gas::T_AMB);
         let inlet_radius = math::max(math::sqrt(size.inducer_area / PI), 0.01);
@@ -361,9 +351,6 @@ impl Turbo {
             wastegate: 0.0,
             blow_off: 0.0,
             blow_off_flow: 0.0,
-            exhaust_flow: 0.0,
-            exhaust_temp: TURBINE_DESIGN_T,
-            smoothing_c: 1.0 - math::exp((-2.0 * PI * EXHAUST_SMOOTHING_HZ) / sample_rate),
             back_pressure: gas::P_AMB,
             since_reverse: f64::INFINITY,
             noise: Noise::new(0x7ab0_c3d1 as f64),
@@ -384,9 +371,9 @@ impl Turbo {
         }
     }
 
-    /// Resize for `spec`, keeping the shaft speed and the charge air.
-    pub fn configure(&mut self, spec: &EngineSpec) {
-        let size = sizing(spec);
+    /// Resize for `spec` and `turbos` of them, keeping the shaft speed and the charge air.
+    pub fn configure(&mut self, spec: &EngineSpec, turbos: usize) {
+        let size = sizing(spec, turbos);
         let scale = size.charge_volume / self.size.charge_volume;
         self.mass *= scale;
         self.energy *= scale;
@@ -498,23 +485,6 @@ impl Turbo {
             pulsation: 1.0 + TURBINE_PULSATION * size.noise * s * s * pulse,
             bypass_noise: size.noise,
         }
-    }
-
-    /// For an engine with nothing merging, where the turbine cannot sit in the exhaust: a nozzle fed by
-    /// the exhaust valves' flow, kg/s, at their temperature, K, whose inlet pressure the exhaust's
-    /// mouths open into.
-    pub fn lumped_turbine(&mut self, exhaust_flow: f64, exhaust_temp: f64) -> TurbineDrive {
-        let size = self.size;
-        self.exhaust_flow += self.smoothing_c * (exhaust_flow - self.exhaust_flow);
-        self.exhaust_temp += self.smoothing_c * (exhaust_temp - self.exhaust_temp);
-        let m_ex = math::max(self.exhaust_flow, 0.0);
-        let t_ex = clamp(self.exhaust_temp, 400.0, 1400.0);
-        let k_total = size.turbine_k + size.wastegate_k * self.wastegate;
-        let q = (m_ex * math::sqrt(t_ex)) / k_total;
-        let p_in = math::sqrt(gas::P_AMB * gas::P_AMB + q * q);
-        let m_turbine = m_ex * (size.turbine_k / k_total);
-        let expansion = 1.0 - math::pow(gas::P_AMB / p_in, (GAMMA_EXH - 1.0) / GAMMA_EXH);
-        TurbineDrive { power: ETA_TURBINE * m_turbine * CP_EXH * t_ex * expansion, inlet: p_in, outlet: gas::P_AMB }
     }
 
     /// Advance by `dt`, with the turbine driven by `turbine`. `throttle_flow` is the flow the plenum

@@ -19,6 +19,7 @@ import {
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
+import type { TurboPorts } from '../model/turbo.js';
 import { layoutPipe, pipeSpan, solveHeading, turnBetween, turnHeading } from './PipeMesh.js';
 import type { JointLimb, JointPlacement } from './jointMesh.js';
 
@@ -49,6 +50,8 @@ export interface ExhaustPlacement {
   ducts: Map<string, DuctPlacement>;
   /** The geometry of each junction, by node id. Every junction of two or more pipes has one. */
   joints: Map<string, JointPlacement>;
+  /** Each placed turbo's flanges, by the node its turbine sits at. A turbo is not a joint. */
+  turbos: Map<string, TurboPorts>;
 }
 
 /**
@@ -156,7 +159,11 @@ function sampleRunner(duct: ExhaustDuct, place: DuctPlacement, stride = 3): Runn
  * is as tight as the geometry allows. Drawing therefore makes the aiming machinery redundant for the
  * ducts it touches, which is the intended direction of travel: a drawn route needs no derivation.
  */
-export function layoutGraph(ports: ExhaustPort[], graph: ExhaustGraph): ExhaustPlacement {
+export function layoutGraph(
+  ports: ExhaustPort[],
+  graph: ExhaustGraph,
+  turbos: Map<string, TurboPorts> = new Map(),
+): ExhaustPlacement {
   const ducts = new Map<string, DuctPlacement>();
   const joints = new Map<string, JointPlacement>();
 
@@ -196,6 +203,25 @@ export function layoutGraph(ports: ExhaustPort[], graph: ExhaustGraph): ExhaustP
         .map((e) => e.duct);
       // Ready once every feeding duct has somewhere to start from.
       if (!upstream.every((d) => ducts.has(d.id))) continue;
+
+      /**
+       * A turbo has a place of its own, where it was put down. Its outlet pipe starts from its outlet
+       * flange, turned off the way the gas leaves it; what feeds it ends at its inlet however it was drawn,
+       * so nothing is aimed and there is no fitting to build.
+       */
+      const turbo = turbos.get(node);
+      if (turbo) {
+        const origin = new THREE.Vector3(...turbo.outlet.point);
+        const axis = new THREE.Vector3(...turbo.outlet.dir);
+        for (const d of downstream) {
+          const frame = d.headingFrame === 'world' ? WORLD_X : axis;
+          ducts.set(d.id, { origin: origin.clone(), heading: turnHeading(frame, d.headingYaw, d.headingPitch) });
+        }
+        pending.splice(idx, 1);
+        idx--;
+        progress = true;
+        continue;
+      }
 
       /**
        * The pipe this junction was made on, if it was made by attaching to one.
@@ -395,7 +421,7 @@ export function layoutGraph(ports: ExhaustPort[], graph: ExhaustGraph): ExhaustP
     });
   }
 
-  return { ducts, joints };
+  return { ducts, joints, turbos };
 }
 
 /**
@@ -621,14 +647,15 @@ const JOIN_TOLERANCE = 0.005;
  * a gap — the fitting would have to grow to bridge it.
  */
 export function pipesMeetAt(graph: ExhaustGraph, placement: ExhaustPlacement, node: string): boolean {
-  const joint = placement.joints.get(node);
-  if (!joint) return true;
+  const turbo = placement.turbos.get(node);
+  const centre = turbo ? new THREE.Vector3(...turbo.inlet.point) : placement.joints.get(node)?.centre;
+  if (!centre) return true;
   return graph.ducts.every((d) => {
     if (d.to.kind !== 'node' || d.to.node !== node) return true;
     const place = placement.ducts.get(d.id);
     if (!place || d.segments.length === 0) return false;
     const end = layoutPipe(d.segments, place.origin, place.heading).joints.at(-1)!;
-    return end.distanceTo(joint.centre) <= JOIN_TOLERANCE;
+    return end.distanceTo(centre) <= JOIN_TOLERANCE;
   });
 }
 

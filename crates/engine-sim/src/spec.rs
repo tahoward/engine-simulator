@@ -200,8 +200,6 @@ pub struct EngineSpec {
     pub intake_switch_rpm: f64,
 
     // --- Turbocharger ---
-    pub turbo: bool,
-    pub turbo_count: f64,
     pub boost_target: f64,
     pub turbo_size: f64,
     pub intercooler: f64,
@@ -285,8 +283,6 @@ impl Default for EngineSpec {
             intake_runner_short_length: 0.0,
             intake_switch_rpm: 5000.0,
 
-            turbo: false,
-            turbo_count: 1.0,
             boost_target: 0.7e5,
             turbo_size: 0.0,
             intercooler: 0.7,
@@ -548,16 +544,16 @@ pub fn displacement(spec: &EngineSpec) -> f64 {
     (PI * spec.bore * spec.bore) / 4.0 * spec.stroke
 }
 
-/// Nominal full-throttle torque of the whole engine, N*m: on boost, in proportion to the charge
-/// pressure the wastegate holds.
-pub fn full_load_torque(spec: &EngineSpec) -> f64 {
+/// Nominal full-throttle torque of the whole engine, N*m: `boosted`, with a turbocharger, in
+/// proportion to the charge pressure the wastegate holds.
+pub fn full_load_torque(spec: &EngineSpec, boosted: bool) -> f64 {
     let torque = (FULL_LOAD_BMEP * displacement(spec) * spec.cylinders as f64) / (4.0 * PI);
-    if spec.turbo { torque * (gas::P_AMB + spec.boost_target) / gas::P_AMB } else { torque }
+    if boosted { torque * (gas::P_AMB + spec.boost_target) / gas::P_AMB } else { torque }
 }
 
 /// The braking torque `load` asks for, N*m.
-pub fn load_torque_of(spec: &EngineSpec) -> f64 {
-    spec.load * full_load_torque(spec)
+pub fn load_torque_of(spec: &EngineSpec, boosted: bool) -> f64 {
+    spec.load * full_load_torque(spec, boosted)
 }
 
 /// Diameter of the exhaust port, m: of the same area as the exhaust valve heads together.

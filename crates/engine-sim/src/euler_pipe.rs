@@ -535,13 +535,6 @@ impl EulerPipe {
         self.res_resistance = RESISTANCE_PER_RHO_C * rho * c;
     }
 
-    /// Open the mouth into the still atmosphere again, as it is built.
-    pub fn open_to_atmosphere(&mut self) {
-        self.res_p = gas::P_AMB;
-        self.res_rho = AMBIENT_RHO;
-        self.res_resistance = RESISTANCE_PER_RHO_C * AMBIENT_RHO * ambient_sound_speed();
-    }
-
     /// `valve_flux_for`, into `valve_flux_out`.
     pub fn compute_valve_flux(&mut self, valve: &ValveState) {
         self.valve_flux_out = self.valve_flux(valve);

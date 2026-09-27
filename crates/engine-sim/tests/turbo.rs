@@ -8,6 +8,7 @@ mod common;
 
 use common::FS;
 use engine_sim::EngineSim;
+use engine_sim::exhaust_graph::{DuctSink, DuctSource, TurboMount, compile_exhaust};
 use serde_json::{Value, json};
 
 const RB26: &str = "Inline six, Nissan RB26DETT";
@@ -61,12 +62,15 @@ fn a_naturally_aspirated_engine_has_no_turbo() {
     assert!(sim.snapshot().turbo.is_none());
 }
 
+/// Taking the turbos out of the exhaust leaves the engine breathing the atmosphere again.
 #[test]
-fn switching_the_turbo_off_leaves_the_engine_breathing_the_atmosphere() {
+fn taking_the_turbos_out_leaves_the_engine_breathing_the_atmosphere() {
     let mut sim = rb26(json!({ "throttle": 1, "rpm": 5000 }));
     sim.render(2 * FS as usize);
     assert!(boost(&sim) > 0.5);
-    sim.set_engine_json(&json!({ "turbo": false })).unwrap();
+    let mut graph = common::engine_preset(RB26).config.graph.clone().unwrap();
+    graph.turbos.clear();
+    sim.set_graph(Some(graph));
     sim.render(FS as usize);
     assert!(sim.turbo().is_none());
     assert!(sim.snapshot().turbo.is_none());
@@ -170,7 +174,7 @@ fn whines_at_the_blade_pass_frequency() {
 #[test]
 fn the_turbine_passes_the_exhaust_between_two_pressures() {
     let mut sim = rb26(json!({ "throttle": 1, "rpm": 4400 }));
-    assert_eq!(sim.pipe_solver().turbine_count(), 1, "one turbine, at the six's one collector");
+    assert_eq!(sim.pipe_solver().turbine_count(), 2, "two turbines, one for each three cylinders");
     sim.render(3 * FS as usize);
     let n = FS as usize;
     let (mut valves, mut through, mut inlet, mut outlet) = (0.0, 0.0, 0.0, 0.0);
@@ -216,17 +220,42 @@ fn the_turbine_takes_the_edge_off_the_pulses() {
     assert!(sd < 0.7 * su, "pulses {sd} Pa past the turbine against {su} Pa arriving");
 }
 
-/// With nothing merging, there is no junction for the turbine to sit in: it works from the valves'
-/// flow instead, and still makes boost.
-#[test]
-fn an_engine_with_nothing_merging_still_makes_boost() {
+/// A single, its one pipe drawn into a turbo: a turbine with one pipe in and one out.
+fn single_into_a_turbo(connected: bool) -> EngineSim {
     let mut cfg = common::default_config();
     cfg.engine = common::with(
         &cfg.engine,
-        json!({ "turbo": true, "throttle": 1, "rpm": 6000, "freeRunning": false, "combustionVariability": 0 }),
+        json!({ "throttle": 1, "rpm": 6000, "freeRunning": false, "combustionVariability": 0 }),
     );
-    let mut sim = EngineSim::new(FS, &cfg);
-    assert_eq!(sim.pipe_solver().turbine_count(), 0);
+    let mut graph = compile_exhaust(&cfg.engine, &cfg.pipe, &cfg.collector);
+    if connected {
+        graph.ducts[0].to = DuctSink::Node { node: "t".into() };
+        let mut out = graph.ducts[0].clone();
+        out.id = "turbo-out".into();
+        out.from = DuctSource::Node { node: "t".into() };
+        out.to = DuctSink::Mouth;
+        out.segments.truncate(1);
+        graph.ducts.push(out);
+    }
+    graph.turbos.push(TurboMount { id: "turbo1".into(), node: "t".into(), position: None, rotation: None });
+    cfg.graph = Some(graph);
+    EngineSim::new(FS, &cfg)
+}
+
+/// Any engine takes a turbo: a single's one pipe drawn into one makes boost.
+#[test]
+fn a_single_drawn_into_a_turbo_makes_boost() {
+    let mut sim = single_into_a_turbo(true);
+    assert_eq!(sim.pipe_solver().turbine_count(), 1);
     sim.render(4 * FS as usize);
     assert!(boost(&sim) > 0.3, "boost {}", boost(&sim));
+}
+
+/// A turbo put down with nothing attached to it does nothing.
+#[test]
+fn a_turbo_with_nothing_attached_does_nothing() {
+    let mut sim = single_into_a_turbo(false);
+    assert_eq!(sim.pipe_solver().turbine_count(), 0);
+    sim.render(FS as usize / 10);
+    assert!(sim.turbo().is_none());
 }

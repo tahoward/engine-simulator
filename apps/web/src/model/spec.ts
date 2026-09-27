@@ -374,18 +374,11 @@ export interface EngineSpec {
   intakeSwitchRpm: number;
 
   // --- Turbocharger ---
-  /**
-   * A turbocharger: a turbine in the exhaust driving a compressor on the same shaft, which feeds the
-   * throttle air above atmospheric pressure. Nothing is taken from a map: the turbine is driven by the
-   * exhaust the cylinders push out, so the boost builds with the exhaust flow, and lags behind the
-   * throttle while the shaft spins up. See `crates/engine-sim/src/turbo.rs`.
-   *
-   * The turbine is a restriction too: the exhaust works against its inlet pressure, which costs pumping
-   * work and leaves more spent gas in the cylinder.
-   */
-  turbo: boolean;
-  /** Turbochargers, 1 or 2. Two share the exhaust and the intake, in parallel, each half-sized. */
-  turboCount: 1 | 2;
+  //
+  // The turbos themselves are placed in the exhaust, as `ExhaustGraph.turbos`, and pipes attached to them.
+  // Nothing is taken from a map: each turbine is driven by the exhaust the cylinders push out, so the boost
+  // builds with the exhaust flow, and lags behind the throttle while the shaft spins up. These settings are
+  // every turbo's. See `crates/engine-sim/src/turbo.rs`.
   /**
    * Boost the wastegate holds, gauge, Pa. It opens a bypass around the turbine as the boost reaches
    * this, so the turbine takes less of the exhaust.
@@ -686,9 +679,9 @@ const DYNO_SHIFT_MARGIN = 150;
  * road, where that power meets its air drag. So the gears come out right for the engine: a 500 cc single
  * tops out near 160 km/h and a 5.5 litre V8 past 300.
  */
-export function fitDyno(spec: EngineSpec): DynoConfig {
+export function fitDyno(spec: EngineSpec, boosted = false): DynoConfig {
   const shiftRpm = Math.max(spec.revLimit - DYNO_SHIFT_MARGIN, 1000);
-  const power = fullLoadTorque(spec) * ((0.8 * spec.revLimit * 2 * Math.PI) / 60);
+  const power = fullLoadTorque(spec, boosted) * ((0.8 * spec.revLimit * 2 * Math.PI) / 60);
   const mass = Math.min(Math.max(power / 110, 180), 1900);
   // Top speed on the road: power against drag, 1/2 rho CdA v^3, for a CdA of 0.6 m^2.
   const topSpeed = Math.min(Math.max(Math.cbrt((2 * power) / (1.2 * 0.6)), 45), 90);
@@ -771,12 +764,12 @@ export function displacement(spec: EngineSpec): number {
 }
 
 /**
- * Nominal full-throttle torque of the whole engine, N*m: `FULL_LOAD_BMEP` over its displacement, and on
- * boost in proportion to the charge pressure the wastegate holds.
+ * Nominal full-throttle torque of the whole engine, N*m: `FULL_LOAD_BMEP` over its displacement, and
+ * `boosted`, with a turbo in its exhaust, in proportion to the charge pressure the wastegate holds.
  */
-export function fullLoadTorque(spec: EngineSpec): number {
+export function fullLoadTorque(spec: EngineSpec, boosted = false): number {
   const torque = (FULL_LOAD_BMEP * displacement(spec) * spec.cylinders) / (4 * Math.PI);
-  return spec.turbo ? (torque * (GAS.pAmb + spec.boostTarget)) / GAS.pAmb : torque;
+  return boosted ? (torque * (GAS.pAmb + spec.boostTarget)) / GAS.pAmb : torque;
 }
 
 /**
@@ -1063,8 +1056,6 @@ export const DEFAULT_ENGINE: EngineSpec = {
   intakeRunnerShortLength: 0,
   intakeSwitchRpm: 5000,
 
-  turbo: false,
-  turboCount: 1,
   boostTarget: 0.7e5,
   turboSize: 0,
   intercooler: 0.7,
@@ -1639,6 +1630,8 @@ export interface EnginePreset {
   engine: Partial<EngineSpec>;
   pipe: () => PipeSegment[];
   collector?: () => PipeSegment[];
+  /** Turbos its compiled exhaust has: see `compileExhaust`. */
+  turbos?: 1 | 2;
 }
 
 /**
@@ -1771,18 +1764,17 @@ const NISSAN_RB26: Partial<EngineSpec> = {
   evc: 360,
   ivo: 352,
   ivc: 592,
-  // Two Garrett T28s in parallel, one for each three cylinders, on 0.7 bar through an intercooler.
-  // Their size is an estimate, chosen for full boost by about 3000 rpm and the top end small turbos
-  // give: they near their choke above 6000, and the exhaust works against more back pressure.
-  turbo: true,
-  turboCount: 2,
+  // Two Garrett T28s, one for each three cylinders (`turbos` below), on 0.7 bar through an intercooler.
+  // Their size is an estimate, chosen for the top end small turbos give: they near their choke above
+  // 6000, and the exhaust works against more back pressure. Each fed by three cylinders' pulses, they
+  // hold full boost from 2000 rpm.
   boostTarget: 0.7e5,
   turboSize: 0.12,
   intercooler: 0.7,
   // The factory valve recirculates; this is the atmospheric one so many are fitted with instead.
   blowOff: 'atmospheric',
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.21,
+  outputGain: 1.23,
 };
 
 const TOYOTA_2GR: Partial<EngineSpec> = {
@@ -2002,10 +1994,11 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'Inline six, Nissan RB26DETT',
     description:
-      'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.7 bar spool by about 3000 rpm and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 373 N\u00b7m at 4400 rpm and 330 PS at 6800, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
+      'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.7 bar, one for each three cylinders, spool from 2000 rpm and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 391 N\u00b7m at 4400 rpm and 324 PS at 6800, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
     engine: NISSAN_RB26,
     pipe: () => fittedExhaust(fullSpec(NISSAN_RB26)).pipe,
     collector: () => fittedExhaust(fullSpec(NISSAN_RB26)).collector,
+    turbos: 2,
   },
   {
     name: 'V6, Toyota 2GR',

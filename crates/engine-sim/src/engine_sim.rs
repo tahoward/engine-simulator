@@ -352,22 +352,24 @@ impl EngineSim {
         sim
     }
 
-    /// Fit, resize or remove the turbocharger to match the spec.
+    /// Fit, resize or remove the turbocharger to match the exhaust: there is one when a turbo placed in
+    /// the exhaust has pipes feeding it.
     fn refresh_turbo(&mut self) {
-        let spec = &self.spec.spec;
-        if !spec.turbo {
+        let count = self.wg.turbine_count();
+        if count == 0 {
             if self.turbo.take().is_some() {
-                self.wg.clear_back_pressure();
                 self.wg.set_turbine(None);
             }
             self.charge_p = gas::P_AMB;
             self.charge_t = gas::T_AMB;
-            return;
+        } else {
+            let spec = &self.spec.spec;
+            match &mut self.turbo {
+                Some(t) => t.configure(spec, count),
+                None => self.turbo = Some(Turbo::new(spec, count, self.sample_rate)),
+            }
         }
-        match &mut self.turbo {
-            Some(t) => t.configure(spec),
-            None => self.turbo = Some(Turbo::new(spec, self.sample_rate)),
-        }
+        self.load_torque_nm = load_torque_of(&self.spec.spec, self.turbo.is_some());
     }
 
     /// The turbocharger, on a turbocharged engine.
@@ -380,7 +382,7 @@ impl EngineSim {
         self.inject_fraction = fuel_fraction_at(spec.lambda);
         self.full_charge_kg = (gas::P_AMB * displacement(spec)) / (gas::R * gas::T_AMB);
         self.displacement_m3 = displacement(spec) * spec.cylinders as f64;
-        self.load_torque_nm = load_torque_of(spec);
+        self.load_torque_nm = load_torque_of(spec, self.turbo.is_some());
     }
 
     fn set_listener_geometry(&mut self) {
@@ -419,14 +421,15 @@ impl EngineSim {
         }
         spec.throttle = throttle;
         spec.load = load;
-        self.load_torque_nm = load_torque_of(spec);
+        self.load_torque_nm = load_torque_of(spec, self.turbo.is_some());
         self.plenum.set_geometry(spec);
         self.dyno_opening = f64::NAN;
     }
 
     /// Start a dyno run through `config`'s gearbox, from the engine's present speed.
     pub fn start_dyno(&mut self, config: DynoConfig) {
-        self.dyno = Some(DynoRun::new(config, self.omega_mean, full_load_torque(&self.spec.spec)));
+        self.dyno =
+            Some(DynoRun::new(config, self.omega_mean, full_load_torque(&self.spec.spec, self.turbo.is_some())));
         self.dyno_opening = f64::NAN;
     }
 
@@ -525,6 +528,7 @@ impl EngineSim {
         }
         self.refresh_mouth_paths();
         self.rebuild_ramp = 0.0;
+        self.refresh_turbo();
     }
 
     fn requested_cell_size(&self) -> f64 {
@@ -1007,9 +1011,7 @@ impl EngineSim {
 
         // --- Exhaust gas dynamics, all ducts in lockstep, with the turbine in them ---
         if let Some(turbo) = &mut self.turbo {
-            if self.wg.turbine_count() > 0 {
-                self.wg.set_turbine(Some(turbo.turbine_setting()));
-            }
+            self.wg.set_turbine(Some(turbo.turbine_setting()));
         }
         self.wg.advance(dt, &self.valve_states);
         self.substeps = self.wg.result.substeps;
@@ -1099,24 +1101,8 @@ impl EngineSim {
         // --- Turbocharger ---
         let mut turbo_pa = 0.0;
         if let Some(turbo) = &mut self.turbo {
-            let drive = if self.wg.turbine_count() > 0 {
-                let r = &self.wg.result;
-                TurbineDrive { power: r.turbine_power, inlet: r.turbine_inlet, outlet: r.turbine_outlet }
-            } else {
-                // Nothing merges, so there is no junction for the turbine to sit in: it is a nozzle on
-                // the valves' flow, and the exhaust's mouths open into its inlet.
-                let mut flow = 0.0;
-                let mut heat = 0.0;
-                for b in 0..banks {
-                    let m = self.wg.result.valve_mass_flows[b];
-                    flow += m;
-                    heat += math::max(m, 0.0) * self.wg.primary(b).read_port().1;
-                }
-                let t_ex = if flow > 1e-6 { heat / math::max(flow, 1e-6) } else { self.spec.spec.port_gas_temp };
-                let drive = turbo.lumped_turbine(flow, t_ex);
-                self.wg.set_back_pressure(drive.inlet);
-                drive
-            };
+            let r = &self.wg.result;
+            let drive = TurbineDrive { power: r.turbine_power, inlet: r.turbine_inlet, outlet: r.turbine_outlet };
             let out = turbo.step(dt, drive, throttle_flow, self.plenum.pressure());
             self.charge_p = out.charge_p;
             self.charge_t = out.charge_t;
