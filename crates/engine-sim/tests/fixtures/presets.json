@@ -742,6 +742,7 @@
     "vAngle": 0,
     "exhaustLayout": "merged",
     "exhaustHeaders": true,
+    "headerRun": "lengthways",
     "rpm": 800,
     "load": 0,
     "throttle": 0.078,
@@ -779,7 +780,7 @@
      "crankType": "shared",
      "exhaustLayout": "merged",
      "exhaustHeaders": true,
-     "headerRun": "outward",
+     "headerRun": "lengthways",
      "bore": 0.087,
      "stroke": 0.084,
      "rodLength": 0.153,
@@ -872,7 +873,7 @@
       "length": 1,
       "dIn": 0.06,
       "dOut": 0.06,
-      "yaw": 0.25,
+      "yaw": 0,
       "pitch": 0
      },
      {
@@ -2593,6 +2594,7 @@
     "crankType": "crossplane",
     "exhaustLayout": "perBank",
     "exhaustHeaders": true,
+    "headerRun": "lengthways",
     "rpm": 800,
     "load": 0,
     "throttle": 0.075,
@@ -2621,7 +2623,7 @@
      "crankType": "crossplane",
      "exhaustLayout": "perBank",
      "exhaustHeaders": true,
-     "headerRun": "outward",
+     "headerRun": "lengthways",
      "bore": 0.10325,
      "stroke": 0.092,
      "rodLength": 0.1556,
@@ -2714,7 +2716,7 @@
       "length": 1,
       "dIn": 0.076,
       "dOut": 0.076,
-      "yaw": 0.18,
+      "yaw": 0,
       "pitch": 0
      },
      {

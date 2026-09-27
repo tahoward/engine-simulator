@@ -726,8 +726,8 @@ describe('a compiled header', () => {
     });
   }
 
-  it('builds lengthways headers with the header tool, back along each bank: V8, Chevrolet LT6', () => {
-    const preset = ENGINE_PRESETS.find((p) => p.name === 'V8, Chevrolet LT6')!;
+  it.each(['V8, Chevrolet LT2', 'V8, Chevrolet LT6', 'Inline four, Honda F20C'])('builds lengthways headers with the header tool, back along the engine: %s', (name) => {
+    const preset = ENGINE_PRESETS.find((p) => p.name === name)!;
     const spec = presetEngine(preset, defaultConfig().engine);
     expect(spec.headerRun).toBe('lengthways');
     const graph = compileExhaust(spec, preset.pipe(), preset.collector!());
@@ -739,7 +739,7 @@ describe('a compiled header', () => {
     expect(validateGraph(graph, spec.cylinders)).toEqual([]);
     const placement = layoutGraph(ports, graph);
     const junctions = graph.junctions ?? [];
-    expect(junctions).toHaveLength(2);
+    expect(junctions).toHaveLength(spec.exhaustLayout === 'perBank' ? 2 : 1);
     for (const j of junctions) {
       // The collector leaves rearwards, along the crank.
       expect(j.axis).toEqual([0, 0, 1]);
