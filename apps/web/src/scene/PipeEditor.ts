@@ -406,10 +406,12 @@ export class PipeEditor {
   private bendAt: {
     ductId: string;
     index: number;
-    /** The way the straight runs, in the world. */
+    /** The way the straight runs, or the bend sets off, in the world. */
     dir: THREE.Vector3;
     /** The pipe's length before it is bent, m. */
     length: number;
+    /** For a bend being bent again: the axis it turns about, and how far, radians, from the straight it was. */
+    turn?: { axis: THREE.Vector3; angle: number };
   } | null = null;
   private bendDrag: {
     axis: THREE.Vector3;
@@ -895,8 +897,9 @@ export class PipeEditor {
   }
 
   /**
-   * Put the bend tool's rings where the straight under the pointer starts, if it is one that can be bent: a
-   * pipe's own straight, not a can, a bend, or the bend fitted into what it joins.
+   * Put the bend tool's rings where the straight or bend under the pointer starts, if it is one that can be
+   * bent: a pipe's own, not a can, or the bend fitted into what it joins. A bend is bent again from the
+   * straight it was, the ring in its own plane starting where it is now.
    */
   private placeBend(): boolean {
     const ctx = this.context;
@@ -916,27 +919,40 @@ export class PipeEditor {
     const seg = duct.segments[index];
     const locked = lockedFrom(ctx.graph, duct);
     const place = ctx.placement.ducts.get(duct.id);
-    if (!seg || !place || seg.curve || seg.kind === 'chamber' || (locked !== null && index >= locked)) return false;
+    if (!seg || !place || seg.kind === 'chamber' || (locked !== null && index >= locked)) return false;
     const swept = layoutPipe(duct.segments, place.origin, place.heading);
     const start = index === 0 ? place.origin : swept.joints[index - 1]!;
     const end = swept.joints[index]!;
-    const dir = end.clone().sub(start).normalize();
-    this.bendAt = { ductId: duct.id, index, dir, length: duct.segments.reduce((a, s) => a + s.length, 0) };
+    // The way it sets off: along a straight, and a bend's tangent where it starts.
+    const dir = seg.curve
+      ? swept.stations.find((st) => st.segment === index)!.direction.clone().normalize()
+      : end.clone().sub(start).normalize();
+    let turn: { axis: THREE.Vector3; angle: number } | undefined;
+    if (seg.curve) {
+      const out = swept.jointDirections[index]!.clone().normalize();
+      const axis = dir.clone().cross(out);
+      if (axis.lengthSq() > 1e-12) turn = { axis: axis.normalize(), angle: dir.angleTo(out) };
+    }
+    this.bendAt = { ductId: duct.id, index, dir, length: duct.segments.reduce((a, s) => a + s.length, 0), ...(turn ? { turn } : {}) };
     this.bendTriad.setOrientation(frameAlong(dir));
     this.bendTriad.setRotateOrigin(start);
     this.bendTriad.setMoveOrigin(start);
     this.bendTriad.setVisible(true);
-    this.cb.onBendAim?.('Drag a ring to bend the pipe in its plane');
+    this.cb.onBendAim?.(seg.curve ? 'Drag a ring to bend it again, or back to straight' : 'Drag a ring to bend the pipe in its plane');
     return true;
   }
 
   private beginBendDrag(handle: TriadHandle): void {
     const ring = this.bendTriad.ring(handle.axis);
+    const axis = this.bendTriad.axisDir(handle.axis);
+    // A bend in this ring's plane starts from how far it turns already; in the other, from straight.
+    const turn = this.bendAt?.turn;
+    const along = turn ? turn.axis.dot(axis) : 0;
     this.bendDrag = {
-      axis: this.bendTriad.axisDir(handle.axis),
+      axis,
       ring,
       lastAngle: this.ringAngleNow(this.bendTriad.rotateOrigin, ring) ?? 0,
-      turned: 0,
+      turned: turn && Math.abs(along) > 0.99 ? Math.sign(along) * turn.angle : 0,
       proposed: null,
     };
     this.controls.enabled = false;
@@ -959,7 +975,9 @@ export class PipeEditor {
     const step = (TRIAD_TURN_DEG * Math.PI) / 180;
     const angle = snap ? snapTo(drag.turned, step) : drag.turned;
     const tightest = MIN_BEND_BORES * Math.max(seg.dIn, seg.dOut);
-    const bent = bendWhole(seg, at.dir, drag.axis, angle, tightest);
+    // From the straight it was, if it is a bend already: it keeps its length, its corner, and its bores.
+    const straight = seg.curve ? makeSegment({ ...seg, curve: undefined }) : seg;
+    const bent = bendWhole(straight, at.dir, drag.axis, angle, tightest);
     drag.proposed = [...duct.segments.slice(0, at.index), bent.segment, ...duct.segments.slice(at.index + 1)];
     // The ghost: the pipe as it would be.
     this.bendGhost.rebuild(drag.proposed, place.origin, place.heading);
@@ -983,7 +1001,9 @@ export class PipeEditor {
     this.bendGhost.group.visible = false;
     if (!ctx || !drag?.proposed || !at) return;
     const duct = ctx.graph.ducts.find((d) => d.id === at.ductId);
-    if (!duct || !drag.proposed[at.index]?.curve) return;
+    // A straight left straight is no change; a bend taken back to straight is.
+    const was = duct?.segments[at.index];
+    if (!duct || (!drag.proposed[at.index]?.curve && !was?.curve)) return;
     duct.segments = drag.proposed;
     this.bendAt = null;
     this.bendTriad.setVisible(false);
