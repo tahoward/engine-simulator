@@ -7,8 +7,8 @@
  * uses for x, y and z: red, green and blue. Each handle does one constrained thing, so a move does not
  * depend on which way the camera happens to be looking.
  *
- * The moving handles and the rings can sit apart: a pipe segment's end is moved from where it is, while
- * the segment turns about where it starts.
+ * A part that can be turned but not moved, such as a pipe held where it starts by its port or junction, shows
+ * only the rings (`showMoves`).
  */
 
 import * as THREE from 'three';
@@ -173,14 +173,15 @@ export class Triad {
     ([0, 1, 2] as const).forEach((axis) => {
       const dir = ENGINE_AXES[axis]!;
       const turn = new THREE.Quaternion().setFromUnitVectors(up, dir);
-      // Arrow: a shaft and a head, pointing along the axis from the origin.
-      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, size * 0.8, 10), mat(axis, 0.95));
+      // Arrow: a shaft and a head, pointing along the axis from the origin and out past the rings, so it
+      // is not lost among them.
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, size * 1.2, 12), mat(axis, 0.95));
       shaft.quaternion.copy(turn);
-      shaft.position.copy(dir).multiplyScalar(size * 0.4);
+      shaft.position.copy(dir).multiplyScalar(size * 0.6);
       add(this.moving, shaft, { kind: 'axis', axis });
-      const head = new THREE.Mesh(new THREE.ConeGeometry(0.011, size * 0.2, 16), mat(axis, 0.95));
+      const head = new THREE.Mesh(new THREE.ConeGeometry(0.018, size * 0.3, 20), mat(axis, 0.95));
       head.quaternion.copy(turn);
-      head.position.copy(dir).multiplyScalar(size * 0.9);
+      head.position.copy(dir).multiplyScalar(size * 1.35);
       add(this.moving, head, { kind: 'axis', axis });
       // Square: in the plane of the other two axes, a little out from the origin.
       const [p, q] = [ENGINE_AXES[(axis + 1) % 3]!, ENGINE_AXES[(axis + 2) % 3]!];
@@ -215,6 +216,14 @@ export class Triad {
   /** The frame of the ring about axis `axis`, in the world. */
   ring(axis: number): RingFrame {
     return ringFrame(axis, this.orientation);
+  }
+
+  /** Show or hide the arrows and squares, for a part that can be turned but not moved. */
+  showMoves(on: boolean): void {
+    this.moving.visible = on;
+    for (const h of this.handles) {
+      if ((h.userData as TriadHandle).kind !== 'ring') h.visible = on;
+    }
   }
 
   /** Hide the ring about `axis`, where turning about it would do nothing: a straight pipe about itself. */

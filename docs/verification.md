@@ -76,7 +76,28 @@ matters.
   node not as a junction; tidying must leave its one pipe in and one out; taking it out must leave the
   pipe open again; moved, the pipe must follow it and still meet its inlet; and it must survive a link.
   Heard through the Wasm build it must make boost. The RB26 must compile to two turbos, each fed by
-  three cylinders, seated where their manifolds end.
+  three cylinders, seated where their manifolds end. Turned a quarter turn about an axis, a turbo's
+  outlet must turn by that, with its pipe still meeting its inlet.
+- **Pipes into a turbo.** A pipe fitted to a turbo's inlet must run straight in when the inlet is on
+  its own line. Off to one side but facing the same way, it must be one smooth bend, an S, ending on the
+  flange, leaving the way the pipe was going and meeting the flange square, with no two stations along
+  it turning more than 3 degrees, and as long as the bend is. It must curve round to meet an inlet facing
+  another way, and survive a link. Moving the turbo must fit only the bend again, leaving the pipe as
+  drawn and the bend marked as not editable; moving it back must put the pipe back as it was; changing
+  the pipe drawn up to it must bring the bend along; and taking the turbo out must take the bend with it.
+- **Pipes drawn to join another.** A pipe joined onto another's open end must finish in one smooth bend,
+  marked as not editable, that meets the junction and arrives along the pipe it joins; lengthening either
+  pipe must bring the bend along; and taking it off again must take the bend with it.
+- **Moving a junction.** Moved, a junction must be where it was put, the pipe leaving it must start
+  there, and both pipes into it must meet it in fitted bends arriving along the pipe leaving; and it must
+  survive a link.
+- **Swinging a pipe.** Turned about where it starts, a pipe of three bent segments must end up exactly
+  where turning it as one piece puts it, every segment keeping its length.
+- **The triad.** It must read how far along an arrow the pointer is from any view but straight down
+  the axis, land in a square's plane, accumulate a turn past half a revolution without wrapping, and
+  still read a ring seen edge on. Its axes must turn with the part, a pipe segment's x running along it
+  with its y as near up as it can be. A snapped turn must land on 15-degree steps from the engine's axes,
+  squaring up a part set at an odd angle, and a snapped move on 5 mm steps.
 - **Headers.** On the LT6 at 8400 rpm, equal-length headers must fill the cylinder more than 3
   points past a manifold along the ports.
 - **Port injection.** With the fuel cut, neither the manifold nor a runner may hold more than a

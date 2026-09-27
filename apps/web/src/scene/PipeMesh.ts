@@ -3,7 +3,8 @@
  * pressure waves onto it as colour.
  *
  * The centreline is swept from the port as a polyline: each segment turns by its own yaw and
- * pitch where it starts, then runs straight. Pieces snap together at sharp, mitred corners the
+ * pitch where it starts, then runs straight, or, where it is a bend (`PipeSegment.curve`), curves smoothly
+ * to where the bend ends. Pieces snap together at sharp, mitred corners the
  * way cut and welded tube does, so the user can fold a 1.4 m pipe into the viewport without
  * changing the acoustics — the 1D model only cares about area versus *axial distance*, which
  * turning does not alter.
@@ -17,6 +18,7 @@ import * as THREE from 'three';
 import {
   CHAMBER_THROAT,
   type PipeSegment,
+  type SegmentCurve,
   type Section,
   chamberOffsets,
   sectionBoundary,
@@ -111,6 +113,23 @@ export function layoutPipe(
       stations[stations.length - 1]!.mitre = incoming.clone().add(dir).normalize();
     }
 
+    // A bend: along the curve to where it ends, the stations evenly spaced along it.
+    if (seg.curve) {
+      const { end, dir: endDir } = curveInWorld(seg.curve, pos, dir);
+      const path = curvePath(pos, dir, end, endDir, count);
+      for (let k = 1; k <= count; k++) {
+        dir = path.dirs[k]!;
+        x += step;
+        stations.push(station(seg, si, k / count, path.points[k]!.clone()));
+      }
+      pos.copy(end);
+      dir = endDir.clone();
+      joints.push(pos.clone());
+      jointDirections.push(dir.clone());
+      jointRadii.push(segmentDiameter(seg, 1) / 2);
+      continue;
+    }
+
     // An offset pipe enters the can off its centreline, so the body sits to one side of the pipe
     // coming in, and the pipe going out leaves from wherever its own offset puts it.
     const [offIn, offOut] = chamberOffsets(seg);
@@ -142,6 +161,85 @@ export function layoutPipe(
  * segment's fit — so they all agree. Pitching about a *horizontal* axis changes elevation by exactly
  * `pitch` and leaves the horizontal heading alone, which is what makes `turnBetween` an exact inverse.
  */
+/**
+ * The frame a bend is described in: x along `dir`, the way it starts, y as near straight up as that allows,
+ * and z across.
+ */
+export function curveFrame(dir: THREE.Vector3): { x: THREE.Vector3; y: THREE.Vector3; z: THREE.Vector3 } {
+  const x = dir.clone().normalize();
+  let z = x.clone().cross(new THREE.Vector3(0, 1, 0));
+  if (z.lengthSq() < 1e-8) z = x.clone().cross(new THREE.Vector3(0, 0, 1));
+  z.normalize();
+  return { x, y: z.clone().cross(x).normalize(), z };
+}
+
+/** Where a bend starting at `start`, heading `dir`, ends in the world, and the way it is heading there. */
+export function curveInWorld(
+  curve: SegmentCurve,
+  start: THREE.Vector3,
+  dir: THREE.Vector3,
+): { end: THREE.Vector3; dir: THREE.Vector3 } {
+  const f = curveFrame(dir);
+  const world = (v: [number, number, number]) =>
+    f.x.clone().multiplyScalar(v[0]).addScaledVector(f.y, v[1]).addScaledVector(f.z, v[2]);
+  return { end: start.clone().add(world(curve.end)), dir: world(curve.dir).normalize() };
+}
+
+/** A bend's shape: a cubic from `start` heading `d0` to `end` heading `d1`, its handles 0.4 of the chord. */
+function bendAt(start: THREE.Vector3, d0: THREE.Vector3, end: THREE.Vector3, d1: THREE.Vector3) {
+  const k = 0.4 * start.distanceTo(end);
+  const b1 = start.clone().addScaledVector(d0, k);
+  const b2 = end.clone().addScaledVector(d1, -k);
+  return (t: number) => {
+    const u = 1 - t;
+    return start
+      .clone()
+      .multiplyScalar(u * u * u)
+      .addScaledVector(b1, 3 * u * u * t)
+      .addScaledVector(b2, 3 * u * t * t)
+      .addScaledVector(end, t * t * t);
+  };
+}
+
+/**
+ * `count` + 1 points along a bend, evenly spaced along it, each with the way the bend is heading there, and
+ * the bend's length.
+ */
+export function curvePath(
+  start: THREE.Vector3,
+  d0: THREE.Vector3,
+  end: THREE.Vector3,
+  d1: THREE.Vector3,
+  count: number,
+): { points: THREE.Vector3[]; dirs: THREE.Vector3[]; length: number } {
+  const at = bendAt(start, d0.clone().normalize(), end, d1.clone().normalize());
+  const FINE = 256;
+  const fine = [start.clone()];
+  const along = [0];
+  for (let i = 1; i <= FINE; i++) {
+    const p = at(i / FINE);
+    along.push(along[i - 1]! + p.distanceTo(fine[i - 1]!));
+    fine.push(p);
+  }
+  const length = along[FINE]!;
+  const points: THREE.Vector3[] = [];
+  const dirs: THREE.Vector3[] = [];
+  let i = 1;
+  for (let k = 0; k <= count; k++) {
+    const s = (k / count) * length;
+    while (i < FINE && along[i]! < s) i++;
+    const a = along[i - 1]!;
+    const b = along[i]!;
+    const u = b > a ? (s - a) / (b - a) : 0;
+    points.push(fine[i - 1]!.clone().lerp(fine[i]!, u));
+    dirs.push(fine[i]!.clone().sub(fine[i - 1]!).normalize());
+  }
+  dirs[0] = d0.clone().normalize();
+  dirs[count] = d1.clone().normalize();
+  points[count] = end.clone();
+  return { points, dirs, length };
+}
+
 /** Horizontal and square to `dir`: the axis a chamber's width lies along. */
 export function acrossAxis(dir: THREE.Vector3): THREE.Vector3 {
   const a = new THREE.Vector3(0, 1, 0).cross(dir);

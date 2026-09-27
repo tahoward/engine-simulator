@@ -16,11 +16,12 @@ import * as THREE from 'three';
 import { makeSegment, segmentDiameter, type PipeSegment } from '../model/spec.js';
 import {
   endsAt,
+  junctionAt,
   nodeOrder,
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
-import { layoutPipe, turnBetween } from './PipeMesh.js';
+import { curveFrame, curvePath, layoutPipe, turnBetween } from './PipeMesh.js';
 import type { DuctPlacement, ExhaustPlacement, ExhaustPort } from './exhaustLayout.js';
 
 /** Longest segment a click may produce, m. */
@@ -205,6 +206,118 @@ export function fitSegment(
     yaw,
     pitch,
   });
+}
+
+/**
+ * Swing a pipe as one piece about where it starts: its drawn segments, whose directions were `dirs`, turned
+ * `angle` radians about `axis`.
+ *
+ * The way it sets off goes into its heading, turned off `base` as the layout reads it, and each corner after
+ * is worked out again from the turned directions either side of it, so every segment keeps its length and
+ * the bends between them stay as they were.
+ */
+export function swingPipe(
+  duct: ExhaustDuct,
+  base: THREE.Vector3,
+  dirs: THREE.Vector3[],
+  axis: THREE.Vector3,
+  angle: number,
+): void {
+  const turned = dirs.map((d) => d.clone().applyAxisAngle(axis, angle));
+  const heading = turnBetween(base, turned[0]!);
+  duct.headingYaw = heading.yaw;
+  duct.headingPitch = heading.pitch;
+  turned.forEach((dir, i) => {
+    const seg = duct.segments[i]!;
+    const corner = i === 0 ? { yaw: 0, pitch: 0 } : turnBetween(turned[i - 1]!, dir);
+    seg.yaw = corner.yaw;
+    seg.pitch = corner.pitch;
+  });
+}
+
+/**
+ * Where a pipe ending at `node` bends in to, and the way it arrives there: what it is joining, where that
+ * has a place of its own.
+ *
+ * A turbo's inlet flange, arrived at square. Or a junction that carries a pipe on through it (see
+ * `ExhaustDuct.continues`): one made at another pipe's open end, or on its side, is where that pipe is, and
+ * the pipe joining it arrives along the pipe the gas carries on through, merging into it rather than
+ * meeting it at a corner. Turn that pipe where it leaves, and the bend follows it. A junction
+ * placed where its pipes' ends average out has no place apart from them, so `null`, as for the pipe that
+ * is itself carried on.
+ */
+export function bendAnchor(
+  graph: ExhaustGraph,
+  placement: ExhaustPlacement,
+  node: string,
+  ductId: string,
+): { point: THREE.Vector3; dir: THREE.Vector3 } | null {
+  const turbo = placement.turbos.get(node);
+  if (turbo) return { point: new THREE.Vector3(...turbo.inlet.point), dir: new THREE.Vector3(...turbo.inlet.dir) };
+  const ends = endsAt(graph, node);
+  // A junction that has been moved is where it was put, every pipe into it arriving along the first
+  // leaving it.
+  const pinned = junctionAt(graph, node);
+  if (pinned) {
+    const out = ends.find((e) => e.end === 'inlet')?.duct;
+    const place = out ? placement.ducts.get(out.id) : undefined;
+    const dir =
+      out && place && out.segments.length > 0
+        ? layoutPipe(out.segments, place.origin, place.heading).stations[0]!.direction.clone()
+        : new THREE.Vector3(...pinned.axis);
+    return { point: new THREE.Vector3(...pinned.position), dir };
+  }
+  const onward = ends.find((e) => e.end === 'inlet' && e.duct.continues !== undefined)?.duct;
+  const primary = onward ? ends.find((e) => e.end === 'outlet' && e.duct.id === onward.continues)?.duct : undefined;
+  if (!primary || !onward || primary.id === ductId) return null;
+  const place = placement.ducts.get(primary.id);
+  if (!place || primary.segments.length === 0) return null;
+  const swept = layoutPipe(primary.segments, place.origin, place.heading);
+  // The way the pipe carrying on leaves the junction, its first segment's corner and all.
+  const next = placement.ducts.get(onward.id);
+  const leaving =
+    next && onward.segments.length > 0
+      ? layoutPipe(onward.segments, next.origin, next.heading).stations[0]!.direction.clone()
+      : swept.jointDirections.at(-1)!.clone();
+  return { point: swept.joints.at(-1)!.clone(), dir: leaving };
+}
+
+/** Below this turn and this offset, a pipe runs straight into a port rather than curving: radians, m. */
+const STRAIGHT_TURN = (1 * Math.PI) / 180;
+const STRAIGHT_OFFSET = 0.001;
+
+/**
+ * The one segment running from `entry`, heading `entryDir`, into `target`, arriving along `targetDir`: a
+ * port's flange, which a pipe should meet square rather than at whatever angle it happens to come from.
+ *
+ * Straight where the port is on the pipe's own line. Otherwise a smooth bend (`PipeSegment.curve`), an S
+ * where the port is off to one side but facing the same way: leaving the way the pipe was going and
+ * arriving square into the flange, as long as the bend is. Bends cost nothing acoustically; see
+ * `PipeEditor`.
+ */
+export function fitCurve(
+  entry: THREE.Vector3,
+  entryDir: THREE.Vector3,
+  target: THREE.Vector3,
+  targetDir: THREE.Vector3,
+  template: Partial<PipeSegment> = {},
+): PipeSegment {
+  const d0 = entryDir.clone().normalize();
+  const d1 = targetDir.clone().normalize();
+  const chord = target.clone().sub(entry);
+  const span = chord.length();
+  const along = chord.dot(d0);
+  const offset = chord.clone().addScaledVector(d0, -along).length();
+  const base = { ...template, kind: 'pipe' as const, id: undefined, curve: undefined };
+  if (span < 1e-3 || (d0.angleTo(d1) < STRAIGHT_TURN && offset < STRAIGHT_OFFSET && along > 0)) {
+    // Straight, and as long as it is: short enough to be a nudge, it is not stretched to a drawn pipe's least.
+    const { yaw, pitch } = span > 1e-9 ? turnBetween(d0, chord) : { yaw: 0, pitch: 0 };
+    return makeSegment({ ...base, length: Math.max(span, 1e-3), yaw, pitch });
+  }
+  const f = curveFrame(d0);
+  const local = (v: THREE.Vector3): [number, number, number] => [v.dot(f.x), v.dot(f.y), v.dot(f.z)];
+  const { length } = curvePath(entry, d0, target, d1, 8);
+  return makeSegment({ ...base, length, yaw: 0, pitch: 0, curve: { end: local(chord), dir: local(d1) } });
 }
 
 // ---------------------------------------------------------------------------

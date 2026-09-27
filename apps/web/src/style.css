@@ -416,6 +416,10 @@ button.primary.running {
   cursor: pointer;
 }
 
+.segment.locked {
+  opacity: 0.6;
+}
+
 .segment.selected {
   border-color: var(--good);
   box-shadow: 0 0 0 1px rgba(140, 255, 158, 0.25);

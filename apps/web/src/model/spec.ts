@@ -67,6 +67,18 @@ export interface PipeSegment {
    */
   offsetIn?: number;
   offsetOut?: number;
+  /**
+   * A smooth bend instead of a straight run: where the segment ends, m, and the way it is heading there,
+   * both in the frame of the way it starts (x along it, y as near up as that allows, z across; see
+   * `curveFrame`). `length` is the length along the bend. Routing only, like a corner: the solver hears a
+   * pipe of that length.
+   */
+  curve?: SegmentCurve;
+}
+
+export interface SegmentCurve {
+  end: [number, number, number];
+  dir: [number, number, number];
 }
 
 /**
@@ -998,6 +1010,14 @@ export function makeSegment(partial: Partial<PipeSegment> = {}): PipeSegment {
     }
     if (finite(partial.offsetIn) && partial.offsetIn !== 0) seg.offsetIn = partial.offsetIn;
     if (finite(partial.offsetOut) && partial.offsetOut !== 0) seg.offsetOut = partial.offsetOut;
+  }
+  // Checked for the same reason: a bend from a link must be three numbers each way, the way a unit.
+  const c = partial.curve;
+  const triple = (v: unknown): v is [number, number, number] =>
+    Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n));
+  if (kind === 'pipe' && c && triple(c.end) && triple(c.dir) && Math.hypot(...c.dir) > 1e-9) {
+    const n = Math.hypot(...c.dir);
+    seg.curve = { end: [...c.end], dir: [c.dir[0] / n, c.dir[1] / n, c.dir[2] / n] };
   }
   return seg;
 }
