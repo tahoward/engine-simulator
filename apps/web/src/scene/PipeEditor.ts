@@ -19,7 +19,6 @@ import { makeSegment, type PipeSegment, segmentDiameter } from '../model/spec.js
 import type { Vec3 } from '../model/geometry.js';
 import {
   IDENTITY,
-  ensureTurboOutlet,
   fittedBend,
   quatFromAxisAngle,
   quatMultiply,
@@ -739,6 +738,9 @@ export class PipeEditor {
       ctx.graph.ducts = ctx.graph.ducts.filter(
         (d) => !(d.from.kind === 'valve' && d.from.cylinder === target.cylinder),
       );
+    } else if (target.kind === 'turboOutlet') {
+      from = { kind: 'node', node: target.node };
+      place = { origin: target.point.clone(), heading: target.dir.clone() };
     } else if (target.kind === 'node') {
       const joint = ctx.placement.joints.get(target.node);
       from = { kind: 'node', node: target.node };
@@ -792,8 +794,9 @@ export class PipeEditor {
     if (!duct) return;
 
     const tip = routeTip(duct.segments, this.route.place);
+    const fromTurbo = duct.from.kind === 'node' && !!ctx.graph.turbos?.some((t) => t.node === (duct.from as { node: string }).node);
     const dia = continuingDiameter(
-      duct.segments.length > 0 ? duct : this.startingDuct(duct),
+      duct.segments.length > 0 ? duct : fromTurbo ? null : this.startingDuct(duct),
       this.startingDiameter(duct),
     );
 
@@ -933,7 +936,6 @@ export class PipeEditor {
         if (!mount) return null;
         const duct = ctx.graph.ducts.find((d) => d.id === this.route!.ductId)!;
         duct.to = { kind: 'node', node: mount.node };
-        ensureTurboOutlet(ctx.graph, mount.node, this.turboOutletDia);
         return mount.node;
       }
       case 'node':
@@ -980,6 +982,9 @@ export class PipeEditor {
   private startingDiameter(duct: ExhaustDuct): number {
     const ctx = this.context;
     if (duct.from.kind === 'valve' && ctx) return Math.max(this.portDiameter, 0.02);
+    // Out of a turbo, at the bore of its outlet.
+    const from = duct.from;
+    if (from.kind === 'node' && ctx?.graph.turbos?.some((t) => t.node === from.node)) return this.turboOutletDia;
     return 0.042;
   }
 

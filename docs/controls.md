@@ -69,8 +69,9 @@ Turbos are part of the exhaust: you put them in the view and pipe them up.
   one smooth bend: an S where the flange is off to one side of the pipe but facing the same way, and
   straight only where it is on the pipe's own line. Joined at both ends, the bend is not edited: it shows
   in the segment list, greyed out, and follows whenever the pipe before it or the turbo moves. Taking the
-  turbo out takes the bend with it. The first pipe into a turbo gives it a short outlet pipe to the air; draw on
-  from that pipe's open end to make the downpipe. Several pipes can feed one turbo.
+  turbo out takes the bend with it. Nothing is added at its outlet: until a pipe is drawn from it, the turbine
+  exhausts straight to the air at its outlet flange, and still makes boost. Start drawing on the outlet
+  flange to make the downpipe. Several pipes can feed one turbo.
 - **Click a turbo** to select it and see what feeds it, and move or turn it with its
   [triad](#the-triad), whose axes are the turbo's own: red along its shaft. The pipes feeding it follow,
   their curves into the inlet fitted again, and the pipe drawn up to each curve left as it was.
@@ -181,7 +182,7 @@ shortcut: real sound waves in a pipe behave the same way.
 Click **Draw a pipe** to switch to draw mode.
 
 1. **Start** from an exhaust port, a junction, the open end of a pipe (to extend it), or the side of
-   a pipe (to branch off it). A turbo's outlet pipe is an open end like any other.
+   a pipe (to branch off it). A turbo's outlet flange, with no pipe on it yet, is a place to start too.
 2. **Click** to add each corner. Out of an exhaust port, the first segment runs straight on out of the
    port, as long as how far along it you click, and the corners start after it. Each segment locks to a direction square to the engine: across it
    (red), up or down (green), along the crank (blue), or 45 degrees between two of them, drawn in the
@@ -211,16 +212,16 @@ open air there. Deleting the pipe after a merge leaves the merge the same way.
   meet, which shows in green while it is selected.
 - <kbd>Delete</kbd> or <kbd>Backspace</kbd> removes the selected segment or turbo.
 - **A junction is not deleted on its own.** It goes when the pipes attached to it do: once only one pipe
-  is left at it, it dissolves, and a pipe running straight through it joins back into one piece. A turbo's
-  own outlet pipe goes with the turbo.
+  is left at it, it dissolves, and a pipe running straight through it joins back into one piece. A pipe drawn
+  from a turbo's outlet goes with the turbo.
 - **Deleting a segment in the middle of a pipe** leaves the segments after it as a loose pipe, where they
   lie, still joined to whatever the pipe ran into; the pipe before the gap ends in open air. A bend fitted at
   a pipe's end re-forms from wherever the pipe now ends.
 - **Deleting a fitted bend** takes the pipe off whatever it joined, ending where it was drawn to; a pipe
   that is nothing but a bend goes whole. Taken off the side of a straight pipe, the two halves that pipe was
   split into for it merge back into one, and so does the segment the join cut in two: two straight
-  segments in line, of one taper, always become one. The last pipe into a turbo takes the turbo's outlet pipe with it,
-  unless pipes carry on from that.
+  segments in line, of one taper, always become one. The last pipe into a turbo takes the pipe drawn from its outlet with
+  it, unless pipes carry on from that.
 - **A pipe in the middle can be deleted**, one running between junctions with pipes carrying on after it:
   delete its last segment and it goes. Where it was the only pipe into the junction at its end, the pipes
   that carried on from it are left as loose pipes, where they lie, still attached to whatever was drawn on

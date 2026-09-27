@@ -506,6 +506,8 @@ export type SnapTarget =
       dir?: THREE.Vector3;
     }
   | { kind: 'turboInlet'; point: THREE.Vector3; dir: THREE.Vector3; dia: number; turbo: string }
+  /** A turbo's outlet flange with no pipe on it yet, which a route can start from. */
+  | { kind: 'turboOutlet'; point: THREE.Vector3; dir: THREE.Vector3; dia: number; turbo: string; node: string }
   /** The start of a loose pipe, which a route can end on to attach it. */
   | { kind: 'looseStart'; point: THREE.Vector3; dir: THREE.Vector3; dia: number; duct: string }
   | { kind: 'free'; point: THREE.Vector3 };
@@ -556,6 +558,16 @@ export function collectSnapTargets(
       dia: ports.inlet.dia,
       turbo: turbo.id,
     });
+    if (!endsAt(graph, turbo.node).some((e) => e.end === 'inlet')) {
+      targets.push({
+        kind: 'turboOutlet',
+        point: new THREE.Vector3(...ports.outlet.point),
+        dir: new THREE.Vector3(...ports.outlet.dir),
+        dia: ports.outlet.dia,
+        turbo: turbo.id,
+        node: turbo.node,
+      });
+    }
   }
 
   for (const duct of graph.ducts) {

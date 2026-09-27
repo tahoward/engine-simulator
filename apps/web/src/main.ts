@@ -225,7 +225,7 @@ const editor = new PipeEditor(
       freeze();
       const graph = config.graph!;
       const mount = newTurbo(graph, position, rotation);
-      placeTurbo(graph, mount, turboOutletDia(), attach);
+      placeTurbo(graph, mount, attach);
       afterTurboEdit(true);
       selectTurbo(mount.id);
     },
@@ -258,11 +258,6 @@ const editor = new PipeEditor(
     },
   },
 );
-
-/** The bore a turbo's outlet pipe is given: the size of turbo this engine is drawn with. */
-function turboOutletDia(): number {
-  return graphTurboSize(config.graph!, config.engine).outletDia;
-}
 
 /** Rebuild and resend after a turbo was placed, moved or taken out. */
 function afterTurboEdit(commit: boolean): void {

@@ -70,12 +70,14 @@ matters.
   of what arrives; and there must be no solver recoveries. A single with its pipe drawn into a turbo must
   make boost, and a turbo with nothing attached must do nothing.
   The strongest tone of what the compressor radiates must be within 3% of its blade-pass frequency.
-- **Placing turbos.** A turbo put down on an open pipe end must attach it and give itself one outlet to
-  the air, in a graph the solver accepts; the pipe must meet its inlet flange and its outlet pipe start
-  at its outlet flange, with no junction fitting drawn; its inlet must be offered to draw to, and its
-  node not as a junction; tidying must leave its one pipe in and one out; taking it out must leave the
+- **Placing turbos.** A turbo put down on an open pipe end must attach it and add nothing at its outlet,
+  in a graph the solver accepts, the solver alone given a vent to the air at its outlet flange; the pipe
+  must meet its inlet flange and a pipe drawn from its outlet start at its outlet flange, with no junction
+  fitting drawn; its inlet must be offered to draw to, its outlet to draw from until a pipe is drawn from
+  it, and its node not as a junction; tidying must leave its pipes as they are; taking it out must leave the
   pipe open again; moved, the pipe must follow it and still meet its inlet; and it must survive a link.
-  Heard through the Wasm build it must make boost. The RB26 must compile to two turbos, each fed by
+  Heard through the Wasm build it must make boost, with a pipe drawn from its outlet or
+  without. The RB26 must compile to two turbos, each fed by
   three cylinders, seated where their manifolds end. Turned a quarter turn about an axis, a turbo's
   outlet must turn by that, with its pipe still meeting its inlet.
 - **Pipes into a turbo.** A pipe fitted to a turbo's inlet must run straight in when the inlet is on
