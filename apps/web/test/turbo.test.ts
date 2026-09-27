@@ -168,6 +168,24 @@ describe('a turbo put down on the open end of a pipe', () => {
     expect(JSON.stringify(graph)).toBe(before);
   });
 
+  it('keeps its outlet pipe, and what carries on from it, when the pipe into it comes off', () => {
+    const { spec, graph, ports, mount } = singleWithTurboAndOutlet();
+    const outlet = endsAt(graph, mount.node).find((e) => e.end === 'inlet')!.duct;
+    const node = joinDuctEnd(graph, outlet.id)!;
+    graph.ducts.push({ id: 'onward', segments: [makeSegment({ length: 0.3 })], from: { kind: 'node', node }, to: { kind: 'mouth' } });
+    expect(disconnectEnd(graph, 'runner0')).toBe(true);
+    expect(graph.ducts.map((d) => d.id).sort()).toEqual(['downpipe', 'onward', 'runner0']);
+    expect(outlet.from).toEqual({ kind: 'node', node: mount.node });
+    expect(validateGraph(graph, 1)).toEqual([]);
+    // Unfed, it carries no gas: the solver is given the runner alone.
+    expect(solverGraph(graph).ducts.map((d) => d.id)).toEqual(['runner0']);
+    // Still laid out on its flange, and offered to draw into again.
+    const turbos = turboPortsOf(graph, spec);
+    const placement = layoutGraph(ports, graph, turbos);
+    expect(placement.ducts.get(outlet.id)!.origin.distanceTo(new THREE.Vector3(...turbos.get(mount.node)!.outlet.point))).toBeLessThan(1e-9);
+    expect(collectSnapTargets(graph, placement, ports).some((t) => t.kind === 'turboInlet')).toBe(true);
+  });
+
   it('comes out leaving its pipe open to the air again', () => {
     const { graph, mount } = singleWithTurbo();
     removeTurbo(graph, mount.id);

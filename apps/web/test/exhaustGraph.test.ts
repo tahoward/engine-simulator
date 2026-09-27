@@ -90,6 +90,14 @@ describe('linking runners', () => {
     }
   });
 
+  it('empties every runner when a delete empties one', () => {
+    const graph = compileCollectorLayout(v8(), [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.6 })]);
+    const runner0 = graph.ducts.find((d) => d.id === 'runner0')!;
+    runner0.segments = [];
+    copyToSiblingRunners(graph, runner0, v8(), true);
+    for (const d of graph.ducts) if (d.from.kind === 'valve') expect(d.segments).toEqual([]);
+  });
+
   it.each([
     ['a V8', () => v8()],
     ['a boxer four', () => specOf({ cylinders: 4, vAngle: 180, crankType: 'boxer', exhaustLayout: 'perBank' })],
