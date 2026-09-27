@@ -120,6 +120,9 @@ export type ValveCount = 1 | 2;
  */
 export type CrankType = 'shared' | 'flatplane' | 'crossplane' | 'boxer';
 
+/** Which way a header's primaries run to their merge: see `EngineSpec.headerRun`. */
+export type HeaderRun = 'outward' | 'lengthways';
+
 export type ExhaustLayout = 'open' | 'perBank' | 'merged';
 
 /**
@@ -197,6 +200,15 @@ export interface EngineSpec {
    * power at, that is several points of volumetric efficiency a manifold does not give.
    */
   exhaustHeaders: boolean;
+  /**
+   * Where a header's primaries run to their merge, as drawn.
+   *
+   * - `outward` — straight out from the middle of the ports, the way they point.
+   * - `lengthways` — along the engine, the way the crank runs, to a merge behind the rearmost port.
+   *
+   * Only where the pipes go, not how long they are, so it makes no difference to the sound.
+   */
+  headerRun: HeaderRun;
 
   // --- Geometry ---
   /** Cylinder bore, m. */
@@ -1046,6 +1058,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
   crankType: 'shared',
   exhaustLayout: 'open',
   exhaustHeaders: false,
+  headerRun: 'outward',
   bore: 0.089,
   stroke: 0.08,
   rodLength: 0.145,
@@ -2225,6 +2238,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       crankType: 'flatplane',
       exhaustLayout: 'perBank',
       exhaustHeaders: true,
+      // Its primaries sweep back along each bank to a merge behind it.
+      headerRun: 'lengthways',
       ...idling(LT6_IDLE_THROTTLE),
       revLimit: 8600,
       mouthSpacing: 0.6,
@@ -2266,7 +2281,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.045 })],
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.16, dIn: 0.068, dOut: 0.076 }),
-      makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.076, yaw: 0.15 }),
+      makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.076 }),
       makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.076, dOut: 0.19 }),
       makeSegment({ kind: 'pipe', length: 0.35, dIn: 0.07 }),
     ],
