@@ -16,6 +16,7 @@ import {
   compileLayout,
   copyToSiblingRunners,
   ductLabel,
+  type ExhaustDuct,
   type ExhaustGraph,
 } from '../src/model/exhaustGraph.js';
 import { ENGINE_PRESETS, defaultConfig, makeSegment, type EngineSpec } from '../src/model/spec.js';
@@ -66,6 +67,27 @@ describe('linking runners', () => {
       if (d !== runner0) expect(d.segments[0]).not.toBe(runner0.segments[0]);
     }
     expect(graph.ducts.find((d) => d.id === 'collector0')!.segments[0]!.length).toBeCloseTo(0.6, 9);
+  });
+
+  it('copies a pipe drawn from a port onto every cylinder, heading and all', () => {
+    const graph = compileCollectorLayout(v8(), [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.6 })]);
+    graph.ducts = graph.ducts.filter((d) => d.id !== 'runner0');
+    const drawn = { id: 'drawn1', segments: [], from: { kind: 'valve', cylinder: 0 }, to: { kind: 'mouth' } } as ExhaustDuct;
+    graph.ducts.push(drawn);
+
+    // Just started, nothing drawn yet: the other cylinders keep their pipes.
+    copyToSiblingRunners(graph, drawn);
+    expect(graph.ducts.find((d) => d.id === 'runner1')!.segments[0]!.length).toBeCloseTo(0.4, 9);
+
+    drawn.headingYaw = 0;
+    drawn.headingPitch = 0.3;
+    drawn.segments.push(makeSegment({ length: 0.15 }), makeSegment({ length: 0.25, yaw: 0.5 }));
+    copyToSiblingRunners(graph, drawn);
+    for (const d of graph.ducts) {
+      if (d.from.kind !== 'valve') continue;
+      expect(d.segments.map((sg) => [sg.length, sg.yaw])).toEqual([[0.15, 0], [0.25, 0.5]]);
+      expect([d.headingYaw, d.headingPitch]).toEqual([0, 0.3]);
+    }
   });
 
   it('does nothing when asked to mirror a collector', () => {

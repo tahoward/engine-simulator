@@ -41,6 +41,7 @@ import {
 import {
   carriedGeometry,
   compileExhaust,
+  copyToSiblingRunners,
   defaultDuctId,
   disconnectEnd,
   hasBeenEdited,
@@ -154,6 +155,19 @@ function detachIfShort(ductId: string): void {
   }
 }
 
+/** With "Apply to every cylinder" on, copy runner `ductId`'s shape onto the others (`copyToSiblingRunners`). */
+function mirrorRunners(ductId: string): void {
+  const graph = config.graph!;
+  const duct = graph.ducts.find((d) => d.id === ductId);
+  if (panel.runnersLinked && duct) copyToSiblingRunners(graph, duct);
+}
+
+/** With the runners linked, an edit reshapes them all: any left short of its junction comes off it (`detachIfShort`). */
+function detachRunnersIfShort(): void {
+  if (!panel.runnersLinked) return;
+  for (const d of config.graph!.ducts) if (d.from.kind === 'valve') detachIfShort(d.id);
+}
+
 viewer.scene.add(engineMesh.group);
 
 const editorTarget = new PipeMesh();
@@ -167,10 +181,14 @@ const editor = new PipeEditor(
   editorTarget,
   config.pipe,
   {
-    onChange: (commit) => {
+    onChange: (commit, edited) => {
       freeze();
+      if (edited) mirrorRunners(edited);
       // Once an edit has settled — not on every frame of a drag, nor while a route is being drawn.
-      if (!editor.dragging && !editor.drawing) detachIfShort(editedDuctId);
+      if (!editor.dragging && !editor.drawing) {
+        detachIfShort(editedDuctId);
+        detachRunnersIfShort();
+      }
       rebuildPipeGeometry();
       panel.syncPipe();
       panel.syncTurbos();
@@ -229,7 +247,9 @@ const editor = new PipeEditor(
         refitBends(config.graph!, ports, config.engine);
         matchLength(config.graph!, ports, config.engine, id, length);
       }
+      mirrorRunners(id);
       detachIfShort(id);
+      detachRunnersIfShort();
       rebuildPipeGeometry();
       panel.rebuildPipeList();
       audio.setGraph(config.graph!);
@@ -366,6 +386,7 @@ const panel = new Panel(panelEl, config, {
   onPipe: () => {
     freeze();
     detachIfShort(editedDuctId);
+    detachRunnersIfShort();
     rebuildPipeGeometry();
     audio.setGraph(config.graph!);
     saveConfig();
@@ -381,7 +402,9 @@ const panel = new Panel(panelEl, config, {
     if (!duct) return;
     freeze();
     if (!reshapeBendKeepingLength(duct.segments, index, angle, radius, changed)) return;
+    mirrorRunners(id);
     detachIfShort(id);
+    detachRunnersIfShort();
     rebuildPipeGeometry();
     panel.rebuildPipeList();
     audio.setGraph(config.graph!);
@@ -392,7 +415,9 @@ const panel = new Panel(panelEl, config, {
     if (!duct) return;
     freeze();
     if (!slideBend(duct.segments, index, before)) return;
+    mirrorRunners(id);
     detachIfShort(id);
+    detachRunnersIfShort();
     rebuildPipeGeometry();
     panel.rebuildPipeList();
     audio.setGraph(config.graph!);
