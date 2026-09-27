@@ -28,10 +28,10 @@ import { PipeMesh } from './scene/PipeMesh.js';
 import { ductDirections, freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustPlacement } from './scene/exhaustLayout.js';
 import { JointMesh } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
-import { detachDuct, loosenChildren, splitDuct } from './scene/drawing.js';
-import { moveJunction, moveTurbo, refitBends, seatTurbos, turboHeight } from './scene/turboPlacement.js';
+import { detachDuct, loosenChildren, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
+import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatTurbos, turboHeight } from './scene/turboPlacement.js';
 import {
-  fittedBend,
+  lockedFrom,
   graphTurboSize,
   isTurbocharged,
   newTurbo,
@@ -221,6 +221,23 @@ const editor = new PipeEditor(
     },
     onDrawing: (active) => panel.setDrawingState(active),
     onAim: (aim) => panel.setDrawAim(aim),
+    onBendAim: (aim) => panel.setBendAim(aim),
+    onBent: (id, length) => {
+      freeze();
+      const duct = config.graph!.ducts.find((d) => d.id === id);
+      // Bent where it lies it kept its length, but for the bend fitted into what it joins, which is fitted
+      // again from wherever the pipe now reaches: fitted to the length again, all of it is.
+      if (duct?.fitted) {
+        const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
+        refitBends(config.graph!, ports, config.engine);
+        matchLength(config.graph!, ports, config.engine, id, length);
+      }
+      detachIfShort(id);
+      rebuildPipeGeometry();
+      panel.rebuildPipeList();
+      audio.setGraph(config.graph!);
+      saveConfig();
+    },
     onPlaceTurbo: ({ position, rotation, attach }) => {
       freeze();
       const graph = config.graph!;
@@ -353,6 +370,45 @@ const panel = new Panel(panelEl, config, {
     freeze();
     detachIfShort(editedDuctId);
     rebuildPipeGeometry();
+    audio.setGraph(config.graph!);
+    saveConfig();
+  },
+  onBendMode: (on) => {
+    editor.bendMode = on;
+  },
+  onBendTool: (on) => editor.setBendTool(on),
+  onReshapeBend: (id, index, angle, radius) => {
+    const duct = config.graph!.ducts.find((d) => d.id === id);
+    if (!duct) return;
+    freeze();
+    if (!reshapeBendKeepingLength(duct.segments, index, angle, radius)) return;
+    detachIfShort(id);
+    rebuildPipeGeometry();
+    panel.rebuildPipeList();
+    audio.setGraph(config.graph!);
+    saveConfig();
+  },
+  onSlideBend: (id, index, before) => {
+    const duct = config.graph!.ducts.find((d) => d.id === id);
+    if (!duct) return;
+    freeze();
+    if (!slideBend(duct.segments, index, before)) return;
+    detachIfShort(id);
+    rebuildPipeGeometry();
+    panel.rebuildPipeList();
+    audio.setGraph(config.graph!);
+    saveConfig();
+  },
+  onMatchLength: (id, length) => {
+    freeze();
+    const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
+    const fit = matchLength(config.graph!, ports, config.engine, id, length);
+    if (!fit) return;
+    if (!fit.reached) {
+      panel.notify(`That is as near as it goes: ${Math.round(fit.length * 1000)} mm, with its bends no tighter than they may be.`);
+    }
+    rebuildPipeGeometry();
+    panel.rebuildPipeList();
     audio.setGraph(config.graph!);
     saveConfig();
   },
@@ -549,6 +605,7 @@ function rebuildPipeGeometry(): void {
 
   const ports = Array.from({ length: cylinders }, (_, b) => engineMesh.exhaustPort(b));
   seatTurbos(graph, ports, config.engine);
+  seatHeaders(graph, ports, config.engine);
   refitBends(graph, ports, config.engine);
   const turboPorts = turboPortsOf(graph, config.engine);
   const placement = layoutGraph(ports, graph, turboPorts);
@@ -620,7 +677,7 @@ function rebuildPipeGeometry(): void {
   editor.turboOutletDia = size.outletDia;
 
   const editedDuct = graph.ducts.find((d) => d.id === editedDuctId) ?? graph.ducts[0];
-  editor.lockedFrom = editedDuct ? fittedBend(graph, editedDuct) : null;
+  editor.lockedFrom = editedDuct ? lockedFrom(graph, editedDuct) : null;
   if (editedDuct) {
     const place = placement.ducts.get(editedDuct.id);
     const meshIndex = graph.ducts.indexOf(editedDuct);

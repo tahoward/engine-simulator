@@ -125,3 +125,18 @@ function normalise(v: Vec3): Vec3 {
   const l = Math.hypot(v[0], v[1], v[2]) || 1;
   return [v[0] / l, v[1] / l, v[2] / l];
 }
+
+/**
+ * How far a bend segment turns, radians, and the radius it turns round, m; `null` for a straight one.
+ *
+ * In its own frame a bend starts along +x, so its turn is how far its end direction is from +x, and the
+ * radius is the one whose arc through that turn spans its chord.
+ */
+export function bendShape(seg: PipeSegment): { angle: number; radius: number } | null {
+  if (!seg.curve) return null;
+  const [dx] = normalise(seg.curve.dir);
+  const angle = Math.acos(Math.min(Math.max(dx, -1), 1));
+  const chord = Math.hypot(...seg.curve.end);
+  const half = Math.sin(angle / 2);
+  return { angle, radius: half > 1e-9 ? chord / (2 * half) : chord };
+}

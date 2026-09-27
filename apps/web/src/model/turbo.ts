@@ -135,6 +135,16 @@ export function fittedBend(_graph: ExhaustGraph, duct: ExhaustDuct): number | nu
   return duct.segments.length - 1;
 }
 
+/**
+ * Where `duct` stops being edited: its fitted bend, and the swing before it if it takes one, since that
+ * was fitted with it, to its length. `null` when all of it is edited.
+ */
+export function lockedFrom(graph: ExhaustGraph, duct: ExhaustDuct): number | null {
+  const from = fittedBend(graph, duct);
+  if (from === null) return null;
+  return duct.swing && from > 0 ? from - 1 : from;
+}
+
 /** Turbos with pipes attached: those whose node a pipe meets. */
 export function connectedTurbos(graph: ExhaustGraph): TurboMount[] {
   return (graph.turbos ?? []).filter((t) => endsAt(graph, t.node).length > 0);

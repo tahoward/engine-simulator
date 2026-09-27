@@ -81,6 +81,17 @@ export interface PipeSegment {
 export interface SegmentCurve {
   end: [number, number, number];
   dir: [number, number, number];
+  /**
+   * How long the cubic's handles are, as a share of its chord. Unset, 0.4, which suits a fitted bend of any
+   * shape, an S included; a drawn bend is one arc, and sets the share that makes the cubic that arc.
+   */
+  handle?: number;
+}
+
+/** The handle share that makes a cubic follow a circular arc turning through `angle` radians. */
+export function arcHandle(angle: number): number {
+  const half = Math.sin(angle / 2);
+  return half > 1e-9 ? ((4 / 3) * Math.tan(angle / 4)) / (2 * half) : 0.4;
 }
 
 /**
@@ -1013,12 +1024,16 @@ export function makeSegment(partial: Partial<PipeSegment> = {}): PipeSegment {
     if (finite(partial.offsetOut) && partial.offsetOut !== 0) seg.offsetOut = partial.offsetOut;
   }
   // Checked for the same reason: a bend from a link must be three numbers each way, the way a unit.
-  const c = partial.curve;
+  const c = partial.curve as (SegmentCurve & { handle?: unknown }) | undefined;
   const triple = (v: unknown): v is [number, number, number] =>
     Array.isArray(v) && v.length === 3 && v.every((n) => typeof n === 'number' && Number.isFinite(n));
   if (kind === 'pipe' && c && triple(c.end) && triple(c.dir) && Math.hypot(...c.dir) > 1e-9) {
     const n = Math.hypot(...c.dir);
-    seg.curve = { end: [...c.end], dir: [c.dir[0] / n, c.dir[1] / n, c.dir[2] / n] };
+    seg.curve = {
+      end: [...c.end],
+      dir: [c.dir[0] / n, c.dir[1] / n, c.dir[2] / n],
+      ...(typeof c.handle === 'number' && c.handle > 0 && c.handle < 2 ? { handle: c.handle } : {}),
+    };
   }
   return seg;
 }

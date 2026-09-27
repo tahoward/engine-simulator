@@ -116,7 +116,7 @@ export function layoutPipe(
     // A bend: along the curve to where it ends, the stations evenly spaced along it.
     if (seg.curve) {
       const { end, dir: endDir } = curveInWorld(seg.curve, pos, dir);
-      const path = curvePath(pos, dir, end, endDir, count);
+      const path = curvePath(pos, dir, end, endDir, count, seg.curve.handle);
       for (let k = 1; k <= count; k++) {
         dir = path.dirs[k]!;
         x += step;
@@ -185,9 +185,12 @@ export function curveInWorld(
   return { end: start.clone().add(world(curve.end)), dir: world(curve.dir).normalize() };
 }
 
-/** A bend's shape: a cubic from `start` heading `d0` to `end` heading `d1`, its handles 0.4 of the chord. */
-function bendAt(start: THREE.Vector3, d0: THREE.Vector3, end: THREE.Vector3, d1: THREE.Vector3) {
-  const k = 0.4 * start.distanceTo(end);
+/**
+ * A bend's shape: a cubic from `start` heading `d0` to `end` heading `d1`, its handles `handle` of the
+ * chord (`SegmentCurve.handle`).
+ */
+function bendAt(start: THREE.Vector3, d0: THREE.Vector3, end: THREE.Vector3, d1: THREE.Vector3, handle = 0.4) {
+  const k = handle * start.distanceTo(end);
   const b1 = start.clone().addScaledVector(d0, k);
   const b2 = end.clone().addScaledVector(d1, -k);
   return (t: number) => {
@@ -211,8 +214,9 @@ export function curvePath(
   end: THREE.Vector3,
   d1: THREE.Vector3,
   count: number,
+  handle?: number,
 ): { points: THREE.Vector3[]; dirs: THREE.Vector3[]; length: number } {
-  const at = bendAt(start, d0.clone().normalize(), end, d1.clone().normalize());
+  const at = bendAt(start, d0.clone().normalize(), end, d1.clone().normalize(), handle);
   const FINE = 256;
   const fine = [start.clone()];
   const along = [0];
@@ -238,6 +242,30 @@ export function curvePath(
   dirs[count] = d1.clone().normalize();
   points[count] = end.clone();
   return { points, dirs, length };
+}
+
+/**
+ * How tightly a bend from `start` heading `d0` to `end` heading `d1` turns at its tightest: the least radius
+ * its centreline curves at, m. `Infinity` for a straight one.
+ */
+export function bendRadius(
+  start: THREE.Vector3,
+  d0: THREE.Vector3,
+  end: THREE.Vector3,
+  d1: THREE.Vector3,
+  handle?: number,
+): number {
+  const { points } = curvePath(start, d0, end, d1, 96, handle);
+  let least = Infinity;
+  for (let i = 1; i + 1 < points.length; i++) {
+    const a = points[i - 1]!;
+    const b = points[i]!;
+    const c = points[i + 1]!;
+    const twiceArea = b.clone().sub(a).cross(c.clone().sub(a)).length();
+    if (twiceArea < 1e-14) continue;
+    least = Math.min(least, (a.distanceTo(b) * b.distanceTo(c) * c.distanceTo(a)) / (2 * twiceArea));
+  }
+  return least;
 }
 
 /** Horizontal and square to `dir`: the axis a chamber's width lies along. */
@@ -328,12 +356,14 @@ export class PipeMesh {
    */
   private pressureScale = 8000;
 
-  constructor() {
+  /** `ghost` draws it see-through, for a pipe as an edit would leave it, shown before it is made. */
+  constructor(ghost = false) {
     this.material = new THREE.MeshStandardMaterial({
       vertexColors: true,
       metalness: 0.55,
       roughness: 0.38,
       side: THREE.DoubleSide,
+      ...(ghost ? { transparent: true, opacity: 0.45, depthWrite: false } : {}),
     });
   }
 

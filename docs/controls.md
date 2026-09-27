@@ -10,7 +10,14 @@
   throttle and add load to go from there.
 - **Layout → Equal-length headers** gives each cylinder its own primary all the way to one merge
   per collector, instead of a manifold along the ports. The primary length then tunes the engine:
-  see [Headers scavenge](engine.md#the-intake).
+  see [Headers scavenge](engine.md#the-intake). Each primary leaves its port square to the head and
+  finishes in a fitted bend into the collector, at its own bore, and every one is the primary length: the
+  headers are equal-length. The collector sits where the primaries with furthest to come reach it at that
+  length; those nearer take a swing on the way, bulging down away from the line to the collector, to make
+  theirs up, as real equal-length headers do. No bend turns tighter than one and a half bores. The swing
+  and the bend are fitted, and locked in the segment list; only the straight out of the port is edited. The collector's junction is
+  fixed where the primaries meet. It can be moved from its pipe's triad like any other junction; the
+  bends follow it, and the primaries' lengths change with them.
 - **Layout → Cylinders** changes only the layout: single, twin, inline three to six, V6, V8, or a
   four- or six-cylinder boxer. It also builds an exhaust to suit. The **Exhaust** menu below it
   picks the pipe style: separate pipes, one collector per bank, or one collector for all cylinders.
@@ -191,6 +198,16 @@ Click **Draw a pipe** to switch to draw mode.
    says which way the next segment runs and how long it is.
    Hold <kbd>Alt</kbd> to round the bend to 15 degrees off the pipe it leaves instead, or
    <kbd>Shift</kbd> to place the corner freely.
+   **Bends instead of corners:** tick **Bends** beside the Draw button, or hold <kbd>B</kbd> while
+   clicking, and each click lays a smooth bend, as a tube bender makes one, rather than a corner. Point
+   the way the pipe should turn to, which snaps to the same directions and colours as a corner does, and
+   how far from the pipe's end you point sets the radius, in 25 mm steps and no tighter than one and a
+   half bores. Where the bend ends follows from those, so there is no point in space to find: a faint
+   disc shows the plane it turns in, and the panel reads it out, "bend 90° to down, radius 200 mm". With
+   Bends ticked, holding <kbd>B</kbd> lays corners instead. In the segment list a bend shows its **Bend**
+   angle and **Radius**, which can be typed. Changing them keeps the pipe its length: the straights either
+   side of the bend give or take what it gains or loses. Between two straights, **Before** slides the bend
+   along the pipe, the straight after it giving way.
 3. **Finish** by clicking a junction, a pipe or a pipe end to join onto it, or a turbo's inlet flange to
    feed it, or a loose pipe's start to attach it. Joining something, the pipe finishes in one smooth bend that arrives along what it joins:
    square into a turbo's flange, beside another pipe at its open end, and into the flow along a pipe's
@@ -200,6 +217,32 @@ Click **Draw a pipe** to switch to draw mode.
    pipe before it or what it joins moves. A junction placed only where its pipes' ends average out has no
    place of its own to arrive at, and a pipe drawn to one ends in a corner. To leave the end open,
    right-click, double-click or press <kbd>Enter</kbd>. Press <kbd>Escape</kbd> to cancel the pipe.
+
+## Bending a pipe
+
+**Bend a pipe** bends a pipe where it lies, the way a tube is bent: it keeps its length.
+
+1. Click a straight of any pipe where it should bend. Two rings appear there, each lying in one of the
+   pipe's own planes: one in its up-and-down plane, one in its side-to-side plane.
+2. Drag the ring of the plane to bend in. The bend turns only in that plane, by as much as you drag;
+   hold <kbd>Shift</kbd> for 15-degree steps. A ghost of the pipe shows where it is going, and the panel
+   reads the bend out: "bend 60° up and down, radius 249 mm".
+3. Let go, and the pipe takes that shape.
+
+The bend is centred where you clicked and takes its length out of the straight either side, so the pipe
+stays as long as it was. Where it starts stays put; the rest swings round. Its radius is three bores,
+eased tighter where the straight is too short for that, down to one and a half; a straight too short even
+then turns only as far as it has length for, and the panel says so. A pipe joined at its far end by a fitted
+bend is fitted to its old length again once it is bent (**Pipe length**, below). Cans, bends, and the bend
+fitted into what a pipe joins are not bent this way.
+
+**Pipe length** shows under the segment list for a pipe joined at its far end by a fitted bend. Type a
+length and the pipe is fitted to it, keeping every bend smooth: its last straight is lengthened or
+shortened, and where that is not enough, it takes a swing on its way, out and back in two bends, as the
+inner primaries of equal-length headers do. The swing is fitted and locked with the bend, and comes off
+with it. **Match** sets it to the length of another pipe into the same place, so headers drawn by hand
+can be made equal-length. Asked for less than the pipe can smoothly be, it is made as short as it goes, and
+the panel says how short that is.
 
 Joining onto a pipe is how you make a merge, and you draw the pipe after it yourself. The simulator
 solves exactly the pipe network you draw: a junction with nothing after it yet is its pipes ending in

@@ -97,6 +97,23 @@ export interface ExhaustDuct {
    * again whenever either moves. Joined at both ends, it is not edited: the drawn pipe up to it is.
    */
   fitted?: true;
+  /**
+   * Whether the segment before its fitted bend is a swing fitted with it: the bend out and back a pipe takes
+   * to come out a given length, as a header's inner primaries do. Fitted, not drawn, and not edited; it
+   * goes with the bend when the pipe comes off what it joins.
+   */
+  swing?: true;
+}
+
+/** How many of `duct`'s last segments were fitted rather than drawn: its bend, and a swing before it. */
+export function fittedCount(duct: ExhaustDuct): number {
+  if (!duct.fitted || duct.segments.length === 0) return 0;
+  return duct.swing && duct.segments.length >= 2 ? 2 : 1;
+}
+
+/** `duct`'s segments as drawn: without the bend, and any swing, fitted at its end. */
+export function drawnSegments(duct: ExhaustDuct): PipeSegment[] {
+  return duct.segments.slice(0, duct.segments.length - fittedCount(duct));
 }
 
 /**
@@ -127,6 +144,11 @@ export interface JunctionMount {
   node: string;
   position: Vec3;
   axis: Vec3;
+  /**
+   * A header's collector, where several primaries merge: each bends in at its own bore, as their gas
+   * arrives, rather than tapering to the pipe carrying it on.
+   */
+  collector?: true;
 }
 
 export interface ExhaustGraph {
@@ -181,7 +203,7 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
   const placed: JunctionMount[] = Array.isArray(junctions)
     ? junctions.flatMap((j: Record<string, unknown>) =>
         typeof j?.node === 'string' && triple(j.position) && triple(j.axis)
-          ? [{ node: j.node, position: [...j.position] as Vec3, axis: [...j.axis] as Vec3 }]
+          ? [{ node: j.node, position: [...j.position] as Vec3, axis: [...j.axis] as Vec3, ...(j.collector === true ? { collector: true as const } : {}) }]
           : [],
       )
     : [];
@@ -199,6 +221,7 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
       ...(typeof d.continues === 'string' ? { continues: d.continues } : {}),
       ...(typeof d.role === 'string' && ROLES.has(d.role) ? { role: d.role as ExhaustDuct['role'] } : {}),
       ...(d.fitted === true ? { fitted: true as const } : {}),
+      ...(d.fitted === true && d.swing === true ? { swing: true as const } : {}),
     })),
   };
 }
@@ -714,7 +737,7 @@ export function pathToAir(graph: ExhaustGraph, cylinder: number): ExhaustDuct[] 
 export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct): void {
   if (source.from.kind !== 'valve') return;
   // What was drawn: a bend fitted into a turbo belongs to its own pipe, and each keeps its own.
-  const drawn = (d: ExhaustDuct) => (d.fitted ? d.segments.slice(0, -1) : d.segments);
+  const drawn = drawnSegments;
   /**
    * Not onto, nor from, a runner that carries a manifold on.
    *
@@ -726,7 +749,7 @@ export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct): 
   if (carries(source)) return;
   for (const other of graph.ducts) {
     if (other === source || other.from.kind !== 'valve' || carries(other)) continue;
-    const bend = other.fitted ? other.segments.slice(-1) : [];
+    const bend = other.segments.slice(other.segments.length - fittedCount(other));
     other.segments = [...drawn(source).map((sg) => makeSegment(sg)), ...bend];
   }
 }
@@ -1075,6 +1098,8 @@ function fuse(graph: ExhaustGraph, into: ExhaustDuct, out: ExhaustDuct, dirs?: D
   // A bend it was fitted with is in the middle of it now; only the one `out` finished in is fitted still.
   if (out.fitted) into.fitted = true;
   else delete into.fitted;
+  if (out.swing) into.swing = true;
+  else delete into.swing;
   // Anything that carried straight on from `out` now carries on from `into`, which it has become.
   for (const d of graph.ducts) if (d.continues === out.id) d.continues = into.id;
   graph.ducts = graph.ducts.filter((d) => d !== out);
@@ -1099,10 +1124,11 @@ function oneTube(a: PipeSegment, b: PipeSegment): boolean {
  * Take off the bend a duct was fitted into a turbo with, now it is not joined to one: the bend was only
  * ever the way from the pipe as drawn to the turbo's inlet, so the pipe ends where it was drawn to.
  */
-function releaseBend(duct: ExhaustDuct): void {
+export function releaseBend(duct: ExhaustDuct): void {
   if (!duct.fitted) return;
-  duct.segments.pop();
+  duct.segments = drawnSegments(duct);
   delete duct.fitted;
+  delete duct.swing;
 }
 
 function touchedNodes(duct: ExhaustDuct): string[] {

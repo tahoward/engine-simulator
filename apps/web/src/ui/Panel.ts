@@ -21,7 +21,8 @@ import {
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
-import { connectedTurbos, fittedBend, isTurbocharged } from '../model/turbo.js';
+import { connectedTurbos, lockedFrom, isTurbocharged } from '../model/turbo.js';
+import { bendShape } from '../model/geometry.js';
 import {
   ENGINE_PRESETS,
   bankFiringIntervals,
@@ -78,6 +79,19 @@ export interface PanelCallbacks {
   onRemoveDuct: (id: string) => void;
   /** Take this pipe's far end off what it joins, with the bend it was fitted in. */
   onDetachDuct: (id: string) => void;
+  /** Whether clicks while drawing lay smooth bends rather than corners. */
+  onBendMode: (on: boolean) => void;
+  /** The bend tool was switched on or off. */
+  onBendTool: (on: boolean) => void;
+  /**
+   * Reshape bend `index` of this pipe to turn through `angle` radians round `radius` m, the straights either
+   * side of it taking up the difference so the pipe keeps its length.
+   */
+  onReshapeBend: (ductId: string, index: number, angle: number, radius: number) => void;
+  /** Slide bend `index` along this pipe so the straight before it is `before` m long. */
+  onSlideBend: (ductId: string, index: number, before: number) => void;
+  /** Make this pipe, joined at its far end, `length` m long, with a swing on the way if it needs one. */
+  onMatchLength: (ductId: string, length: number) => void;
   /** Delete segment `index` from the middle of this pipe, leaving the segments after it loose. */
   onSplitDuct: (id: string, index: number) => void;
   onToggleAudio: () => void;
@@ -152,10 +166,13 @@ function engineTypeOf(eng: EngineSpec): string {
 /** What draw mode says before a route has started. */
 const START_HINT = 'Pick a port, a junction, or a pipe to continue or branch from';
 const ROUTE_HINT = 'Click to add a bend, or a junction, pipe or turbo inlet to join it';
+const BEND_HINT = 'Click a straight where it should bend';
 const PLACE_HINT = 'Click to put it down, or on an open pipe end to attach it · Esc stops';
 
 export class Panel {
   private readonly listEl: HTMLElement;
+  /** The length of a pipe joined at both ends, and what to match it to. */
+  private readonly matchEl: HTMLElement;
   private ductSelect!: HTMLSelectElement;
   /** Which duct the segment list edits. Falls back to the first duct if it disappears. */
   private selectedDuctId = 'runner0';
@@ -181,6 +198,9 @@ export class Panel {
   private placing = false;
   private placingPipe = false;
   private placePipeBtn!: HTMLButtonElement;
+  private bendToolBtn!: HTMLButtonElement;
+  private bendToolHint!: HTMLElement;
+  private bendingTool = false;
   private placePipeHint!: HTMLElement;
   private placeBtn!: HTMLButtonElement;
   private placeHint!: HTMLElement;
@@ -585,6 +605,15 @@ export class Panel {
       'between two of them. Alt rounds the bend off the pipe instead, Shift draws freely; Escape ' +
       'abandons; right-click or a double-click finishes in open air.';
     this.drawHint = el('span', 'hint', drawRow);
+    const bendLabel = el('label', '', drawRow) as HTMLLabelElement;
+    const bendBox = el('input', '', bendLabel) as HTMLInputElement;
+    bendBox.type = 'checkbox';
+    bendLabel.append(' Bends');
+    bendLabel.title =
+      'Clicks lay smooth bends instead of corners: point the way the pipe should turn to, and how far ' +
+      'from its end you point sets the radius, no tighter than one and a half bores. Holding B does the ' +
+      'same for as long as it is held, or lays corners while this is on.';
+    bendBox.addEventListener('change', () => this.cb.onBendMode(bendBox.checked));
     const placePipeRow = el('div', 'row', exhaust);
     this.placePipeBtn = el('button', '', placePipeRow) as HTMLButtonElement;
     this.placePipeBtn.textContent = 'Place a pipe';
@@ -593,11 +622,28 @@ export class Panel {
       'for its triad, to move it with the arrows and turn it with the rings. It carries no gas until a pipe ' +
       'is drawn into its start, which attaches it.';
     this.placePipeHint = el('span', 'hint', placePipeRow);
+    const bendToolRow = el('div', 'row', exhaust);
+    this.bendToolBtn = el('button', '', bendToolRow) as HTMLButtonElement;
+    this.bendToolBtn.textContent = 'Bend a pipe';
+    this.bendToolBtn.title =
+      'Click a straight where it should bend: two rings appear there, one lying in the pipe’s up-and-down ' +
+      'plane and one in its side-to-side plane. Drag the ring of the plane to bend in; Shift turns in 15 ' +
+      'degree steps. The pipe keeps its length, as a tube does when it is bent, and a ghost shows where it ' +
+      'is going until you let go.';
+    this.bendToolHint = el('span', 'hint', bendToolRow);
+    this.bendToolBtn.addEventListener('click', () => {
+      this.setBendToolState(!this.bendingTool);
+      this.cb.onBendTool(this.bendingTool);
+    });
     this.placePipeBtn.addEventListener('click', () => {
       this.setPlacingPipeState(!this.placingPipe);
       this.cb.onPlacePipeMode(this.placingPipe);
     });
     this.drawBtn.addEventListener('click', () => {
+      if (!this.drawing && this.bendingTool) {
+        this.setBendToolState(false);
+        this.cb.onBendTool(false);
+      }
       this.setDrawMode(!this.drawing);
       this.cb.onDrawMode(this.drawing);
     });
@@ -626,6 +672,7 @@ export class Panel {
 
     this.noticeEl = el('div', 'hint notice hidden', exhaust);
     this.listEl = el('div', 'segments', exhaust);
+    this.matchEl = el('div', 'row match hidden', exhaust);
 
     const addRow = el('div', 'row buttons', exhaust);
     for (const kind of ['pipe', 'chamber'] as SegmentKind[]) {
@@ -1490,7 +1537,7 @@ export class Panel {
   private lockedFrom(): number | null {
     const graph = this.config.graph;
     const duct = this.currentDuct();
-    return graph && duct ? fittedBend(graph, duct) : null;
+    return graph && duct ? lockedFrom(graph, duct) : null;
   }
 
   /** The duct the list is editing, or the first one if the selection has gone stale. */
@@ -1537,8 +1584,39 @@ export class Panel {
       this.rows.push(row);
     });
 
+    this.buildMatch(graph, duct);
     this.applySelection();
     this.syncStats();
+  }
+
+  /**
+   * The length of a pipe joined at its far end by a fitted bend, and the other pipes into the same place to
+   * match it to: set either, and the pipe is fitted to that length (`fitToLength`).
+   */
+  private buildMatch(graph: ExhaustGraph | null, duct: ExhaustDuct | null): void {
+    this.matchEl.replaceChildren();
+    const joined = graph && duct && duct.to.kind === 'node' && lockedFrom(graph, duct) !== null;
+    this.matchEl.classList.toggle('hidden', !joined);
+    if (!joined) return;
+    const node = (duct.to as { node: string }).node;
+    const total = (d: ExhaustDuct) => d.segments.reduce((a, s) => a + s.length, 0);
+    const field = numberField(this.matchEl, 'Pipe length', total(duct) * MM, 30, 5000, 1, 'mm', (v) =>
+      this.cb.onMatchLength(duct.id, v / MM),
+    );
+    field.title = 'Fits the pipe to this length: its last straight is lengthened or shortened, or it takes a swing on its way.';
+    const others = endsAt(graph, node).filter((e) => e.end === 'outlet' && e.duct !== duct);
+    if (others.length === 0) return;
+    const wrap = el('div', 'field', this.matchEl);
+    el('label', '', wrap).textContent = 'Match';
+    const pick = el('select', '', wrap) as HTMLSelectElement;
+    pick.appendChild(option('', 'another pipe…'));
+    for (const e of others) {
+      pick.appendChild(option(e.duct.id, `${ductLabel(graph, e.duct)} · ${Math.round(total(e.duct) * MM)} mm`));
+    }
+    pick.addEventListener('change', () => {
+      const other = graph.ducts.find((d) => d.id === pick.value);
+      if (other) this.cb.onMatchLength(duct.id, total(other));
+    });
   }
 
   /**
@@ -1627,19 +1705,46 @@ export class Panel {
       },
     );
 
-    const shape = seg.kind === 'chamber' ? this.chamberFields(wrap, seg) : {};
+    const chamber = seg.kind === 'chamber' ? this.chamberFields(wrap, seg) : {};
 
     const bends = el('div', 'segment-grid', wrap);
-    numberField(bends, 'Yaw', deg(seg.yaw), -120, 120, 1, '°', (v) => {
-      seg.yaw = rad(v);
-      this.commit();
-    });
-    numberField(bends, 'Pitch', deg(seg.pitch), -120, 120, 1, '°', (v) => {
-      seg.pitch = rad(v);
-      this.commit();
-    });
+    const shape = bendShape(seg);
+    const duct = this.currentDuct();
+    if (shape && duct) {
+      // A bend is its turn and its radius, as a tube bender sets it; its length follows from them.
+      length.readOnly = true;
+      length.title = 'A bend is as long as its turn and radius make it.';
+      let angle = shape.angle;
+      let radius = shape.radius;
+      numberField(bends, 'Bend', deg(angle), 1, 179, 1, '°', (v) => {
+        angle = rad(v);
+        this.cb.onReshapeBend(duct.id, index, angle, radius);
+      });
+      numberField(bends, 'Radius', radius * MM, 1.5 * seg.dIn * MM, 2000, 1, 'mm', (v) => {
+        radius = Math.max(v / MM, 1.5 * seg.dIn);
+        this.cb.onReshapeBend(duct.id, index, angle, radius);
+      });
+      // Between two straights, where along the pipe it is: the straight before it, the one after giving way.
+      const prev = list[index - 1];
+      const next = list[index + 1];
+      const straight = (s: PipeSegment | undefined) => !!s && !s.curve && s.kind !== 'chamber';
+      if (straight(prev) && straight(next)) {
+        numberField(bends, 'Before', prev!.length * MM, 1, (prev!.length + next!.length) * MM, 1, 'mm', (v) =>
+          this.cb.onSlideBend(duct.id, index, v / MM),
+        ).title = 'How long the straight before the bend is. The straight after it gives way, so the pipe keeps its length.';
+      }
+    } else {
+      numberField(bends, 'Yaw', deg(seg.yaw), -120, 120, 1, '°', (v) => {
+        seg.yaw = rad(v);
+        this.commit();
+      });
+      numberField(bends, 'Pitch', deg(seg.pitch), -120, 120, 1, '°', (v) => {
+        seg.pitch = rad(v);
+        this.commit();
+      });
+    }
 
-    return { el: wrap, kind, length, dIn, dOut, dOutWrap, ...shape };
+    return { el: wrap, kind, length, dIn, dOut, dOutWrap, ...chamber };
   }
 
   /** Shape, height and pipe offsets, for a chamber's row. */
@@ -1841,6 +1946,28 @@ export class Panel {
   }
 
   /** Say which way the next segment is aimed, since a direction is hard to judge in perspective. */
+  /** Show the bend tool as on or off, and turn off what it replaces. */
+  setBendToolState(on: boolean): void {
+    if (on && this.drawing) {
+      this.setDrawMode(false);
+      this.cb.onDrawMode(false);
+    }
+    if (on && this.placingPipe) {
+      this.setPlacingPipeState(false);
+      this.cb.onPlacePipeMode(false);
+    }
+    this.bendingTool = on;
+    this.bendToolBtn.classList.toggle('active', on);
+    this.bendToolBtn.textContent = on ? 'Stop bending' : 'Bend a pipe';
+    this.bendToolHint.textContent = on ? BEND_HINT : '';
+  }
+
+  /** What the bend tool is doing, from the view. */
+  setBendAim(aim: string | null): void {
+    if (!this.bendingTool) return;
+    this.bendToolHint.textContent = aim ?? BEND_HINT;
+  }
+
   setDrawAim(aim: string | null): void {
     if (!this.drawing || !this.drawingRoute) return;
     this.drawHint.textContent = aim ? `Next segment: ${aim}` : ROUTE_HINT;
