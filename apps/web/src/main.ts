@@ -52,6 +52,7 @@ import {
 import {
   carriedGeometry,
   compileExhaust,
+  addAtJunction,
   copyToSiblingRunners,
   defaultDuctId,
   disconnectEnd,
@@ -526,6 +527,20 @@ const panel = new Panel(panelEl, config, {
   },
   onDrawMode: (on) => {
     editor.setDrawMode(on);
+  },
+  onAddAtJunction: (node, kind) => {
+    if (kind !== 'pipe' && kind !== 'chamber') return;
+    freeze();
+    const id = addAtJunction(config.graph!, node, kind);
+    if (!id) return;
+    selectJoint(null);
+    editedDuctId = id;
+    panel.showDuct(id);
+    rebuildPipeGeometry();
+    editor.select(0);
+    panel.setSelected(0);
+    audio.setGraph(config.graph!);
+    saveConfig();
   },
   onDrawFromJoint: (node) => {
     editor.setDrawMode(true);

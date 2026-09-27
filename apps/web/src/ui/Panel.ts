@@ -37,7 +37,6 @@ import {
   isBoxer,
   presetEngine,
   type BlowOff,
-  type ExhaustLayout,
   type DynoConfig,
   type EngineConfig,
   type EngineSnapshot,
@@ -77,6 +76,8 @@ export interface PanelCallbacks {
   onDrawMode: (on: boolean) => void;
   /** Start drawing a new pipe out of this junction. */
   onDrawFromJoint: (node: string) => void;
+  /** Add a segment of `kind` at the opening of this junction. */
+  onAddAtJunction: (node: string, kind: SegmentKind) => void;
   /** A pipe had its last segment deleted and should go, tidying the junctions around it. */
   onRemoveDuct: (id: string) => void;
   /** Take this pipe's far end off what it joins, with the bend it was fitted in. */
@@ -236,9 +237,10 @@ export class Panel {
   private drawBtn!: HTMLButtonElement;
   /** Details of the junction selected in the scene, hidden when none is. */
   private jointEl!: HTMLElement;
+  /** The junction selected in the scene, which adding a segment adds at. */
+  private jointNode: string | null = null;
   private readonly rows: SegmentRow[] = [];
   private cylSel!: HTMLSelectElement;
-  private layoutSel!: HTMLSelectElement;
   private twinWrap!: HTMLElement;
   private crankSel!: HTMLSelectElement;
   private crankRow!: HTMLElement;
@@ -515,31 +517,6 @@ export class Panel {
       this.rebuildPipeList();
       this.syncStats();
     });
-
-    const layoutRow = el('div', 'row', multiWrap);
-    el('label', '', layoutRow).textContent = 'Exhaust';
-    const layoutSel = el('select', '', layoutRow) as HTMLSelectElement;
-    this.layoutSel = layoutSel;
-    layoutSel.addEventListener('change', () => {
-      this.cb.onEngine({ exhaustLayout: layoutSel.value as EngineSpec['exhaustLayout'] });
-      this.rebuildPipeList();
-      this.syncStats();
-    });
-    const headers = toggle(multiWrap, 'Equal-length headers', spec.exhaustHeaders, (on) => {
-      this.cb.onEngine({ exhaustHeaders: on });
-      this.rebuildPipeList();
-    });
-    headers.title =
-      'Each cylinder\u2019s own primary all the way to one merge per collector, instead of a manifold ' +
-      'along the ports. The primaries are long enough to tune: the wave each pulse sends back from ' +
-      'the merge pulls fresh charge through the cylinder during the overlap, at the speed their ' +
-      'length is tuned for. Has no effect with separate pipes.';
-    this.resyncers.push(() => (checkbox(headers).checked = this.config.engine.exhaustHeaders));
-    layoutRow.title =
-      'A shared collector lets each cylinder\u2019s pulse travel up the other primaries, where it ' +
-      'either helps scavenge those cylinders or blocks them. That cross-talk is most of what ' +
-      'makes a shared-header engine sound unlike several singles \u2014 and, on a V8, the whole ' +
-      'difference between a crossplane and a flatplane crank.';
 
     const crankRow = el('div', 'row', multiWrap);
     this.crankRow = crankRow;
@@ -1535,21 +1512,6 @@ export class Panel {
     const eng = this.config.engine;
     const n = eng.cylinders;
     const plan = firingPlan(eng);
-    const current = exhaustLayoutOf(eng);
-
-    const choices: Array<[ExhaustLayout, string]> = [];
-    if (n === 1) {
-      choices.push(['open', 'Single pipe']);
-    } else {
-      choices.push(['open', `${n} separate pipes`]);
-      if (plan.bankCount > 1) choices.push(['perBank', `${n / 2}-into-1 per bank`]);
-      choices.push(['merged', `${n}-into-1 (one collector)`]);
-    }
-
-    this.layoutSel.replaceChildren();
-    for (const [value, label] of choices) this.layoutSel.appendChild(option(value, label));
-    this.layoutSel.value = choices.some(([v]) => v === current) ? current : choices[0]![0];
-    this.layoutSel.parentElement?.classList.toggle('hidden', n === 1);
 
     this.crankRow.classList.toggle('hidden', n !== 8);
     // A boxer's banks are flat by definition; at any other angle it would be a V on a boxer's crank.
@@ -1577,6 +1539,11 @@ export class Panel {
   // -------------------------------------------------------------------------
 
   private addSegment(kind: SegmentKind): void {
+    // With a junction selected, at its opening, which the owner does: it may make a pipe to hold it.
+    if (this.jointNode) {
+      this.cb.onAddAtJunction(this.jointNode, kind);
+      return;
+    }
     const pipe = this.currentSegments();
     // Added to the pipe as drawn: before a bend into a turbo, which is fitted to what comes before it.
     const at = this.lockedFrom() ?? pipe.length;
@@ -1676,34 +1643,17 @@ export class Panel {
     this.syncStats();
   }
 
-  /**
-   * The length of a pipe joined at its far end by a fitted bend, and the other pipes into the same place to
-   * match it to: set either, and the pipe is fitted to that length (`fitToLength`).
-   */
+  /** The length of a pipe joined at its far end by a fitted bend: set it, and the pipe is fitted to it (`fitToLength`). */
   private buildMatch(graph: ExhaustGraph | null, duct: ExhaustDuct | null): void {
     this.matchEl.replaceChildren();
     const joined = graph && duct && duct.to.kind === 'node' && lockedFrom(graph, duct) !== null;
     this.matchEl.classList.toggle('hidden', !joined);
     if (!joined) return;
-    const node = (duct.to as { node: string }).node;
     const total = (d: ExhaustDuct) => d.segments.reduce((a, s) => a + s.length, 0);
     const field = numberField(this.matchEl, 'Pipe length', total(duct) * MM, 30, 5000, 1, 'mm', (v) =>
       this.cb.onMatchLength(duct.id, v / MM),
     );
     field.title = 'Fits the pipe to this length: its last straight is lengthened or shortened, or it takes a swing on its way.';
-    const others = endsAt(graph, node).filter((e) => e.end === 'outlet' && e.duct !== duct);
-    if (others.length === 0) return;
-    const wrap = el('div', 'field', this.matchEl);
-    el('label', '', wrap).textContent = 'Match';
-    const pick = el('select', '', wrap) as HTMLSelectElement;
-    pick.appendChild(option('', 'another pipe…'));
-    for (const e of others) {
-      pick.appendChild(option(e.duct.id, `${ductLabel(graph, e.duct)} · ${Math.round(total(e.duct) * MM)} mm`));
-    }
-    pick.addEventListener('change', () => {
-      const other = graph.ducts.find((d) => d.id === pick.value);
-      if (other) this.cb.onMatchLength(duct.id, total(other));
-    });
   }
 
   /**
@@ -2222,6 +2172,7 @@ export class Panel {
   /** Describe the junction selected in the scene, or hide the description when there is none. */
   showJoint(node: string | null): void {
     const graph = this.config.graph;
+    this.jointNode = node;
     this.jointEl.replaceChildren();
     this.jointEl.classList.toggle('hidden', !node || !graph);
     if (!node || !graph) return;
