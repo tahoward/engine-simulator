@@ -111,7 +111,7 @@ describe('the triad', () => {
 });
 
 describe('swinging a whole pipe about where it starts', () => {
-  async function swung(bent: boolean, axis: THREE.Vector3, angle: number) {
+  async function swung(bent: boolean, axis: THREE.Vector3, angle: number, from = 0) {
     const { bendWhole, pipeShape, swingPipe } = await import('../src/scene/drawing.js');
     const { layoutPipe, turnHeading } = await import('../src/scene/PipeMesh.js');
     const { makeSegment } = await import('../src/model/spec.js');
@@ -141,9 +141,9 @@ describe('swinging a whole pipe about where it starts', () => {
     };
     const before = layoutPipe(duct.segments, origin, heading);
     const lengths = duct.segments.map((s) => s.length);
-    swingPipe(duct, base, pipeShape(duct.segments, heading), axis, angle);
+    swingPipe(duct, base, pipeShape(duct.segments, heading), axis, angle, from);
     const after = layoutPipe(duct.segments, origin, turnHeading(base, duct.headingYaw, duct.headingPitch));
-    return { before, after, origin, lengths, duct };
+    return { before, after, origin, lengths, duct, heading };
   }
 
   it('held to the face it starts from, turns about its axis: the first straight stays put, the rest swings', async () => {
@@ -173,5 +173,19 @@ describe('swinging a whole pipe about where it starts', () => {
       expect(after.stations[i]!.position.distanceTo(expected)).toBeLessThan(1e-9);
     });
     duct.segments.forEach((s, i) => expect(s.length).toBe(lengths[i]));
+  });
+
+  it('rolls a bend further along about the way it sets off, and the rest of the pipe with it', async () => {
+    const { pipeShape } = await import('../src/scene/drawing.js');
+    // The shape the bent pipe has, for the way its second bend sets off: `swung` bends the same way each time.
+    const first = await swung(true, new THREE.Vector3(1, 0, 0), 0);
+    const axis = pipeShape(first.duct.segments, first.heading).starts[2]!;
+    const { before, after, duct } = await swung(true, axis, 1.1, 2);
+    expect(duct.headingYaw).toBe(0.3);
+    const pivot = before.joints[1]!;
+    before.stations.forEach((st, i) => {
+      const expected = st.segment < 2 ? st.position : st.position.clone().sub(pivot).applyAxisAngle(axis, 1.1).add(pivot);
+      expect(after.stations[i]!.position.distanceTo(expected)).toBeLessThan(1e-9);
+    });
   });
 });
