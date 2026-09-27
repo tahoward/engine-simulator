@@ -110,10 +110,10 @@ The settings below apply to every turbo, and show once there is one:
 
 ## Editing the exhaust
 
-Each pipe is made of segments. There are three kinds:
+Each pipe is made of segments. There are two kinds:
 
-- `pipe`: the same diameter all the way along.
-- `cone`: a straight taper, as in headers, megaphones and reverse cones.
+- `pipe`: a tube with a diameter at each end, tapering in a straight line between them where they
+  differ, as in headers, megaphones and reverse cones, or the same all the way along where they don't.
 - `chamber`: a sudden widening into a can, then back down, like a muffler. Its **Shape** can
   be round, oval or rectangular. A non-round can is sized by **Width** and **Height**.
   **Inlet offset** and **Outlet offset** move its pipes off the centreline along the width.
@@ -124,24 +124,35 @@ How to edit:
 
 - **Click a pipe** to select the segment you clicked. The handles move onto that pipe, and the panel's
   segment list shows it.
+- **Place a pipe** puts down a straight pipe attached to nothing: click where it should start. Select it
+  and its triad moves it with the arrows and squares and turns it with the rings, as a whole. It carries
+  no gas, and the simulation does not hear it, until a pipe is drawn into its start: that attaches it,
+  its start becoming a junction fixed where it was, and from then on it is a pipe like any other.
 - **Turn or move the selected pipe** with its [triad](#the-triad), which sits where the pipe starts: its
-  port, junction or turbo outlet, turned with the pipe, red along the way it sets off.
+  junction, or where a loose pipe was put down, turned with the pipe, red along the way it sets off. A pipe
+  on an exhaust port has none, since the port is part of the engine and holds it. A pipe that carries straight on
+  from a straight pipe, or leaves a turbo's outlet, has no triad: it goes the way what it leaves points
+  it. One carrying on from a curved pipe, a fitted bend, has one, and the bend follows it.
   - Its **rings** swing the whole pipe about that point as one piece: every segment keeps its length and
     the bends between them stay as they are.
-  - Its **arrows and squares** move what the pipe starts from, and the pipe with it. For a junction, the
-    junction moves, and every pipe into it bends in to follow; from then on it stays where it was put.
-    For a turbo outlet, the turbo moves. A pipe from an exhaust port has no arrows, since the port is
-    part of the engine.
+  - Its **arrows and squares** move the junction the pipe starts from, and the pipe with it, and every
+    pipe into the junction bends in to follow; from then on it stays where it was put. A pipe from an
+    exhaust port has no arrows, since the port is part of the engine.
   - A bend the pipe finishes in, fitted to what it joins, re-forms. Change a single segment's length or
     bend in the panel.
-- **Drag a diameter ring**, the pale blue one hugging the pipe, to make the pipe wider or narrower. Zoom in for finer control. The ring moves
-  exactly as far as your pointer does in the scene.
+- **Drag a diameter ring**, the pale blue one hugging the pipe, to make the pipe wider or narrower
+  there: the ring at a pipe's start sets its inlet, and the one at each segment's end sets that end. Zoom
+  in for finer control. The ring moves exactly as far as your pointer does in the scene.
+- **Pipes match where they meet.** Each segment starts at the diameter the one before it ends at, whichever
+  end you change. A bend fitted to what a pipe joins tapers from the pipe's diameter to the diameter of
+  what it joins, a turbo's inlet or the pipe it merges into, and a pipe leaving a turbo starts at the
+  turbo's outlet bore.
 - **Or type exact sizes** into the panel. A typed value takes effect when you press
   <kbd>Enter</kbd>, leave the field, or use the spinner arrows. The handles and the panel both edit
   the same segments of the selected pipe, so they always agree.
 - **Apply to every cylinder** keeps all the cylinders' pipes the same while you edit one. Turn it
   off to build headers of different lengths.
-- **+ pipe / + cone / + chamber** add a segment to the selected pipe.
+- **+ pipe / + chamber** add a segment to the selected pipe.
 
 ### The triad
 
@@ -166,7 +177,8 @@ Click **Draw a pipe** to switch to draw mode.
 
 1. **Start** from an exhaust port, a junction, the open end of a pipe (to extend it), or the side of
    a pipe (to branch off it). A turbo's outlet pipe is an open end like any other.
-2. **Click** to add each corner. Each segment locks to a direction square to the engine: across it
+2. **Click** to add each corner. Out of an exhaust port, the first segment runs straight on out of the
+   port, as long as how far along it you click, and the corners start after it. Each segment locks to a direction square to the engine: across it
    (red), up or down (green), along the crank (blue), or 45 degrees between two of them, drawn in the
    mix of their colours. It can also carry straight on from the pipe it leaves, drawn in white. Point
    near the direction you want and the segment snaps to it, in 25 mm steps of length. The panel
@@ -174,7 +186,7 @@ Click **Draw a pipe** to switch to draw mode.
    Hold <kbd>Alt</kbd> to round the bend to 15 degrees off the pipe it leaves instead, or
    <kbd>Shift</kbd> to place the corner freely.
 3. **Finish** by clicking a junction, a pipe or a pipe end to join onto it, or a turbo's inlet flange to
-   feed it. Joining something, the pipe finishes in one smooth bend that arrives along what it joins:
+   feed it, or a loose pipe's start to attach it. Joining something, the pipe finishes in one smooth bend that arrives along what it joins:
    square into a turbo's flange, beside another pipe at its open end, and into the flow along a pipe's
    side, so the two merge rather than meet at a corner. Into another pipe, it arrives along the pipe the
    gas carries on through, so pivoting that pipe where it leaves the junction turns the bend with it. The preview shows the bend it will take. Joined
@@ -192,6 +204,12 @@ Joining onto a pipe is how you make a merge. The simulator solves exactly the pi
   fitting.
 - <kbd>Delete</kbd> or <kbd>Backspace</kbd> removes the selected segment, junction or turbo. If you delete a
   junction that one pipe runs straight through, that pipe joins back into one piece.
+- **Nothing is deleted that something else carries on from.** Delete a pipe from its end: a segment with
+  more segments after it is not deleted, and nor is a pipe's last segment while other pipes carry on from
+  its end. Nor is a junction whose outgoing pipes have pipes after them, or a turbo whose outlet pipe
+  does. The panel says so; delete what comes after first. A bend fitted at a pipe's end does not count: it
+  re-forms from wherever the pipe now ends. For the same reason, the only pipe into a junction is not
+  taken off it when an edit leaves it short.
 
 ## Sharing
 

@@ -340,7 +340,8 @@ describe('a merge across the vee', () => {
     expect(ends[0]!.joints.at(-1)!.distanceTo(ends[1]!.joints.at(-1)!)).toBeLessThan(1e-3);
     const onward = placement.ducts.get('collector0')!;
     expect(onward.heading.angleTo(ends[0]!.jointDirections.at(-1)!)).toBeLessThan(1e-6);
-    expect(Math.abs(onward.heading.z)).toBeGreaterThan(0.8);
+    // Mostly along the crank, within 45 degrees of it: not down into the engine.
+    expect(Math.abs(onward.heading.z)).toBeGreaterThan(Math.SQRT1_2);
     expect(hubShape(placement.joints.get('merge0')!).kind).toBe('ball');
   });
 });

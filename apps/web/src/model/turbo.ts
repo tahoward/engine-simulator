@@ -18,6 +18,7 @@ import {
   type Quat,
   type TurboMount,
   endsAt,
+  junctionRemoval,
   newDuctId,
   nodeOrder,
   removeJunction,
@@ -37,21 +38,22 @@ export interface TurboSize {
   scroll: number;
   /** Depth of the turbine housing along the shaft. */
   depth: number;
-  /** Bore of its outlet, the start of the downpipe. */
+  /** Bore of its outlet, the start of the downpipe, and of its inlet, where the pipes feeding it end. */
   outletDia: number;
+  inletDia: number;
 }
 
 /** A turbo's size for `spec`, shared out between `count` of them. */
 export function turboSize(spec: EngineSpec, count: number): TurboSize {
   const swept = (displacement(spec) * spec.cylinders) / Math.max(count, 1);
   const s = Math.min(Math.max(Math.cbrt(swept / REFERENCE_SWEPT_PER_TURBO), 0.6), 1.6);
-  return { scroll: 0.07 * s, depth: 0.06 * s, outletDia: 0.058 * s };
+  return { scroll: 0.07 * s, depth: 0.06 * s, outletDia: 0.058 * s, inletDia: 0.6 * 0.07 * s };
 }
 
 /** Where gas goes into and out of a turbo: each flange's centre, and the way the gas is flowing there. */
 export interface TurboPorts {
-  inlet: { point: Vec3; dir: Vec3 };
-  outlet: { point: Vec3; dir: Vec3 };
+  inlet: { point: Vec3; dir: Vec3; dia: number };
+  outlet: { point: Vec3; dir: Vec3; dia: number };
 }
 
 /**
@@ -122,8 +124,8 @@ export function turboPorts(mount: TurboMount & { position: Vec3 }, size: TurboSi
     return [mount.position[0] + r[0], mount.position[1] + r[1], mount.position[2] + r[2]];
   };
   return {
-    inlet: { point: at(localInlet(size)), dir: quatRotate([0, 0, 1], mount.rotation) },
-    outlet: { point: at(localOutlet(size)), dir: quatRotate([-1, 0, 0], mount.rotation) },
+    inlet: { point: at(localInlet(size)), dir: quatRotate([0, 0, 1], mount.rotation), dia: size.inletDia },
+    outlet: { point: at(localOutlet(size)), dir: quatRotate([-1, 0, 0], mount.rotation), dia: size.outletDia },
   };
 }
 
@@ -236,12 +238,16 @@ export function outletDiaFor(graph: ExhaustGraph, node: string, fallback: number
 
 /**
  * Take a turbo out. The pipes that fed it end in open air where its inlet was, and its outlet pipe goes,
- * since nothing feeds it any more.
+ * since nothing feeds it any more. Refused, returning `false`, where that pipe has children of its own.
  */
-export function removeTurbo(graph: ExhaustGraph, turboId: string, dirs?: DuctDirections): void {
+export function removeTurbo(graph: ExhaustGraph, turboId: string, dirs?: DuctDirections): boolean {
   const mount = graph.turbos?.find((t) => t.id === turboId);
-  if (!mount) return;
+  if (!mount) return false;
+  const inUse = endsAt(graph, mount.node).length > 0;
+  // Refused where its outlet pipe carries on into others, as deleting that pipe would take them with it.
+  if (inUse && !junctionRemoval(graph, mount.node, null)) return false;
   graph.turbos = graph.turbos!.filter((t) => t !== mount);
   if (graph.turbos.length === 0) delete graph.turbos;
-  if (endsAt(graph, mount.node).length > 0) removeJunction(graph, mount.node, null, dirs);
+  if (inUse) removeJunction(graph, mount.node, null, dirs);
+  return true;
 }

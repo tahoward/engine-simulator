@@ -38,10 +38,8 @@ pub fn exhaust_port_of(spec: &EngineSpec, cylinder: usize) -> Port {
     let s = math::sin(rot);
     let px = side * spec.bore * 1.15;
     let py = deck_y + head_height * 0.45;
-    let len = math::hypot(&[side, 0.18]);
-    let dx = side / len;
-    let dy = 0.18 / len;
-    Port { position: [px * c - py * s, px * s + py * c, z], direction: [dx * c - dy * s, dx * s + dy * c, 0.0] }
+    // Straight out of the side of the head, square to it.
+    Port { position: [px * c - py * s, px * s + py * c, z], direction: [side * c, side * s, 0.0] }
 }
 
 /// `dir` turned by `yaw` about the vertical, then by `pitch` about its new horizontal right axis.
@@ -59,9 +57,10 @@ pub fn turn_dir(dir: Vec3, yaw: f64, pitch: f64) -> Vec3 {
         let (mut kx, mut ky, mut kz) = (-z, 0.0, x);
         let kl = math::hypot(&[kx, ky, kz]);
         if kl < 1e-5 {
-            kx = 0.0;
+            // Straight up or down: the yaw says which way it pitches away from vertical.
+            kx = math::sin(yaw);
             ky = 0.0;
-            kz = 1.0;
+            kz = math::cos(yaw);
         } else {
             kx /= kl;
             ky /= kl;
@@ -91,6 +90,9 @@ pub fn turn_between_dirs(from: Vec3, to: Vec3) -> (f64, f64) {
         let cross = f[2] * t[0] - f[0] * t[2];
         let dot = f[0] * t[0] + f[2] * t[2];
         yaw = math::atan2(cross / (fh * th), dot / (fh * th));
+    } else if th > 1e-5 {
+        // From straight up or down, the yaw is the way it pitches away to: see `turn_dir`.
+        yaw = math::atan2(-t[2], t[0]);
     }
     let elevation = |v: Vec3| math::asin(math::min(math::max(v[1], -1.0), 1.0));
     (yaw, elevation(t) - elevation(f))

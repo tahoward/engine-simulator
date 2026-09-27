@@ -45,6 +45,7 @@ import {
   disconnectEnd,
   graphFromJson,
   hasBeenEdited,
+  placeLoosePipe,
   removeDuct,
   removeJunction,
   validateGraph,
@@ -230,7 +231,21 @@ const editor = new PipeEditor(
       afterTurboEdit(true);
       selectTurbo(mount.id);
     },
-    onPlacing: (active) => panel.setPlacingState(active),
+    onPlacing: (active) => {
+      panel.setPlacingState(false);
+      panel.setPlacingPipeState(false);
+      void active;
+    },
+    onPlacePipe: (position) => {
+      freeze();
+      const id = placeLoosePipe(config.graph!, position, exhaustPortDiameter(config.engine));
+      editedDuctId = id;
+      afterTurboEdit(true);
+      panel.showDuct(id);
+      editor.select(0);
+      panel.setSelected(0);
+      rebuildPipeGeometry();
+    },
     onMoveJunction: (node, position, axis, commit) => {
       freeze();
       const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
@@ -288,9 +303,12 @@ window.addEventListener('keydown', (e) => {
 
   if (selectedTurbo) {
     freeze();
-    removeTurbo(config.graph!, selectedTurbo, directionsOf(stablePlacement));
-    selectTurbo(null);
-    afterTurboEdit(true);
+    if (removeTurbo(config.graph!, selectedTurbo, directionsOf(stablePlacement))) {
+      selectTurbo(null);
+      afterTurboEdit(true);
+    } else {
+      panel.notify('Pipes carry on from this turbo’s outlet pipe: delete them first.');
+    }
     e.preventDefault();
     return;
   }
@@ -298,7 +316,11 @@ window.addEventListener('keydown', (e) => {
   if (selectedJoint) {
     const joint = lastPlacement?.joints.get(selectedJoint);
     freeze();
-    removeJunction(config.graph!, selectedJoint, joint ? throughPipe(joint) : null, directionsOf(stablePlacement));
+    if (!removeJunction(config.graph!, selectedJoint, joint ? throughPipe(joint) : null, directionsOf(stablePlacement))) {
+      panel.notify('Pipes carry on from the pipes leaving this junction: delete them first.');
+      e.preventDefault();
+      return;
+    }
     selectJoint(null);
     editor.select(null);
     panel.rebuildPipeList();
@@ -369,9 +391,13 @@ const panel = new Panel(panelEl, config, {
     editor.startAtJunction(node);
   },
   onPlaceMode: (on) => editor.setPlaceMode(on),
+  onPlacePipeMode: (on) => editor.setPlaceMode(on, 'pipe'),
   onRemoveTurbo: (id) => {
     freeze();
-    removeTurbo(config.graph!, id, directionsOf(stablePlacement));
+    if (!removeTurbo(config.graph!, id, directionsOf(stablePlacement))) {
+      panel.notify('Pipes carry on from this turbo’s outlet pipe: delete them first.');
+      return;
+    }
     selectTurbo(null);
     afterTurboEdit(true);
   },

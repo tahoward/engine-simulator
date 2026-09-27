@@ -88,6 +88,17 @@ matters.
 - **Pipes drawn to join another.** A pipe joined onto another's open end must finish in one smooth bend,
   marked as not editable, that meets the junction and arrives along the pipe it joins; lengthening either
   pipe must bring the bend along; and taking it off again must take the bend with it.
+- **Deleting.** A pipe others carry on from must not be deleted, nor a junction whose outgoing pipes have
+  pipes after them, nor a turbo whose outlet pipe does, and a refused delete must change nothing; a pipe
+  with nothing after it must still be deleted. Across every preset, deleting any junction or segment that
+  is allowed must leave a graph the solver accepts, with no untouched pipe moving.
+- **Diameters.** A pipe must taper in a straight line between its two ends, and one given only its inlet
+  must be the same all the way along. A bend fitted to a pipe it joins must start at the bore the pipe
+  before it ends at and end at the bore of the pipe it joins; a bend into a turbo must end at its inlet's
+  bore, and the pipe leaving it start at its outlet's.
+- **Loose pipes.** A loose pipe must be where it was put down, in a graph the app accepts, without the
+  solver being given it, and must survive a link. Drawn into, it must stay where it was, be fed and given
+  to the solver, and the pipe drawn into it must meet its start in a fitted bend.
 - **Moving a junction.** Moved, a junction must be where it was put, the pipe leaving it must start
   there, and both pipes into it must meet it in fitted bends arriving along the pipe leaving; and it must
   survive a link.

@@ -23,7 +23,7 @@ export type Vec3 = [number, number, number];
 /**
  * A cylinder's exhaust port: where its pipe attaches, and which way the port points.
  *
- * Out of the head on the exhaust side, a little above the deck, angled slightly up; then turned with the
+ * Out of the head on the exhaust side, a little above the deck, square to the head; then turned with the
  * cylinder's bank, and placed along the crank at its pin.
  */
 export function exhaustPortOf(spec: EngineSpec, cylinder: number): { position: Vec3; direction: Vec3 } {
@@ -48,12 +48,10 @@ export function exhaustPortOf(spec: EngineSpec, cylinder: number): { position: V
   const s = Math.sin(rot);
   const px = side * spec.bore * 1.15;
   const py = deckY + headHeight * 0.45;
-  const len = Math.hypot(side, 0.18);
-  const dx = side / len;
-  const dy = 0.18 / len;
+  // Straight out of the side of the head, square to it.
   return {
     position: [px * c - py * s, px * s + py * c, z],
-    direction: [dx * c - dy * s, dx * s + dy * c, 0],
+    direction: [side * c, side * s, 0],
   };
 }
 
@@ -71,10 +69,12 @@ export function turnDir(dir: Vec3, yaw = 0, pitch = 0): Vec3 {
     [x, z] = [x * c + z * s, -x * s + z * c];
   }
   if (pitch !== 0) {
-    // Right of the heading: heading x up.
+    // Right of the heading: heading x up. Straight up or down there is none, so the yaw says which way
+    // the heading goes as it pitches away from vertical: towards (cos yaw, 0, -sin yaw), as a level
+    // heading along +x would be turned.
     let [kx, ky, kz] = [-z, 0, x];
     const kl = Math.hypot(kx, ky, kz);
-    if (kl < 1e-5) [kx, ky, kz] = [0, 0, 1];
+    if (kl < 1e-5) [kx, ky, kz] = [Math.sin(yaw), 0, Math.cos(yaw)];
     else [kx, ky, kz] = [kx / kl, ky / kl, kz / kl];
     // Rodrigues, with k . v = 0 since the axis is square to the heading.
     const c = Math.cos(pitch);
@@ -99,6 +99,9 @@ export function turnBetweenDirs(from: Vec3, to: Vec3): { yaw: number; pitch: num
     const cross = f[2] * t[0] - f[0] * t[2];
     const dot = f[0] * t[0] + f[2] * t[2];
     yaw = Math.atan2(cross / (fh * th), dot / (fh * th));
+  } else if (th > 1e-5) {
+    // From straight up or down, the yaw is the way it pitches away to: see `turnDir`.
+    yaw = Math.atan2(-t[2], t[0]);
   }
   const elevation = (v: Vec3) => Math.asin(Math.min(Math.max(v[1], -1), 1));
   return { yaw, pitch: elevation(t) - elevation(f) };

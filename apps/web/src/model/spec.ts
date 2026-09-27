@@ -21,9 +21,12 @@ import type { ExhaustGraph } from './exhaustGraph.js';
 
 /** Shape of one length of exhaust plumbing. */
 export type SegmentKind =
-  /** Constant-diameter tube. `dOut` is ignored and tracks `dIn`. */
+  /**
+   * Tube, tapering in a straight line from `dIn` to `dOut` where they differ: a header, a megaphone, a
+   * reverse cone, or a pipe the same all the way along.
+   */
   | 'pipe'
-  /** Linear taper from `dIn` to `dOut` — headers, megaphones, reverse cones. */
+  /** The same as a tapering `pipe`, as older exhausts describe one. */
   | 'cone'
   /** Sudden expansion into a large-diameter volume, then back down: a muffler can. */
   | 'chamber';
@@ -46,8 +49,7 @@ export interface PipeSegment {
   /** Inlet diameter, metres. */
   dIn: number;
   /**
-   * Outlet diameter, metres. Forced equal to `dIn` when `kind === 'pipe'`. For a chamber, the
-   * body's diameter if it is round and its width otherwise.
+   * Outlet diameter, metres. For a chamber, the body's diameter if it is round and its width otherwise.
    */
   dOut: number;
   /**
@@ -855,7 +857,6 @@ export function pistonPosition(spec: EngineSpec, deg: number): number {
 export function segmentDiameter(seg: PipeSegment, u: number): number {
   switch (seg.kind) {
     case 'pipe':
-      return seg.dIn;
     case 'cone':
       return seg.dIn + (seg.dOut - seg.dIn) * u;
     case 'chamber':
@@ -997,7 +998,7 @@ export function makeSegment(partial: Partial<PipeSegment> = {}): PipeSegment {
     kind,
     length: partial.length ?? 0.3,
     dIn,
-    dOut: kind === 'pipe' ? dIn : (partial.dOut ?? dIn),
+    dOut: partial.dOut ?? dIn,
     yaw: partial.yaw ?? 0,
     pitch: partial.pitch ?? 0,
   };

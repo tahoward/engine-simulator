@@ -11,7 +11,7 @@ import { junctionAt, type ExhaustDuct, type ExhaustGraph, type Quat } from '../m
 import type { Vec3 } from '../model/geometry.js';
 import { segmentDiameter, type EngineSpec } from '../model/spec.js';
 import { graphTurboSize, seatTurbo, turboPortsOf } from '../model/turbo.js';
-import { bendAnchor, fitCurve } from './drawing.js';
+import { bendAnchor, fitCurve, type BendAnchor } from './drawing.js';
 import { layoutGraph, type ExhaustPort } from './exhaustLayout.js';
 import { layoutPipe } from './PipeMesh.js';
 
@@ -91,6 +91,9 @@ export function refitBends(graph: ExhaustGraph, ports: ExhaustPort[], spec: Engi
   if (turbos.size === 0 && !graph.junctions?.length && !graph.ducts.some((d) => d.fitted)) return;
   const placement = layoutGraph(ports, graph, turbos);
   for (const duct of graph.ducts) {
+    // A pipe leaving a turbo starts at its outlet's bore.
+    const outlet = duct.from.kind === 'node' ? turbos.get(duct.from.node)?.outlet : undefined;
+    if (outlet && duct.segments[0]) duct.segments[0].dIn = outlet.dia;
     if (duct.to.kind !== 'node') continue;
     // Every pipe into a turbo, or into a junction that has been moved, bends in to meet it.
     if (!duct.fitted && !turbos.has(duct.to.node) && !junctionAt(graph, duct.to.node)) continue;
@@ -100,13 +103,11 @@ export function refitBends(graph: ExhaustGraph, ports: ExhaustPort[], spec: Engi
   }
 }
 
-/** Fit `duct`'s end to `anchor`: its drawn part, then a bend arriving there along the anchor's direction. */
-export function fitBend(
-  duct: ExhaustDuct,
-  origin: THREE.Vector3,
-  heading: THREE.Vector3,
-  anchor: { point: THREE.Vector3; dir: THREE.Vector3 },
-): void {
+/**
+ * Fit `duct`'s end to `anchor`: its drawn part, then a bend arriving there along the anchor's direction.
+ * The bend tapers from the bore the drawn part ends at to the anchor's, so it matches at both ends.
+ */
+export function fitBend(duct: ExhaustDuct, origin: THREE.Vector3, heading: THREE.Vector3, anchor: BendAnchor): void {
   const drawn = duct.fitted ? duct.segments.slice(0, -1) : duct.segments;
   const swept = layoutPipe(drawn, origin, heading);
   const entry = drawn.length > 0 ? swept.joints.at(-1)! : origin;
@@ -118,9 +119,9 @@ export function fitBend(
     delete duct.fitted;
     return;
   }
-  const last = drawn.at(-1) ?? duct.segments.at(-1);
-  const dia = last ? segmentDiameter(last, 1) : 0.042;
-  const bend = fitCurve(entry, entryDir, target, anchor.dir, { dIn: dia, dOut: dia });
+  const last = drawn.at(-1);
+  const start = last ? segmentDiameter(last, 1) : (duct.segments[0]?.dIn ?? anchor.dia);
+  const bend = fitCurve(entry, entryDir, target, anchor.dir, { dIn: start, dOut: anchor.dia });
   // The same bend as before keeps its id, so the panel's row for it stays put.
   const old = duct.fitted ? duct.segments.at(-1) : undefined;
   if (old) bend.id = old.id;

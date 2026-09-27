@@ -5,7 +5,7 @@
  * Deliberately has no opinion about three.js or the DOM.
  */
 
-import type { ExhaustGraph } from '../model/exhaustGraph.js';
+import { solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
 import type { DynoConfig, EngineConfig, EngineSpec } from '../model/spec.js';
 import { CONTROL_PARAMS } from './worklet/controls.js';
 import type { FromWorklet, ToWorklet } from './worklet/processor.js';
@@ -59,7 +59,7 @@ export class AudioEngine implements EngineHost {
       collector: config.collector.map((s) => ({ ...s })),
       // Without it the worklet compiles its own exhaust from the layout at start, and a drawn one
       // restored from the URL would be on screen but not in the sound until the next edit.
-      ...(config.graph ? { graph: structuredClone(config.graph) } : {}),
+      ...(config.graph ? { graph: structuredClone(solverGraph(config.graph)) } : {}),
     };
   }
 
@@ -262,8 +262,10 @@ export class AudioEngine implements EngineHost {
    * cylinder count or merge plan needs.
    */
   setGraph(graph: ExhaustGraph | null): void {
-    this.config.graph = graph ?? undefined;
-    this.post({ type: 'graph', graph });
+    // Loose pipes carry no gas, so the solver is not given them.
+    const solved = graph ? solverGraph(graph) : null;
+    this.config.graph = solved ?? undefined;
+    this.post({ type: 'graph', graph: solved });
   }
 
   /** Start a dyno run through `config`, or with `null` end the one in progress. */

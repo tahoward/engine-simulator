@@ -25,7 +25,7 @@ use crate::math::{self, PI};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum SegmentKind {
-    /// Constant-diameter tube. `d_out` is ignored and tracks `d_in`.
+    /// Tube, tapering in a straight line from `d_in` to `d_out` where they differ.
     Pipe,
     /// Linear taper from `d_in` to `d_out`.
     Cone,
@@ -695,8 +695,7 @@ pub struct Section {
 /// the diameter of the circle with the same area.
 pub fn segment_diameter(seg: &PipeSegment, u: f64) -> f64 {
     match seg.kind {
-        SegmentKind::Pipe => seg.d_in,
-        SegmentKind::Cone => seg.d_in + (seg.d_out - seg.d_in) * u,
+        SegmentKind::Pipe | SegmentKind::Cone => seg.d_in + (seg.d_out - seg.d_in) * u,
         SegmentKind::Chamber => {
             if u < CHAMBER_THROAT || u > 1.0 - CHAMBER_THROAT {
                 return seg.d_in;
@@ -843,7 +842,7 @@ pub fn make_segment(partial: SegmentPartial) -> PipeSegment {
         kind,
         length: partial.length.unwrap_or(0.3),
         d_in,
-        d_out: if kind == SegmentKind::Pipe { d_in } else { partial.d_out.unwrap_or(d_in) },
+        d_out: partial.d_out.unwrap_or(d_in),
         yaw: partial.yaw.unwrap_or(0.0),
         pitch: partial.pitch.unwrap_or(0.0),
         section: None,
