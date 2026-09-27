@@ -10,6 +10,7 @@
  */
 
 import {
+  carryBore,
   childDucts,
   copyToSiblingRunners,
   defaultDuctId,
@@ -1682,9 +1683,13 @@ export class Panel {
       this.syncStats();
     });
     const dIn = numberField(grid, 'Inlet ⌀', seg.dIn * MM, 6, 250, 1, 'mm', (v) => {
+      const was = segmentDiameter(seg, 0);
       seg.dIn = v / MM;
-      // The segment before ends where this one starts.
+      // The segment before ends where this one starts, and where the pipe starts or ends at a junction, the
+      // pipes meeting it there follow: a can's throats are both this bore.
       this.matchPrevious(list, index);
+      this.carryAtEnds(list, index, 'start', was, seg.dIn);
+      if (seg.kind === 'chamber') this.carryAtEnds(list, index, 'end', was, seg.dIn);
       this.commit();
       this.syncPipe();
     });
@@ -1698,8 +1703,11 @@ export class Panel {
       1,
       'mm',
       (v) => {
+        const was = segmentDiameter(seg, 1);
         seg.dOut = v / MM;
         this.propagate(list, index);
+        // A can's is its body, not where it ends.
+        if (seg.kind !== 'chamber') this.carryAtEnds(list, index, 'end', was, seg.dOut);
         this.commit();
         this.syncPipe();
       },
@@ -1814,6 +1822,18 @@ export class Panel {
     if (!seg || !prev) return;
     if (prev.kind === 'chamber') prev.dIn = seg.dIn;
     else prev.dOut = seg.dIn;
+  }
+
+  /**
+   * Where segment `index` is the first or last of its pipe, and the pipe starts or ends at a junction, carry
+   * its change of bore there to the pipes that met it at the same bore (`carryBore`).
+   */
+  private carryAtEnds(list: PipeSegment[], index: number, end: 'start' | 'end', was: number, now: number): void {
+    const graph = this.config.graph;
+    const duct = this.currentDuct();
+    if (!graph || !duct || duct.segments !== list) return;
+    if (end === 'start' && index === 0) carryBore(graph, duct, 'start', was, now);
+    if (end === 'end' && index === list.length - 1) carryBore(graph, duct, 'end', was, now);
   }
 
   private move(pipe: PipeSegment[], index: number, delta: number): void {
