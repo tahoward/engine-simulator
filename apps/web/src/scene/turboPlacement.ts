@@ -238,7 +238,7 @@ export interface LengthFit {
  * pipe takes a swing on its way instead: out square to the line to the anchor, downwards, and back, far
  * enough to make its length up, as the inner primaries of equal-length headers do. The swing is fitted and
  * locked with the bend (`ExhaustDuct.swing`). A pipe that cannot be made that short is left as short as it
- * goes.
+ * goes. A pipe with nothing drawn starts at `startBore`, or the bore its bend starts at now.
  */
 export function fitToLength(
   duct: ExhaustDuct,
@@ -246,6 +246,7 @@ export function fitToLength(
   heading: THREE.Vector3,
   anchor: BendAnchor,
   length: number,
+  startBore?: number,
 ): LengthFit {
   const drawn = drawnSegments(duct);
   const last = drawn.at(-1);
@@ -255,7 +256,7 @@ export function fitToLength(
   const lead = layoutPipe(before, origin, heading);
   const start = before.length > 0 ? lead.joints.at(-1)! : origin;
   const startDir = before.length > 0 ? lead.jointDirections.at(-1)! : heading;
-  const endBore = last ? segmentDiameter(last, 1) : anchor.dia;
+  const endBore = last ? segmentDiameter(last, 1) : (startBore ?? duct.segments[0]?.dIn ?? anchor.dia);
   const tightest = MIN_BEND_BORES * endBore;
   const bore = { dIn: endBore, dOut: anchor.dia };
 

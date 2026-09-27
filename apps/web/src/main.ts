@@ -16,6 +16,7 @@ import {
   defaultConfig,
   engineLength,
   exhaustPortDiameter,
+  physicalBank,
   presetEngine,
   type EngineConfig,
   type EngineSnapshot,
@@ -29,6 +30,16 @@ import { JointMesh } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
 import { engineFile, engineFileName, readConfig, readEngineFile } from './model/engineFile.js';
 import { detachDuct, loosenChildren, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
+import {
+  applyHeader,
+  bankCylinders,
+  bankMirror,
+  defaultMerge,
+  headerCollectorBore,
+  headerPrimaries,
+  runnerBore,
+  shortestHeader,
+} from './scene/headerTool.js';
 import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatTurbos, turboHeight } from './scene/turboPlacement.js';
 import {
   lockedFrom,
@@ -284,6 +295,16 @@ const editor = new PipeEditor(
       moveJunction(config.graph!, ports, config.engine, node, position, axis);
       afterTurboEdit(commit);
     },
+    onHeaderAim: (aim) => panel.setHeaderAim(aim),
+    onHeaderEnded: () => panel.setHeaderToolState(false),
+    onApplyHeader: (plans) => {
+      freeze();
+      const graph = config.graph!;
+      const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
+      for (const plan of plans) applyHeader(graph, plan, headerPrimaries(ports, plan), directionsOf(stablePlacement));
+      panel.setHeaderToolState(false);
+      afterTurboEdit(true);
+    },
     onMoveTurbo: (id, position, rotation, commit) => {
       freeze();
       const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
@@ -397,6 +418,33 @@ const panel = new Panel(panelEl, config, {
     editor.bendMode = on;
   },
   onBendTool: (on) => editor.setBendTool(on),
+  onHeaderTool: (on) => {
+    if (!on) {
+      editor.setHeaderTool(null);
+      return;
+    }
+    const graph = config.graph!;
+    const spec = config.engine;
+    const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
+    // The bank of the pipe being edited, if it is a cylinder's.
+    const edited = graph.ducts.find((d) => d.id === editedDuctId);
+    const bank = edited?.from.kind === 'valve' ? physicalBank(spec, edited.from.cylinder) : 0;
+    const cylinders = bankCylinders(spec, bank);
+    const { merge, axis } = defaultMerge(ports, cylinders);
+    const bore = runnerBore(graph, cylinders[0]!, exhaustPortDiameter(spec));
+    const plan = { cylinders, merge, axis, length: 0, bore, collectorBore: headerCollectorBore(graph, cylinders, bore) };
+    plan.length = shortestHeader(ports, plan);
+    const mirror = bankMirror(spec, ports);
+    editor.setHeaderTool({
+      plan,
+      mirror: mirror ? { ...mirror, cylinders: bankCylinders(spec, 1 - bank) } : null,
+      mirrored: panel.headerMirrored,
+    });
+    panel.setHeaderLength(plan.length);
+  },
+  onHeaderLength: (length) => editor.setHeaderLength(length),
+  onHeaderMirror: (on) => editor.setHeaderMirrored(on),
+  onApplyHeader: () => editor.applyHeader(),
   onReshapeBend: (id, index, angle, radius, changed) => {
     const duct = config.graph!.ducts.find((d) => d.id === id);
     if (!duct) return;

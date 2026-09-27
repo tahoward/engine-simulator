@@ -81,6 +81,7 @@ import {
   snapToEngine,
   type SnapTarget,
 } from './drawing.js';
+import { collectorGhost, headerPrimaries, mirrorPlan, shortestHeader, type HeaderPlan } from './headerTool.js';
 
 const MIN_RADIUS = 0.006;
 const MAX_RADIUS = 0.22;
@@ -111,7 +112,7 @@ const PIPE_TRIAD_SIZE = 0.11;
  * than the sum of every frame's step.
  */
 interface TriadDrag {
-  on: 'pipe' | 'turbo';
+  on: 'pipe' | 'turbo' | 'header';
   handle: TriadHandle;
   /** The part's axis the handle works along or about, and for a ring its frame, as they were at the start. */
   axis: THREE.Vector3;
@@ -144,6 +145,9 @@ interface TriadDrag {
   /** A turbo's: which, and its rotation when the drag began. */
   turbo?: string;
   rotation0?: Quat;
+  /** A header's: the way its collector pointed, and the triad's orientation, when the drag began. */
+  axis0?: THREE.Vector3;
+  frame0?: THREE.Quaternion;
   lastCommit: number;
   moved: boolean;
 }
@@ -197,6 +201,22 @@ export interface PipeEditorCallbacks {
   onMoveJunction?: (node: string, position: Vec3, axis: Vec3, commit: boolean) => void;
   /** A turbo was moved or turned to here by its triad. `commit` is false for intermediate frames of a drag. */
   onMoveTurbo?: (turbo: string, position: Vec3, rotation: Quat, commit: boolean) => void;
+  /** What the header being placed comes to, in words. */
+  onHeaderAim?: (aim: string) => void;
+  /** Build the headers the ghost shows: one per bank. */
+  onApplyHeader?: (plans: HeaderPlan[]) => void;
+  /** The header tool was ended from the view, by Escape. */
+  onHeaderEnded?: () => void;
+}
+
+/**
+ * The equal-length header being placed: one bank's plan, which the triad moves, and the other bank's
+ * mirror, if the engine has one, and whether it is built too.
+ */
+export interface HeaderSetup {
+  plan: HeaderPlan;
+  mirror: { point: THREE.Vector3; normal: THREE.Vector3; cylinders: number[] } | null;
+  mirrored: boolean;
 }
 
 /**
@@ -372,6 +392,11 @@ export class PipeEditor {
   } | null = null;
   private lastSnap: DrawSnap = 'engine';
 
+  /** The equal-length header tool: what it is building, its triad on the collector, and the ghost. */
+  private header: HeaderSetup | null = null;
+  private readonly headerTriad = new Triad(PIPE_TRIAD_SIZE * 1.4);
+  private readonly headerGhosts: PipeMesh[] = [];
+
   private readonly matHover = new THREE.MeshBasicMaterial({ color: 0xffd166 });
   private readonly matSelected = new THREE.MeshBasicMaterial({ color: 0x8cff9e });
   private readonly matRing = new THREE.MeshBasicMaterial({
@@ -428,7 +453,8 @@ export class PipeEditor {
     this.group.add(this.ghost.group);
     this.ghostPipe.visible = false;
     this.group.add(this.ghostPipe);
-    this.group.add(this.pipeTriad.group, this.turboTriad.group, this.bendTriad.group, this.bendGhost.group);
+    this.group.add(this.pipeTriad.group, this.turboTriad.group, this.bendTriad.group, this.bendGhost.group, this.headerTriad.group);
+    this.headerTriad.setVisible(false);
     this.bendGhost.group.visible = false;
     // Only its rings: a bend is made by turning, and not about the pipe's own axis, which would do nothing.
     this.bendTriad.showMoves(false);
@@ -481,6 +507,7 @@ export class PipeEditor {
   /** Start or stop placing a turbo, or a loose pipe. Stops drawing, since the two share the pointer. */
   setPlaceMode(on: boolean, kind: 'turbo' | 'pipe' = 'turbo'): void {
     if (on && this.drawMode) this.setDrawMode(false);
+    if (on) this.setHeaderTool(null);
     this.placeMode = on;
     this.placeKind = kind;
     this.ghost.rebuild(this.size);
@@ -558,6 +585,7 @@ export class PipeEditor {
   setDrawContext(context: DrawContext): void {
     this.context = context;
     this.placeTurboTriad();
+    if (this.header) this.updateHeader();
     if (!this.route) return;
     /**
      * Follow the duct through the rebuild, and only abandon the route if the duct is *gone from the
@@ -578,6 +606,7 @@ export class PipeEditor {
   }
 
   setDrawMode(on: boolean): void {
+    if (on) this.setHeaderTool(null);
     this.drawMode = on;
     if (!on) this.cancelRoute();
     this.group.visible = true;
@@ -610,6 +639,7 @@ export class PipeEditor {
   setBendTool(on: boolean): void {
     if (on && this.drawMode) this.setDrawMode(false);
     if (on && this.placeMode) this.setPlaceMode(false);
+    if (on) this.setHeaderTool(null);
     this.bendTool = on;
     this.bendAt = null;
     this.bendDrag = null;
@@ -621,6 +651,126 @@ export class PipeEditor {
 
   get bendToolOn(): boolean {
     return this.bendTool;
+  }
+
+  // -------------------------------------------------------------------------
+  // Equal-length headers
+  // -------------------------------------------------------------------------
+
+  /**
+   * Start the equal-length header tool on `setup`, or with `null` end it. A triad sits where the collector
+   * is: its arrows move it and its rings point it, and a ghost shows the header it would build.
+   */
+  setHeaderTool(setup: HeaderSetup | null): void {
+    if (setup) {
+      if (this.drawMode) this.setDrawMode(false);
+      if (this.placeMode) this.setPlaceMode(false);
+      if (this.bendTool) this.setBendTool(false);
+    }
+    this.header = setup;
+    if (this.triadDrag?.on === 'header') {
+      this.triadDrag = null;
+      this.controls.enabled = true;
+    }
+    if (setup) this.headerTriad.setOrientation(frameAlong(setup.plan.axis));
+    this.updateHeader();
+    this.applyHandleVisibility();
+  }
+
+  get headerOn(): boolean {
+    return this.header !== null;
+  }
+
+  /** Make the header's primaries `length` m each. */
+  setHeaderLength(length: number): void {
+    if (!this.header) return;
+    this.header.plan.length = length;
+    this.updateHeader();
+  }
+
+  /** Build the header onto the other bank too, mirrored, or not. */
+  setHeaderMirrored(on: boolean): void {
+    if (!this.header) return;
+    this.header.mirrored = on;
+    this.updateHeader();
+  }
+
+  /** The plans the ghost shows: the bank's, and its mirror where that is built too. */
+  private headerPlans(): HeaderPlan[] {
+    const h = this.header;
+    if (!h) return [];
+    const plans = [h.plan];
+    if (h.mirrored && h.mirror) plans.push(mirrorPlan(h.plan, h.mirror, h.mirror.cylinders));
+    return plans;
+  }
+
+  /** Build what the ghost shows, and end the tool. */
+  applyHeader(): void {
+    if (!this.header) return;
+    const plans = this.headerPlans().map((p) => ({ ...p, merge: p.merge.clone(), axis: p.axis.clone() }));
+    this.setHeaderTool(null);
+    this.cb.onApplyHeader?.(plans);
+  }
+
+  /** Put the triad on the collector, ghost the header, and say what it comes to. */
+  private updateHeader(): void {
+    const ctx = this.context;
+    const h = this.header;
+    this.headerTriad.setVisible(!!h && !!ctx);
+    if (!h || !ctx) {
+      for (const g of this.headerGhosts) g.group.visible = false;
+      return;
+    }
+    this.headerTriad.setMoveOrigin(h.plan.merge);
+    this.headerTriad.setRotateOrigin(h.plan.merge);
+
+    const pipes: Array<{ segments: PipeSegment[]; origin: THREE.Vector3; heading: THREE.Vector3 }> = [];
+    for (const plan of this.headerPlans()) {
+      for (const p of headerPrimaries(ctx.ports, plan)) {
+        const port = ctx.ports[p.cylinder]!;
+        pipes.push({ segments: p.segments, origin: port.position, heading: port.direction });
+      }
+      pipes.push({ segments: collectorGhost(plan), origin: plan.merge, heading: plan.axis });
+    }
+    while (this.headerGhosts.length < pipes.length) {
+      const g = new PipeMesh(true);
+      this.headerGhosts.push(g);
+      this.group.add(g.group);
+    }
+    this.headerGhosts.forEach((g, i) => {
+      const pipe = pipes[i];
+      g.group.visible = !!pipe;
+      if (pipe) g.rebuild(pipe.segments, pipe.origin, pipe.heading);
+    });
+
+    const shortest = shortestHeader(ctx.ports, h.plan);
+    const mm = (m: number) => `${Math.round(m * 1000)} mm`;
+    const reach = h.mirror && h.mirrored ? Math.max(shortest, shortestHeader(ctx.ports, this.headerPlans()[1]!)) : shortest;
+    this.cb.onHeaderAim?.(
+      h.plan.length < reach - 5e-4
+        ? `Too short to reach: the furthest primary needs ${mm(reach)}`
+        : `${h.plan.cylinders.length} primaries of ${mm(h.plan.length)} · the shortest that reaches is ${mm(reach)}`,
+    );
+  }
+
+  /** The header's triad: its arrows move the collector, its rings turn the way it points. */
+  private dragHeaderTriad(drag: TriadDrag, snap: boolean): void {
+    const h = this.header;
+    if (!h || !drag.axis0 || !drag.frame0) return;
+    if (drag.handle.kind === 'ring') {
+      let turn = this.triadTurn(drag);
+      if (turn === null) return;
+      if (snap) turn = snapTurnToEngine(drag.axis0, turn, drag.axis, (TRIAD_TURN_DEG * Math.PI) / 180);
+      const q = new THREE.Quaternion().setFromAxisAngle(drag.axis, turn);
+      h.plan.axis = drag.axis0.clone().applyQuaternion(q).normalize();
+      this.headerTriad.setOrientation(q.multiply(drag.frame0));
+    } else {
+      const at = this.triadMove(drag, snap);
+      if (!at) return;
+      h.plan.merge = at;
+    }
+    drag.moved = true;
+    this.updateHeader();
   }
 
   /**
@@ -792,7 +942,7 @@ export class PipeEditor {
 
   /** Handles are a nuisance while drawing: they sit exactly where the route is being aimed. */
   private applyHandleVisibility(): void {
-    const hide = this.drawMode || this.placeMode || this.bendTool;
+    const hide = this.drawMode || this.placeMode || this.bendTool || this.header !== null;
     for (const h of this.handles) h.visible = !hide;
     this.pipeTriad.setVisible(!hide && this.pipeTriadAt !== null);
   }
@@ -852,6 +1002,15 @@ export class PipeEditor {
     if ((e.key === 'b' || e.key === 'B') && !typing && !e.repeat && this.drawMode) {
       this.bendHeld = true;
       this.updateDrawPreview(this.lastSnap);
+      return;
+    }
+    if (this.header && !typing && (e.key === 'Escape' || e.key === 'Enter')) {
+      if (e.key === 'Enter') this.applyHeader();
+      else {
+        this.setHeaderTool(null);
+        this.cb.onHeaderEnded?.();
+      }
+      e.preventDefault();
       return;
     }
     if (this.placeMode && e.key === 'Escape') {
@@ -1432,6 +1591,16 @@ export class PipeEditor {
       return;
     }
 
+    if (this.header) {
+      // Only the triad: anywhere else turns the view, to see the header from all round.
+      const handle = this.headerTriad.pick(this.raycaster);
+      if (handle) {
+        this.beginTriadDrag('header', handle);
+        e.preventDefault();
+      }
+      return;
+    }
+
     if (this.bendTool) {
       const ring = this.bendTriad.pick(this.raycaster);
       if (ring) this.beginBendDrag(ring);
@@ -1548,8 +1717,8 @@ export class PipeEditor {
   }
 
   /** Take hold of a triad's handle, on the selected segment or the selected turbo. */
-  private beginTriadDrag(on: 'pipe' | 'turbo', handle: TriadHandle): void {
-    const triad = on === 'pipe' ? this.pipeTriad : this.turboTriad;
+  private beginTriadDrag(on: TriadDrag['on'], handle: TriadHandle): void {
+    const triad = on === 'pipe' ? this.pipeTriad : on === 'header' ? this.headerTriad : this.turboTriad;
     const moveOrigin = triad.moveOrigin;
     const rotateOrigin = triad.rotateOrigin;
     const axis = triad.axisDir(handle.axis);
@@ -1573,7 +1742,11 @@ export class PipeEditor {
     else if (handle.kind === 'plane') drag.grabPoint = planePoint(ray, moveOrigin, axis) ?? moveOrigin.clone();
     else drag.lastAngle = this.ringAngleNow(rotateOrigin, ring) ?? 0;
 
-    if (on === 'pipe') {
+    if (on === 'header') {
+      if (!this.header) return;
+      drag.axis0 = this.header.plan.axis.clone();
+      drag.frame0 = frameAlong(this.header.plan.axis);
+    } else if (on === 'pipe') {
       const ctx = this.context;
       const duct = ctx?.graph.ducts.find((d) => d.segments === this.pipe);
       const drawn = Math.min(this.lockedFrom ?? this.pipe.length, this.pipe.length);
@@ -1645,6 +1818,7 @@ export class PipeEditor {
   private dragTriad(snap: boolean): void {
     const drag = this.triadDrag!;
     if (drag.on === 'pipe') this.dragPipeTriad(drag, snap);
+    else if (drag.on === 'header') this.dragHeaderTriad(drag, snap);
     else this.dragTurboTriad(drag, snap);
   }
 
@@ -1916,6 +2090,11 @@ export class PipeEditor {
       e.preventDefault();
       return;
     }
+    if (this.header) {
+      this.updatePointer(e);
+      this.dom.style.cursor = this.headerTriad.hover(this.raycaster) ? 'grab' : '';
+      return;
+    }
     if (this.bendTool) {
       this.updatePointer(e);
       if (this.bendDrag) this.dragBend(e.shiftKey);
@@ -2010,7 +2189,7 @@ export class PipeEditor {
       const drag = this.triadDrag;
       this.triadDrag = null;
       this.controls.enabled = true;
-      if (!drag.moved) return;
+      if (!drag.moved || drag.on === 'header') return;
       // Final authoritative push, since intermediate frames were throttled.
       if (drag.on === 'turbo') {
         const mount = this.context?.graph.turbos?.find((t) => t.id === drag.turbo);
@@ -2045,6 +2224,8 @@ export class PipeEditor {
     for (const h of this.handles) h.geometry.dispose();
     this.pipeTriad.dispose();
     this.turboTriad.dispose();
+    this.headerTriad.dispose();
+    for (const g of this.headerGhosts) g.dispose();
     this.previewGeom.dispose();
     this.guideGeom.dispose();
     this.ghost.dispose();
