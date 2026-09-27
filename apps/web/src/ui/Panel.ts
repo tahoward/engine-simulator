@@ -1582,11 +1582,13 @@ export class Panel {
    *
    * Only runners are linked. A collector is a different part of the exhaust and there is generally one
    * of it, so linking it to anything would be meaningless.
+   *
+   * `emptied` is a runner a delete left with nothing drawn, which the others follow (`copyToSiblingRunners`).
    */
-  private commit(): void {
+  private commit(emptied = false): void {
     const graph = this.config.graph;
     const duct = this.currentDuct();
-    if (this.linkRunners && graph && duct) copyToSiblingRunners(graph, duct, this.config.engine);
+    if (this.linkRunners && graph && duct) copyToSiblingRunners(graph, duct, this.config.engine, emptied);
     this.cb.onPipe();
   }
 
@@ -1938,7 +1940,7 @@ export class Panel {
       // The owner removes it, because tidying the junctions needs the layout to keep pipes where they were.
       this.cb.onRemoveDuct(duct.id);
     } else {
-      this.commit();
+      this.commit(list.length === 0);
     }
     this.rebuildPipeList();
     this.cb.onSelect(null);

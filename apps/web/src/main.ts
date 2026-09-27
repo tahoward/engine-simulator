@@ -55,9 +55,11 @@ import {
   copyToSiblingRunners,
   defaultDuctId,
   disconnectEnd,
+  drawnSegments,
   hasBeenEdited,
   placeLoosePipe,
   removeDuct,
+  siblingRunners,
   type DuctDirections,
   type ExhaustGraph,
 } from './model/exhaustGraph.js';
@@ -519,12 +521,21 @@ const panel = new Panel(panelEl, config, {
   },
   onSplitDuct: (id, index) => {
     freeze();
+    const graph = config.graph!;
     const place = stablePlacement?.ducts.get(id);
-    if (!place || !splitDuct(config.graph!, id, index, place)) return;
-    const duct = config.graph!.ducts.find((d) => d.id === id);
+    const duct = graph.ducts.find((d) => d.id === id);
+    if (!duct || !place) return;
+    // With the runners linked the others lose the same segment, each leaving its own loose pipe, or the
+    // next edit to one of them would copy the deleted segment back.
+    const siblings = panel.runnersLinked ? siblingRunners(graph, duct) : [];
+    if (!splitDuct(graph, id, index, place)) return;
+    for (const other of siblings) {
+      const at = stablePlacement?.ducts.get(other.id);
+      if (at && index < drawnSegments(other).length - 1) splitDuct(graph, other.id, index, at);
+    }
     // Split at its first segment, a pipe is left with nothing in it, and goes unless it is a cylinder's.
-    if (duct && duct.segments.length === 0 && duct.from.kind !== 'valve') {
-      removeDuct(config.graph!, id, directionsOf(stablePlacement));
+    if (duct.segments.length === 0 && duct.from.kind !== 'valve') {
+      removeDuct(graph, id, directionsOf(stablePlacement));
     }
     rebuildPipeGeometry();
     audio.setGraph(config.graph!);

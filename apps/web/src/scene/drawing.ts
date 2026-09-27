@@ -218,10 +218,12 @@ export function fitSegment(
  * Free the pipes carrying on from `ductId`'s end, as it is deleted: where it is the only pipe into its
  * junction, the pipes leaving that junction are left as loose pipes, each where it lies, heading as it
  * does, and what was attached to them stays attached to them. Its end is left open.
+ *
+ * Not at a turbo: the pipe drawn from its outlet stays on it, unfed until a pipe is drawn into it again.
  */
 export function loosenChildren(graph: ExhaustGraph, ductId: string, placement: ExhaustPlacement): void {
   const duct = graph.ducts.find((d) => d.id === ductId);
-  if (!duct || duct.to.kind !== 'node') return;
+  if (!duct || duct.to.kind !== 'node' || turboAt(graph, duct.to.node)) return;
   const node = duct.to.node;
   const ends = endsAt(graph, node);
   const others = ends.filter((e) => e.end === 'outlet' && e.duct !== duct);
@@ -283,9 +285,8 @@ export function splitDuct(graph: ExhaustGraph, ductId: string, index: number, pl
 /**
  * Take `ductId`'s far end off what it joins, with the bend it was fitted in, leaving it ending where it was
  * drawn to. Where it is the only pipe into a junction, the pipes carrying on from it are left loose, where
- * they lie (`loosenChildren`); from a turbo, the pipe drawn from its outlet goes instead, so long as nothing
- * carries on from that (`disconnectEnd`). A pipe that was nothing but its bend goes, unless it is a
- * cylinder's. Returns `false`, changing nothing, where it cannot come off.
+ * they lie (`loosenChildren`); a turbo keeps the pipe drawn from its outlet. A pipe that was nothing but its
+ * bend goes, unless it is a cylinder's. Returns `false`, changing nothing, where it cannot come off.
  */
 export function detachDuct(
   graph: ExhaustGraph,
@@ -295,8 +296,7 @@ export function detachDuct(
 ): boolean {
   const duct = graph.ducts.find((d) => d.id === ductId);
   if (!duct || duct.to.kind !== 'node') return false;
-  const node = duct.to.node;
-  if (placement && !turboAt(graph, node)) loosenChildren(graph, ductId, placement);
+  if (placement) loosenChildren(graph, ductId, placement);
   if (duct.to.kind === 'node' && !disconnectEnd(graph, ductId, dirs)) return false;
   if (duct.segments.length === 0 && duct.from.kind !== 'valve') removeDuct(graph, ductId, dirs);
   return true;

@@ -749,6 +749,20 @@ export function pathToAir(graph: ExhaustGraph, cylinder: number): ExhaustDuct[] 
 }
 
 /**
+ * The other runners an edit to runner `source` is copied to when they are linked: every cylinder's pipe
+ * but its own. None, for a pipe that is not a cylinder's.
+ *
+ * Not onto, nor from, a runner that carries a manifold on. On a manifold the first cylinder's duct is its
+ * stub *and* the manifold's first length, so it is not a sibling of the other stubs: copying a stub over it
+ * would cut the manifold short, and copying it onto the stubs would put a length of manifold on every cylinder.
+ */
+export function siblingRunners(graph: ExhaustGraph, source: ExhaustDuct): ExhaustDuct[] {
+  const carries = (d: ExhaustDuct) => graph.ducts.some((o) => o.continues === d.id);
+  if (source.from.kind !== 'valve' || carries(source)) return [];
+  return graph.ducts.filter((d) => d !== source && d.from.kind === 'valve' && !carries(d));
+}
+
+/**
  * Copy one runner's shape onto every other runner.
  *
  * What "apply to every cylinder" means. A symmetric engine is the normal case, so eight identical runners
@@ -767,25 +781,20 @@ export function pathToAir(graph: ExhaustGraph, cylinder: number): ExhaustDuct[] 
  * Where a runner ends at a junction, its bore there is that junction's, which every pipe meeting there is
  * matched to (`carryBore`), so each keeps its own: copying one runner's onto the others would resize every
  * other junction they meet, as well as the one it was set at.
+ *
+ * A runner with nothing drawn is copied only when `emptied` says a delete left it so: one just started
+ * from a port has nothing drawn yet either, and would leave every cylinder without a pipe.
  */
-export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct, spec?: EngineSpec): void {
+export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct, spec?: EngineSpec, emptied = false): void {
   if (source.from.kind !== 'valve') return;
   // What was drawn: a bend fitted into a turbo belongs to its own pipe, and each keeps its own.
   const drawn = drawnSegments;
-  /**
-   * Not onto, nor from, a runner that carries a manifold on.
-   *
-   * On a manifold the first cylinder's duct is its stub *and* the manifold's first length, so it is not
-   * a sibling of the other stubs: copying a stub over it would cut the manifold short, and copying it
-   * onto the stubs would put a length of manifold on every cylinder.
-   */
-  const carries = (d: ExhaustDuct) => graph.ducts.some((o) => o.continues === d.id);
-  // A pipe just started from a port has nothing drawn yet, and would leave every cylinder without a pipe.
-  if (carries(source) || drawn(source).length === 0) return;
+  if (drawn(source).length === 0 && !emptied) return;
   const bankOf = (cylinder: number) => (spec && physicalBankCount(spec) > 1 ? physicalBank(spec, cylinder) : 0);
   const from = bankOf(source.from.cylinder);
-  for (const other of graph.ducts) {
-    if (other === source || other.from.kind !== 'valve' || carries(other)) continue;
+  for (const other of siblingRunners(graph, source)) {
+    // Always a cylinder's, but the type does not know.
+    if (other.from.kind !== 'valve') continue;
     const flip = bankOf(other.from.cylinder) !== from;
     const bend = other.segments.slice(other.segments.length - fittedCount(other));
     const end = other.to.kind === 'node' && bend.length === 0 ? other.segments.at(-1) : undefined;
@@ -1013,21 +1022,31 @@ export function childDucts(graph: ExhaustGraph, duct: ExhaustDuct): ExhaustDuct[
  *
  * A cylinder's runner is never deleted — every cylinder must have a pipe, and `validateGraph` rejects an
  * engine where one does not — so asking to delete one is refused, and so is deleting the only pipe into a
- * junction others leave (`childDucts`) until they are freed. Anything else goes, and the junctions it touched are tidied by `tidyJunctions`. Returns
- * whether anything was deleted.
+ * junction others leave (`childDucts`) until they are freed (`strands`). Anything else goes, and the
+ * junctions it touched are tidied by `tidyJunctions`. Returns whether anything was deleted.
  */
 export function removeDuct(graph: ExhaustGraph, ductId: string, dirs?: DuctDirections): boolean {
   const duct = graph.ducts.find((d) => d.id === ductId);
   if (!duct || duct.from.kind === 'valve') return false;
-  // The only pipe into a junction others leave is not deleted here: they would go with it. See
-  // `loosenChildren`, which frees them first.
-  const feeds = duct.to.kind === 'node' ? endsAt(graph, duct.to.node).filter((e) => e.end === 'outlet').length : 0;
-  if (feeds === 1 && childDucts(graph, duct).length > 0) return false;
+  // Not where pipes would go with it. See `loosenDownstream`, which frees them first.
+  if (strands(graph, duct)) return false;
   graph.ducts = graph.ducts.filter((d) => d !== duct);
   // Nothing carries on from a pipe that has gone, nor from a new one given its id.
   for (const d of graph.ducts) if (d.continues === duct.id) delete d.continues;
   tidyJunctions(graph, touchedNodes(duct), dirs);
   return true;
+}
+
+/**
+ * Whether taking `duct`'s far end off what it joins would take other pipes with it.
+ *
+ * The only pipe into a junction must stay on it, or the pipes leaving it would go with nothing to feed
+ * them. Not at a turbo, which keeps the pipe drawn from its outlet, unfed, until a pipe is drawn into it again.
+ */
+export function strands(graph: ExhaustGraph, duct: ExhaustDuct): boolean {
+  if (duct.to.kind !== 'node' || turboAt(graph, duct.to.node)) return false;
+  const feeds = endsAt(graph, duct.to.node).filter((e) => e.end === 'outlet');
+  return feeds.length === 1 && childDucts(graph, duct).length > 0;
 }
 
 /**
@@ -1041,13 +1060,7 @@ export function disconnectEnd(graph: ExhaustGraph, ductId: string, dirs?: DuctDi
   const duct = graph.ducts.find((d) => d.id === ductId);
   if (!duct || duct.to.kind !== 'node') return false;
   const node = duct.to.node;
-  // The only pipe into a junction stays on it, or the pipes leaving it would go with nothing to feed them.
-  // A turbo's outlet pipe goes with the last pipe into it, as it goes with the turbo, so long as nothing
-  // carries on from it.
-  const feeds = endsAt(graph, node).filter((e) => e.end === 'outlet');
-  const outs = childDucts(graph, duct);
-  const blocked = turboAt(graph, node) ? outs.some((out) => childDucts(graph, out).length > 0) : outs.length > 0;
-  if (feeds.length === 1 && blocked) return false;
+  if (strands(graph, duct)) return false;
   duct.to = { kind: 'mouth' };
   releaseBend(duct);
   for (const d of graph.ducts) if (d.continues === duct.id) delete d.continues;
@@ -1148,11 +1161,12 @@ function tidy(graph: ExhaustGraph, nodes: Iterable<string>, dirs?: DuctDirection
     const outs = ends.filter((e) => e.end === 'inlet').map((e) => e.duct);
     if (ends.length === 0) continue;
 
-    if (feeds.length === 0) {
+    if (turboAt(graph, node)) {
+      // A turbo stays as it is, with or without a pipe drawn from its outlet, fed or not.
+    } else if (feeds.length === 0) {
       graph.ducts = graph.ducts.filter((d) => !outs.includes(d));
+      for (const d of graph.ducts) if (outs.some((out) => out.id === d.continues)) delete d.continues;
       for (const out of outs) for (const n of touchedNodes(out)) if (n !== node) queue.push(n);
-    } else if (turboAt(graph, node)) {
-      // A turbo stays as it is, fed, with or without a pipe drawn from its outlet.
     } else if (outs.length === 0 && (feeds.length < 2 || feeds.every((f) => f.fitted))) {
       // A junction of one pipe is not one; two or more are a merge waiting for the pipe after it. Not where
       // every one left was only bent in to meet what has gone: they meet nothing there, so they come off.
@@ -1295,7 +1309,8 @@ function fedDucts(graph: ExhaustGraph): Set<string> {
 const TURBO_EXIT = 0.05;
 
 /**
- * The graph as the solver is given it: without loose pipes, nor anything reached only through one, since
+ * The graph as the solver is given it: without loose pipes, nor a turbo's outlet pipe while nothing is
+ * drawn into the turbo, nor anything reached only through one, since
  * no gas reaches them, and with the pipes into a junction nothing leaves yet ending in open air. What is
  * left is every duct fed from a cylinder. A turbo fed with nothing drawn from its outlet exhausts to the air
  * at its outlet flange, through the shortest of pipes there, a little wider than what feeds it.
@@ -1303,8 +1318,8 @@ const TURBO_EXIT = 0.05;
 export function solverGraph(graph: ExhaustGraph): ExhaustGraph {
   const leaving = new Set(graph.ducts.flatMap((d) => (d.from.kind === 'node' ? [d.from.node] : [])));
   const ending = graph.ducts.some((d) => d.to.kind === 'node' && !leaving.has(d.to.node));
-  if (!ending && !graph.ducts.some((d) => d.from.kind === 'free')) return graph;
   const fed = fedDucts(graph);
+  if (!ending && fed.size === graph.ducts.length) return graph;
   const turbos = new Set((graph.turbos ?? []).map((t) => t.node));
   const kept = graph.ducts.filter((d) => fed.has(d.id));
   const ducts = kept
@@ -1434,17 +1449,20 @@ export function validateGraph(graph: ExhaustGraph, cylinders: number): string[] 
     const upstream = ends.filter((e) => e.end === 'outlet');
     // A turbo fed by one pipe, with nothing drawn from its outlet, exhausts to the air there.
     if (ends.length < 2 && !turboAt(graph, node)) problems.push(`junction "${node}" joins only one pipe`);
-    if (upstream.length === 0) problems.push(`junction "${node}" has nothing flowing into it`);
+    // A turbo nothing is drawn into keeps its outlet pipe, which carries no gas yet, like a loose pipe.
+    if (upstream.length === 0 && !turboAt(graph, node)) problems.push(`junction "${node}" has nothing flowing into it`);
     // A junction with nothing leaving it yet is its pipes ending in air there: see `solverGraph`.
     if (downstream.length > 1 && turboAt(graph, node)) {
       problems.push(`the turbo at "${node}" has ${downstream.length} pipes leaving its one outlet`);
     }
   }
 
-  // Every duct must trace back to a valve, or the gas in it came from nowhere: or to a loose pipe, which
-  // carries no gas yet and is not given to the solver (`solverGraph`).
+  // Every duct must trace back to a valve, or the gas in it came from nowhere: or to a loose pipe, or a
+  // turbo's outlet, which may carry no gas yet and then is not given to the solver (`solverGraph`).
   const reachable = new Set<string>();
-  const frontier = graph.ducts.filter((d) => d.from.kind === 'valve' || d.from.kind === 'free');
+  const frontier = graph.ducts.filter(
+    (d) => d.from.kind === 'valve' || d.from.kind === 'free' || (d.from.kind === 'node' && turboAt(graph, d.from.node)),
+  );
   for (const d of frontier) reachable.add(d.id);
   for (let guard = 0; guard < graph.ducts.length + 1 && frontier.length > 0; guard++) {
     const duct = frontier.pop()!;
