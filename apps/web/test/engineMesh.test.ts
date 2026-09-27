@@ -13,6 +13,7 @@ import {
   ENGINE_PRESETS,
   GAS,
   crankPins,
+  mainBearingsAfter,
   defaultConfig,
   firingPlan,
   makeSegment,
@@ -113,6 +114,7 @@ describe('the drawn mechanism', () => {
       { cylinders: 3 as const, vAngle: 0 },
       { cylinders: 6 as const, vAngle: 60, exhaustLayout: 'perBank' as const },
       { ...V8, crankType: 'crossplane' as const },
+      { cylinders: 4 as const, vAngle: 180, crankType: 'boxer' as const },
     ]) {
       const s = spec(over);
       const mesh = new EngineMesh(s, clip);
@@ -121,7 +123,9 @@ describe('the drawn mechanism', () => {
       mesh.group.traverse((o) => {
         if (o instanceof THREE.Mesh && o.name === 'web') webs.push(o);
       });
-      expect(webs.length).toBeGreaterThanOrEqual(2 * new Set(crankPins(s).map((_, i) => i)).size);
+      // A web either side of every main but the end ones' outer sides.
+      const mains = mainBearingsAfter(s).filter(Boolean).length + 2;
+      expect(webs).toHaveLength(2 * mains - 2);
       const a = s.stroke / 2;
       for (const web of webs) {
         const phi = ((web.userData as { angle: number }).angle * Math.PI) / 180;
@@ -159,6 +163,8 @@ describe('the drawn mechanism', () => {
       { cylinders: 6 as const, vAngle: 0 },
       { cylinders: 6 as const, vAngle: 60, exhaustLayout: 'perBank' as const },
       { ...V8, crankType: 'crossplane' as const },
+      { cylinders: 4 as const, vAngle: 180, crankType: 'boxer' as const },
+      { cylinders: 6 as const, vAngle: 180, crankType: 'boxer' as const },
     ]) {
       const s = spec(over);
       const mesh = new EngineMesh(s, clip);
@@ -176,8 +182,8 @@ describe('the drawn mechanism', () => {
       };
       const journals = named('main journal');
       const bearings = named('main bearing');
-      // One more main than there are throws, a throw being a pin shared by the cylinders on it.
-      expect(journals, `${s.cylinders} cylinders`).toHaveLength(crankPins(s).length + 1);
+      // One at each end, and one in each gap between throws that has one.
+      expect(journals, `${s.cylinders} cylinders`).toHaveLength(mainBearingsAfter(s).filter(Boolean).length + 2);
       expect(bearings).toHaveLength(journals.length);
       const webs = named('web').map(extent);
       for (const [i, journal] of journals.entries()) {
@@ -189,6 +195,35 @@ describe('the drawn mechanism', () => {
         expect(bFrom).toBeGreaterThan(from);
         expect(bTo).toBeLessThan(to);
       }
+    }
+  });
+
+  it('has a main after every throw, but a flat engine only after each opposed pair', () => {
+    expect(mainBearingsAfter(spec({ cylinders: 4 as const, vAngle: 0 }))).toEqual([true, true, true]);
+    expect(mainBearingsAfter(spec({ ...V8, crankType: 'crossplane' as const }))).toEqual([true, true, true]);
+    expect(mainBearingsAfter(spec({ cylinders: 4 as const, vAngle: 180, crankType: 'boxer' as const }))).toEqual([false, true, false]);
+    expect(mainBearingsAfter(spec({ cylinders: 6 as const, vAngle: 180, crankType: 'boxer' as const }))).toEqual([
+      false, true, false, true, false,
+    ]);
+  });
+
+  it('joins a flat engine’s opposed pins with one web, round both pins and the shaft', () => {
+    const s = spec({ cylinders: 4 as const, vAngle: 180, crankType: 'boxer' as const });
+    const mesh = new EngineMesh(s, clip);
+    mesh.group.updateMatrixWorld(true);
+    const links: THREE.Mesh[] = [];
+    mesh.group.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.name === 'link web') links.push(o);
+    });
+    expect(links).toHaveLength(2);
+    const a = s.stroke / 2;
+    for (const link of links) {
+      link.geometry.computeBoundingBox();
+      const box = link.geometry.boundingBox!;
+      // The pair's pins are half a turn apart, one up and one down: it spans both bosses.
+      expect(box.max.y).toBeCloseTo(a + 0.022, 3);
+      expect(box.min.y).toBeCloseTo(-(a + 0.022), 3);
+      expect(box.max.z - box.min.z).toBeGreaterThan(0.004);
     }
   });
 
