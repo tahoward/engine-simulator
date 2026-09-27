@@ -53,14 +53,13 @@ import {
   totalPipeLength,
 } from '../model/spec.js';
 import { plenumVolumeOf, throttleDiaOf } from '../model/intakeSizing.js';
+import { TOOL_ICONS, toolButton } from './toolbar.js';
 
 export interface PanelCallbacks {
   onEngine: (partial: Partial<EngineSpec>) => void;
   /** The selected duct's segments were mutated in place, and copied to the other runners if linked. */
   onPipe: () => void;
   onSelect: (index: number | null) => void;
-  /** The user picked a different duct to edit. */
-  onSelectDuct: (id: string) => void;
   /**
    * `config.pipe` and `config.collector` were replaced; rebuild the graph from them, with `turbos` turbos
    * placed where the layout puts them.
@@ -182,14 +181,10 @@ function engineTypeOf(eng: EngineSpec): string {
 const START_HINT = 'Pick a port, a junction, or a pipe to continue or branch from';
 const ROUTE_HINT = 'Click to add a bend, or a junction, pipe or turbo inlet to join it';
 const BEND_HINT = 'Click a straight to bend, or a bend to bend again';
-const PLACE_HINT = 'Click to put it down, or on an open pipe end to attach it · Esc stops';
+const PLACE_HINT = 'Click to put it down, or on an open pipe end to attach it';
 
 export class Panel {
-  private readonly listEl: HTMLElement;
-  /** The length of a pipe joined at both ends, and what to match it to. */
-  private readonly matchEl: HTMLElement;
-  private ductSelect!: HTMLSelectElement;
-  /** Which duct the segment list edits. Falls back to the first duct if it disappears. */
+  /** Which duct the menu edits. Falls back to the first duct if it disappears. */
   private selectedDuctId = 'runner0';
   /**
    * The graph the current selection belongs to.
@@ -222,7 +217,6 @@ export class Panel {
   private headerBtn!: HTMLButtonElement;
   private headerApplyBtn!: HTMLButtonElement;
   private headerHint!: HTMLElement;
-  private headerOptions!: HTMLElement;
   private headerLengthInput!: HTMLInputElement;
   private headerMirrorLabel!: HTMLLabelElement;
   private placePipeHint!: HTMLElement;
@@ -235,11 +229,20 @@ export class Panel {
   /** Whether a route is in progress, so the hint can show where it is aimed. */
   private drawingRoute = false;
   private drawBtn!: HTMLButtonElement;
-  /** Details of the junction selected in the scene, hidden when none is. */
-  private jointEl!: HTMLElement;
+  /** The card beside the toolbar with the tool that is on's hint and settings, and each tool's part of it. */
+  private toolOptions!: HTMLElement;
+  private drawGroup!: HTMLElement;
+  private placePipeGroup!: HTMLElement;
+  private bendToolGroup!: HTMLElement;
+  private headerGroup!: HTMLElement;
+  private placeGroup!: HTMLElement;
   /** The junction selected in the scene, which adding a segment adds at. */
   private jointNode: string | null = null;
-  private readonly rows: SegmentRow[] = [];
+  /**
+   * The menu a right-click on a segment or a junction opens, on the one selected, which it follows; its row,
+   * what it was built for, so it is rebuilt only when that changes, and the exhaust's figures.
+   */
+  private segMenu: { el: HTMLElement; row: SegmentRow | null; key: string; stats: HTMLElement | null } | null = null;
   private cylSel!: HTMLSelectElement;
   private twinWrap!: HTMLElement;
   private crankSel!: HTMLSelectElement;
@@ -248,7 +251,6 @@ export class Panel {
   private offsetToggleEl!: HTMLElement;
   private offsetWrapEl!: HTMLElement;
   private readonly resyncers: Resync[] = [];
-  private readonly statsEl: HTMLElement;
   private readonly rpmEl: HTMLElement;
   private readonly dynoBtn: HTMLButtonElement;
   /** The dyno run's shift point and car mass where the user has set them; `null` fits them to the engine. */
@@ -280,6 +282,7 @@ export class Panel {
 
   constructor(
     root: HTMLElement,
+    tools: HTMLElement,
     private readonly config: EngineConfig,
     private readonly cb: PanelCallbacks,
     sampleRate: number,
@@ -596,44 +599,31 @@ export class Panel {
     this.syncLayoutOptions();
 
     // ---- Exhaust ---------------------------------------------------------
-    const exhaust = section(root, 'Exhaust system', false);
-
-    this.statsEl = el('div', 'stats', exhaust);
-
-    /**
-     * Which duct is being edited.
-     *
-     * One picker for every duct. The exhaust is a graph, so a collector is simply another duct, and
-     * giving it its own permanently-visible panel would make no more sense than giving cylinder 3's
-     * runner one.
-     */
-    const ductRow = el('div', 'row', exhaust);
-    el('label', '', ductRow).textContent = 'Editing';
-    this.ductSelect = el('select', '', ductRow) as HTMLSelectElement;
-    this.ductSelect.addEventListener('change', () => {
-      this.selectedDuctId = this.ductSelect.value;
-      this.selected = null;
-      this.rebuildPipeList();
-      this.cb.onSelectDuct(this.selectedDuctId);
-    });
+    // Built in the view: the tools in its toolbar, and a pipe or junction's settings in the menu a right-click
+    // on it opens.
 
     /**
-     * Draw mode.
-     *
-     * A mode rather than a replacement for the handles: the handles adjust a route that exists — length,
-     * bend, diameter — and drawing creates one. Two tools with distinct jobs.
+     * The tools, in the view's toolbar: drawing, placing a pipe, bending one, the equal-length header and
+     * placing a turbo. Draw mode is a mode rather than a replacement for the handles: the handles adjust a
+     * route that exists — length, bend, diameter — and drawing creates one. Two tools with distinct jobs.
      */
-    const drawRow = el('div', 'row', exhaust);
-    this.drawBtn = el('button', '', drawRow) as HTMLButtonElement;
-    this.drawBtn.textContent = 'Draw a pipe';
-    this.drawBtn.title =
+    const bar = el('div', 'toolbar', tools);
+    this.toolOptions = el('div', 'tool-options hidden', tools);
+
+    this.drawBtn = toolButton(
+      bar,
+      TOOL_ICONS.draw,
+      'Draw a pipe',
       'Start from an exhaust port, a junction, the open end of a pipe (to continue it) or the side of a ' +
-      'pipe (to branch off it), then click to add bends. Click a junction, a pipe or a pipe end to join ' +
-      'it. Bends lock to the engine: across (red), up (green), along the crank (blue), or 45 degrees ' +
-      'between two of them. Alt rounds the bend off the pipe instead, Shift draws freely; Escape ' +
-      'abandons; right-click or a double-click finishes in open air.';
-    this.drawHint = el('span', 'hint', drawRow);
-    const bendLabel = el('label', '', drawRow) as HTMLLabelElement;
+        'pipe (to branch off it), then click to add bends. Click a junction, a pipe or a pipe end to join ' +
+        'it. Bends lock to the engine: across (red), up (green), along the crank (blue), or 45 degrees ' +
+        'between two of them. Alt rounds the bend off the pipe instead, Shift draws freely. A double-click ' +
+        'or Enter finishes in open air; Escape abandons the pipe; right-click finishes it and exits.',
+    );
+    this.drawGroup = el('div', 'tool-group', this.toolOptions);
+    el('div', 'tool-name', this.drawGroup).textContent = 'Draw a pipe';
+    this.drawHint = el('div', 'hint', this.drawGroup);
+    const bendLabel = el('label', 'toggle', this.drawGroup) as HTMLLabelElement;
     const bendBox = el('input', '', bendLabel) as HTMLInputElement;
     bendBox.type = 'checkbox';
     bendLabel.append(' Bends');
@@ -642,41 +632,50 @@ export class Panel {
       'from its end you point sets the radius, no tighter than one and a half bores. Holding B does the ' +
       'same for as long as it is held, or lays corners while this is on.';
     bendBox.addEventListener('change', () => this.cb.onBendMode(bendBox.checked));
-    const placePipeRow = el('div', 'row', exhaust);
-    this.placePipeBtn = el('button', '', placePipeRow) as HTMLButtonElement;
-    this.placePipeBtn.textContent = 'Place a pipe';
-    this.placePipeBtn.title =
+
+    this.placePipeBtn = toolButton(
+      bar,
+      TOOL_ICONS.placePipe,
+      'Place a pipe',
       'Put a straight pipe down in the view, attached to nothing: click where it should start. It runs ' +
-      'along the crank, as long as the engine. Select it ' +
-      'for its triad, to move it with the arrows and turn it with the rings. It carries no gas until a pipe ' +
-      'is drawn into its start, which attaches it.';
-    this.placePipeHint = el('span', 'hint', placePipeRow);
-    const bendToolRow = el('div', 'row', exhaust);
-    this.bendToolBtn = el('button', '', bendToolRow) as HTMLButtonElement;
-    this.bendToolBtn.textContent = 'Bend a pipe';
-    this.bendToolBtn.title =
+        'along the crank, as long as the engine. Select it for its triad, to move it with the arrows and ' +
+        'turn it with the rings. It carries no gas until a pipe is drawn into its start, which attaches it.',
+    );
+    this.placePipeGroup = el('div', 'tool-group', this.toolOptions);
+    el('div', 'tool-name', this.placePipeGroup).textContent = 'Place a pipe';
+    this.placePipeHint = el('div', 'hint', this.placePipeGroup);
+
+    this.bendToolBtn = toolButton(
+      bar,
+      TOOL_ICONS.bend,
+      'Bend a pipe',
       'Click a straight to bend: two rings appear where it starts, one lying in the pipe’s up-and-down ' +
-      'plane and one in its side-to-side plane. Drag the ring of the plane to bend in, and the whole ' +
-      'straight curves into one arc; Shift turns in 15 degree steps. It keeps its length, as a tube does ' +
-      'when it is bent, and a ghost shows where it is going until you let go.';
-    this.bendToolHint = el('span', 'hint', bendToolRow);
-    const headerRow = el('div', 'row', exhaust);
-    this.headerBtn = el('button', '', headerRow) as HTMLButtonElement;
-    this.headerBtn.textContent = 'Equal-length header';
-    this.headerBtn.title =
+        'plane and one in its side-to-side plane. Drag the ring of the plane to bend in, and the whole ' +
+        'straight curves into one arc; Shift turns in 15 degree steps. It keeps its length, as a tube does ' +
+        'when it is bent, and a ghost shows where it is going until you let go.',
+    );
+    this.bendToolGroup = el('div', 'tool-group', this.toolOptions);
+    el('div', 'tool-name', this.bendToolGroup).textContent = 'Bend a pipe';
+    this.bendToolHint = el('div', 'hint', this.bendToolGroup);
+
+    this.headerBtn = toolButton(
+      bar,
+      TOOL_ICONS.header,
+      'Equal-length header',
       'Runs pipes all the same length from any openings to one collector: from exhaust ports with nothing ' +
-      'on them, bending straight out of them, or on from the open ends of pipes. Click an opening’s dot to ' +
-      'pick it or leave it out; until a length is set, it is the shortest that reaches. Drag the triad’s arrows to put the collector where it goes, and its ' +
-      'rings to point it; a ghost shows the pipes, the nearer ones swinging on their way to make their length ' +
-      'up. Apply or Enter builds it, Escape abandons it.';
-    this.headerApplyBtn = el('button', 'hidden', headerRow) as HTMLButtonElement;
-    this.headerApplyBtn.textContent = 'Apply';
-    this.headerHint = el('span', 'hint', headerRow);
-    this.headerOptions = el('div', 'row hidden', exhaust);
-    this.headerLengthInput = numberField(this.headerOptions, 'Pipe length', 400, 50, 3000, 1, 'mm', (v) =>
+        'on them, bending straight out of them, or on from the open ends of pipes. Click an opening’s dot to ' +
+        'pick it or leave it out; until a length is set, it is the shortest that reaches. Drag the triad’s ' +
+        'arrows to put the collector where it goes, and its rings to point it; a ghost shows the pipes, the ' +
+        'nearer ones swinging on their way to make their length up. Apply or Enter builds it; Escape or ' +
+        'right-click abandons it.',
+    );
+    this.headerGroup = el('div', 'tool-group', this.toolOptions);
+    el('div', 'tool-name', this.headerGroup).textContent = 'Equal-length header';
+    this.headerHint = el('div', 'hint', this.headerGroup);
+    this.headerLengthInput = numberField(this.headerGroup, 'Pipe length', 400, 50, 3000, 1, 'mm', (v) =>
       this.cb.onHeaderLength(v / MM),
     );
-    this.headerMirrorLabel = el('label', '', this.headerOptions) as HTMLLabelElement;
+    this.headerMirrorLabel = el('label', 'toggle', this.headerGroup) as HTMLLabelElement;
     const mirrorBox = el('input', '', this.headerMirrorLabel) as HTMLInputElement;
     mirrorBox.type = 'checkbox';
     mirrorBox.checked = this.headerMirror;
@@ -688,6 +687,25 @@ export class Panel {
       this.headerMirror = mirrorBox.checked;
       this.cb.onHeaderMirror(this.headerMirror);
     });
+    this.headerApplyBtn = el('button', 'primary', this.headerGroup) as HTMLButtonElement;
+    this.headerApplyBtn.textContent = 'Apply';
+
+    this.placeBtn = toolButton(
+      bar,
+      TOOL_ICONS.turbo,
+      'Place a turbo',
+      'Put a turbo down in the view, then draw pipes into its inlet: the open flange on the side of its ' +
+        'turbine. Put it on the open end of a pipe to attach that pipe as it goes down. Until you draw a ' +
+        'pipe from its outlet flange, it exhausts straight to the air there. Click a turbo for its triad: ' +
+        'drag an arrow to move it along that axis, a square to move it in that plane, a ring to turn it; ' +
+        'shift snaps to 5 mm and 15 degrees. Its pipes follow. Delete takes it out.',
+    );
+    this.placeGroup = el('div', 'tool-group', this.toolOptions);
+    el('div', 'tool-name', this.placeGroup).textContent = 'Place a turbo';
+    this.placeHint = el('div', 'hint', this.placeGroup);
+
+    el('div', 'tool-exit', this.toolOptions).textContent = 'Right-click or Esc to exit the tool';
+
     this.headerBtn.addEventListener('click', () => {
       this.setHeaderToolState(!this.headerOn);
       this.cb.onHeaderTool(this.headerOn);
@@ -709,39 +727,14 @@ export class Panel {
       this.setDrawMode(!this.drawing);
       this.cb.onDrawMode(this.drawing);
     });
-
-    /**
-     * The junction selected in the scene.
-     *
-     * A junction has nothing to set — its size and shape follow from the pipes meeting at it — so what it
-     * offers is what it joins, and a way to draw another pipe out of it.
-     */
-    this.jointEl = el('div', 'joint hidden', exhaust);
-
-    const linkRow = el('div', 'row', exhaust);
-    const linkLabel = el('label', '', linkRow) as HTMLLabelElement;
-    const linkBox = el('input', '', linkLabel) as HTMLInputElement;
-    linkBox.type = 'checkbox';
-    linkBox.checked = this.linkRunners;
-    linkLabel.append(' Apply to every cylinder');
-    linkLabel.title =
-      'Keeps every cylinder\u2019s primary identical, as a symmetric engine has them. Turn it off ' +
-      'to build unequal-length headers.';
-    linkBox.addEventListener('change', () => {
-      this.linkRunners = linkBox.checked;
-      if (this.linkRunners) this.commit();
+    this.placeBtn.addEventListener('click', () => {
+      this.setPlacingState(!this.placing);
+      this.cb.onPlaceMode(this.placing);
     });
+    this.syncTools();
 
-    this.noticeEl = el('div', 'hint notice hidden', exhaust);
-    this.listEl = el('div', 'segments', exhaust);
-    this.matchEl = el('div', 'row match hidden', exhaust);
-
-    const addRow = el('div', 'row buttons', exhaust);
-    for (const kind of ['pipe', 'chamber'] as SegmentKind[]) {
-      const b = el('button', '', addRow) as HTMLButtonElement;
-      b.textContent = `+ ${kind}`;
-      b.addEventListener('click', () => this.addSegment(kind));
-    }
+    // Why an edit was refused, and such, over the view.
+    this.noticeEl = el('div', 'notice-toast hidden', tools.parentElement ?? tools);
 
     // ---- Engine geometry -------------------------------------------------
     const geo = section(root, 'Engine geometry', true);
@@ -1137,20 +1130,6 @@ export class Panel {
      * them, and the settings every turbo shares.
      */
     const turbo = section(root, 'Turbocharger', true);
-    const placeRow = el('div', 'row', turbo);
-    this.placeBtn = el('button', '', placeRow) as HTMLButtonElement;
-    this.placeBtn.textContent = 'Place a turbo';
-    this.placeBtn.title =
-      'Put a turbo down in the view, then draw pipes into its inlet: the open flange on the side of its ' +
-      'turbine. Put it on the open end of a pipe to attach that pipe as it goes down. Until you draw a ' +
-      'pipe from its outlet flange, it exhausts straight to the air there. Click a turbo for its triad: drag an arrow to ' +
-      'move it along that axis, a square to move it in that plane, a ring to turn it; shift snaps to ' +
-      '5 mm and 15 degrees. Its pipes follow. Delete takes it out.';
-    this.placeHint = el('span', 'hint', placeRow);
-    this.placeBtn.addEventListener('click', () => {
-      this.setPlacingState(!this.placing);
-      this.cb.onPlaceMode(this.placing);
-    });
     this.turboCountEl = el('div', 'readout', turbo);
     this.turboReadout = el('div', 'readout', turbo);
     /** The turbo selected in the view. */
@@ -1538,7 +1517,7 @@ export class Panel {
   }
 
   // -------------------------------------------------------------------------
-  // Segment list
+  // Segment menu
   // -------------------------------------------------------------------------
 
   private addSegment(kind: SegmentKind): void {
@@ -1621,65 +1600,174 @@ export class Panel {
     }
     const duct = this.currentDuct();
     if (duct) this.selectedDuctId = duct.id;
-
-    // Repopulate the picker. Rebuilt wholesale because adding a duct renumbers the labels.
-    this.ductSelect.replaceChildren();
-    if (graph) {
-      for (const d of graph.ducts) {
-        const opt = el('option', '', this.ductSelect) as HTMLOptionElement;
-        opt.value = d.id;
-        opt.textContent = ductLabel(graph, d);
-      }
-      this.ductSelect.value = this.selectedDuctId;
-    }
-
-    const segments = this.currentSegments();
-    this.listEl.replaceChildren();
-    this.rows.length = 0;
-    const locked = this.lockedFrom();
-    segments.forEach((seg, i) => {
-      const row = this.buildRow(this.listEl, segments, seg, i, true);
-      if (locked !== null && i >= locked) lockRow(row);
-      this.rows.push(row);
-    });
-
-    this.buildMatch(graph, duct);
-    this.applySelection();
-    this.syncStats();
-  }
-
-  /** The length of a pipe joined at its far end by a fitted bend: set it, and the pipe is fitted to it (`fitToLength`). */
-  private buildMatch(graph: ExhaustGraph | null, duct: ExhaustDuct | null): void {
-    this.matchEl.replaceChildren();
-    const joined = graph && duct && duct.to.kind === 'node' && lockedFrom(graph, duct) !== null;
-    this.matchEl.classList.toggle('hidden', !joined);
-    if (!joined) return;
-    const total = (d: ExhaustDuct) => d.segments.reduce((a, s) => a + s.length, 0);
-    const field = numberField(this.matchEl, 'Pipe length', total(duct) * MM, 30, 5000, 1, 'mm', (v) =>
-      this.cb.onMatchLength(duct.id, v / MM),
-    );
-    field.title = 'Fits the pipe to this length: its last straight is lengthened or shortened, or it takes a swing on its way.';
+    this.renderMenu();
   }
 
   /**
-   * Build one segment row. Parameterised by which array it edits, and by whether picking
-   * the row selects the segment; every caller passes the selected duct's segments and `true`.
+   * Open the menu of the selected segment, or junction, at `x`, `y` on the page: its settings, and what to
+   * carry on with.
    */
-  private buildRow(
-    container: HTMLElement,
-    list: PipeSegment[],
-    seg: PipeSegment,
-    index: number,
-    selectable: boolean,
-  ): SegmentRow {
-    const wrap = el('div', 'segment', container);
-    if (selectable) {
-      wrap.addEventListener('pointerdown', () => {
-        this.selected = index;
-        this.applySelection();
-        this.cb.onSelect(index);
+  openMenu(x: number, y: number): void {
+    this.closeMenu();
+    if (this.selected === null && this.jointNode === null) return;
+    const menu = el('div', 'seg-menu', document.body);
+    this.segMenu = { el: menu, row: null, key: '', stats: null };
+    this.renderMenu();
+    if (!this.segMenu) return;
+    const box = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(x, innerWidth - box.width - 8))}px`;
+    menu.style.top = `${Math.max(8, Math.min(y, innerHeight - box.height - 8))}px`;
+    document.addEventListener('pointerdown', this.onMenuOutside, true);
+    window.addEventListener('keydown', this.onMenuKey);
+  }
+
+  closeMenu(): void {
+    if (!this.segMenu) return;
+    this.segMenu.el.remove();
+    this.segMenu = null;
+    document.removeEventListener('pointerdown', this.onMenuOutside, true);
+    window.removeEventListener('keydown', this.onMenuKey);
+  }
+
+  private onMenuOutside = (e: PointerEvent): void => {
+    if (this.segMenu && !this.segMenu.el.contains(e.target as Node)) this.closeMenu();
+  };
+
+  private onMenuKey = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') this.closeMenu();
+  };
+
+  /** Show the selected junction or segment in the menu, or close it with neither selected. */
+  private renderMenu(): void {
+    if (!this.segMenu) return;
+    if (this.jointNode !== null) this.renderJointMenu(this.jointNode);
+    else this.renderSegmentMenu();
+  }
+
+  /** The menu's head: `title`, and a button closing it. */
+  private menuHead(title: string): void {
+    const head = el('div', 'seg-menu-head', this.segMenu!.el);
+    el('span', '', head).textContent = title;
+    const close = el('button', 'tool', head) as HTMLButtonElement;
+    close.textContent = '×';
+    close.title = 'Close';
+    close.addEventListener('click', () => this.closeMenu());
+  }
+
+  /** Buttons adding a pipe or a chamber, as `addSegment` does, under `label`. */
+  private addButtons(label: string): void {
+    const add = el('div', 'seg-menu-add', this.segMenu!.el);
+    el('label', '', add).textContent = label;
+    const buttons = el('div', 'row buttons', add);
+    for (const kind of ['pipe', 'chamber'] as SegmentKind[]) {
+      const b = el('button', '', buttons) as HTMLButtonElement;
+      b.textContent = `+ ${kind}`;
+      b.addEventListener('click', () => this.addSegment(kind));
+    }
+  }
+
+  /**
+   * A junction's menu. A junction has nothing to set — its size and shape follow from the pipes meeting at
+   * it — so what it offers is what it joins, and ways to carry on out of it.
+   */
+  private renderJointMenu(node: string): void {
+    const menu = this.segMenu!;
+    const graph = this.config.graph;
+    if (!graph) {
+      this.closeMenu();
+      return;
+    }
+    const ends = endsAt(graph, node);
+    const key = ['joint', node, ...ends.map((e) => `${e.duct.id}:${e.end}`)].join('|');
+    if (key === menu.key) return;
+    menu.key = key;
+    menu.row = null;
+    menu.stats = null;
+    menu.el.replaceChildren();
+    const junctions = nodeOrder(graph).filter((n) => !turboAt(graph, n));
+    this.menuHead(`Junction ${junctions.indexOf(node) + 1}`);
+    const info = el('div', 'joint', menu.el);
+    const list = (label: string, ducts: ExhaustDuct[]) => {
+      if (ducts.length === 0) return;
+      const row = el('div', 'joint-row', info);
+      el('span', 'joint-label', row).textContent = label;
+      el('span', '', row).textContent = ducts.map((d) => ductLabel(graph, d)).join(', ');
+    };
+    list('In', ends.filter((e) => e.end === 'outlet').map((e) => e.duct));
+    list('Out', ends.filter((e) => e.end === 'inlet').map((e) => e.duct));
+    const btn = el('button', '', menu.el) as HTMLButtonElement;
+    btn.textContent = 'Draw a pipe from here';
+    btn.addEventListener('click', () => {
+      this.closeMenu();
+      this.setDrawMode(true);
+      this.cb.onDrawFromJoint(node);
+      this.setDrawingState(true);
+    });
+    this.addButtons('Or carry on out of it with');
+  }
+
+  /**
+   * A segment's menu: its row, as the list had it, and for the pipe it is in, whether the other cylinders'
+   * follow it and, joined at its far end, its length. A segment that ends the pipe in open air, with nothing
+   * attached, offers a pipe or a chamber to carry on with.
+   */
+  private renderSegmentMenu(): void {
+    const menu = this.segMenu!;
+    const graph = this.config.graph;
+    const duct = this.currentDuct();
+    const index = this.selected;
+    const seg = index === null ? undefined : duct?.segments[index];
+    if (!graph || !duct || index === null || !seg) {
+      this.closeMenu();
+      return;
+    }
+    const locked = this.lockedFrom();
+    const isLocked = locked !== null && index >= locked;
+    const open = duct.to.kind === 'mouth' && locked === null && index === duct.segments.length - 1;
+    const joined = duct.to.kind === 'node' && locked !== null;
+    const runner = duct.from.kind === 'valve' && this.config.engine.cylinders > 1;
+    const key = [duct.id, index, duct.segments.length, seg.kind, seg.section ?? '', !!bendShape(seg), isLocked, open, joined, runner].join('|');
+    if (key === menu.key && menu.row) {
+      this.syncRows([menu.row], [seg]);
+      this.syncStats();
+      return;
+    }
+    menu.key = key;
+    menu.el.replaceChildren();
+    this.menuHead(`${ductLabel(graph, duct)} · segment ${index + 1}`);
+    menu.stats = el('div', 'stats', menu.el);
+    this.syncStats();
+    menu.row = this.buildRow(menu.el, duct.segments, seg, index);
+    if (isLocked) lockRow(menu.row);
+    if (joined) {
+      const total = duct.segments.reduce((a, s) => a + s.length, 0);
+      numberField(menu.el, 'Pipe length', total * MM, 30, 5000, 1, 'mm', (v) =>
+        this.cb.onMatchLength(duct.id, v / MM),
+      ).title = 'Fits the pipe to this length: its last straight is lengthened or shortened, or it takes a swing on its way.';
+    }
+    if (runner) {
+      const label = el('label', 'toggle', menu.el) as HTMLLabelElement;
+      const box = el('input', '', label) as HTMLInputElement;
+      box.type = 'checkbox';
+      box.checked = this.linkRunners;
+      label.append(' Apply to every cylinder');
+      label.title =
+        'Keeps every cylinder\u2019s primary identical, as a symmetric engine has them. Turn it off ' +
+        'to build unequal-length headers.';
+      box.addEventListener('change', () => {
+        this.linkRunners = box.checked;
+        if (this.linkRunners) this.commit();
       });
     }
+    if (open) this.addButtons('Nothing is attached here. Carry on with');
+  }
+
+  /**
+   * Build segment `index` of `list`'s row, the selected duct's segments. Every edit in it shows in the view,
+   * and a structural one rebuilds it.
+   */
+  private buildRow(container: HTMLElement, list: PipeSegment[], seg: PipeSegment, index: number): SegmentRow {
+    const wrap = el('div', 'segment', container);
 
     const head = el('div', 'segment-head', wrap);
     el('span', 'segment-index', head).textContent = String(index + 1);
@@ -1965,17 +2053,7 @@ export class Panel {
 
   /** Refresh input values in place. Safe to call every frame of a 3D drag. */
   syncPipe(): void {
-    const segments = this.currentSegments();
-    const graph = this.config.graph;
-    if (
-      this.rows.length !== segments.length ||
-      (graph && this.ductSelect.options.length !== graph.ducts.length)
-    ) {
-      this.rebuildPipeList();
-      return;
-    }
-    this.syncRows(this.rows, segments);
-    this.syncStats();
+    this.renderMenu();
   }
 
   private syncRows(rows: SegmentRow[], list: PipeSegment[]): void {
@@ -2019,9 +2097,8 @@ export class Panel {
     }
     if (on) this.stopHeaderTool();
     this.bendingTool = on;
-    this.bendToolBtn.classList.toggle('active', on);
-    this.bendToolBtn.textContent = on ? 'Stop bending' : 'Bend a pipe';
     this.bendToolHint.textContent = on ? BEND_HINT : '';
+    this.syncTools();
   }
 
   /** Show the equal-length header tool as on or off, and turn off what it replaces. */
@@ -2043,12 +2120,9 @@ export class Panel {
       this.cb.onBendTool(false);
     }
     this.headerOn = on;
-    this.headerBtn.classList.toggle('active', on);
-    this.headerBtn.textContent = on ? 'Cancel header' : 'Equal-length header';
-    this.headerApplyBtn.classList.toggle('hidden', !on);
-    this.headerOptions.classList.toggle('hidden', !on);
     this.headerMirrorLabel.classList.toggle('hidden', physicalBankCount(this.config.engine) < 2);
     this.headerHint.textContent = '';
+    this.syncTools();
   }
 
   /** Turn the header tool off, as starting another tool does. */
@@ -2094,9 +2168,8 @@ export class Panel {
     if (on && this.placing) this.setPlacingState(false);
     if (on) this.stopHeaderTool();
     this.placingPipe = on;
-    this.placePipeBtn.classList.toggle('active', on);
-    this.placePipeBtn.textContent = on ? 'Stop placing' : 'Place a pipe';
-    this.placePipeHint.textContent = on ? 'Click where the pipe should start · Esc stops' : '';
+    this.placePipeHint.textContent = on ? 'Click where the pipe should start' : '';
+    this.syncTools();
   }
 
   /** Show whether turbos are being placed: from the button, or ended in the view by Escape. */
@@ -2108,9 +2181,8 @@ export class Panel {
     }
     if (on) this.stopHeaderTool();
     this.placing = on;
-    this.placeBtn.classList.toggle('active', on);
-    this.placeBtn.textContent = on ? 'Stop placing' : 'Place a turbo';
     this.placeHint.textContent = on ? PLACE_HINT : '';
+    this.syncTools();
   }
 
   /** How many turbos there are, and the settings shown only when there is one. */
@@ -2161,10 +2233,35 @@ export class Panel {
     }
     if (on) this.stopHeaderTool();
     this.drawing = on;
-    this.drawBtn.classList.toggle('active', on);
-    this.drawBtn.textContent = on ? 'Stop drawing' : 'Draw a pipe';
     this.drawingRoute = false;
     this.drawHint.textContent = on ? START_HINT : '';
+    this.syncTools();
+  }
+
+  /** Show every tool as off, without telling anyone: for when the view ended the one that was on. */
+  toolsEnded(): void {
+    this.setDrawMode(false);
+    this.setPlacingState(false);
+    this.setPlacingPipeState(false);
+    this.setBendToolState(false);
+    this.setHeaderToolState(false);
+  }
+
+  /** Light the button of the tool that is on, and show its part of the options card, or no card. */
+  private syncTools(): void {
+    const tools: Array<[boolean, HTMLButtonElement, HTMLElement]> = [
+      [this.drawing, this.drawBtn, this.drawGroup],
+      [this.placingPipe, this.placePipeBtn, this.placePipeGroup],
+      [this.bendingTool, this.bendToolBtn, this.bendToolGroup],
+      [this.headerOn, this.headerBtn, this.headerGroup],
+      [this.placing, this.placeBtn, this.placeGroup],
+    ];
+    for (const [on, button, group] of tools) {
+      button.classList.toggle('active', on);
+      button.setAttribute('aria-pressed', String(on));
+      group.classList.toggle('hidden', !on);
+    }
+    this.toolOptions.classList.toggle('hidden', !tools.some(([on]) => on));
   }
 
   /** Switch the list to a duct picked in the scene. */
@@ -2174,42 +2271,15 @@ export class Panel {
     this.rebuildPipeList();
   }
 
-  /** Describe the junction selected in the scene, or hide the description when there is none. */
+  /** Select the junction selected in the scene, or none: the menu shows it, and adding a segment adds there. */
   showJoint(node: string | null): void {
-    const graph = this.config.graph;
     this.jointNode = node;
-    this.jointEl.replaceChildren();
-    this.jointEl.classList.toggle('hidden', !node || !graph);
-    if (!node || !graph) return;
-
-    const ends = endsAt(graph, node);
-    const junctions = nodeOrder(graph).filter((n) => !turboAt(graph, n));
-    el('div', 'joint-title', this.jointEl).textContent = `Junction ${junctions.indexOf(node) + 1}`;
-    const list = (label: string, ducts: ExhaustDuct[]) => {
-      if (ducts.length === 0) return;
-      const row = el('div', 'joint-row', this.jointEl);
-      el('span', 'joint-label', row).textContent = label;
-      el('span', '', row).textContent = ducts.map((d) => ductLabel(graph, d)).join(', ');
-    };
-    list('In', ends.filter((e) => e.end === 'outlet').map((e) => e.duct));
-    list('Out', ends.filter((e) => e.end === 'inlet').map((e) => e.duct));
-
-    const btn = el('button', '', el('div', 'row', this.jointEl)) as HTMLButtonElement;
-    btn.textContent = 'Draw a pipe from here';
-    btn.addEventListener('click', () => {
-      this.setDrawMode(true);
-      this.cb.onDrawFromJoint(node);
-      this.setDrawingState(true);
-    });
+    this.renderMenu();
   }
 
   setSelected(index: number | null): void {
     this.selected = index;
-    this.applySelection();
-  }
-
-  private applySelection(): void {
-    this.rows.forEach((r, i) => r.el.classList.toggle('selected', i === this.selected));
+    this.renderMenu();
   }
 
   private syncStats(): void {
@@ -2241,7 +2311,9 @@ export class Panel {
       ? path.reduce((a, d) => a + d.segments.length, 0)
       : this.config.pipe.length;
     const layoutNote = eng.cylinders === 1 ? '' : ` · ${firingNote(eng)}`;
-    this.statsEl.textContent =
+    const stats = this.segMenu?.stats;
+    if (!stats) return;
+    stats.textContent =
       `${segs} segment${segs === 1 ? '' : 's'} · ` +
       `${(len * MM).toFixed(0)} mm · ` +
       `1st peak ≈ ${f1.toFixed(0)} Hz · tuned near ${tunedRpm.toFixed(0)} rpm${layoutNote}`;
