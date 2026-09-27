@@ -503,6 +503,33 @@ describe('deleting', () => {
     expect(solverGraph(graph).ducts.every((d) => d.to.kind === 'mouth')).toBe(true);
   });
 
+  it('pipes only bent in to meet the pipe deleted come off, rather than meeting where it was', async () => {
+    const { removeDuct, junctionAt, nodeOrder } = await import('../src/model/exhaustGraph.js');
+    const bend = () => makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 });
+    const graph: ExhaustGraph = {
+      ducts: [
+        ...[0, 1].map((i) => ({
+          id: `runner${i}`,
+          segments: [...runner(), bend()],
+          from: { kind: 'valve' as const, cylinder: i },
+          to: { kind: 'node' as const, node: 'join1' },
+          fitted: true as const,
+        })),
+        { id: 'loose1', segments: collector(), from: { kind: 'node', node: 'join1' }, to: { kind: 'mouth' } },
+      ],
+      junctions: [{ node: 'join1', position: [0.3, 0, 0], axis: [1, 0, 0] }],
+    };
+    expect(removeDuct(graph, 'loose1')).toBe(true);
+    for (const d of graph.ducts) {
+      expect(d.to).toEqual({ kind: 'mouth' });
+      expect(d.fitted).toBeUndefined();
+      expect(d.segments).toHaveLength(runner().length);
+    }
+    expect(nodeOrder(graph)).toEqual([]);
+    expect(junctionAt(graph, 'join1')).toBeUndefined();
+    expect(validateGraph(graph, 2)).toEqual([]);
+  });
+
   it('a collector junction is only deleted once the collector after it is: then its runners end open', async () => {
     const { removeDuct, removeJunction, compileCollectorLayout } = await import('../src/model/exhaustGraph.js');
     const graph = compileCollectorLayout(v8, runner(), collector());

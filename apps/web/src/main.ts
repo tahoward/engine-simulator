@@ -159,7 +159,7 @@ function detachIfShort(ductId: string): void {
 function mirrorRunners(ductId: string): void {
   const graph = config.graph!;
   const duct = graph.ducts.find((d) => d.id === ductId);
-  if (panel.runnersLinked && duct) copyToSiblingRunners(graph, duct);
+  if (panel.runnersLinked && duct) copyToSiblingRunners(graph, duct, config.engine);
 }
 
 /** With the runners linked, an edit reshapes them all: any left short of its junction comes off it (`detachIfShort`). */

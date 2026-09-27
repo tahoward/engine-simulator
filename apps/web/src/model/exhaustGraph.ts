@@ -761,8 +761,11 @@ export function pathToAir(graph: ExhaustGraph, cylinder: number): ExhaustDuct[] 
  *
  * Only *runners* are linked. A collector is a different part of the exhaust and there is generally one of
  * it, so linking it to anything would be meaningless.
+ *
+ * Given the engine, a runner on the other bank of a V or a boxer gets the mirror image, as the banks are:
+ * a pipe turned towards the flywheel on one side turns towards it on the other, not away.
  */
-export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct): void {
+export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct, spec?: EngineSpec): void {
   if (source.from.kind !== 'valve') return;
   // What was drawn: a bend fitted into a turbo belongs to its own pipe, and each keeps its own.
   const drawn = drawnSegments;
@@ -776,16 +779,43 @@ export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct): 
   const carries = (d: ExhaustDuct) => graph.ducts.some((o) => o.continues === d.id);
   // A pipe just started from a port has nothing drawn yet, and would leave every cylinder without a pipe.
   if (carries(source) || drawn(source).length === 0) return;
+  const portDir = (cylinder: number) => (spec ? exhaustPortOf(spec, cylinder).direction : undefined);
+  const from = portDir(source.from.cylinder);
   for (const other of graph.ducts) {
     if (other === source || other.from.kind !== 'valve' || carries(other)) continue;
+    const to = portDir(other.from.cylinder);
+    const flip = from && to ? mirrored(from, to) : false;
     const bend = other.segments.slice(other.segments.length - fittedCount(other));
-    other.segments = [...drawn(source).map((sg) => makeSegment(sg)), ...bend];
+    other.segments = [...drawn(source).map((sg) => (flip ? mirrorSegment(sg) : makeSegment(sg))), ...bend];
     // The way it sets off from its port, too, which a runner's heading is turned from.
     if (source.headingYaw === undefined) delete other.headingYaw;
-    else other.headingYaw = source.headingYaw;
+    else other.headingYaw = flip ? -source.headingYaw : source.headingYaw;
     if (source.headingPitch === undefined) delete other.headingPitch;
     else other.headingPitch = source.headingPitch;
   }
+}
+
+/**
+ * Whether port direction `b` is the mirror image of `a` in an upright plane, as the other bank's is.
+ *
+ * Headings turn about the world's up, and a bend is kept in a frame squared to it (`curveFrame`), so a
+ * mirror in an upright plane is the same numbers with every yaw, and a bend's sideways part, turned the
+ * other way. Ports that differ by any tilt of that plane are not mirrored, and get the copy.
+ */
+function mirrored(a: Vec3, b: Vec3): boolean {
+  const n: Vec3 = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+  const len = Math.hypot(...n);
+  return len > 1e-6 && Math.abs(n[1]) / len < 1e-6;
+}
+
+/** `sg` as it is in the mirror of an upright plane: yaw, and a bend's sideways part, the other way. */
+function mirrorSegment(sg: PipeSegment): PipeSegment {
+  const seg = makeSegment({ ...sg, yaw: -sg.yaw });
+  if (seg.curve) {
+    const { end, dir } = seg.curve;
+    seg.curve = { ...seg.curve, end: [end[0], end[1], -end[2]], dir: [dir[0], dir[1], -dir[2]] };
+  }
+  return seg;
 }
 
 /** An id of the form `prefix1`, `prefix2`, … that nothing in the graph is using. */
@@ -948,6 +978,8 @@ export function removeDuct(graph: ExhaustGraph, ductId: string, dirs?: DuctDirec
   const feeds = duct.to.kind === 'node' ? endsAt(graph, duct.to.node).filter((e) => e.end === 'outlet').length : 0;
   if (feeds === 1 && childDucts(graph, duct).length > 0) return false;
   graph.ducts = graph.ducts.filter((d) => d !== duct);
+  // Nothing carries on from a pipe that has gone, nor from a new one given its id.
+  for (const d of graph.ducts) if (d.continues === duct.id) delete d.continues;
   tidyJunctions(graph, touchedNodes(duct), dirs);
   return true;
 }
@@ -1075,8 +1107,9 @@ function tidy(graph: ExhaustGraph, nodes: Iterable<string>, dirs?: DuctDirection
       for (const out of outs) for (const n of touchedNodes(out)) if (n !== node) queue.push(n);
     } else if (turboAt(graph, node)) {
       // A turbo stays as it is, fed, with or without a pipe drawn from its outlet.
-    } else if (outs.length === 0 && feeds.length < 2) {
-      // A junction of one pipe is not one; two or more are a merge waiting for the pipe after it.
+    } else if (outs.length === 0 && (feeds.length < 2 || feeds.every((f) => f.fitted))) {
+      // A junction of one pipe is not one; two or more are a merge waiting for the pipe after it. Not where
+      // every one left was only bent in to meet what has gone: they meet nothing there, so they come off.
       for (const feed of feeds) {
         feed.to = { kind: 'mouth' };
         releaseBend(feed);
