@@ -134,6 +134,20 @@ describe('linking runners', () => {
     expect(opposite).toBe(spec.cylinders / 2);
   });
 
+  it('leaves each runner its own bore where it meets its junction', () => {
+    const graph = compileCollectorLayout(v8(), [makeSegment({ length: 0.4, dIn: 0.042 })], [makeSegment({ length: 0.6, dIn: 0.055 })]);
+    const runner0 = graph.ducts.find((d) => d.id === 'runner0')!;
+    runner0.segments[0]!.dIn = 0.046;
+    runner0.segments[0]!.dOut = 0.05;
+    copyToSiblingRunners(graph, runner0, v8());
+    for (const d of graph.ducts) {
+      if (d.from.kind !== 'valve' || d === runner0) continue;
+      // The rest of it is the copy; the end, at its junction, is as it was.
+      expect(d.segments[0]!.dIn).toBeCloseTo(0.046, 9);
+      expect(d.segments[0]!.dOut).toBeCloseTo(0.042, 9);
+    }
+  });
+
   it('does nothing when asked to mirror a collector', () => {
     const graph = compileCollectorLayout(v8(), [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.6 })]);
     const collector = graph.ducts.find((d) => d.id === 'collector0')!;
@@ -149,7 +163,8 @@ describe('linking runners', () => {
    */
   it('sounds the same as compiling the edited geometry directly', () => {
     const spec = { ...v8(), rpm: 3800, throttle: 0.85, freeRunning: false } as EngineSpec;
-    const edited = [makeSegment({ length: 0.33, dIn: 0.044 })];
+    // Ending at the bore it met the collector at, which is the collector's own and stays each runner's.
+    const edited = [makeSegment({ length: 0.33, dIn: 0.044, dOut: 0.042 })];
     const collector = [makeSegment({ length: 0.55, dIn: 0.058 })];
 
     const render = (graph: ExhaustGraph) => {
