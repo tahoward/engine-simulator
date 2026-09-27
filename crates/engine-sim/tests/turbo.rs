@@ -95,6 +95,27 @@ fn builds_boost_with_the_exhaust_and_the_wastegate_holds_it() {
     assert!(wg_high > wg_mid && wg_mid > 0.0, "the wastegate opens further with more exhaust: {wg_mid} {wg_high}");
 }
 
+/// A higher target is reached too, and makes more torque: the turbine's nozzle is sized for it, and
+/// the turbo left on auto for the airflow it brings.
+#[test]
+fn reaches_a_higher_boost_target() {
+    let at = |target: f64| {
+        let mut sim = rb26(json!({ "throttle": 1, "rpm": 4000, "boostTarget": target * 1e5, "turboSize": 0 }));
+        sim.render(4 * FS as usize);
+        let n = FS as usize / 2;
+        let mut t = 0.0;
+        for _ in 0..n {
+            sim.render(1);
+            t += sim.snapshot().torque;
+        }
+        (boost(&sim), t / n as f64)
+    };
+    let (low, t_low) = at(0.7);
+    let (high, t_high) = at(2.0);
+    assert!((high - 2.0).abs() < 0.1, "held at 2 bar: {high}");
+    assert!(t_high > 1.4 * t_low, "more torque on more boost: {t_high} N*m at {high} bar, {t_low} at {low}");
+}
+
 /// The shaft takes time to spin up: opened from part throttle, the boost lags behind.
 #[test]
 fn lags_behind_the_throttle() {

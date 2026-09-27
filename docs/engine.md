@@ -198,6 +198,10 @@ gas dynamics; the rest is lumped, one state each, and stepped every audio sample
   the atmosphere or back to the compressor inlet.
 
 Left on auto, the turbo is sized from the engine's airflow at 80% of its rev limit on full boost.
+Whatever its size, its turbine's nozzle is sized for the boost target: narrow enough that at that
+airflow, wastegate shut, the turbine makes 1.76 times the power the compressor takes to reach the
+target. The higher the target, the higher the pressure the exhaust backs up to behind it: at 0.7 bar,
+twice the atmosphere's at that flow; at 2 bar, near six times.
 
 The lag is not a filter on a boost map; it is the shaft spinning up. At 3500 rpm, opened from part
 throttle, the RB26's twin turbos take 0.7 s to reach 90% of their boost.

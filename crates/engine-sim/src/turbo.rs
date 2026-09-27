@@ -79,10 +79,17 @@ const INERTIA_AT_50MM: f64 = 2.5e-5;
 /// Bearing drag at full speed, as a fraction of the compressor's power at its design point.
 const FRICTION_SHARE: f64 = 0.02;
 
-/// Turbine inlet pressure ratio, wastegate shut, at the design exhaust flow. Sizes the nozzle.
-const TURBINE_DESIGN_PR: f64 = 2.0;
+/// Turbine power, wastegate shut, at the design exhaust flow, as a multiple of what the compressor
+/// takes to make the boost target there: the headroom the wastegate bypasses. Sizes the nozzle, to a
+/// pressure ratio of 2 at 0.7 bar and near 6 at 2 bar.
+const TURBINE_POWER_HEADROOM: f64 = 1.76;
+/// Most of the isentropic enthalpy drop the nozzle is sized to take, as a share of the gas's: a
+/// pressure ratio near 16.
+const TURBINE_MAX_DROP: f64 = 0.5;
 /// Temperature the turbine is sized at, K.
 const TURBINE_DESIGN_T: f64 = 1100.0;
+const GAMMA_EXH: f64 = gas::GAMMA_EXH;
+const CP_EXH: f64 = GAMMA_EXH * gas::R / (GAMMA_EXH - 1.0);
 /// Flow capacity of the wastegate, wide open, as a multiple of the turbine's.
 const WASTEGATE_CAPACITY: f64 = 1.5;
 /// Boost below the target at which the wastegate starts to open, and the rise over which it goes from
@@ -201,9 +208,22 @@ fn sizing(spec: &EngineSpec, turbos: usize) -> Sizing {
     let inertia = count * INERTIA_AT_50MM * math::pow(wheel / 0.05, 5.0);
     let friction = (FRICTION_SHARE * choke_flow * work) / (full_speed * full_speed);
 
-    let exhaust_flow = (choke_flow / FLOW_HEADROOM) * (1.0 + 1.0 / gas::AFR_STOICH);
-    let turbine_k = (exhaust_flow * math::sqrt(TURBINE_DESIGN_T))
-        / (gas::P_AMB * math::sqrt(TURBINE_DESIGN_PR * TURBINE_DESIGN_PR - 1.0));
+    // The turbine nozzle: the pressure ratio at which, at the design flow, the turbine makes its
+    // headroom over the work of compressing to the boost target, at the compressor's efficiency there.
+    let exhaust_share = 1.0 + 1.0 / gas::AFR_STOICH;
+    let exhaust_flow = (choke_flow / FLOW_HEADROOM) * exhaust_share;
+    let d = (1.0 / FLOW_HEADROOM - ETA_BEST_FLOW) / (1.0 - ETA_BEST_FLOW);
+    let eta_design = ETA_COMPRESSOR * math::max(1.0 - ETA_FALLOFF * d * d, ETA_FLOOR);
+    let pr_target = (gas::P_AMB + boost_target) / gas::P_AMB;
+    let compressor_work =
+        CP_AIR * gas::T_AMB * (math::pow(pr_target, (GAMMA_AIR - 1.0) / GAMMA_AIR) - 1.0) / eta_design;
+    let drop = math::min(
+        (TURBINE_POWER_HEADROOM * compressor_work) / (exhaust_share * CP_EXH * TURBINE_DESIGN_T * ETA_TURBINE),
+        TURBINE_MAX_DROP,
+    );
+    let turbine_pr = math::pow(1.0 - drop, -GAMMA_EXH / (GAMMA_EXH - 1.0));
+    let turbine_k =
+        (exhaust_flow * math::sqrt(TURBINE_DESIGN_T)) / (gas::P_AMB * math::sqrt(turbine_pr * turbine_pr - 1.0));
 
     let charge_volume = math::max(CHARGE_VOLUME_RATIO * swept, 1e-4);
     let c = math::sqrt(GAMMA_AIR * gas::R * gas::T_AMB);
