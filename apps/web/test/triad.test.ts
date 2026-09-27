@@ -146,6 +146,22 @@ describe('swinging a whole pipe about where it starts', () => {
     return { before, after, origin, lengths, duct };
   }
 
+  it('held to the face it starts from, turns about its axis: the first straight stays put, the rest swings', async () => {
+    const { pipeShape } = await import('../src/scene/drawing.js');
+    const { turnHeading } = await import('../src/scene/PipeMesh.js');
+    const { makeSegment } = await import('../src/model/spec.js');
+    const face = pipeShape([makeSegment({ length: 0.2, yaw: 0.1 })], turnHeading(new THREE.Vector3(1, 0, 0), 0.3, -0.2)).starts[0]!;
+    const { before, after, origin } = await swung(true, face, 1.3);
+    // The first straight runs out along the face's axis, and still does.
+    const firstEnd = before.joints[0]!;
+    expect(after.joints[0]!.distanceTo(firstEnd)).toBeLessThan(1e-9);
+    // Everything after it turned about that axis, through where the pipe starts.
+    before.stations.forEach((st, i) => {
+      const expected = st.position.clone().sub(origin).applyAxisAngle(face, 1.3).add(origin);
+      expect(after.stations[i]!.position.distanceTo(expected)).toBeLessThan(1e-9);
+    });
+  });
+
   it.each([false, true])('turns it as one piece, every segment, corner and bend kept, bent: %s', async (bent) => {
     const axis = new THREE.Vector3(0.3, 0.8, -0.5).normalize();
     const { before, after, origin, lengths, duct } = await swung(bent, axis, 0.7);

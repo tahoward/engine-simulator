@@ -30,6 +30,7 @@ import type { Quat } from '../model/exhaustGraph.js';
 import {
   attachToLooseStart,
   joinDuctEnd,
+  junctionAt,
   newDuctId,
   splitDuctAt,
   type DuctSink,
@@ -1292,35 +1293,36 @@ export class PipeEditor {
     }
 
     /**
-     * The selected pipe's triad, at where it starts: the junction it leaves, or where a loose pipe was put
-     * down. Its rings swing the whole pipe about that point, and are turned with the pipe, red along the way
-     * it sets off; its arrows move the junction, or the loose pipe, and the pipe with it.
+     * The selected pipe's triad, at where it starts.
      *
-     * None for a pipe that carries straight on from a straight one (`ExhaustDuct.continues`), whose way is
-     * that pipe's, nor for one leaving a turbo's outlet, whose way is the flange's: each goes where what it
-     * leaves points it. One carrying on from a curved pipe, a bend fitted to meet it, has one: the bend
-     * follows wherever it is moved or turned.
+     * A loose pipe is free: its arrows move it and its three rings swing it every way, turned with the pipe,
+     * red along the way it sets off. A pipe that starts at a connection is held to the face it starts from,
+     * as a pipe is to a flange: it turns only in that face's plane, about the connection's axis (`faceAxis`),
+     * by the one ring round it, so where it sets off from stays put. Its arrows move the junction it
+     * leaves, where it leaves one of its own; a port, a turbo's outlet and the end of another pipe hold it.
+     * A straight pipe along that axis would turn to no effect, so it has no ring.
      */
     const graph = this.context?.graph;
     const duct = graph?.ducts.find((d) => d.segments === this.pipe);
-    const carriedFrom = duct?.continues ? graph?.ducts.find((d) => d.id === duct.continues) : undefined;
-    // Nor for one attached to an exhaust port, which is part of the engine and holds it.
-    const held =
-      duct?.from.kind === 'valve' ||
-      (duct?.from.kind === 'node' &&
-        ((carriedFrom !== undefined && !carriedFrom.fitted) ||
-          !!graph?.turbos?.some((t) => t.node === (duct.from as { node: string }).node)));
-    if (this.selected !== null && editable > 0 && !held) {
-      this.pipeTriadAt = { start: this.origin.clone() };
-      this.pipeTriad.setMoveOrigin(this.origin);
-      this.pipeTriad.setRotateOrigin(this.origin);
-      this.pipeTriad.setOrientation(frameAlong(layout.stations[0]!.direction));
-      // Its arrows move the junction it starts from, or a loose pipe itself.
-      this.pipeTriad.showMoves(true);
-      // A bent pipe swung about the way it sets off moves the rest of it, so that ring is offered too.
-      this.pipeTriad.hideRing(0, false);
-    } else {
-      this.pipeTriadAt = null;
+    this.pipeTriadAt = null;
+    if (this.selected !== null && editable > 0 && duct) {
+      const face = this.faceAxis(duct);
+      const shape = pipeShape(this.pipe.slice(0, editable), this.heading);
+      const turns = face
+        ? [...shape.starts, ...shape.ends].some((d) => d.clone().cross(face).lengthSq() > 1e-8)
+        : true;
+      const movable = duct.from.kind === 'free' || (duct.from.kind === 'node' && !this.heldAtStart(duct));
+      if (turns || movable) {
+        this.pipeTriadAt = { start: this.origin.clone() };
+        this.pipeTriad.setMoveOrigin(this.origin);
+        this.pipeTriad.setRotateOrigin(this.origin);
+        this.pipeTriad.setOrientation(frameAlong(face ?? layout.stations[0]!.direction));
+        this.pipeTriad.showMoves(movable);
+        // Held to a face, only the ring round its axis; loose, all three.
+        this.pipeTriad.hideRing(0, !turns);
+        this.pipeTriad.hideRing(1, !!face);
+        this.pipeTriad.hideRing(2, !!face);
+      }
     }
 
     this.applyHandleColours();
@@ -1645,6 +1647,41 @@ export class PipeEditor {
    * outlet flange's, or the world's for a pipe leaving a junction, which is stored in world terms from here
    * on, since the junction's own direction is worked out afresh each time.
    */
+  /**
+   * The axis of the face a pipe starts from, which it turns about, held to it: its port's, its turbo
+   * outlet's, the way the pipe it carries on from finishes, or its junction's. `null` for a loose pipe,
+   * which is held to nothing.
+   */
+  private faceAxis(duct: ExhaustDuct): THREE.Vector3 | null {
+    const ctx = this.context!;
+    if (duct.from.kind === 'free') return null;
+    if (duct.from.kind === 'valve') return ctx.ports[duct.from.cylinder]?.direction.clone().normalize() ?? this.heading.clone();
+    const node = duct.from.node;
+    const outlet = ctx.placement.turbos.get(node)?.outlet;
+    if (outlet) return new THREE.Vector3(...outlet.dir).normalize();
+    const carried = duct.continues ? ctx.graph.ducts.find((d) => d.id === duct.continues) : undefined;
+    const place = carried ? ctx.placement.ducts.get(carried.id) : undefined;
+    if (carried && place && carried.segments.length > 0) {
+      return layoutPipe(carried.segments, place.origin, place.heading).jointDirections.at(-1)!.clone();
+    }
+    const pinned = junctionAt(ctx.graph, node);
+    if (pinned) return new THREE.Vector3(...pinned.axis).normalize();
+    return ctx.placement.joints.get(node)?.axis.clone().normalize() ?? this.heading.clone();
+  }
+
+  /**
+   * Whether a pipe from a junction is held where it starts: leaving a turbo's outlet, or carrying straight
+   * on from a pipe, it goes where that points it, so its junction is not moved from it.
+   */
+  private heldAtStart(duct: ExhaustDuct): boolean {
+    const ctx = this.context!;
+    if (duct.from.kind !== 'node') return duct.from.kind === 'valve';
+    const node = duct.from.node;
+    if (ctx.graph.turbos?.some((t) => t.node === node)) return true;
+    const carried = duct.continues ? ctx.graph.ducts.find((d) => d.id === duct.continues) : undefined;
+    return carried !== undefined && !carried.fitted;
+  }
+
   private headingBase(duct: ExhaustDuct): THREE.Vector3 {
     const ctx = this.context!;
     if (duct.from.kind === 'valve') return ctx.ports[duct.from.cylinder]?.direction.clone() ?? this.heading.clone();
@@ -1673,7 +1710,13 @@ export class PipeEditor {
     }
     let turn = this.triadTurn(drag);
     if (turn === null) return;
-    if (snap) turn = snapTurnToEngine(drag.shape0.starts[0]!, turn, drag.axis, (TRIAD_TURN_DEG * Math.PI) / 180);
+    if (snap) {
+      // Squared up by the first way the pipe goes that swings round: turning about a face's axis, the first
+      // straight out of it may lie along the axis and not swing at all.
+      const dirs = [...drag.shape0.starts, ...drag.shape0.ends];
+      const ref = dirs.find((d) => d.clone().cross(drag.axis).lengthSq() > 1e-6) ?? drag.shape0.starts[0]!;
+      turn = snapTurnToEngine(ref, turn, drag.axis, (TRIAD_TURN_DEG * Math.PI) / 180);
+    }
     swingPipe(duct, drag.base, drag.shape0, drag.axis, turn);
     drag.moved = true;
     this.commitFrame(drag, () => this.cb.onChange(false), () => this.cb.onChange(true));

@@ -141,13 +141,16 @@ How to edit:
   into it curves in beside it at a junction fixed where the pipe ended. Nothing is added after the
   junction: draw the pipe that carries the merged flow on from it (select it, then **Draw a pipe from
   here**). Until you do, both pipes end in open air there.
-- **Turn or move the selected pipe** with its [triad](#the-triad), which sits where the pipe starts: its
-  junction, or where a loose pipe was put down, turned with the pipe, red along the way it sets off. A pipe
-  on an exhaust port has none, since the port is part of the engine and holds it. A pipe that carries straight on
-  from a straight pipe, or leaves a turbo's outlet, has no triad: it goes the way what it leaves points
-  it. One carrying on from a curved pipe, a fitted bend, has one, and the bend follows it.
-  - Its **rings** swing the whole pipe about that point as one piece: every segment keeps its length and
-    the bends between them stay as they are.
+- **Turn or move the selected pipe** with its [triad](#the-triad), which sits where the pipe starts.
+  - A **loose pipe** is free: its three rings swing it every way about where it starts, turned with the
+    pipe, red along the way it sets off.
+  - A pipe that **starts at a connection** is held to the face it starts from, as a pipe is to a flange:
+    it turns only in that face's plane, by one red ring round the connection's axis, so where it sets off
+    from stays put and the rest of it swings round. The axis is an exhaust port's, a turbo outlet's, the
+    way the pipe it carries on from finishes, or its junction's. A straight pipe along that axis would turn
+    to no effect, so it has no ring.
+  - Either way the whole pipe turns as one piece: every segment keeps its length and the corners and bends
+    between them stay as they are.
   - Its **arrows and squares** move the junction the pipe starts from, and the pipe with it, and every
     pipe into the junction bends in to follow; from then on it stays where it was put. A pipe from an
     exhaust port has no arrows, since the port is part of the engine.
@@ -169,8 +172,9 @@ How to edit:
 
 ### The triad
 
-A selected pipe or turbo has a triad: handles along its own three axes, red, green and blue. A pipe from
-an exhaust port has only the rings, since where it starts is fixed.
+A selected pipe or turbo has a triad: handles along its own three axes, red, green and blue. A pipe held
+to a connection has only the ring round the connection's axis, and arrows only where it leaves a junction
+of its own.
 
 - **Drag an arrow** to move along that axis.
 - **Drag a square** to move in the plane of the two arrows beside it.
