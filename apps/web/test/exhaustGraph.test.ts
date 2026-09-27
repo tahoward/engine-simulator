@@ -11,6 +11,7 @@ import { describe, expect, it } from 'vitest';
 
 import { Sim } from '../src/audio/worklet/sim.js';
 import {
+  carryBore,
   compileCollectorLayout,
   compileLayout,
   copyToSiblingRunners,
@@ -173,5 +174,50 @@ describe('switching presets', () => {
     pick('Single');
     pick('Inline');
     expect(pick('V8, cross')).toBe(first);
+  });
+});
+
+/** Pipes joined at a junction at the same bore stay joined at it when one of them is resized there. */
+describe('carrying a bore across a junction', () => {
+  function junction(): ExhaustGraph {
+    return {
+      ducts: [
+        { id: 'a', segments: [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.04, dOut: 0.045 })], from: { kind: 'valve', cylinder: 0 }, to: { kind: 'node', node: 'j' } },
+        { id: 'b', segments: [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.04, dOut: 0.045 })], from: { kind: 'valve', cylinder: 1 }, to: { kind: 'node', node: 'j' } },
+        // Arrives narrower: a different bore, which is left as it is.
+        { id: 'c', segments: [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.03 })], from: { kind: 'valve', cylinder: 2 }, to: { kind: 'node', node: 'j' } },
+        { id: 'out', segments: [makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.045, dOut: 0.06 })], from: { kind: 'node', node: 'j' }, to: { kind: 'mouth' } },
+      ],
+    };
+  }
+
+  it('the pipe leaving resized where it starts: the pipes arriving at its bore follow', () => {
+    const g = junction();
+    const out = g.ducts.find((d) => d.id === 'out')!;
+    out.segments[0]!.dIn = 0.05;
+    carryBore(g, out, 'start', 0.045, 0.05);
+    expect(g.ducts.find((d) => d.id === 'a')!.segments[0]!.dOut).toBe(0.05);
+    expect(g.ducts.find((d) => d.id === 'b')!.segments[0]!.dOut).toBe(0.05);
+    expect(g.ducts.find((d) => d.id === 'c')!.segments[0]!.dOut).toBe(0.03);
+    // Only where they meet: where each starts is its own.
+    expect(g.ducts.find((d) => d.id === 'a')!.segments[0]!.dIn).toBe(0.04);
+  });
+
+  it('a pipe arriving resized where it ends: the rest at its bore follow, the pipe leaving included', () => {
+    const g = junction();
+    const a = g.ducts.find((d) => d.id === 'a')!;
+    a.segments[0]!.dOut = 0.048;
+    carryBore(g, a, 'end', 0.045, 0.048);
+    expect(g.ducts.find((d) => d.id === 'b')!.segments[0]!.dOut).toBe(0.048);
+    expect(g.ducts.find((d) => d.id === 'out')!.segments[0]!.dIn).toBe(0.048);
+    expect(g.ducts.find((d) => d.id === 'out')!.segments[0]!.dOut).toBe(0.06);
+  });
+
+  it('leaves a turbo’s pipes alone: its flanges are its own size', () => {
+    const g = junction();
+    g.turbos = [{ id: 'turbo1', node: 'j', position: null, rotation: [0, 0, 0, 1] }];
+    const out = g.ducts.find((d) => d.id === 'out')!;
+    carryBore(g, out, 'start', 0.045, 0.05);
+    expect(g.ducts.find((d) => d.id === 'a')!.segments[0]!.dOut).toBe(0.045);
   });
 });

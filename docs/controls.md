@@ -162,7 +162,9 @@ How to edit:
 - **Pipes match where they meet.** Each segment starts at the diameter the one before it ends at, whichever
   end you change. A bend fitted to what a pipe joins tapers from the pipe's diameter to the diameter of
   what it joins, a turbo's inlet or the pipe it merges into, and a pipe leaving a turbo starts at the
-  turbo's outlet bore.
+  turbo's outlet bore. At a junction, resizing one pipe's end there, by its ring or in the panel, resizes
+  every other pipe end there that was the same bore, so pipes joined at a bore stay joined at it. Ends that
+  were a different bore, as a header's primaries are from their collector, are left as they are.
 - **Or type exact sizes** into the panel. A typed value takes effect when you press
   <kbd>Enter</kbd>, leave the field, or use the spinner arrows. The handles and the panel both edit
   the same segments of the selected pipe, so they always agree.
@@ -226,19 +228,18 @@ Click **Draw a pipe** to switch to draw mode.
 
 **Bend a pipe** bends a pipe where it lies, the way a tube is bent: it keeps its length.
 
-1. Click a straight of any pipe where it should bend. Two rings appear there, each lying in one of the
-   pipe's own planes: one in its up-and-down plane, one in its side-to-side plane.
-2. Drag the ring of the plane to bend in. The bend turns only in that plane, by as much as you drag;
-   hold <kbd>Shift</kbd> for 15-degree steps. A ghost of the pipe shows where it is going, and the panel
-   reads the bend out: "bend 60° up and down, radius 249 mm".
+1. Click a straight of any pipe. Two rings appear where it starts, each lying in one of the pipe's own
+   planes: one in its up-and-down plane, one in its side-to-side plane.
+2. Drag the ring of the plane to bend in. The whole straight curves into one arc in that plane, by as
+   much as you drag; hold <kbd>Shift</kbd> for 15-degree steps. A ghost of the pipe shows where it is
+   going, and the panel reads the bend out: "bend 60° up and down, radius 286 mm".
 3. Let go, and the pipe takes that shape.
 
-The bend is centred where you clicked and takes its length out of the straight either side, so the pipe
-stays as long as it was. Where it starts stays put; the rest swings round. Its radius is three bores,
-eased tighter where the straight is too short for that, down to one and a half; a straight too short even
-then turns only as far as it has length for, and the panel says so. A pipe joined at its far end by a fitted
-bend is fitted to its old length again once it is bent (**Pipe length**, below). Cans, bends, and the bend
-fitted into what a pipe joins are not bent this way.
+The straight stays as long as it was, so its radius is its length over the turn. Where it starts stays
+put; the rest of the pipe swings round. It turns no tighter than one and a half bores: a straight too short
+for the turn asked of it turns only as far as that allows, and the panel says so. A pipe joined at its far
+end by a fitted bend is fitted to its old length again once it is bent (**Pipe length**, below). Cans,
+bends, and the bend fitted into what a pipe joins are not bent this way.
 
 **Pipe length** shows under the segment list for a pipe joined at its far end by a fitted bend. Type a
 length and the pipe is fitted to it, keeping every bend smooth: its last straight is lengthened or

@@ -29,6 +29,7 @@ import {
 import type { Quat } from '../model/exhaustGraph.js';
 import {
   attachToLooseStart,
+  carryBore,
   joinDuctEnd,
   junctionAt,
   newDuctId,
@@ -1931,18 +1932,26 @@ export class PipeEditor {
     const d = radius * 2;
     const i = this.drag!.data.segment;
 
+    // Where the pipe starts or ends at a junction, the pipes meeting it there follow (`carryBore`).
+    const graph = this.context?.graph;
+    const duct = graph?.ducts.find((x) => x.segments === this.pipe);
+
     // A pipe's two ends are set apart, so it tapers between them; the inlet ring sets where it starts.
     if (this.drag!.data.kind === 'inlet') {
+      const was = segmentDiameter(seg, 0);
       seg.dIn = d;
+      if (graph && duct && i === 0) carryBore(graph, duct, 'start', was, d);
       return;
     }
 
     // The outlet diameter is `dIn` for a chamber, which necks back down to its throat, and `dOut` for a
     // pipe, matching `segmentDiameter(seg, 1)`. The next segment starts at it.
+    const was = segmentDiameter(seg, 1);
     if (seg.kind === 'chamber') seg.dIn = d;
     else seg.dOut = d;
 
     this.propagate(i);
+    if (graph && duct && i === this.pipe.length - 1) carryBore(graph, duct, 'end', was, d);
   }
 
   /** Keep the duct continuous: the next segment starts where this one ends. */

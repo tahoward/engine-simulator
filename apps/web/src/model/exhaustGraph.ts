@@ -105,6 +105,34 @@ export interface ExhaustDuct {
   swing?: true;
 }
 
+/** How near two bores have to be to count as matched where pipes meet, m. */
+const BORE_MATCH = 5e-4;
+
+/**
+ * Carry a change of bore at one end of `duct`, from `was` to `now`, to the other pipes meeting at the
+ * junction there: every end there that matched it follows, so pipes joined at the same bore stay joined at
+ * it. Ends that were a different bore, as a header's primaries are from their collector, are left as they
+ * are, and so is a turbo, whose flanges are its own size.
+ */
+export function carryBore(graph: ExhaustGraph, duct: ExhaustDuct, end: 'start' | 'end', was: number, now: number): void {
+  const at = end === 'start' ? duct.from : duct.to;
+  if (at.kind !== 'node' || turboAt(graph, at.node)) return;
+  for (const e of endsAt(graph, at.node)) {
+    if (e.duct === duct) continue;
+    if (e.end === 'inlet') {
+      // A pipe leaving: where its first segment starts.
+      const first = e.duct.segments[0];
+      if (first && Math.abs(segmentDiameter(first, 0) - was) < BORE_MATCH) first.dIn = now;
+    } else {
+      // A pipe arriving: where its last segment ends, a can's throat or a pipe's outlet.
+      const last = e.duct.segments.at(-1);
+      if (!last || Math.abs(segmentDiameter(last, 1) - was) >= BORE_MATCH) continue;
+      if (last.kind === 'chamber') last.dIn = now;
+      else last.dOut = now;
+    }
+  }
+}
+
 /** How many of `duct`'s last segments were fitted rather than drawn: its bend, and a swing before it. */
 export function fittedCount(duct: ExhaustDuct): number {
   if (!duct.fitted || duct.segments.length === 0) return 0;
