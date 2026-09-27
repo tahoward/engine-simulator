@@ -35,10 +35,8 @@ import {
   bankCylinders,
   bankMirror,
   defaultMerge,
-  headerCollectorBore,
-  headerPrimaries,
+  openingKey,
   runnerBore,
-  shortestHeader,
 } from './scene/headerTool.js';
 import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatTurbos, turboHeight } from './scene/turboPlacement.js';
 import {
@@ -298,11 +296,10 @@ const editor = new PipeEditor(
     },
     onHeaderAim: (aim) => panel.setHeaderAim(aim),
     onHeaderEnded: () => panel.setHeaderToolState(false),
-    onApplyHeader: (plans) => {
+    onApplyHeader: (builds) => {
       freeze();
       const graph = config.graph!;
-      const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
-      for (const plan of plans) applyHeader(graph, plan, headerPrimaries(ports, plan), directionsOf(stablePlacement));
+      for (const { plan, primaries } of builds) applyHeader(graph, plan, primaries, directionsOf(stablePlacement));
       panel.setHeaderToolState(false);
       afterTurboEdit(true);
     },
@@ -430,18 +427,29 @@ const panel = new Panel(panelEl, config, {
     // The bank of the pipe being edited, if it is a cylinder's.
     const edited = graph.ducts.find((d) => d.id === editedDuctId);
     const bank = edited?.from.kind === 'valve' ? physicalBank(spec, edited.from.cylinder) : 0;
-    const cylinders = bankCylinders(spec, bank);
-    const { merge, axis } = defaultMerge(ports, cylinders);
-    const bore = runnerBore(graph, cylinders[0]!, exhaustPortDiameter(spec));
-    const plan = { cylinders, merge, axis, length: 0, bore, collectorBore: headerCollectorBore(graph, cylinders, bore) };
-    plan.length = shortestHeader(ports, plan);
-    const mirror = bankMirror(spec);
+    // Starting out from that bank's ports, with every port picked.
+    const portBore = exhaustPortDiameter(spec);
+    const { merge, axis } = defaultMerge(
+      bankCylinders(spec, bank).map((cylinder) => ({
+        opening: { kind: 'port' as const, cylinder },
+        point: ports[cylinder]!.position,
+        dir: ports[cylinder]!.direction,
+        bore: runnerBore(graph, cylinder, portBore),
+      })),
+    );
     editor.setHeaderTool({
-      plan,
-      mirror: mirror ? { ...mirror, cylinders: bankCylinders(spec, 1 - bank) } : null,
+      merge,
+      axis,
+      length: 0,
+      picked: new Set(ports.map((_, cylinder) => openingKey({ kind: 'port', cylinder }))),
+      banks: ports.map((_, cylinder) => physicalBank(spec, cylinder)),
+      mirror: bankMirror(spec),
       mirrored: panel.headerMirrored,
+      portBore,
     });
-    panel.setHeaderLength(plan.length);
+    const length = editor.headerReach;
+    editor.setHeaderLength(length);
+    panel.setHeaderLength(length);
   },
   onHeaderLength: (length) => editor.setHeaderLength(length),
   onHeaderMirror: (on) => editor.setHeaderMirrored(on),
