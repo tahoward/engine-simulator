@@ -26,6 +26,8 @@ import {
   type EngineSpec,
   clearanceVolume,
   crankPins,
+  cylinderZ,
+  ROD_STAGGER,
   mainBearingsAfter,
   exhaustPortDiameter,
   cylinderSpacing,
@@ -144,7 +146,7 @@ export class EngineMesh {
          * parallel twin, whose two firing banks are one physical bank under one head.
          */
         const exhaustSide = physicalBankCount(this.spec) > 1 && physicalBank(this.spec, cyl) === 0 ? -1 : 1;
-        this.cyls[cyl] = this.buildCylinder(bank, zOf(pin), pins[pin]!.angles[k]!, exhaustSide);
+        this.cyls[cyl] = this.buildCylinder(bank, cylinderZ(this.spec, cyl), pins[pin]!.angles[k]!, exhaustSide);
       });
     }
 
@@ -168,12 +170,12 @@ export class EngineMesh {
       return new THREE.Vector2(-a * Math.sin(phi), a * Math.cos(phi));
     };
 
-    // A split throw's pins sit side by side along the shaft, each half as wide.
+    // A split throw's pins sit side by side along the shaft, each half as wide, under their cylinders.
     const throwPins = throws.map(({ angles, z }) =>
       angles.map((angle, k) => ({
         angle,
-        z: z + (angles.length > 1 ? (k - (angles.length - 1) / 2) * 0.016 : 0),
-        width: angles.length > 1 ? 0.015 : 0.03,
+        z: z + (angles.length > 1 ? (k - (angles.length - 1) / 2) * ROD_STAGGER : 0),
+        width: angles.length > 1 ? ROD_STAGGER - 0.001 : PIN_WIDTH,
       })),
     );
 
@@ -306,10 +308,12 @@ export class EngineMesh {
     this.buildCastings(group, clip);
 
     // --- rod: world space, from the pin to this cylinder's piston ---
+    // Slimmer along the crank than across it, as a rod's beam is, so two fit side by side on a shared pin.
     const rod = new THREE.Mesh(
       new THREE.CylinderGeometry(0.009, 0.012, 1, 12),
       new THREE.MeshStandardMaterial(STEEL),
     );
+    rod.name = 'rod';
     rod.castShadow = true;
     this.group.add(rod);
 
@@ -508,7 +512,7 @@ export class EngineMesh {
       const mid = bigEnd.clone().add(smallEnd).multiplyScalar(0.5);
       const axis = smallEnd.clone().sub(bigEnd);
       mesh.rod.position.copy(mid);
-      mesh.rod.scale.set(1, axis.length(), 1);
+      mesh.rod.scale.set(1, axis.length(), ROD_THICKNESS / 0.024);
       mesh.rod.quaternion.setFromUnitVectors(AXIS_Y, axis.normalize());
 
       const ex = this.exhaustCamRetard;
@@ -606,6 +610,10 @@ const WEB_THICKNESS = 0.011;
 const MAIN_RADIUS = 0.019;
 /** Radius of its crankpins, m. */
 const PIN_RADIUS = 0.0135;
+/** How wide a crankpin is along the shaft, m: room for two rods side by side on a shared one. */
+const PIN_WIDTH = 2 * ROD_STAGGER - 0.002;
+/** How thick a rod's big end is along the crank, m: a little less than the stagger between two. */
+const ROD_THICKNESS = ROD_STAGGER - 0.003;
 /** Radius of the boss a web has round a crankpin, m. */
 const PIN_BOSS = 0.022;
 /** How far the crank runs on past its end throws, to the nose at one end and the flange at the other, m. */

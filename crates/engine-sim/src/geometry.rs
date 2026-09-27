@@ -6,8 +6,7 @@
 
 use crate::math::{self, PI};
 use crate::spec::{
-    EngineSpec, PipeSegment, clearance_volume, crank_pins, cylinder_spacing, firing_plan, physical_bank,
-    physical_bank_count,
+    EngineSpec, PipeSegment, clearance_volume, cylinder_z, firing_plan, physical_bank, physical_bank_count,
 };
 
 pub type Vec3 = [f64; 3];
@@ -20,9 +19,7 @@ pub struct Port {
 
 pub fn exhaust_port_of(spec: &EngineSpec, cylinder: usize) -> Port {
     let plan = firing_plan(spec);
-    let pins = crank_pins(spec);
-    let pin = pins.iter().position(|p| p.cylinders.contains(&cylinder)).unwrap_or(0);
-    let z = (pin as f64 - (pins.len() as f64 - 1.0) / 2.0) * cylinder_spacing(spec);
+    let z = cylinder_z(spec, cylinder);
 
     let deg = PI / 180.0;
     let bank_rotation = if plan.banks.get(cylinder).copied().unwrap_or(0) == 0 { 0.0 } else { -spec.v_angle * deg };

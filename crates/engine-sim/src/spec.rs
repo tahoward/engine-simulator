@@ -1022,6 +1022,25 @@ pub fn physical_bank_count(spec: &EngineSpec) -> u32 {
     if spec.v_angle > 0.0 { firing_plan(spec).bank_count } else { 1 }
 }
 
+/// How far apart along the crank the cylinders sharing a throw sit, m: a rod's width, so their rods run
+/// side by side on a shared pin, or each on its own pin of a split one.
+pub const ROD_STAGGER: f64 = 0.016;
+
+/// Where `cylinder` sits along the crank, m, the engine centred on the origin: at its throw, and on a
+/// throw it shares, staggered from the other cylinders on it by `ROD_STAGGER`.
+pub fn cylinder_z(spec: &EngineSpec, cylinder: usize) -> f64 {
+    let pins = crank_pins(spec);
+    let index = pins.iter().position(|p| p.cylinders.contains(&cylinder)).unwrap_or(0);
+    let along = (index as f64 - (pins.len() as f64 - 1.0) / 2.0) * cylinder_spacing(spec);
+    match pins.get(index) {
+        Some(pin) if pin.cylinders.len() >= 2 => {
+            let k = pin.cylinders.iter().position(|&c| c == cylinder).unwrap_or(0) as f64;
+            along + (k - (pin.cylinders.len() as f64 - 1.0) / 2.0) * ROD_STAGGER
+        }
+        _ => along,
+    }
+}
+
 /// Centre-to-centre spacing of the crank pins along the crankshaft, m.
 pub fn cylinder_spacing(spec: &EngineSpec) -> f64 {
     if is_boxer(spec) {
