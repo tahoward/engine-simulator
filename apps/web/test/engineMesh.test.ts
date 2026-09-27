@@ -353,6 +353,30 @@ describe('the drawn mechanism', () => {
     }
   });
 
+  /** Each port's flange is drawn where its pipe starts, facing the way the pipe leaves. */
+  it.each([
+    ['a single', {}],
+    ['a V8', { ...V8 }],
+    ['a boxer four', { cylinders: 4, vAngle: 180, crankType: 'boxer' }],
+  ] as Array<[string, Partial<EngineSpec>]>)('marks every exhaust port of %s', (_n, engine) => {
+    const mesh = new EngineMesh(spec(engine), clip);
+    mesh.group.updateMatrixWorld(true);
+    const flanges: THREE.Object3D[] = [];
+    mesh.group.traverse((o) => {
+      if (o.name === 'exhaust port') flanges.push(o);
+    });
+    expect(flanges).toHaveLength(mesh.bankCount);
+    for (let i = 0; i < mesh.bankCount; i++) {
+      const port = mesh.exhaustPort(i);
+      const at = flanges.map((f) => f.getWorldPosition(new THREE.Vector3()));
+      const k = at.findIndex((p) => p.distanceTo(port.position) < 1e-9);
+      expect(k, `cylinder ${i}`).toBeGreaterThanOrEqual(0);
+      // The torus faces its local z.
+      const facing = new THREE.Vector3(0, 0, 1).transformDirection(flanges[k]!.matrixWorld);
+      expect(Math.abs(facing.dot(port.direction))).toBeCloseTo(1, 9);
+    }
+  });
+
   /**
    * A valve opens straight down its own stem.
    *

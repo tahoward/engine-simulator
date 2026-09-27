@@ -18,7 +18,7 @@
  * and the solver only ever sees a graph.
  */
 
-import { type Vec3, distance, exhaustPortOf, sweepEnd, turnBetweenDirs } from './geometry.js';
+import { type Vec3, distance, exhaustPortOf, sweepEnd, turnBetweenDirs, turnDir } from './geometry.js';
 import {
   type EngineSpec,
   type PipeSegment,
@@ -28,6 +28,7 @@ import {
   exhaustLayoutOf,
   makeSegment,
   physicalBank,
+  physicalBankCount,
   segmentDiameter,
 } from './spec.js';
 
@@ -779,43 +780,79 @@ export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct, s
   const carries = (d: ExhaustDuct) => graph.ducts.some((o) => o.continues === d.id);
   // A pipe just started from a port has nothing drawn yet, and would leave every cylinder without a pipe.
   if (carries(source) || drawn(source).length === 0) return;
-  const portDir = (cylinder: number) => (spec ? exhaustPortOf(spec, cylinder).direction : undefined);
-  const from = portDir(source.from.cylinder);
+  const bankOf = (cylinder: number) => (spec && physicalBankCount(spec) > 1 ? physicalBank(spec, cylinder) : 0);
+  const from = bankOf(source.from.cylinder);
   for (const other of graph.ducts) {
     if (other === source || other.from.kind !== 'valve' || carries(other)) continue;
-    const to = portDir(other.from.cylinder);
-    const flip = from && to ? mirrored(from, to) : false;
+    const flip = bankOf(other.from.cylinder) !== from;
     const bend = other.segments.slice(other.segments.length - fittedCount(other));
-    other.segments = [...drawn(source).map((sg) => (flip ? mirrorSegment(sg) : makeSegment(sg))), ...bend];
+    // Mirrored from the way it leaves its own port to the way the other bank's leaves its.
+    const mirror = flip && spec
+      ? mirrorPipe(drawn(source), source, exhaustPortOf(spec, source.from.cylinder).direction, exhaustPortOf(spec, other.from.cylinder).direction)
+      : null;
+    other.segments = [...(mirror?.segments ?? drawn(source).map((sg) => makeSegment(sg))), ...bend];
     // The way it sets off from its port, too, which a runner's heading is turned from.
     if (source.headingYaw === undefined) delete other.headingYaw;
-    else other.headingYaw = flip ? -source.headingYaw : source.headingYaw;
+    else other.headingYaw = mirror ? mirror.yaw : source.headingYaw;
     if (source.headingPitch === undefined) delete other.headingPitch;
-    else other.headingPitch = source.headingPitch;
+    else other.headingPitch = mirror ? mirror.pitch : source.headingPitch;
   }
 }
 
 /**
- * Whether port direction `b` is the mirror image of `a` in an upright plane, as the other bank's is.
+ * A pipe as it is on the other bank, which is the mirror image of this one across the engine's middle, the
+ * upright plane through the crank (`exhaustPortOf`): `segments`, leaving port direction `from` turned by
+ * `heading`, reflected in that plane and put back as turns off port direction `to`.
  *
- * Headings turn about the world's up, and a bend is kept in a frame squared to it (`curveFrame`), so a
- * mirror in an upright plane is the same numbers with every yaw, and a bend's sideways part, turned the
- * other way. Ports that differ by any tilt of that plane are not mirrored, and get the copy.
+ * Worked through the directions in the world rather than by flipping signs, since which numbers flip
+ * depends on the way the pipe is going: level, a mirror is every yaw the other way; straight down, as a
+ * boxer's ports point, a turn is taken from the yaw (`turnDir`), and the pitch flips instead.
  */
-function mirrored(a: Vec3, b: Vec3): boolean {
-  const n: Vec3 = [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-  const len = Math.hypot(...n);
-  return len > 1e-6 && Math.abs(n[1]) / len < 1e-6;
+function mirrorPipe(
+  segments: PipeSegment[],
+  heading: { headingYaw?: number; headingPitch?: number },
+  from: Vec3,
+  to: Vec3,
+): { segments: PipeSegment[]; yaw: number; pitch: number } {
+  const flip = (v: Vec3): Vec3 => [-v[0], v[1], v[2]];
+  let dir = turnDir(from, heading.headingYaw ?? 0, heading.headingPitch ?? 0);
+  let mirrored = flip(dir);
+  const leaving = turnBetweenDirs(to, mirrored);
+  const out: PipeSegment[] = [];
+  for (const sg of segments) {
+    const start = turnDir(dir, sg.yaw, sg.pitch);
+    const mStart = flip(start);
+    const corner = turnBetweenDirs(mirrored, mStart);
+    const seg = makeSegment({ ...sg, yaw: corner.yaw, pitch: corner.pitch });
+    if (sg.curve && seg.curve) {
+      const f = curveAxes(start);
+      const world = (v: Vec3): Vec3 => [0, 1, 2].map((k) => f[0][k]! * v[0] + f[1][k]! * v[1] + f[2][k]! * v[2]) as Vec3;
+      const m = curveAxes(mStart);
+      const local = (v: Vec3): Vec3 => m.map((axis) => axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2]) as Vec3;
+      const endDir = world(sg.curve.dir);
+      seg.curve = { ...seg.curve, end: local(flip(world(sg.curve.end))), dir: local(flip(endDir)) };
+      dir = endDir;
+    } else {
+      dir = start;
+    }
+    mirrored = flip(dir);
+    out.push(seg);
+  }
+  return { segments: out, ...leaving };
 }
 
-/** `sg` as it is in the mirror of an upright plane: yaw, and a bend's sideways part, the other way. */
-function mirrorSegment(sg: PipeSegment): PipeSegment {
-  const seg = makeSegment({ ...sg, yaw: -sg.yaw });
-  if (seg.curve) {
-    const { end, dir } = seg.curve;
-    seg.curve = { ...seg.curve, end: [end[0], end[1], -end[2]], dir: [dir[0], dir[1], -dir[2]] };
-  }
-  return seg;
+/** The frame a bend leaving along `dir` is kept in, as `curveFrame` builds it: x along it, y as near up as it goes. */
+function curveAxes(dir: Vec3): [Vec3, Vec3, Vec3] {
+  const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const unit = (v: Vec3): Vec3 => {
+    const l = Math.hypot(...v) || 1;
+    return [v[0] / l, v[1] / l, v[2] / l];
+  };
+  const x = unit(dir);
+  let z = cross(x, [0, 1, 0]);
+  if (Math.hypot(...z) < 1e-4) z = cross(x, [0, 0, 1]);
+  z = unit(z);
+  return [x, unit(cross(z, x)), z];
 }
 
 /** An id of the form `prefix1`, `prefix2`, … that nothing in the graph is using. */

@@ -90,12 +90,16 @@ describe('linking runners', () => {
     }
   });
 
-  it('gives the other bank the mirror image, bends and all', async () => {
+  it.each([
+    ['a V8', () => v8()],
+    ['a boxer four', () => specOf({ cylinders: 4, vAngle: 180, crankType: 'boxer', exhaustLayout: 'perBank' })],
+  ])('gives the other bank of %s the mirror image, bends and all', async (_n, engine) => {
     const THREE = await import('three');
     const { layoutPipe, turnHeading } = await import('../src/scene/PipeMesh.js');
     const { bendWhole } = await import('../src/scene/drawing.js');
     const { exhaustPortOf } = await import('../src/model/geometry.js');
-    const spec = v8();
+    const { physicalBank } = await import('../src/model/spec.js');
+    const spec = engine();
     const graph = compileCollectorLayout(spec, [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.6 })]);
     const source = graph.ducts.find((d) => d.id === 'runner0')!;
     source.headingYaw = 0.4;
@@ -120,14 +124,14 @@ describe('linking runners', () => {
     let opposite = 0;
     for (const d of runners) {
       const theirs = shape(d);
-      const other = exhaustPortOf(spec, (d.from as { cylinder: number }).cylinder).direction[0] * port0.x < 0;
+      const other = physicalBank(spec, (d.from as { cylinder: number }).cylinder) !== physicalBank(spec, 0);
       if (other) opposite++;
       theirs.forEach((p, i) => {
         const want = other ? new THREE.Vector3(-mine[i]!.x, mine[i]!.y, mine[i]!.z) : mine[i]!;
         expect(p.distanceTo(want)).toBeLessThan(1e-9);
       });
     }
-    expect(opposite).toBe(4);
+    expect(opposite).toBe(spec.cylinders / 2);
   });
 
   it('does nothing when asked to mirror a collector', () => {

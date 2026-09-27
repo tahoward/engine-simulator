@@ -83,7 +83,7 @@ describe('equal-length headers', () => {
     const ports = portsOf(v8);
     const graph = compileCollectorLayout(v8, [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.5, dIn: 0.06 })]);
     const p = plan(ports, graph);
-    const mirror = bankMirror(v8, ports)!;
+    const mirror = bankMirror(v8)!;
     expect(mirror).not.toBeNull();
     const other = mirrorPlan(p, mirror, bankCylinders(v8, 1));
     for (const q of [p, other]) applyHeader(graph, q, headerPrimaries(ports, q));
@@ -95,6 +95,29 @@ describe('equal-length headers', () => {
     expect(other.merge.z).toBeCloseTo(p.merge.z, 9);
     expect(other.axis.x).toBeCloseTo(-p.axis.x, 9);
     for (const c of other.cylinders) expect(total(graph, c)).toBeCloseTo(p.length, 2);
+  });
+
+  it('mirrors a boxer\u2019s header too, whose ports both point down', () => {
+    const boxer = { ...defaultConfig().engine, cylinders: 4, vAngle: 180, crankType: 'boxer', exhaustLayout: 'perBank' } as EngineSpec;
+    const ports = portsOf(boxer);
+    const graph = compileCollectorLayout(boxer, [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.5, dIn: 0.06 })]);
+    const cylinders = bankCylinders(boxer, 0);
+    const { merge, axis } = defaultMerge(ports, cylinders);
+    merge.add(new THREE.Vector3(0.05, 0, 0.12));
+    const p: HeaderPlan = { cylinders, merge, axis, length: 0, bore: 0.042, collectorBore: headerCollectorBore(graph, cylinders, 0.042) };
+    p.length = shortestHeader(ports, p) + 0.06;
+    const mirror = bankMirror(boxer);
+    expect(mirror).not.toBeNull();
+    const other = mirrorPlan(p, mirror!, bankCylinders(boxer, 1));
+    // The other bank's ports are this one's mirrored across the engine's middle, and so is its merge.
+    for (const [i, c] of other.cylinders.entries()) {
+      const mine = ports[cylinders[i]!]!.position;
+      expect(Math.sign(ports[c]!.position.x)).toBe(-Math.sign(mine.x));
+    }
+    expect(other.merge.x).toBeCloseTo(-p.merge.x, 9);
+    for (const q of [p, other]) applyHeader(graph, q, headerPrimaries(ports, q));
+    expect(validateGraph(graph, 4)).toEqual([]);
+    for (const c of [...p.cylinders, ...other.cylinders]) expect(total(graph, c)).toBeCloseTo(p.length, 2);
   });
 
   it('adds a collector where the primaries merged into nothing of their own', () => {
@@ -111,7 +134,7 @@ describe('equal-length headers', () => {
     expect(collector.from.kind).toBe('node');
     expect(collector.to).toEqual({ kind: 'mouth' });
     for (const d of graph.ducts) if (d.from.kind === 'valve') expect(d.segments.at(-1)!.dOut).toBeCloseTo(collector.segments[0]!.dIn, 9);
-    expect(bankMirror(twin, ports)).toBeNull();
+    expect(bankMirror(twin)).toBeNull();
     expect(validateGraph(graph, 2)).toEqual([]);
   });
 });

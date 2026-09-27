@@ -435,7 +435,7 @@ const panel = new Panel(panelEl, config, {
     const bore = runnerBore(graph, cylinders[0]!, exhaustPortDiameter(spec));
     const plan = { cylinders, merge, axis, length: 0, bore, collectorBore: headerCollectorBore(graph, cylinders, bore) };
     plan.length = shortestHeader(ports, plan);
-    const mirror = bankMirror(spec, ports);
+    const mirror = bankMirror(spec);
     editor.setHeaderTool({
       plan,
       mirror: mirror ? { ...mirror, cylinders: bankCylinders(spec, 1 - bank) } : null,

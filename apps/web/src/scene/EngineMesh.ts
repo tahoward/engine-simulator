@@ -21,6 +21,7 @@
  */
 
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import {
   type BankSnapshot,
   type EngineSpec,
@@ -44,6 +45,10 @@ const CAST = { color: 0x5c626c, metalness: 0.55, roughness: 0.66 };
 /** The shells the main journals run in: a bronze-coloured lining. */
 const BEARING = { color: 0xb8894f, metalness: 0.7, roughness: 0.4 };
 const ALLOY = { color: 0xb9c0c9, metalness: 0.85, roughness: 0.28 };
+/** The engine's outline: see-through, so everything inside it shows. */
+const SHELL = { color: 0xa9b1bb, metalness: 0.2, roughness: 0.6, transparent: true, opacity: 0.13, depthWrite: false };
+/** Each exhaust port's flange, bright enough to find. */
+const PORT = { color: 0xff8c42, emissive: 0x6a2a00, metalness: 0.5, roughness: 0.4 };
 
 export interface ExhaustPort {
   /** World position where the pipe begins. */
@@ -80,6 +85,8 @@ export class EngineMesh {
   private readonly crank = new THREE.Group();
   /** The main bearings, which are the block's and do not turn with the crank. */
   private readonly bearings = new THREE.Group();
+  /** The see-through outline of the block and heads. */
+  private readonly shell = new THREE.Group();
   private readonly cyls: CylinderMesh[] = [];
 
   private deckY = 0;
@@ -93,7 +100,7 @@ export class EngineMesh {
     private readonly clipPlane: THREE.Plane,
   ) {
     this.spec = { ...spec };
-    this.group.add(this.crank, this.bearings);
+    this.group.add(this.crank, this.bearings, this.shell);
     this.rebuild();
   }
 
@@ -125,6 +132,7 @@ export class EngineMesh {
     this.cyls.length = 0;
     disposeChildren(this.crank);
     disposeChildren(this.bearings);
+    disposeChildren(this.shell);
 
     const plan = firingPlan(this.spec);
     const pins = crankPins(this.spec);
@@ -149,6 +157,8 @@ export class EngineMesh {
         this.cyls[cyl] = this.buildCylinder(bank, cylinderZ(this.spec, cyl), pins[pin]!.angles[k]!, exhaustSide);
       });
     }
+
+    this.buildShell(zOf(0), zOf(pins.length - 1));
 
     // Straddle vertical, so a V looks like a V rather than leaning.
     this.group.rotation.z = ((plan.bankCount > 1 ? this.spec.vAngle / 2 : 0) * Math.PI) / 180;
@@ -306,6 +316,7 @@ export class EngineMesh {
 
     // --- block, in this cylinder's frame ---
     this.buildCastings(group, clip);
+    group.add(this.buildPort(exhaustSide));
 
     // --- rod: world space, from the pin to this cylinder's piston ---
     // Slimmer along the crank than across it, as a rod's beam is, so two fit side by side on a shared pin.
@@ -396,7 +407,7 @@ export class EngineMesh {
     return group;
   }
 
-  /** Liner, fins and head for one cylinder, in that cylinder's rotated frame. */
+  /** Liner and fins for one cylinder, in that cylinder's rotated frame. */
   private buildCastings(parent: THREE.Group, clip: THREE.Plane): void {
     const s = this.spec;
     const r = s.bore / 2;
@@ -431,23 +442,59 @@ export class EngineMesh {
       parent.add(fin);
     }
 
-    const headHeight = s.bore * 0.52;
-    const headMat = new THREE.MeshStandardMaterial({
-      color: 0x6b7280,
-      metalness: 0.6,
-      roughness: 0.55,
-      clippingPlanes: [clip],
-      clipShadows: true,
-    });
-    // Slightly narrower than the spacing so adjacent heads read as separate castings.
-    const head = new THREE.Mesh(
-      new THREE.BoxGeometry(s.bore * 2.3, headHeight, Math.min(s.bore * 1.5, this.spacing * 0.92)),
-      headMat,
+  }
+
+  /**
+   * The exhaust port, where its pipe starts: a flange round the opening, facing the way the pipe leaves, on
+   * the side of the head the exhaust comes out of. In the cylinder's frame, at the place `exhaustPortOf` gives.
+   */
+  private buildPort(side: number): THREE.Group {
+    const s = this.spec;
+    const port = new THREE.Group();
+    port.name = 'exhaust port';
+    const r = exhaustPortDiameter(s) / 2;
+    const flange = new THREE.Mesh(new THREE.TorusGeometry(r * 1.25, r * 0.28, 10, 32), new THREE.MeshStandardMaterial(PORT));
+    const opening = new THREE.Mesh(
+      new THREE.CircleGeometry(r * 1.05, 32),
+      new THREE.MeshBasicMaterial({ color: 0x1a0d05, side: THREE.DoubleSide }),
     );
-    head.position.y = this.deckY + headHeight / 2;
-    head.castShadow = true;
-    head.receiveShadow = true;
-    parent.add(head);
+    port.add(flange, opening);
+    // Its face square to the pipe: the torus and disc lie in their own XY, facing Z, turned to face X.
+    port.rotation.y = Math.PI / 2;
+    port.position.set(side * s.bore * 1.15, this.deckY + s.bore * 0.52 * 0.45, 0);
+    return port;
+  }
+
+  /**
+   * The block and heads, see-through: one rounded casting per bank from the crankcase up past the valve
+   * springs, and the crankcase round the crank. Only an outline, so the parts moving inside it all show.
+   */
+  private buildShell(zFirst: number, zLast: number): void {
+    const s = this.spec;
+    const a = s.stroke / 2;
+    const mat = new THREE.MeshStandardMaterial(SHELL);
+    const long = zLast - zFirst + Math.max(this.spacing, s.bore * 1.3);
+    const top = this.deckY + s.bore * 0.52;
+    const bottom = a * 1.2;
+    const width = s.bore * 2.3;
+    const banks = new Set(this.cyls.map((c) => c.rotation));
+    for (const rotation of banks) {
+      const bank = new THREE.Mesh(new RoundedBoxGeometry(width, top - bottom, long, 3, Math.min(width, top - bottom) * 0.12), mat);
+      bank.name = 'shell';
+      bank.position.set(0, (top + bottom) / 2, (zFirst + zLast) / 2);
+      bank.position.applyAxisAngle(AXIS_Z, rotation);
+      bank.rotation.z = rotation;
+      bank.renderOrder = 20;
+      this.shell.add(bank);
+    }
+    // The crankcase: round the counterweights' sweep, along the whole crank.
+    const reach = a * 1.5 + 0.012;
+    const crankcase = new THREE.Mesh(new THREE.CylinderGeometry(reach, reach, long + 2 * END_JOURNAL, 40), mat);
+    crankcase.name = 'shell';
+    crankcase.rotation.x = Math.PI / 2;
+    crankcase.position.z = (zFirst + zLast) / 2;
+    crankcase.renderOrder = 20;
+    this.shell.add(crankcase);
   }
 
   // -------------------------------------------------------------------------
