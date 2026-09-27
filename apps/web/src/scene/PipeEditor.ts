@@ -188,6 +188,8 @@ export interface PipeEditorCallbacks {
    * The owner decides what selecting it means, since switching ducts is its business, not the editor's.
    */
   onPick?: (pick: ScenePick | null) => void;
+  /** A pipe segment or a junction was right-clicked, at `x`, `y` on the page, with no tool on: it is picked first. */
+  onMenu?: (pick: ScenePick & { kind: 'segment' | 'joint' }, x: number, y: number) => void;
   /** A route was started or finished, so the UI can show whether drawing is in progress. */
   onDrawing?: (active: boolean) => void;
   /** Where the next segment is aimed, in words — "up, 250 mm" — or `null` when nothing is. */
@@ -203,8 +205,8 @@ export interface PipeEditorCallbacks {
   onPlaceTurbo?: (placement: TurboPlacement) => void;
   /** A loose pipe was put down, starting at `position`. */
   onPlacePipe?: (position: Vec3) => void;
-  /** Placing turbos was started or ended from the view, by Escape. */
-  onPlacing?: (active: boolean) => void;
+  /** The tool that was on — drawing, placing, bending or the header — was ended from the view. */
+  onToolEnded?: () => void;
   /**
    * The junction at `node` was moved to here by the triad of a pipe starting from it; `axis` is the way it
    * points, for the first time it is moved. `commit` is false for intermediate frames of a drag.
@@ -216,8 +218,6 @@ export interface PipeEditorCallbacks {
   onHeaderAim?: (aim: string) => void;
   /** Build the pipes the ghost shows: each merge's plan and its pipes. */
   onApplyHeader?: (builds: Array<{ plan: HeaderPlan; primaries: HeaderPrimary[] }>) => void;
-  /** The header tool was ended from the view, by Escape. */
-  onHeaderEnded?: () => void;
   /** The pipes' length, where it follows what is picked. */
   onHeaderLength?: (length: number) => void;
 }
@@ -295,6 +295,8 @@ export interface DrawContext {
 
 /** How close, in pixels, the pointer has to be for a snap target to take. */
 const SNAP_PIXELS = 14;
+/** How far, in pixels, a right-click may drag and still end a tool rather than pan the view. */
+const RIGHT_CLICK_PIXELS = 5;
 /** Turn quantisation while drawing with alt held, degrees. */
 const TURN_STEP_DEG = 15;
 /** Length quantisation, m. */
@@ -421,6 +423,11 @@ export class PipeEditor {
     proposed: PipeSegment[] | null;
   } | null = null;
   private lastSnap: DrawSnap = 'engine';
+  /**
+   * Where a right button went down: let go there, it ends the tool that is on, or with none opens the menu of
+   * the segment or junction under it; dragged, it pans.
+   */
+  private rightDown: { x: number; y: number } | null = null;
 
   /** The equal-length header tool: what it is building, its triad on the collector, and the ghost. */
   private header: HeaderSetup | null = null;
@@ -451,7 +458,7 @@ export class PipeEditor {
     window.addEventListener('pointerup', this.onPointerUp);
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
-    // Right-click finishes a route, so the browser menu must not appear over it.
+    // Right-click ends a tool or opens a menu, so the browser's must not appear over it.
     dom.addEventListener('contextmenu', this.onContextMenu);
 
     this.previewGeom.setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
@@ -684,6 +691,26 @@ export class PipeEditor {
 
   get bendToolOn(): boolean {
     return this.bendTool;
+  }
+
+  /** Whether a tool is on: drawing, placing, bending or the header. */
+  get toolOn(): boolean {
+    return this.drawMode || this.placeMode || this.bendTool || this.header !== null;
+  }
+
+  /**
+   * End whichever tool is on, as a right-click does, and tell the owner. A route being drawn is kept,
+   * ending in open air; a header not yet applied is abandoned.
+   */
+  exitTool(): void {
+    if (!this.toolOn) return;
+    if (this.route) this.finishRoute({ kind: 'mouth' });
+    if (this.drawMode) this.setDrawMode(false);
+    if (this.placeMode) this.setPlaceMode(false);
+    if (this.bendTool) this.setBendTool(false);
+    if (this.header) this.setHeaderTool(null);
+    this.controls.enabled = true;
+    this.cb.onToolEnded?.();
   }
 
   // -------------------------------------------------------------------------
@@ -1083,7 +1110,7 @@ export class PipeEditor {
 
   /** Handles are a nuisance while drawing: they sit exactly where the route is being aimed. */
   private applyHandleVisibility(): void {
-    const hide = this.drawMode || this.placeMode || this.bendTool || this.header !== null;
+    const hide = this.toolOn;
     for (const h of this.handles) h.visible = !hide;
     this.pipeTriad.setVisible(!hide && this.pipeTriadAt !== null);
   }
@@ -1095,7 +1122,7 @@ export class PipeEditor {
   private pipeTriadAt: { start: THREE.Vector3; from: number } | null = null;
 
   private onContextMenu = (e: MouseEvent): void => {
-    if (this.drawMode) e.preventDefault();
+    e.preventDefault();
   };
 
   /** Whether the next click lays a bend. */
@@ -1145,26 +1172,20 @@ export class PipeEditor {
       this.updateDrawPreview(this.lastSnap);
       return;
     }
-    if (this.header && !typing && (e.key === 'Escape' || e.key === 'Enter')) {
-      if (e.key === 'Enter') this.applyHeader();
-      else {
-        this.setHeaderTool(null);
-        this.cb.onHeaderEnded?.();
-      }
+    if (this.header && !typing && e.key === 'Enter') {
+      this.applyHeader();
       e.preventDefault();
       return;
     }
-    if (this.placeMode && e.key === 'Escape') {
-      this.setPlaceMode(false);
-      this.cb.onPlacing?.(false);
+    // Escape abandons a route being drawn; with none, it ends the tool.
+    if (e.key === 'Escape' && !typing && this.toolOn) {
+      if (this.route) this.cancelRoute();
+      else this.exitTool();
       e.preventDefault();
       return;
     }
     if (!this.drawMode || !this.route) return;
-    if (e.key === 'Escape') {
-      this.cancelRoute();
-      e.preventDefault();
-    } else if (e.key === 'Enter') {
+    if (e.key === 'Enter') {
       this.finishRoute({ kind: 'mouth' });
       e.preventDefault();
     }
@@ -1705,11 +1726,9 @@ export class PipeEditor {
   }
 
   private onPointerDown = (e: PointerEvent): void => {
-    if (this.drawMode && e.button === 2) {
-      // Right-click ends the route in open air, the usual way a polyline tool finishes.
-      this.updatePointer(e);
-      if (this.route) this.finishRoute({ kind: 'mouth' });
-      e.preventDefault();
+    if (e.button === 2) {
+      // Acted on once the button is let go without dragging, which pans the view.
+      this.rightDown = { x: e.clientX, y: e.clientY };
       return;
     }
     if (e.button !== 0) return;
@@ -2321,7 +2340,22 @@ export class PipeEditor {
     next.dIn = segmentDiameter(seg, 1);
   }
 
-  private onPointerUp = (): void => {
+  private onPointerUp = (e: PointerEvent): void => {
+    if (e.button === 2) {
+      const down = this.rightDown;
+      this.rightDown = null;
+      if (!down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > RIGHT_CLICK_PIXELS) return;
+      if (this.toolOn) {
+        this.exitTool();
+        return;
+      }
+      this.updatePointer(e);
+      const pick = this.pickScene();
+      if (pick?.kind !== 'segment' && pick?.kind !== 'joint') return;
+      this.cb.onPick?.(pick);
+      this.cb.onMenu?.(pick, e.clientX, e.clientY);
+      return;
+    }
     if (this.bendDrag) {
       this.endBendDrag();
       return;

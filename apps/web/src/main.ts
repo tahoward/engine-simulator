@@ -74,6 +74,7 @@ const panelEl = must<HTMLElement>('#panel');
 const scopeEl = must<HTMLCanvasElement>('#scope');
 const overlayEl = must<HTMLElement>('#overlay');
 const hudEl = must<HTMLElement>('#hud');
+const toolsEl = must<HTMLElement>('#tools');
 
 const config: EngineConfig = loadConfig();
 /**
@@ -248,6 +249,7 @@ const editor = new PipeEditor(
       editor.select(pick.segment);
       panel.setSelected(pick.segment);
     },
+    onMenu: (_pick, x, y) => panel.openMenu(x, y),
     onDrawing: (active) => panel.setDrawingState(active),
     onAim: (aim) => panel.setDrawAim(aim),
     onBendAim: (aim) => panel.setBendAim(aim),
@@ -277,11 +279,7 @@ const editor = new PipeEditor(
       afterTurboEdit(true);
       selectTurbo(mount.id);
     },
-    onPlacing: (active) => {
-      panel.setPlacingState(false);
-      panel.setPlacingPipeState(false);
-      void active;
-    },
+    onToolEnded: () => panel.toolsEnded(),
     onPlacePipe: (position) => {
       freeze();
       const id = placeLoosePipe(config.graph!, position, exhaustPortDiameter(config.engine), engineLength(config.engine));
@@ -299,7 +297,6 @@ const editor = new PipeEditor(
       afterTurboEdit(commit);
     },
     onHeaderAim: (aim) => panel.setHeaderAim(aim),
-    onHeaderEnded: () => panel.setHeaderToolState(false),
     onHeaderLength: (length) => panel.setHeaderLength(length),
     onApplyHeader: (builds) => {
       freeze();
@@ -385,7 +382,7 @@ function selectJoint(node: string | null): void {
 }
 viewer.scene.add(editor.group);
 
-const panel = new Panel(panelEl, config, {
+const panel = new Panel(panelEl, toolsEl, config, {
   onEngine: (partial) => {
     Object.assign(config.engine, partial);
     audio.setEngine(partial);
@@ -540,10 +537,6 @@ const panel = new Panel(panelEl, config, {
     rebuildPipeGeometry();
     audio.setGraph(config.graph!);
     saveConfig();
-  },
-  onSelectDuct: (id) => {
-    editedDuctId = id;
-    rebuildPipeGeometry();
   },
   onDrawMode: (on) => {
     editor.setDrawMode(on);
