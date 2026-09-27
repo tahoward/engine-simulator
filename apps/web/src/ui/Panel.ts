@@ -1858,7 +1858,7 @@ export class Panel {
     const t = s.turbo;
     const turbo = t
       ? `${t.boost >= 0 ? 'Boost' : 'Vacuum'} ${(Math.abs(t.boost) / 1e5).toFixed(2)} bar · ` +
-        `turbo ${formatRpm(t.shaftRpm)} rpm` +
+        `turbo ${formatRpm(t.shaftRpm)} rpm · exhaust ${(t.turbineInlet / 1e5).toFixed(2)} bar` +
         (t.wastegate > 0.02 ? ` · wastegate ${Math.round(t.wastegate * 100)}%` : '') +
         (t.surging ? ' · surging' : t.blowOff > 0.05 && t.boost > 0.05e5 ? ' · blowing off' : '')
       : 'Naturally aspirated';

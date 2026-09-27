@@ -63,8 +63,12 @@ matters.
   make within 10% of the real engine's 368 N·m at 4400 rpm, and between 280 and 350 PS at 6800. With
   the throttle shut on boost, an atmospheric blow-off valve must open and let the boost go without the
   compressor flow ever reversing; with none, the compressor must surge at between 5 and 60 cycles a
-  second. On boost, the turbo's strongest tone must be within 3% of its blade-pass frequency. A
-  naturally aspirated engine must have no turbo, and switching one off must leave no boost behind.
+  second. A
+  naturally aspirated engine must have no turbo, and switching one off must leave no boost behind. The
+  six must have one turbine, in its exhaust, passing the valves' flow within 3%, with the pressure at
+  its inlet more than 0.2 bar above its outlet; the pressure past it must swing by less than 70% of what
+  arrives; and there must be no solver recoveries. A single, with nothing merging, must still make boost.
+  The strongest tone of what the compressor radiates must be within 3% of its blade-pass frequency.
 - **Headers.** On the LT6 at 8400 rpm, equal-length headers must fill the cylinder more than 3
   points past a manifold along the ports.
 - **Port injection.** With the fuel cut, neither the manifold nor a runner may hold more than a

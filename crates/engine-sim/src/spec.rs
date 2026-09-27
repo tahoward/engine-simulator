@@ -406,6 +406,8 @@ pub struct TurboSnapshot {
     pub boost: f64,
     /// Plenum pressure, gauge, Pa: below zero is vacuum.
     pub manifold: f64,
+    /// Pressure at the turbine inlet, gauge, Pa: what the exhaust works against.
+    pub turbine_inlet: f64,
     /// Each turbo's shaft speed, rev/min.
     pub shaft_rpm: f64,
     /// Wastegate and blow-off valve openings, 0..1.

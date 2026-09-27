@@ -24,6 +24,34 @@ const CP_EXH: f64 = (gas::GAMMA_EXH * gas::R) / (gas::GAMMA_EXH - 1.0);
 /// Relative mass-flux imbalance below which a junction is left alone.
 const JUNCTION_BALANCE_TOL: f64 = 0.005;
 
+/// Turbulence intensity of the jet through an open wastegate, as a fraction of its mass flow.
+const BYPASS_TURBULENCE: f64 = 0.2;
+
+/// A turbine at a junction: what `EngineSim` sets each sample from the turbocharger's state.
+///
+/// The flow through it follows Stodola's ellipse law, `m = K sqrt(p_up^2 - p_down^2) / sqrt(T)`, with
+/// `K` the turbine's and the open wastegate's together. The constants are for all the turbines
+/// together, shared evenly between the junctions that have one.
+#[derive(Clone, Copy, Debug)]
+pub struct TurbineSetting {
+    /// Flow constants of the turbines and of the wastegates as open as they are now, kg*sqrt(K)/(s*Pa).
+    pub k_turbine: f64,
+    pub k_wastegate: f64,
+    /// Isentropic efficiency of the turbine.
+    pub efficiency: f64,
+    /// Factor on the turbine's flow this sample: its blades' pulsation, 1 on average.
+    pub pulsation: f64,
+    /// Scale on the wastegate jet's turbulence.
+    pub bypass_noise: f64,
+}
+
+/// A turbine junction's own state.
+struct TurbineNode {
+    noise: Noise,
+    lp1: f64,
+    lp2: f64,
+}
+
 /// One junction, with every duct end that meets there. Outlets are always visited before inlets:
 /// floating-point addition is not associative, so the visiting order is part of the result.
 struct JunctionNode {
@@ -47,6 +75,13 @@ pub struct ExhaustResult {
     /// Mass flow through each cylinder's exhaust valve, kg/s, positive out of the cylinder.
     pub valve_mass_flows: Vec<f64>,
     pub substeps: usize,
+    /// With a turbine: the power the turbines take from the exhaust, W, the flow through them and
+    /// through the wastegates, kg/s, and the mean pressure at their inlets and outlets, Pa.
+    pub turbine_power: f64,
+    pub turbine_flow: f64,
+    pub bypass_flow: f64,
+    pub turbine_inlet: f64,
+    pub turbine_outlet: f64,
 }
 
 pub struct ExhaustSystem {
@@ -68,6 +103,10 @@ pub struct ExhaustSystem {
     /// Worst relative mass-flux imbalance a junction's per-duct solves produced. Diagnostic only.
     pub junction_residual: f64,
     turbulence: f64,
+    /// Per node, whether it can carry a turbine: it feeds a duct that opens to the air.
+    turbine_capable: Vec<bool>,
+    turbine_nodes: Vec<TurbineNode>,
+    turbine: Option<TurbineSetting>,
 }
 
 impl ExhaustSystem {
@@ -227,6 +266,7 @@ impl ExhaustSystem {
             mouth_flows: vec![0.0; radiating.len()],
             valve_mass_flows: vec![0.0; valve_fed.len()],
             substeps: 1,
+            ..ExhaustResult::default()
         };
 
         // Every node-fed duct, in duct order, with the valve state its merge noise enters through.
@@ -255,6 +295,16 @@ impl ExhaustSystem {
         }
         let fed_flow = vec![0.0; fed_by_node.len()];
 
+        let turbine_capable: Vec<bool> =
+            nodes.iter().map(|n| n.inlets.iter().any(|&d| radiating.contains(&d))).collect();
+        let turbine_nodes: Vec<TurbineNode> = (0..nodes.len())
+            .map(|n| TurbineNode {
+                noise: Noise::new(0x51ed_2705 as f64 + n as f64 * 0x9e3779b as f64),
+                lp1: 0.0,
+                lp2: 0.0,
+            })
+            .collect();
+
         Ok(ExhaustSystem {
             primary_count: valve_fed.len(),
             ducts,
@@ -270,6 +320,9 @@ impl ExhaustSystem {
             substep_noise_scale: 1.0,
             junction_residual: 0.0,
             turbulence: 1.0,
+            turbine_capable,
+            turbine_nodes,
+            turbine: None,
         })
     }
 
@@ -298,6 +351,16 @@ impl ExhaustSystem {
     /// that the first junction-fed duct.
     pub fn collector(&self) -> Option<&EulerPipe> {
         self.main_collector.map(|i| &self.ducts[i])
+    }
+
+    /// How many junctions a turbine goes in: every one that feeds a duct opening to the air.
+    pub fn turbine_count(&self) -> usize {
+        self.turbine_capable.iter().filter(|&&c| c).count()
+    }
+
+    /// Fit turbines at the junctions that can take one, or with `None` take them out.
+    pub fn set_turbine(&mut self, setting: Option<TurbineSetting>) {
+        self.turbine = setting;
     }
 
     /// Open every radiating mouth into gas at `p` (Pa) rather than the atmosphere: the inlet of a
@@ -349,6 +412,14 @@ impl ExhaustSystem {
         self.substep_noise_scale = math::sqrt(substeps as f64);
         self.result.mouth_flows.fill(0.0);
         self.result.valve_mass_flows.fill(0.0);
+        if self.turbine.is_some() {
+            let r = &mut self.result;
+            r.turbine_power = 0.0;
+            r.turbine_flow = 0.0;
+            r.bypass_flow = 0.0;
+            r.turbine_inlet = 0.0;
+            r.turbine_outlet = 0.0;
+        }
 
         for _ in 0..substeps {
             // 1. Reconstruct every duct, leaving the boundary faces unset.
@@ -400,6 +471,16 @@ impl ExhaustSystem {
         for v in self.result.valve_mass_flows.iter_mut() {
             *v *= inv;
         }
+        if self.turbine.is_some() {
+            let per = 1.0 / substeps as f64;
+            let at = per / math::max(self.turbine_count() as f64, 1.0);
+            let r = &mut self.result;
+            r.turbine_power *= per;
+            r.turbine_flow *= per;
+            r.bypass_flow *= per;
+            r.turbine_inlet *= at;
+            r.turbine_outlet *= at;
+        }
         self.result.substeps = substeps;
         &self.result
     }
@@ -408,6 +489,10 @@ impl ExhaustSystem {
     /// held within what the branches can justify, then Newton-corrected toward mass balance.
     fn solve_junctions(&mut self) {
         for ni in 0..self.nodes.len() {
+            if self.turbine.is_some() && self.turbine_capable[ni] {
+                self.solve_turbine(ni);
+                continue;
+            }
             let node = &mut self.nodes[ni];
             let n_out = node.outlets.len();
             let n_ends = n_out + node.inlets.len();
@@ -499,6 +584,210 @@ impl ExhaustSystem {
             }
 
             self.update_merge_noise(ni);
+        }
+    }
+
+    /// A junction with a turbine in it: the ducts emptying into it at one pressure, the ducts it feeds
+    /// at another, and between them the turbine and its wastegate passing the flow Stodola's law gives
+    /// for the two.
+    ///
+    /// Each side's flux is linear in its pressure near where it passes nothing, with slope `A/c`, as
+    /// the ordinary junction has it. So for a trial flow `m` each side's pressure follows, and the flow
+    /// the turbine passes between those two falls as `m` rises: the one `m` where the two agree is
+    /// found by bisection. Each side's pressure is then corrected against the flux its ducts actually
+    /// pass, and the flow solved again.
+    fn solve_turbine(&mut self, ni: usize) {
+        let setting = self.turbine.unwrap();
+        let share = 1.0 / math::max(self.turbine_count() as f64, 1.0);
+        let k_t = setting.k_turbine * share * setting.pulsation;
+        let k_wg = setting.k_wastegate * share;
+        let k = k_t + k_wg;
+
+        let node = &mut self.nodes[ni];
+        let n_out = node.outlets.len();
+        let n_in = node.inlets.len();
+        for i in 0..n_out {
+            node.states[i] = self.ducts[node.outlets[i]].end_state(DuctEnd::Outlet);
+        }
+        for i in 0..n_in {
+            node.states[n_out + i] = self.ducts[node.inlets[i]].end_state(DuctEnd::Inlet);
+        }
+
+        // Each side on its own: the pressure it would sit at passing nothing, its slope, its range, and
+        // the stagnation temperature of what arrives from it.
+        struct Side {
+            zero: f64,
+            slope: f64,
+            lo: f64,
+            hi: f64,
+            m_in: f64,
+            h_in: f64,
+        }
+        let side = |states: &[EndState], outlet: bool| {
+            let (mut num, mut den, mut lo, mut hi, mut m_in, mut h_in) = (0.0, 0.0, f64::INFINITY, 0.0, 0.0, 0.0);
+            for st in states {
+                let w = st.area / st.c;
+                num += 2.0 * w * st.toward;
+                den += w;
+                lo = math::min(lo, st.p);
+                hi = math::max(hi, st.p);
+                let into = if outlet { st.u } else { -st.u };
+                if into > 0.0 {
+                    let m = st.rho * st.area * into;
+                    m_in += m;
+                    h_in += m * (st.p / (st.rho * gas::R) + (into * into) / (2.0 * CP_EXH));
+                }
+            }
+            Side {
+                zero: if den > 0.0 { num / den } else { 0.0 },
+                slope: math::max(den, 1e-12),
+                lo: 0.3 * lo - gas::P_AMB,
+                hi: 3.0 * hi - gas::P_AMB,
+                m_in,
+                h_in,
+            }
+        };
+        let mut up = side(&node.states[..n_out], true);
+        let mut down = side(&node.states[n_out..], false);
+        let last = node.states[n_out - 1];
+        let t_up = if up.m_in > 1e-12 { up.h_in / up.m_in } else { last.p / (math::max(last.rho, 1e-7) * gas::R) };
+        let first = node.states[n_out];
+        let t_down_back =
+            if down.m_in > 1e-12 { down.h_in / down.m_in } else { first.p / (math::max(first.rho, 1e-7) * gas::R) };
+        let sqrt_t = math::sqrt(math::max(t_up, 200.0));
+
+        let stodola = |g_up: f64, g_down: f64| {
+            let pu = gas::P_AMB + g_up;
+            let pd = gas::P_AMB + g_down;
+            let d = pu * pu - pd * pd;
+            (k / sqrt_t) * math::sign(d) * math::sqrt(d.abs())
+        };
+        let pressures = |up: &Side, down: &Side, m: f64| {
+            (clamp(up.zero - m / up.slope, up.lo, up.hi), clamp(down.zero + m / down.slope, down.lo, down.hi))
+        };
+        let solve = |up: &Side, down: &Side| {
+            // No flow at `0`; at `m_eq` the two sides are at one pressure and the turbine passes nothing.
+            // The root is between, found by Newton's method, falling back to bisection wherever a step
+            // would leave the bracket.
+            let m_eq = (up.zero - down.zero) / (1.0 / up.slope + 1.0 / down.slope);
+            let (mut a, mut b) = if m_eq >= 0.0 { (0.0, m_eq) } else { (m_eq, 0.0) };
+            let tol = 1e-4 * m_eq.abs() + 1e-9;
+            let mut m = 0.5 * (a + b);
+            for _ in 0..12 {
+                let (gu, gd) = pressures(up, down, m);
+                let h = stodola(gu, gd) - m;
+                if h > 0.0 {
+                    a = m;
+                } else {
+                    b = m;
+                }
+                // dM/dm, through each side's pressure, where it is not held at its limit.
+                let pu = gas::P_AMB + gu;
+                let pd = gas::P_AMB + gd;
+                let d = math::max((pu * pu - pd * pd).abs(), 1e-6);
+                let du = if gu > up.lo && gu < up.hi { -1.0 / up.slope } else { 0.0 };
+                let dd = if gd > down.lo && gd < down.hi { 1.0 / down.slope } else { 0.0 };
+                let slope = (k / sqrt_t) * (pu * du - pd * dd) / math::sqrt(d) - 1.0;
+                let next = m - h / slope;
+                let next = if slope < 0.0 && next > a && next < b { next } else { 0.5 * (a + b) };
+                if (next - m).abs() <= tol {
+                    return next;
+                }
+                m = next;
+            }
+            m
+        };
+
+        let mut m = solve(&up, &down);
+        let (mut g_up, mut g_down) = pressures(&up, &down, m);
+        let tol = JUNCTION_BALANCE_TOL * math::max(m.abs(), 1e-6);
+        for _ in 0..4 {
+            let mut f_up = 0.0;
+            for i in 0..n_out {
+                let st = node.states[i];
+                f_up += self.ducts[node.outlets[i]].probe_junction(DuctEnd::Outlet, g_up, t_up, &st);
+            }
+            let mut f_down = 0.0;
+            for i in 0..n_in {
+                let st = node.states[n_out + i];
+                f_down += self.ducts[node.inlets[i]].probe_junction(DuctEnd::Inlet, g_down, t_down_back, &st);
+            }
+            if !(f_up.is_finite() && f_down.is_finite()) || ((f_up - m).abs() <= tol && (f_down - m).abs() <= tol) {
+                break;
+            }
+            // Move each side's line through the flux it actually passes, and solve again.
+            up.zero = g_up + f_up / up.slope;
+            down.zero = g_down - f_down / down.slope;
+            m = solve(&up, &down);
+            (g_up, g_down) = pressures(&up, &down, m);
+        }
+
+        // What leaves for the tailpipe: the turbine's share cooled by the work it did, the wastegate's not.
+        let pu = gas::P_AMB + g_up;
+        let pd = math::max(gas::P_AMB + g_down, 1e-3);
+        let turbine_share = if k > 0.0 { k_t / k } else { 0.0 };
+        let (power, t_leaving) = if m > 0.0 && pu > pd {
+            let drop = setting.efficiency * (1.0 - math::pow(pd / pu, (gas::GAMMA_EXH - 1.0) / gas::GAMMA_EXH));
+            let power = turbine_share * m * CP_EXH * t_up * drop;
+            (power, t_up * (1.0 - turbine_share * drop))
+        } else {
+            (0.0, t_up)
+        };
+
+        let mut signed = 0.0;
+        let mut scale = 0.0;
+        for i in 0..n_out {
+            let st = node.states[i];
+            let f = self.ducts[node.outlets[i]].apply_junction(DuctEnd::Outlet, g_up, t_up, &st);
+            signed += f;
+            scale += f.abs();
+        }
+        for i in 0..n_in {
+            let st = node.states[n_out + i];
+            let f = self.ducts[node.inlets[i]].apply_junction(DuctEnd::Inlet, g_down, t_leaving, &st);
+            signed -= f;
+            scale += f.abs();
+        }
+        if scale > 1e-9 {
+            let rel = signed.abs() / scale;
+            if rel > self.junction_residual {
+                self.junction_residual = rel;
+            }
+        }
+
+        let r = &mut self.result;
+        r.turbine_power += power;
+        r.turbine_flow += m * turbine_share;
+        r.bypass_flow += m * (1.0 - turbine_share);
+        r.turbine_inlet += pu;
+        r.turbine_outlet += pd;
+
+        self.update_merge_noise(ni);
+        self.add_bypass_noise(ni, m * (1.0 - turbine_share), pu, t_up, setting.bypass_noise);
+    }
+
+    /// The jet through an open wastegate, into the ducts past the turbine: broadband turbulence,
+    /// band-limited at the jet's Strouhal frequency, on top of the merge's own.
+    fn add_bypass_noise(&mut self, ni: usize, bypass: f64, p: f64, t: f64, level: f64) {
+        if bypass <= 0.0 || level <= 0.0 {
+            return;
+        }
+        let substep_dt = self.substep_dt;
+        let noise_scale = self.substep_noise_scale;
+        let node = &self.nodes[ni];
+        let st = node.states[node.outlets.len()];
+        let rho = p / (gas::R * math::max(t, 200.0));
+        let u = bypass / (rho * math::max(st.area, 1e-6));
+        let dia = math::sqrt((4.0 * st.area) / PI);
+        let strouhal_hz = (0.2 * u) / math::max(dia, 1e-3);
+        let k = clamp(1.0 - math::exp(-2.0 * PI * strouhal_hz * substep_dt), 1e-4, 0.9);
+        let sigma = BYPASS_TURBULENCE * self.turbulence * level * bypass;
+        let tn = &mut self.turbine_nodes[ni];
+        let white = tn.noise.next() * sigma * noise_scale;
+        tn.lp1 += k * (white - tn.lp1);
+        tn.lp2 += k * (tn.lp1 - tn.lp2);
+        for &(slot, share) in &self.nodes[ni].downstream {
+            self.fed_flow[slot] += tn.lp2 * share;
         }
     }
 
