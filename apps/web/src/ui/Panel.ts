@@ -87,7 +87,7 @@ export interface PanelCallbacks {
    * Reshape bend `index` of this pipe to turn through `angle` radians round `radius` m, the straights either
    * side of it taking up the difference so the pipe keeps its length.
    */
-  onReshapeBend: (ductId: string, index: number, angle: number, radius: number) => void;
+  onReshapeBend: (ductId: string, index: number, angle: number, radius: number, changed: 'angle' | 'radius') => void;
   /** Slide bend `index` along this pipe so the straight before it is `before` m long. */
   onSlideBend: (ductId: string, index: number, before: number) => void;
   /** Make this pipe, joined at its far end, `length` m long, with a swing on the way if it needs one. */
@@ -166,7 +166,7 @@ function engineTypeOf(eng: EngineSpec): string {
 /** What draw mode says before a route has started. */
 const START_HINT = 'Pick a port, a junction, or a pipe to continue or branch from';
 const ROUTE_HINT = 'Click to add a bend, or a junction, pipe or turbo inlet to join it';
-const BEND_HINT = 'Click a straight where it should bend';
+const BEND_HINT = 'Click a straight to bend';
 const PLACE_HINT = 'Click to put it down, or on an open pipe end to attach it · Esc stops';
 
 export class Panel {
@@ -626,10 +626,10 @@ export class Panel {
     this.bendToolBtn = el('button', '', bendToolRow) as HTMLButtonElement;
     this.bendToolBtn.textContent = 'Bend a pipe';
     this.bendToolBtn.title =
-      'Click a straight where it should bend: two rings appear there, one lying in the pipe’s up-and-down ' +
-      'plane and one in its side-to-side plane. Drag the ring of the plane to bend in; Shift turns in 15 ' +
-      'degree steps. The pipe keeps its length, as a tube does when it is bent, and a ghost shows where it ' +
-      'is going until you let go.';
+      'Click a straight to bend: two rings appear where it starts, one lying in the pipe’s up-and-down ' +
+      'plane and one in its side-to-side plane. Drag the ring of the plane to bend in, and the whole ' +
+      'straight curves into one arc; Shift turns in 15 degree steps. It keeps its length, as a tube does ' +
+      'when it is bent, and a ghost shows where it is going until you let go.';
     this.bendToolHint = el('span', 'hint', bendToolRow);
     this.bendToolBtn.addEventListener('click', () => {
       this.setBendToolState(!this.bendingTool);
@@ -1718,11 +1718,11 @@ export class Panel {
       let radius = shape.radius;
       numberField(bends, 'Bend', deg(angle), 1, 179, 1, '°', (v) => {
         angle = rad(v);
-        this.cb.onReshapeBend(duct.id, index, angle, radius);
+        this.cb.onReshapeBend(duct.id, index, angle, radius, 'angle');
       });
       numberField(bends, 'Radius', radius * MM, 1.5 * seg.dIn * MM, 2000, 1, 'mm', (v) => {
         radius = Math.max(v / MM, 1.5 * seg.dIn);
-        this.cb.onReshapeBend(duct.id, index, angle, radius);
+        this.cb.onReshapeBend(duct.id, index, angle, radius, 'radius');
       });
       // Between two straights, where along the pipe it is: the straight before it, the one after giving way.
       const prev = list[index - 1];

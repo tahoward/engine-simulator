@@ -26,7 +26,7 @@ import {
   routeTip,
   snapToEngine,
   bendSegment,
-  bendStraight,
+  bendWhole,
   reshapeBendKeepingLength,
   slideBend,
   reshapeBend,
@@ -950,60 +950,56 @@ describe('a drawn bend', () => {
   });
 });
 
-/** Bending a straight where it lies, as a tube is bent: it keeps its length. */
+/** Bending a whole straight into one arc, as a tube is bent: it keeps its length. */
 describe('bending a straight', () => {
   const seg = makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.04, dOut: 0.05, yaw: 0.2 });
   const dir = new THREE.Vector3(1, 0, 0);
   const up = new THREE.Vector3(0, 0, 1);
-  const total = (segs: PipeSegment[]) => segs.reduce((a, s) => a + s.length, 0);
 
-  it('turns about the axis given, keeping its length, its corner and its bores', () => {
-    const { segments, clamped } = bendStraight(seg, dir, 0.15, up, Math.PI / 2, 0.08, 0.06);
+  it('curves all of it about the axis given, as long as it was, its corner, id and bores kept', () => {
+    const { segment, clamped, radius } = bendWhole(seg, dir, up, Math.PI / 2, 0.06);
     expect(clamped).toBe(false);
-    expect(segments).toHaveLength(3);
-    expect(total(segments)).toBeCloseTo(0.3, 9);
-    // The straight up to it is the segment it was, cut short: its id and its corner.
-    expect(segments[0]!.id).toBe(seg.id);
-    expect(segments[0]!.yaw).toBe(0.2);
-    expect(segments[0]!.dIn).toBe(0.04);
-    expect(segments[2]!.dOut).toBeCloseTo(0.05, 12);
-    // Centred where it was asked for.
-    const arc = segments[1]!.length;
-    expect(segments[0]!.length + arc / 2).toBeCloseTo(0.15, 9);
+    expect(segment.length).toBeCloseTo(0.3, 6);
+    expect(radius).toBeCloseTo(0.3 / (Math.PI / 2), 3);
+    expect(segment.id).toBe(seg.id);
+    expect(segment.yaw).toBe(0.2);
+    expect(segment.dIn).toBe(0.04);
+    expect(segment.dOut).toBe(0.05);
     // Heading off the way the turn says, in the plane square to the axis.
-    const swept = layoutPipe(segments.map((s, i) => (i === 0 ? { ...s, yaw: 0 } : s)), new THREE.Vector3(), dir);
+    const swept = layoutPipe([{ ...segment, yaw: 0 }], new THREE.Vector3(), dir);
     expect(swept.jointDirections.at(-1)!.angleTo(new THREE.Vector3(0, 1, 0))).toBeLessThan(1e-6);
     expect(Math.abs(swept.joints.at(-1)!.z)).toBeLessThan(1e-9);
   });
 
-  it('near an end, takes what the short side lacks from the long one', () => {
-    const { segments } = bendStraight(seg, dir, 0.01, up, Math.PI / 4, 0.1, 0.06);
-    expect(total(segments)).toBeCloseTo(0.3, 9);
-    expect(segments[0]!.curve).toBeDefined();
-    expect(segments[0]!.yaw).toBe(0.2);
+  it('turns no tighter than it may, stopping where it would', () => {
+    const short = makeSegment({ kind: 'pipe', length: 0.05, dIn: 0.04 });
+    const { segment, clamped, angle, radius } = bendWhole(short, dir, up, Math.PI / 2, 0.06);
+    expect(clamped).toBe(true);
+    expect(radius / 0.06).toBeGreaterThan(0.99);
+    expect(Math.abs(angle)).toBeLessThan(Math.PI / 2);
+    expect(segment.length).toBeCloseTo(0.05, 6);
   });
 
-  it('reshaped or slid along, keeps its length, the straights either side giving way', () => {
-    const { segments } = bendStraight(seg, dir, 0.15, up, Math.PI / 2, 0.08, 0.06);
-    const before = segments[0]!.length;
-    expect(reshapeBendKeepingLength(segments, 1, Math.PI / 3, 0.1)).toBe(true);
-    expect(total(segments)).toBeCloseTo(0.3, 9);
-    expect(bendShape(segments[1]!)!.radius).toBeCloseTo(0.1, 9);
-    // Half from each side.
-    expect(segments[0]!.length + segments[1]!.length / 2).toBeCloseTo(0.15, 9);
-    expect(slideBend(segments, 1, before / 2)).toBe(true);
-    expect(segments[0]!.length).toBeCloseTo(before / 2, 12);
-    expect(total(segments)).toBeCloseTo(0.3, 9);
+  it('reshaped on its own keeps its length: a new angle sets its radius, a new radius its angle', () => {
+    const segments = [bendWhole(seg, dir, up, Math.PI / 2, 0.06).segment];
+    expect(reshapeBendKeepingLength(segments, 0, Math.PI / 3, 0, 'angle')).toBe(true);
+    expect(bendShape(segments[0]!)!.angle).toBeCloseTo(Math.PI / 3, 9);
+    expect(segments[0]!.length / 0.3).toBeCloseTo(1, 2);
+    expect(reshapeBendKeepingLength(segments, 0, 0, 0.5, 'radius')).toBe(true);
+    expect(bendShape(segments[0]!)!.radius).toBeCloseTo(0.5, 9);
+    expect(segments[0]!.length / 0.3).toBeCloseTo(1, 2);
   });
 
-  it('eases the radius to fit a bend too long for it, and stops turning where even the tightest will not', () => {
-    const eased = bendStraight(seg, dir, 0.15, up, Math.PI / 2, 0.5, 0.06);
-    expect(eased.clamped).toBe(false);
-    expect(eased.radius).toBeLessThan(0.5);
-    expect(total(eased.segments)).toBeCloseTo(0.3, 3);
-    const stopped = bendStraight(makeSegment({ kind: 'pipe', length: 0.05, dIn: 0.04 }), dir, 0.025, up, Math.PI / 2, 0.1, 0.06);
-    expect(stopped.clamped).toBe(true);
-    expect(Math.abs(stopped.angle)).toBeLessThan(Math.PI / 2);
-    expect(total(stopped.segments)).toBeCloseTo(0.05, 3);
+  it('between two straights, reshaped or slid along, keeps its length, the straights giving way', () => {
+    const bend = bendWhole(makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.04 }), dir, up, Math.PI / 2, 0.06).segment;
+    const segments = [makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.04 }), bend, makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.04 })];
+    const total = () => segments.reduce((a, s) => a + s.length, 0);
+    const was = total();
+    expect(reshapeBendKeepingLength(segments, 1, Math.PI / 3, 0.08, 'radius')).toBe(true);
+    expect(total()).toBeCloseTo(was, 9);
+    expect(bendShape(segments[1]!)!.radius).toBeCloseTo(0.08, 9);
+    expect(slideBend(segments, 1, 0.05)).toBe(true);
+    expect(segments[0]!.length).toBeCloseTo(0.05, 12);
+    expect(total()).toBeCloseTo(was, 9);
   });
 });
