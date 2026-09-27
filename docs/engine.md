@@ -435,6 +435,17 @@ the crossplane, and four pins in one plane for the flatplane. That is exactly wh
 named for. A 270° parallel twin correctly comes out with two pins, because no shared pin can give
 that interval. That is what the firing-offset override is for.
 
+**Cylinders sharing a pin sit a rod's width apart along the crank** (`ROD_STAGGER`, 16 mm), so their
+rods run side by side on it, and so one bank of a V sits a little ahead of the other, as on a real
+one. A split pin puts each of the two on its own pin, the same distance apart. Everything placed
+along the crank follows `cylinderZ`: the cylinders, and the exhaust ports, so an 8-into-1's two
+downpipes differ in length by a few millimetres.
+
+**Main bearings sit between the throws** (`mainBearingsAfter`), and at each end: five for an inline
+four or a V8, seven for an inline six. A flat engine is the exception. Each opposed pair's pins sit
+side by side, half a turn apart, joined by one web, and the mains go between the pairs: three for a
+flat four, four for a six.
+
 The gap is not always `vAngle + 360`, as it is on a V-twin: the camshaft picks, for each pin, which
 of the two TDCs is the firing one. That is what allows even 90° firing with uneven banks.
 

@@ -11,8 +11,7 @@ import {
   type EngineSpec,
   type PipeSegment,
   clearanceVolume,
-  crankPins,
-  cylinderSpacing,
+  cylinderZ,
   firingPlan,
   physicalBank,
   physicalBankCount,
@@ -24,13 +23,11 @@ export type Vec3 = [number, number, number];
  * A cylinder's exhaust port: where its pipe attaches, and which way the port points.
  *
  * Out of the head on the exhaust side, a little above the deck, square to the head; then turned with the
- * cylinder's bank, and placed along the crank at its pin.
+ * cylinder's bank, and placed along the crank where the cylinder is (`cylinderZ`).
  */
 export function exhaustPortOf(spec: EngineSpec, cylinder: number): { position: Vec3; direction: Vec3 } {
   const plan = firingPlan(spec);
-  const pins = crankPins(spec);
-  const pin = Math.max(pins.findIndex((p) => p.cylinders.includes(cylinder)), 0);
-  const z = (pin - (pins.length - 1) / 2) * cylinderSpacing(spec);
+  const z = cylinderZ(spec, cylinder);
 
   const deg = Math.PI / 180;
   const bankRotation = (plan.banks[cylinder] ?? 0) === 0 ? 0 : -spec.vAngle * deg;

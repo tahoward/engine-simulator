@@ -654,10 +654,11 @@ mod compile_layout_builds_manifolds {
         assert_eq!(validate_graph(&graph, 8), Vec::<String>::new());
         let downs: Vec<&ExhaustDuct> = graph.ducts.iter().filter(|d| d.id.starts_with("down")).collect();
         assert_eq!(downs.len(), 2);
-        // Mirror images, so the same length, and it came out of the collector.
-        assert!((downs[0].segments[0].length - downs[1].segments[0].length).abs() < 5e-10);
+        // Mirror images but for the stagger between the banks, and the longer came out of the collector.
+        let (a, b) = (downs[0].segments[0].length, downs[1].segments[0].length);
+        assert!((a - b).abs() < engine_sim::spec::ROD_STAGGER, "{a} {b}");
         let out = graph.ducts.iter().find(|d| d.id == "collector0").unwrap();
-        let total = out.segments[0].length + downs[0].segments[0].length;
+        let total = out.segments[0].length + a.max(b);
         assert!((total - 1.5).abs() < 5e-10, "path {total}");
     }
 }

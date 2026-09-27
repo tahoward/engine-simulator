@@ -1440,6 +1440,27 @@ export function cylinderSpacing(spec: EngineSpec): number {
   return spec.bore * 1.45;
 }
 
+/**
+ * How far apart along the crank the cylinders sharing a throw sit, m: a rod's width, so their rods run side
+ * by side on a shared pin, or each on its own pin of a split one. It is why one bank of a V sits a little
+ * ahead of the other.
+ */
+export const ROD_STAGGER = 0.016;
+
+/**
+ * Where cylinder `cylinder` sits along the crank, m, the engine centred on the origin: at its throw, and on
+ * a throw it shares, staggered from the other cylinders on it by `ROD_STAGGER`.
+ */
+export function cylinderZ(spec: EngineSpec, cylinder: number): number {
+  const pins = crankPins(spec);
+  const index = Math.max(pins.findIndex((p) => p.cylinders.includes(cylinder)), 0);
+  const pin = pins[index];
+  const along = (index - (pins.length - 1) / 2) * cylinderSpacing(spec);
+  if (!pin || pin.cylinders.length < 2) return along;
+  const k = pin.cylinders.indexOf(cylinder);
+  return along + (k - (pin.cylinders.length - 1) / 2) * ROD_STAGGER;
+}
+
 export function crankPins(spec: EngineSpec): CrankPin[] {
   const plan = firingPlan(spec);
   const pins: CrankPin[] = [];

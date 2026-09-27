@@ -14,6 +14,7 @@ import {
   GAS,
   crankPins,
   mainBearingsAfter,
+  ROD_STAGGER,
   defaultConfig,
   firingPlan,
   makeSegment,
@@ -227,6 +228,35 @@ describe('the drawn mechanism', () => {
     }
   });
 
+  it('runs the rods on a shared pin side by side, and each exhaust port at its own cylinder', () => {
+    for (const over of [
+      { cylinders: 2 as const, vAngle: 45, firingOffset: null },
+      { cylinders: 6 as const, vAngle: 60, exhaustLayout: 'perBank' as const },
+      { ...V8, crankType: 'crossplane' as const },
+      { ...V8, crankType: 'flatplane' as const },
+      { cylinders: 4 as const, vAngle: 0 },
+    ]) {
+      const s = spec(over);
+      const mesh = new EngineMesh(s, clip);
+      poseAll(mesh, s, 37);
+      mesh.group.updateMatrixWorld(true);
+      const rods: THREE.Box3[] = [];
+      mesh.group.traverse((o) => {
+        if (o instanceof THREE.Mesh && o.name === 'rod') rods.push(new THREE.Box3().setFromObject(o));
+      });
+      expect(rods).toHaveLength(s.cylinders);
+      for (let i = 0; i < rods.length; i++) {
+        for (let j = i + 1; j < rods.length; j++) {
+          const overlap = Math.min(rods[i]!.max.z, rods[j]!.max.z) - Math.max(rods[i]!.min.z, rods[j]!.min.z);
+          expect(overlap, `${s.cylinders} cylinders, rods ${i} and ${j}`).toBeLessThan(0);
+        }
+      }
+      for (let i = 0; i < s.cylinders; i++) {
+        expect(mesh.exhaustPort(i).position.z).toBeCloseTo(mesh.pose(i).z, 12);
+      }
+    }
+  });
+
   it('puts each piston where the physics says it is', () => {
     const s = spec({ ...V8, crankType: 'crossplane' });
     const mesh = new EngineMesh(s, clip);
@@ -261,15 +291,21 @@ describe('the drawn mechanism', () => {
     }
   });
 
-  it('stands cylinders sharing a crankpin in the same plane', () => {
+  it('staggers the cylinders sharing a crankpin by a rod width, one bank a little ahead of the other', () => {
     const s = spec({ ...V8, crankType: 'crossplane' });
     const mesh = new EngineMesh(s, clip);
-    for (const pin of crankPins(s)) {
-      const zs = pin.cylinders.map((c) => mesh.pose(c).z);
-      for (const z of zs) expect(z).toBeCloseTo(zs[0]!, 12);
-    }
-    // And four distinct planes for four pins.
-    expect(new Set([...Array(8).keys()].map((i) => mesh.pose(i).z.toFixed(6))).size).toBe(4);
+    const pins = crankPins(s);
+    const spacing = mesh.pose(pins[1]!.cylinders[0]!).z - mesh.pose(pins[0]!.cylinders[0]!).z;
+    pins.forEach((pin, i) => {
+      const [first, second] = pin.cylinders.map((c) => mesh.pose(c).z);
+      expect(second! - first!).toBeCloseTo(ROD_STAGGER, 12);
+      // Centred on the pin, which is where the pins are spaced along the crank.
+      expect((first! + second!) / 2).toBeCloseTo((i - (pins.length - 1) / 2) * spacing, 12);
+    });
+    // Every bank-0 cylinder the same way off its pin, so each bank's cylinders are evenly spaced.
+    const plan = firingPlan(s);
+    const offsets = pins.map((pin, i) => mesh.pose(pin.cylinders.find((c) => plan.banks[c] === 0)!).z - i * spacing);
+    for (const o of offsets) expect(o).toBeCloseTo(offsets[0]!, 12);
   });
 
   it('opens two banks and puts one cylinder per bank on each pin', () => {
