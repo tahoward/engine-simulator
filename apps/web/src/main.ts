@@ -28,7 +28,7 @@ import { PipeMesh } from './scene/PipeMesh.js';
 import { ductDirections, freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustPlacement } from './scene/exhaustLayout.js';
 import { JointMesh } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
-import { loosenChildren, splitDuct } from './scene/drawing.js';
+import { detachDuct, loosenChildren, splitDuct } from './scene/drawing.js';
 import { moveJunction, moveTurbo, refitBends, seatTurbos, turboHeight } from './scene/turboPlacement.js';
 import {
   fittedBend,
@@ -371,14 +371,9 @@ const panel = new Panel(panelEl, config, {
   onDetachDuct: (id) => {
     freeze();
     const graph = config.graph!;
-    if (!disconnectEnd(graph, id, directionsOf(stablePlacement))) {
+    if (!detachDuct(graph, id, stablePlacement, directionsOf(stablePlacement))) {
       panel.notify('Pipes carry on from where this pipe joins: delete them first.');
       return;
-    }
-    const duct = graph.ducts.find((d) => d.id === id);
-    // A pipe that was nothing but its bend goes, unless it is a cylinder's.
-    if (duct && duct.segments.length === 0 && duct.from.kind !== 'valve') {
-      removeDuct(graph, id, directionsOf(stablePlacement));
     }
     rebuildPipeGeometry();
     audio.setGraph(graph);
