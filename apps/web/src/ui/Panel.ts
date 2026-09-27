@@ -1568,7 +1568,7 @@ export class Panel {
   private commit(): void {
     const graph = this.config.graph;
     const duct = this.currentDuct();
-    if (this.linkRunners && graph && duct) copyToSiblingRunners(graph, duct);
+    if (this.linkRunners && graph && duct) copyToSiblingRunners(graph, duct, this.config.engine);
     this.cb.onPipe();
   }
 

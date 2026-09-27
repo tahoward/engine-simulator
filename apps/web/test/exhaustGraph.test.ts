@@ -90,6 +90,46 @@ describe('linking runners', () => {
     }
   });
 
+  it('gives the other bank the mirror image, bends and all', async () => {
+    const THREE = await import('three');
+    const { layoutPipe, turnHeading } = await import('../src/scene/PipeMesh.js');
+    const { bendWhole } = await import('../src/scene/drawing.js');
+    const { exhaustPortOf } = await import('../src/model/geometry.js');
+    const spec = v8();
+    const graph = compileCollectorLayout(spec, [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.6 })]);
+    const source = graph.ducts.find((d) => d.id === 'runner0')!;
+    source.headingYaw = 0.4;
+    source.headingPitch = -0.2;
+    const straight = makeSegment({ length: 0.3 });
+    // Bent towards the front and down, off the way it leaves the port.
+    const port0 = new THREE.Vector3(...exhaustPortOf(spec, 0).direction);
+    const leaving = turnHeading(port0, 0.4, -0.2);
+    const bent = bendWhole(straight, leaving, new THREE.Vector3(1, 0.5, 0.3).normalize(), 1.1, 0.06).segment;
+    source.segments = [makeSegment({ length: 0.1 }), bent, makeSegment({ length: 0.2, yaw: 0.3, pitch: 0.1 })];
+    copyToSiblingRunners(graph, source, spec);
+
+    // Each runner's shape from its own port, as the layout lays it.
+    const shape = (d: ExhaustDuct) => {
+      const port = exhaustPortOf(spec, (d.from as { cylinder: number }).cylinder);
+      const origin = new THREE.Vector3(...port.position);
+      const heading = turnHeading(new THREE.Vector3(...port.direction), d.headingYaw, d.headingPitch);
+      return layoutPipe(d.segments, origin, heading).joints.map((p) => p.clone().sub(origin));
+    };
+    const mine = shape(source);
+    const runners = graph.ducts.filter((d) => d.from.kind === 'valve');
+    let opposite = 0;
+    for (const d of runners) {
+      const theirs = shape(d);
+      const other = exhaustPortOf(spec, (d.from as { cylinder: number }).cylinder).direction[0] * port0.x < 0;
+      if (other) opposite++;
+      theirs.forEach((p, i) => {
+        const want = other ? new THREE.Vector3(-mine[i]!.x, mine[i]!.y, mine[i]!.z) : mine[i]!;
+        expect(p.distanceTo(want)).toBeLessThan(1e-9);
+      });
+    }
+    expect(opposite).toBe(4);
+  });
+
   it('does nothing when asked to mirror a collector', () => {
     const graph = compileCollectorLayout(v8(), [makeSegment({ length: 0.4 })], [makeSegment({ length: 0.6 })]);
     const collector = graph.ducts.find((d) => d.id === 'collector0')!;
