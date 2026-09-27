@@ -765,6 +765,10 @@ export function pathToAir(graph: ExhaustGraph, cylinder: number): ExhaustDuct[] 
  *
  * Given the engine, a runner on the other bank of a V or a boxer gets the mirror image, as the banks are:
  * a pipe turned towards the flywheel on one side turns towards it on the other, not away.
+ *
+ * Where a runner ends at a junction, its bore there is that junction's, which every pipe meeting there is
+ * matched to (`carryBore`), so each keeps its own: copying one runner's onto the others would resize every
+ * other junction they meet, as well as the one it was set at.
  */
 export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct, spec?: EngineSpec): void {
   if (source.from.kind !== 'valve') return;
@@ -786,11 +790,18 @@ export function copyToSiblingRunners(graph: ExhaustGraph, source: ExhaustDuct, s
     if (other === source || other.from.kind !== 'valve' || carries(other)) continue;
     const flip = bankOf(other.from.cylinder) !== from;
     const bend = other.segments.slice(other.segments.length - fittedCount(other));
+    const end = other.to.kind === 'node' && bend.length === 0 ? other.segments.at(-1) : undefined;
+    const endBore = end ? segmentDiameter(end, 1) : undefined;
     // Mirrored from the way it leaves its own port to the way the other bank's leaves its.
     const mirror = flip && spec
       ? mirrorPipe(drawn(source), source, exhaustPortOf(spec, source.from.cylinder).direction, exhaustPortOf(spec, other.from.cylinder).direction)
       : null;
     other.segments = [...(mirror?.segments ?? drawn(source).map((sg) => makeSegment(sg))), ...bend];
+    const last = other.segments.at(-1);
+    if (endBore !== undefined && last && bend.length === 0) {
+      if (last.kind === 'chamber') last.dIn = endBore;
+      else last.dOut = endBore;
+    }
     // The way it sets off from its port, too, which a runner's heading is turned from.
     if (source.headingYaw === undefined) delete other.headingYaw;
     else other.headingYaw = mirror ? mirror.yaw : source.headingYaw;
