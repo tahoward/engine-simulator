@@ -395,6 +395,9 @@ export function pipeShape(segments: PipeSegment[], heading: THREE.Vector3): Pipe
  * worked out again from the turned directions either side of it, and each bend is put back in the frame of
  * the way it now sets off, since that frame is the world's up and not the pipe's own: so every segment keeps
  * its length, and every corner and bend stays as it was.
+ *
+ * From segment `from` on, it is only the rest of the pipe that swings, about where that segment starts:
+ * what comes before it, and the heading, stay put.
  */
 export function swingPipe(
   duct: ExhaustDuct,
@@ -402,14 +405,18 @@ export function swingPipe(
   shape: PipeShape,
   axis: THREE.Vector3,
   angle: number,
+  from = 0,
 ): void {
   const turn = (v: THREE.Vector3) => v.clone().applyAxisAngle(axis, angle);
-  const starts = shape.starts.map(turn);
-  const ends = shape.ends.map(turn);
-  const heading = turnBetween(base, starts[0]!);
-  duct.headingYaw = heading.yaw;
-  duct.headingPitch = heading.pitch;
+  const starts = shape.starts.map((v, i) => (i >= from ? turn(v) : v.clone()));
+  const ends = shape.ends.map((v, i) => (i >= from ? turn(v) : v.clone()));
+  if (from === 0) {
+    const heading = turnBetween(base, starts[0]!);
+    duct.headingYaw = heading.yaw;
+    duct.headingPitch = heading.pitch;
+  }
   starts.forEach((start, i) => {
+    if (i < from) return;
     const seg = duct.segments[i]!;
     const corner = i === 0 ? { yaw: 0, pitch: 0 } : turnBetween(ends[i - 1]!, start);
     seg.yaw = corner.yaw;

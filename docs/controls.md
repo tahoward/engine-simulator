@@ -145,13 +145,16 @@ How to edit:
 - **Turn or move the selected pipe** with its [triad](#the-triad), which sits where the pipe starts.
   - A **loose pipe** is free: its three rings swing it every way about where it starts, turned with the
     pipe, red along the way it sets off.
-  - A pipe that **starts at a connection** is held to the face it starts from, as a pipe is to a flange:
-    it turns only in that face's plane, by one red ring round the connection's axis, so where it sets off
-    from stays put and the rest of it swings round. The axis is an exhaust port's, a turbo outlet's, the
-    way the pipe it carries on from finishes, or its junction's. A straight pipe along that axis would turn
-    to no effect, so it has no ring.
+  - A pipe that **starts at a connection** is held there: it turns only about the way its opening
+    points, by one red ring round it, so where it sets off from, and the way, stay put and the rest of it
+    swings round. The ring always sits on the pipe's opening: for a pipe leaving square, that is the axis
+    of the exhaust port, the turbo outlet, the pipe it carries on from or its junction; for one leaving at
+    an angle, the pipe's own. A straight pipe along that axis would turn to no effect, so it has no ring.
   - Either way the whole pipe turns as one piece: every segment keeps its length and the corners and bends
     between them stay as they are.
+  - With a **bend further along** selected, the triad sits where that bend starts instead, with one red
+    ring round the way it sets off: it rolls the bend, and the rest of the pipe after it, so it bends
+    another way, while the pipe before it stays put.
   - Its **arrows and squares** move the junction the pipe starts from, and the pipe with it, and every
     pipe into the junction bends in to follow; from then on it stays where it was put. A pipe from an
     exhaust port has no arrows, since the port is part of the engine.

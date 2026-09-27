@@ -132,6 +132,8 @@ interface TriadDrag {
   ductId?: string;
   base?: THREE.Vector3;
   drawn?: number;
+  /** The first segment that swings: 0 for the whole pipe, or a bend further along and what follows it. */
+  from?: number;
   shape0?: PipeShape;
   /** What a pipe's arrows move: the junction it starts from, and the way it points, or a loose pipe. */
   startNode?: string;
@@ -795,8 +797,11 @@ export class PipeEditor {
     this.pipeTriad.setVisible(!hide && this.pipeTriadAt !== null);
   }
 
-  /** Where the selected pipe's triad goes: where the pipe starts, which it turns about. */
-  private pipeTriadAt: { start: THREE.Vector3 } | null = null;
+  /**
+   * Where the selected pipe's triad goes: where the pipe starts, which it turns about, or where the
+   * selected bend starts, and `from` that bend, which the rest of the pipe turns about.
+   */
+  private pipeTriadAt: { start: THREE.Vector3; from: number } | null = null;
 
   private onContextMenu = (e: MouseEvent): void => {
     if (this.drawMode) e.preventDefault();
@@ -1307,27 +1312,44 @@ export class PipeEditor {
      * The selected pipe's triad, at where it starts.
      *
      * A loose pipe is free: its arrows move it and its three rings swing it every way, turned with the pipe,
-     * red along the way it sets off. A pipe that starts at a connection is held to the face it starts from,
-     * as a pipe is to a flange: it turns only in that face's plane, about the connection's axis (`faceAxis`),
-     * by the one ring round it, so where it sets off from stays put. Its arrows move the junction it
-     * leaves, where it leaves one of its own; a port, a turbo's outlet and the end of another pipe hold it.
-     * A straight pipe along that axis would turn to no effect, so it has no ring.
+     * red along the way it sets off. A pipe that starts at a connection is held there: it turns only about
+     * the way its opening points, by the one ring round it, so where it sets off from, and the way, stay
+     * put. That is the connection's axis (`faceAxis`) where it leaves square, and the pipe's own where it
+     * leaves at an angle, so the ring always sits on the opening. Its arrows move the junction it leaves,
+     * where it leaves one of its own; a port, a turbo's outlet and the end of another pipe hold it. A
+     * straight pipe along that axis would turn to no effect, so it has no ring.
+     *
+     * A bend further along has one of its own, where it starts: its one ring rolls it about the way it
+     * sets off, and the rest of the pipe with it, so it bends another way.
      */
     const graph = this.context?.graph;
     const duct = graph?.ducts.find((d) => d.segments === this.pipe);
     this.pipeTriadAt = null;
-    if (this.selected !== null && editable > 0 && duct) {
-      const face = this.faceAxis(duct);
+    const sel = this.selected;
+    if (sel !== null && sel > 0 && sel < editable && this.pipe[sel]!.curve && duct) {
+      const at = layout.joints[sel - 1]!;
+      const shape = pipeShape(this.pipe.slice(0, editable), this.heading);
+      this.pipeTriadAt = { start: at.clone(), from: sel };
+      this.pipeTriad.setMoveOrigin(at);
+      this.pipeTriad.setRotateOrigin(at);
+      this.pipeTriad.setOrientation(frameAlong(shape.starts[sel]!));
+      this.pipeTriad.showMoves(false);
+      this.pipeTriad.hideRing(0, false);
+      this.pipeTriad.hideRing(1, true);
+      this.pipeTriad.hideRing(2, true);
+    } else if (sel !== null && editable > 0 && duct) {
+      const opening = layout.stations[0]!.direction.clone().normalize();
+      const face = this.faceAxis(duct) ? opening : null;
       const shape = pipeShape(this.pipe.slice(0, editable), this.heading);
       const turns = face
         ? [...shape.starts, ...shape.ends].some((d) => d.clone().cross(face).lengthSq() > 1e-8)
         : true;
       const movable = duct.from.kind === 'free' || (duct.from.kind === 'node' && !this.heldAtStart(duct));
       if (turns || movable) {
-        this.pipeTriadAt = { start: this.origin.clone() };
+        this.pipeTriadAt = { start: this.origin.clone(), from: 0 };
         this.pipeTriad.setMoveOrigin(this.origin);
         this.pipeTriad.setRotateOrigin(this.origin);
-        this.pipeTriad.setOrientation(frameAlong(face ?? layout.stations[0]!.direction));
+        this.pipeTriad.setOrientation(frameAlong(opening));
         this.pipeTriad.showMoves(movable);
         // Held to a face, only the ring round its axis; loose, all three.
         this.pipeTriad.hideRing(0, !turns);
@@ -1558,6 +1580,7 @@ export class PipeEditor {
       if (!ctx || !duct || drawn === 0) return;
       drag.ductId = duct.id;
       drag.drawn = drawn;
+      drag.from = this.pipeTriadAt?.from ?? 0;
       drag.shape0 = pipeShape(this.pipe.slice(0, drawn), this.heading);
       drag.base = this.headingBase(duct);
       if (duct.from.kind === 'free') {
@@ -1710,7 +1733,7 @@ export class PipeEditor {
    * were: the way the pipe sets off goes into its heading, and each corner after is worked out again from
    * the turned directions either side of it. A bend fitted to what the pipe joins at its far end is fitted
    * again when the scene rebuilds. With shift held it lands on 15-degree steps from the engine's axes, so
-   * a pipe at an odd angle squares up.
+   * a pipe at an odd angle squares up. On a bend further along, the same from that bend on.
    */
   private dragPipeTriad(drag: TriadDrag, snap: boolean): void {
     const duct = this.context?.graph.ducts.find((d) => d.id === drag.ductId);
@@ -1724,13 +1747,14 @@ export class PipeEditor {
     if (snap) {
       // Squared up by the first way the pipe goes that swings round: turning about a face's axis, the first
       // straight out of it may lie along the axis and not swing at all.
-      const dirs = [...drag.shape0.starts, ...drag.shape0.ends];
-      const ref = dirs.find((d) => d.clone().cross(drag.axis).lengthSq() > 1e-6) ?? drag.shape0.starts[0]!;
+      const from = drag.from ?? 0;
+      const dirs = [...drag.shape0.starts.slice(from), ...drag.shape0.ends.slice(from)];
+      const ref = dirs.find((d) => d.clone().cross(drag.axis).lengthSq() > 1e-6) ?? drag.shape0.starts[from]!;
       turn = snapTurnToEngine(ref, turn, drag.axis, (TRIAD_TURN_DEG * Math.PI) / 180);
     }
-    swingPipe(duct, drag.base, drag.shape0, drag.axis, turn);
+    swingPipe(duct, drag.base, drag.shape0, drag.axis, turn, drag.from ?? 0);
     drag.moved = true;
-    this.commitFrame(drag, () => this.cb.onChange(false), () => this.cb.onChange(true));
+    this.commitFrame(drag, () => this.cb.onChange(false, duct.id), () => this.cb.onChange(true, duct.id));
   }
 
   /**
@@ -1994,7 +2018,7 @@ export class PipeEditor {
       } else if (drag.lastPosition && drag.startNode && drag.startAxis) {
         this.cb.onMoveJunction?.(drag.startNode, drag.lastPosition, drag.startAxis, true);
       } else {
-        this.cb.onChange(true);
+        this.cb.onChange(true, drag.ductId);
         this.rebuildHandles();
       }
       return;
