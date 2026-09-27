@@ -1033,8 +1033,8 @@ export class Panel {
     this.placeBtn.textContent = 'Place a turbo';
     this.placeBtn.title =
       'Put a turbo down in the view, then draw pipes into its inlet: the open flange on the side of its ' +
-      'turbine. Put it on the open end of a pipe to attach that pipe as it goes down. Its outlet gets a ' +
-      'short pipe to the air, which you can draw on from. Click a turbo for its triad: drag an arrow to ' +
+      'turbine. Put it on the open end of a pipe to attach that pipe as it goes down. Until you draw a ' +
+      'pipe from its outlet flange, it exhausts straight to the air there. Click a turbo for its triad: drag an arrow to ' +
       'move it along that axis, a square to move it in that plane, a ring to turn it; shift snaps to ' +
       '5 mm and 15 degrees. Its pipes follow. Delete takes it out.';
     this.placeHint = el('span', 'hint', placeRow);

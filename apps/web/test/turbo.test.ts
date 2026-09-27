@@ -13,6 +13,7 @@ import {
   joinDuctEnd,
   graphFromJson,
   pathToAir,
+  solverGraph,
   tidyJunctions,
   validateGraph,
   type ExhaustGraph,
@@ -50,25 +51,47 @@ function single(): { spec: EngineSpec; graph: ExhaustGraph; ports: ExhaustPort[]
 function singleWithTurbo() {
   const { spec, graph, ports } = single();
   const mount = newTurbo(graph);
-  const size = graphTurboSize({ ducts: [], turbos: [mount] }, spec);
-  placeTurbo(graph, mount, size.outletDia, 'runner0');
+  placeTurbo(graph, mount, 'runner0');
   seatTurbos(graph, ports, spec);
   return { spec, graph, ports, mount };
 }
 
+/** As `singleWithTurbo`, with a pipe drawn from the turbo's outlet to the air. */
+function singleWithTurboAndOutlet() {
+  const t = singleWithTurbo();
+  t.graph.ducts.push({
+    id: 'downpipe',
+    segments: [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.05 })],
+    from: { kind: 'node', node: t.mount.node },
+    to: { kind: 'mouth' },
+  });
+  refitBends(t.graph, t.ports, t.spec);
+  return t;
+}
+
 describe('a turbo put down on the open end of a pipe', () => {
-  it('attaches the pipe, and gives the turbo an outlet to the air', () => {
+  it('attaches the pipe, and adds nothing at its outlet', () => {
     const { graph, mount } = singleWithTurbo();
     expect(validateGraph(graph, 1)).toEqual([]);
     const ends = endsAt(graph, mount.node);
-    expect(ends.filter((e) => e.end === 'outlet').map((e) => e.duct.id)).toEqual(['runner0']);
-    const outs = ends.filter((e) => e.end === 'inlet').map((e) => e.duct);
-    expect(outs).toHaveLength(1);
-    expect(outs[0]!.to.kind).toBe('mouth');
+    expect(ends.map((e) => [e.duct.id, e.end])).toEqual([['runner0', 'outlet']]);
+  });
+
+  it('exhausts to the air at its outlet flange until a pipe is drawn from it', () => {
+    const { graph, mount } = singleWithTurbo();
+    const solved = solverGraph(graph);
+    expect(validateGraph(solved, 1)).toEqual([]);
+    const exit = solved.ducts.filter((d) => d.from.kind === 'node' && d.from.node === mount.node);
+    expect(exit).toHaveLength(1);
+    expect(exit[0]!.to.kind).toBe('mouth');
+    // The runner still feeds the turbine, rather than venting past it.
+    expect(solved.ducts.find((d) => d.id === 'runner0')!.to).toEqual({ kind: 'node', node: mount.node });
+    // Not added to the graph itself.
+    expect(graph.ducts).toHaveLength(1);
   });
 
   it('meets the pipe at its inlet flange, and starts its outlet pipe from its outlet flange', () => {
-    const { spec, graph, ports, mount } = singleWithTurbo();
+    const { spec, graph, ports, mount } = singleWithTurboAndOutlet();
     const turbos = turboPortsOf(graph, spec);
     const placement = layoutGraph(ports, graph, turbos);
     const flanges = turbos.get(mount.node)!;
@@ -91,11 +114,22 @@ describe('a turbo put down on the open end of a pipe', () => {
     expect(targets.some((t) => t.kind === 'node' && t.node === mount.node)).toBe(false);
   });
 
-  it('keeps its one pipe in and one out, which a junction would be rejoined from', () => {
-    const { graph, mount } = singleWithTurbo();
-    const before = graph.ducts.length;
+  it('is offered as somewhere to draw a pipe from, at its outlet flange, until one is drawn', () => {
+    const { spec, graph, ports, mount } = singleWithTurbo();
+    const turbos = turboPortsOf(graph, spec);
+    const outlet = collectSnapTargets(graph, layoutGraph(ports, graph, turbos), ports).find((t) => t.kind === 'turboOutlet');
+    expect(outlet).toBeDefined();
+    expect(outlet!.point.distanceTo(new THREE.Vector3(...turbos.get(mount.node)!.outlet.point))).toBeLessThan(1e-9);
+    const drawn = singleWithTurboAndOutlet();
+    const after = collectSnapTargets(drawn.graph, layoutGraph(drawn.ports, drawn.graph, turboPortsOf(drawn.graph, drawn.spec)), drawn.ports);
+    expect(after.some((t) => t.kind === 'turboOutlet')).toBe(false);
+  });
+
+  it.each([false, true])('keeps its pipes, which a junction would be rejoined from, with an outlet pipe: %s', (outlet) => {
+    const { graph, mount } = outlet ? singleWithTurboAndOutlet() : singleWithTurbo();
+    const before = JSON.stringify(graph.ducts);
     tidyJunctions(graph, [mount.node]);
-    expect(graph.ducts).toHaveLength(before);
+    expect(JSON.stringify(graph.ducts)).toBe(before);
     expect(validateGraph(graph, 1)).toEqual([]);
   });
 
@@ -112,7 +146,7 @@ describe('a turbo put down on the open end of a pipe', () => {
   });
 
   it('stays in while pipes carry on from its outlet pipe', () => {
-    const { graph, mount } = singleWithTurbo();
+    const { graph, mount } = singleWithTurboAndOutlet();
     const outlet = endsAt(graph, mount.node).find((e) => e.end === 'inlet')!.duct;
     // A junction at its end, and a pipe drawn on from it.
     const node = joinDuctEnd(graph, outlet.id)!;
@@ -156,7 +190,7 @@ describe('a turbo put down on the open end of a pipe', () => {
   });
 
   it('swings its outlet pipe with it when it is turned, once the exhaust has been edited', () => {
-    const { spec, graph, ports, mount } = singleWithTurbo();
+    const { spec, graph, ports, mount } = singleWithTurboAndOutlet();
     const outletOf = () => {
       const turbos = turboPortsOf(graph, spec);
       const out = endsAt(graph, mount.node).find((e) => e.end === 'inlet')!.duct;
@@ -176,7 +210,7 @@ describe('a turbo put down on the open end of a pipe', () => {
   });
 
   it('meets its pipes at its own bores: the inlet, and the outlet', () => {
-    const { spec, graph, ports, mount } = singleWithTurbo();
+    const { spec, graph, ports, mount } = singleWithTurboAndOutlet();
     const [px, py, pz] = mount.position!;
     moveTurbo(graph, ports, spec, mount.id, [px + 0.05, py, pz + 0.08], mount.rotation);
     const size = graphTurboSize(graph, spec);
@@ -192,12 +226,13 @@ describe('a turbo put down on the open end of a pipe', () => {
     expect(back).toEqual(graph);
   });
 
-  it('makes the engine boost, heard through the Wasm build', async () => {
+  it.each([false, true])('makes the engine boost, heard through the Wasm build, with an outlet pipe: %s', async (outlet) => {
     const { Sim } = await import('../src/audio/worklet/sim.js');
-    const { spec, graph } = singleWithTurbo();
+    const { spec, graph } = outlet ? singleWithTurboAndOutlet() : singleWithTurbo();
     const cfg = defaultConfig();
     cfg.engine = { ...spec, throttle: 1, rpm: 6000, freeRunning: false };
-    cfg.graph = graph;
+    // As the audio engine gives it the graph.
+    cfg.graph = solverGraph(graph);
     const sim = new Sim(48000, cfg);
     sim.render(48000 * 3);
     const out = sim.render(48000 / 4);

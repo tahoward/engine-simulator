@@ -19,18 +19,14 @@ import {
   type TurboMount,
   endsAt,
   junctionRemoval,
-  newDuctId,
   nodeOrder,
   removeJunction,
 } from './exhaustGraph.js';
 import type { Vec3 } from './geometry.js';
-import { type EngineSpec, displacement, makeSegment, segmentDiameter } from './spec.js';
+import { type EngineSpec, displacement, segmentDiameter } from './spec.js';
 
 /** Swept volume one turbo is drawn for, m^3: a size of turbo in the middle of the range. */
 const REFERENCE_SWEPT_PER_TURBO = 1.3e-3;
-
-/** Length of the pipe a turbo is given from its outlet when it is first fed, m. */
-const OUTLET_STUB = 0.2;
 
 /** How big a turbo is drawn, m. */
 export interface TurboSize {
@@ -190,39 +186,24 @@ export function newTurbo(graph: ExhaustGraph, position: Vec3 | null = null, rota
 }
 
 /** Add `mount` to the graph, and attach `attach`'s open end to its inlet if given. */
-export function placeTurbo(graph: ExhaustGraph, mount: TurboMount, outletDia: number, attach?: string): void {
+export function placeTurbo(graph: ExhaustGraph, mount: TurboMount, attach?: string): void {
   (graph.turbos ??= []).push(mount);
-  if (attach) connectToTurbo(graph, attach, mount.id, outletDia);
+  if (attach) connectToTurbo(graph, attach, mount.id);
 }
 
 /**
- * Attach a duct's far end to a turbo's inlet.
+ * Attach a duct's far end to a turbo's inlet. Returns whether anything was attached.
  *
- * The first pipe into a turbo also gives it an outlet: a short pipe from its outlet flange to the air, of
- * the turbine exit's bore, since a turbine has to exhaust somewhere. Drawing on from the outlet carries
- * that pipe on. Returns whether anything was attached.
+ * Nothing is added at its outlet: until a pipe is drawn from it, the turbine exhausts straight to the air
+ * at its outlet flange (`solverGraph`).
  */
-export function connectToTurbo(graph: ExhaustGraph, ductId: string, turboId: string, outletDia: number): boolean {
+export function connectToTurbo(graph: ExhaustGraph, ductId: string, turboId: string): boolean {
   const duct = graph.ducts.find((d) => d.id === ductId);
   const mount = graph.turbos?.find((t) => t.id === turboId);
   if (!duct || !mount) return false;
   duct.to = { kind: 'node', node: mount.node };
   for (const d of graph.ducts) if (d.continues === duct.id) delete d.continues;
-  ensureTurboOutlet(graph, mount.node, outletDia);
   return true;
-}
-
-/** Give the turbo at `node` an outlet pipe if it is fed and has none. */
-export function ensureTurboOutlet(graph: ExhaustGraph, node: string, outletDia: number): void {
-  const ends = endsAt(graph, node);
-  if (!ends.some((e) => e.end === 'outlet') || ends.some((e) => e.end === 'inlet')) return;
-  const outlet: ExhaustDuct = {
-    id: newDuctId(graph, 'turbo-out'),
-    segments: [makeSegment({ kind: 'pipe', length: OUTLET_STUB, dIn: outletDia, dOut: outletDia })],
-    from: { kind: 'node', node },
-    to: { kind: 'mouth' },
-  };
-  graph.ducts.push(outlet);
 }
 
 /** The bore to give a turbo's outlet when nothing else says: a little wider than what feeds it. */

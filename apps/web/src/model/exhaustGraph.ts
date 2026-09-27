@@ -1017,18 +1017,7 @@ function tidy(graph: ExhaustGraph, nodes: Iterable<string>, dirs?: DuctDirection
       graph.ducts = graph.ducts.filter((d) => !outs.includes(d));
       for (const out of outs) for (const n of touchedNodes(out)) if (n !== node) queue.push(n);
     } else if (turboAt(graph, node)) {
-      // A turbo is fed and always has an outlet, and one pipe in and one out is what it normally has.
-      if (outs.length === 0) {
-        const feed = feeds[0]!;
-        const last = feed.segments[feed.segments.length - 1];
-        const dia = last ? segmentDiameter(last, 1) * 1.3 : 0.058;
-        graph.ducts.push({
-          id: newDuctId(graph, 'turbo-out'),
-          segments: [makeSegment({ kind: 'pipe', length: 0.2, dIn: dia, dOut: dia })],
-          from: { kind: 'node', node },
-          to: { kind: 'mouth' },
-        });
-      }
+      // A turbo stays as it is, fed, with or without a pipe drawn from its outlet.
     } else if (outs.length === 0 && feeds.length < 2) {
       // A junction of one pipe is not one; two or more are a merge waiting for the pipe after it.
       for (const feed of feeds) {
@@ -1163,20 +1152,41 @@ function fedDucts(graph: ExhaustGraph): Set<string> {
   return fed;
 }
 
+/** How far the gas out of a turbo with no pipe drawn from its outlet runs before the air, m. */
+const TURBO_EXIT = 0.05;
+
 /**
  * The graph as the solver is given it: without loose pipes, nor anything reached only through one, since
  * no gas reaches them, and with the pipes into a junction nothing leaves yet ending in open air. What is
- * left is every duct fed from a cylinder.
+ * left is every duct fed from a cylinder. A turbo fed with nothing drawn from its outlet exhausts to the air
+ * at its outlet flange, through the shortest of pipes there, a little wider than what feeds it.
  */
 export function solverGraph(graph: ExhaustGraph): ExhaustGraph {
   const leaving = new Set(graph.ducts.flatMap((d) => (d.from.kind === 'node' ? [d.from.node] : [])));
   const ending = graph.ducts.some((d) => d.to.kind === 'node' && !leaving.has(d.to.node));
   if (!ending && !graph.ducts.some((d) => d.from.kind === 'free')) return graph;
   const fed = fedDucts(graph);
-  const ducts = graph.ducts
-    .filter((d) => fed.has(d.id))
+  const turbos = new Set((graph.turbos ?? []).map((t) => t.node));
+  const kept = graph.ducts.filter((d) => fed.has(d.id));
+  const ducts = kept
     // A junction nothing leaves yet: its pipes end in open air there.
-    .map((d) => (d.to.kind === 'node' && !leaving.has(d.to.node) ? { ...d, to: { kind: 'mouth' as const } } : d));
+    .map((d) => (d.to.kind === 'node' && !leaving.has(d.to.node) && !turbos.has(d.to.node) ? { ...d, to: { kind: 'mouth' as const } } : d));
+  for (const node of turbos) {
+    if (leaving.has(node)) continue;
+    let area = 0;
+    for (const d of kept) {
+      const last = d.segments[d.segments.length - 1];
+      if (d.to.kind === 'node' && d.to.node === node && last) area += (Math.PI * segmentDiameter(last, 1) ** 2) / 4;
+    }
+    if (area === 0) continue;
+    const dia = 1.3 * Math.sqrt((4 * area) / Math.PI);
+    ducts.push({
+      id: freeId(new Set(ducts.map((d) => d.id)), `${node}-exit`),
+      segments: [makeSegment({ kind: 'pipe', length: TURBO_EXIT, dIn: dia, dOut: dia })],
+      from: { kind: 'node', node },
+      to: { kind: 'mouth' },
+    });
+  }
   return { ...graph, ducts };
 }
 
@@ -1248,7 +1258,8 @@ export function validateGraph(graph: ExhaustGraph, cylinders: number): string[] 
     const ends = endsAt(graph, node);
     const downstream = ends.filter((e) => e.end === 'inlet');
     const upstream = ends.filter((e) => e.end === 'outlet');
-    if (ends.length < 2) problems.push(`junction "${node}" joins only one pipe`);
+    // A turbo fed by one pipe, with nothing drawn from its outlet, exhausts to the air there.
+    if (ends.length < 2 && !turboAt(graph, node)) problems.push(`junction "${node}" joins only one pipe`);
     if (upstream.length === 0) problems.push(`junction "${node}" has nothing flowing into it`);
     // A junction with nothing leaving it yet is its pipes ending in air there: see `solverGraph`.
     if (downstream.length > 1 && turboAt(graph, node)) {

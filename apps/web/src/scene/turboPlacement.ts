@@ -33,8 +33,12 @@ export function seatTurbos(graph: ExhaustGraph, ports: ExhaustPort[], spec: Engi
     const joint = placement.joints.get(mount.node);
     const out = graph.ducts.find((d) => d.from.kind === 'node' && d.from.node === mount.node);
     const leaving = out ? placement.ducts.get(out.id) : undefined;
-    const point = joint?.centre ?? leaving?.origin;
-    const dir = joint?.axis ?? leaving?.heading;
+    // With nothing drawn from its outlet, it goes on the end of the one pipe into it.
+    const feed = graph.ducts.find((d) => d.to.kind === 'node' && d.to.node === mount.node);
+    const fed = feed ? placement.ducts.get(feed.id) : undefined;
+    const end = feed && fed && feed.segments.length > 0 ? layoutPipe(feed.segments, fed.origin, fed.heading) : undefined;
+    const point = joint?.centre ?? leaving?.origin ?? end?.joints.at(-1);
+    const dir = joint?.axis ?? leaving?.heading ?? end?.jointDirections.at(-1);
     if (!point || !dir) {
       mount.position = [0, turboHeight(ports), 0];
       continue;
