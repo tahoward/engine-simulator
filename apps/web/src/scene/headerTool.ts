@@ -330,14 +330,15 @@ export function seatLengthwaysHeaders(graph: ExhaustGraph, ports: ExhaustPort[],
   for (const d of graph.ducts) {
     if (d.role === 'collector' && d.from.kind === 'node' && !junctionAt(graph, d.from.node)) merges.add(d.from.node);
   }
-  const header = (d: ExhaustDuct) => d.role === 'runner' && d.from.kind === 'valve' && !d.fitted && d.segments.length === 1;
+  const header = (d: ExhaustDuct) => d.role === 'runner' && d.from.kind === 'valve' && !d.fitted && d.segments.length > 0;
   for (const node of merges) {
     const ends = endsAt(graph, node);
     const feeds = ends.filter((e) => e.end === 'outlet').map((e) => e.duct);
     if (feeds.length < 2 || ends.length !== feeds.length + 1 || !feeds.every(header)) continue;
     const cylinders = feeds.map((d) => (d.from as { cylinder: number }).cylinder);
     if (cylinders.some((c) => !ports[c])) continue;
-    const length = feeds[0]!.segments[0]!.length;
+    // A primary that tapers as compiled is rebuilt at its bore, widening in its bend to the collector's instead.
+    const length = feeds[0]!.segments.reduce((sum, seg) => sum + seg.length, 0);
     const openings: OpeningAt[] = cylinders.map((cylinder) => ({
       opening: { kind: 'port', cylinder },
       point: ports[cylinder]!.position.clone(),

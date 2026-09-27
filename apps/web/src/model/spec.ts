@@ -18,6 +18,8 @@
  */
 
 import type { ExhaustGraph } from './exhaustGraph.js';
+import nissanRb26Exhaust from './exhausts/nissan-rb26.json';
+import toyota2grExhaust from './exhausts/toyota-2gr.json';
 
 /** Shape of one length of exhaust plumbing. */
 export type SegmentKind =
@@ -1696,7 +1698,7 @@ export function fittedExhaust(spec: EngineSpec): ExhaustSizing {
 
   const collector: PipeSegment[] = [
     makeSegment({ kind: 'cone', length: 0.16, dIn: dPrimary * 1.25, dOut: dCollector }),
-    makeSegment({ kind: 'pipe', length: runLength, dIn: dCollector, yaw: 0.2 }),
+    makeSegment({ kind: 'pipe', length: runLength, dIn: dCollector }),
     makeSegment({ kind: 'chamber', length: canLength, dIn: dCollector, dOut: canDia }),
     // Tailpipe no narrower than the collector: choking it raises back pressure and, with this
     // much flow, is another way to upset the solver.
@@ -1724,6 +1726,11 @@ export interface EnginePreset {
   collector?: () => PipeSegment[];
   /** Turbos its compiled exhaust has: see `compileExhaust`. */
   turbos?: 1 | 2;
+  /**
+   * An exhaust drawn for it, loaded in place of one compiled from `pipe` and `collector`, which it was
+   * drawn from. Read with `graphFromJson`, as a saved one is.
+   */
+  graph?: () => ExhaustGraph;
 }
 
 /**
@@ -1794,6 +1801,8 @@ const THREE_CYL: Partial<EngineSpec> = {
   cylinders: 3,
   vAngle: 0,
   exhaustLayout: 'merged',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
   ...idling(0.075),
   // A Ford 1.0 EcoBoost's.
   revLimit: 6500,
@@ -1814,6 +1823,8 @@ const FIVE_CYL: Partial<EngineSpec> = {
   cylinders: 5,
   vAngle: 0,
   exhaustLayout: 'merged',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
   ...idling(0.075),
   // The Audi 2.5 TFSI's.
   revLimit: 7000,
@@ -1856,11 +1867,11 @@ const NISSAN_RB26: Partial<EngineSpec> = {
   evc: 360,
   ivo: 352,
   ivc: 592,
-  // Two Garrett T28s, one for each three cylinders (`turbos` below), on 0.7 bar through an intercooler.
+  // Two Garrett T28s, one for each three cylinders (`turbos` below), on 0.8 bar through an intercooler.
   // Their size is an estimate, chosen for the top end small turbos give: they near their choke above
   // 6000, and the exhaust works against more back pressure. Each fed by three cylinders' pulses, they
   // hold full boost from 2000 rpm.
-  boostTarget: 0.7e5,
+  boostTarget: 0.8e5,
   turboSize: 0.12,
   intercooler: 0.7,
   // The factory valve recirculates; this is the atmospheric one so many are fitted with instead.
@@ -1912,6 +1923,8 @@ const BOXER_FOUR: Partial<EngineSpec> = {
   vAngle: 180,
   crankType: 'boxer',
   exhaustLayout: 'merged',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
   ...idling(0.075),
   // A Subaru EJ25's.
   revLimit: 6500,
@@ -1932,6 +1945,8 @@ const BOXER_SIX: Partial<EngineSpec> = {
   vAngle: 180,
   crankType: 'boxer',
   exhaustLayout: 'perBank',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
   ...idling(0.076),
   // A 997 Carrera 3.6's.
   revLimit: 7300,
@@ -1977,6 +1992,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 45,
       firingOffset: null,
       exhaustLayout: '2into1',
+      exhaustHeaders: true,
+      headerRun: 'lengthways',
       ...idling(0.073),
       // Long-stroke and pushrod: a Harley stops pulling not far past 5500.
       revLimit: 5600,
@@ -2087,10 +2104,12 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'Inline six, Nissan RB26DETT',
     description:
-      'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.7 bar, one for each three cylinders, spool from 2000 rpm and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 391 N\u00b7m at 4400 rpm and 324 PS at 6800, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
+      'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.8 bar, one for each three cylinders, spool from 2000 rpm and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 399 N\u00b7m at 4400 rpm and 331 PS at 6800, about 330 hp on the dyno, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
     engine: NISSAN_RB26,
     pipe: () => fittedExhaust(fullSpec(NISSAN_RB26)).pipe,
     collector: () => fittedExhaust(fullSpec(NISSAN_RB26)).collector,
+    // Drawn in the editor: each half's three ports into a turbo, their outlets meeting behind them.
+    graph: () => structuredClone(nissanRb26Exhaust) as ExhaustGraph,
     turbos: 2,
   },
   {
@@ -2100,9 +2119,11 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     engine: TOYOTA_2GR,
     pipe: () => fittedExhaust(fullSpec(TOYOTA_2GR)).pipe,
     collector: () => fittedExhaust(fullSpec(TOYOTA_2GR)).collector,
+    // Drawn in the editor: a manifold along each bank, the ports' pipes bent into it.
+    graph: () => structuredClone(toyota2grExhaust) as ExhaustGraph,
   },
   {
-    name: 'V8, crossplane, manifold per bank',
+    name: 'V8, crossplane, headers per bank',
     description:
       'The American V8. Fires every 90\u00b0 overall, but the crossplane crank deals those firings out unevenly between the banks — 180-90-180-270 down each side — and with a collector per bank that uneven arrival pattern is the burble.',
     engine: {
@@ -2110,6 +2131,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 90,
       crankType: 'crossplane',
       exhaustLayout: 'perBank',
+      exhaustHeaders: true,
+      headerRun: 'lengthways',
       ...idling(0.075),
       // Pushrods and a heavy crank: a road V8's 6500.
       revLimit: 6500,
@@ -2132,7 +2155,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     // Bank pipe, silencer, tailpipe — the length is most of why a road V8 sounds deep.
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.16, dIn: 0.062, dOut: 0.072 }),
-      makeSegment({ kind: 'pipe', length: 1.15, dIn: 0.072, yaw: 0.18 }),
+      makeSegment({ kind: 'pipe', length: 1.15, dIn: 0.072 }),
       makeSegment({ kind: 'chamber', length: 0.45, dIn: 0.072, dOut: 0.2 }),
       makeSegment({ kind: 'pipe', length: 0.55, dIn: 0.064 }),
     ],
@@ -2146,6 +2169,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 90,
       crankType: 'crossplane',
       exhaustLayout: 'perBank',
+      exhaustHeaders: true,
+      headerRun: 'lengthways',
       // Idle is where a big cam is heard. The overlap costs little at wide-open throttle; nearly
       // shut, the manifold is the lowest pressure the exhaust can reach, so it back-flows into the
       // intake. Measured at 800 rpm on this throttle, against the stock crossplane at the same: 0.78
@@ -2183,7 +2208,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     // Long-tube headers into short collectors and a glasspack-sized can: loud, not open.
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.16, dIn: 0.062, dOut: 0.076 }),
-      makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.076, yaw: 0.18 }),
+      makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.076 }),
       makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.076, dOut: 0.13 }),
       makeSegment({ kind: 'pipe', length: 0.35, dIn: 0.07 }),
     ],
@@ -2288,7 +2313,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     ],
   },
   {
-    name: 'V8, flatplane, manifold per bank',
+    name: 'V8, flatplane, headers per bank',
     description:
       'The same engine on a flat crank, so each bank fires evenly every 180\u00b0 and its collector hears four equally spaced pulses. Same firing intervals overall as the crossplane, completely different voice — this is the Ferrari.',
     engine: {
@@ -2296,6 +2321,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 90,
       crankType: 'flatplane',
       exhaustLayout: 'perBank',
+      exhaustHeaders: true,
+      headerRun: 'lengthways',
       // Deliberately the loud one: a flat-crank V8 on short pipes.
       ...idling(0.078),
       // Oversquare, light and flat-cranked, so it revs like the Ferrari it is.
@@ -2314,14 +2341,14 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.44, dIn: 0.042 })],
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.14, dIn: 0.058, dOut: 0.07 }),
-      makeSegment({ kind: 'pipe', length: 0.85, dIn: 0.07, yaw: 0.15 }),
+      makeSegment({ kind: 'pipe', length: 0.85, dIn: 0.07 }),
       makeSegment({ kind: 'cone', length: 0.25, dIn: 0.07, dOut: 0.09 }),
     ],
   },
   {
     name: 'Boxer four',
     description:
-      'Flat, with the pistons of each opposed pair moving out and in together, firing 1-3-2-4 every 180\u00b0 \u2014 the Subaru and the air-cooled VW. Both banks gather into one pipe, so each side\u2019s two runners arrive at different distances from the merge.',
+      'Flat, with the pistons of each opposed pair moving out and in together, firing 1-3-2-4 every 180\u00b0 \u2014 the Subaru and the air-cooled VW. Both banks gather into one collector through equal-length headers, so each cylinder\u2019s pulse reaches the merge after the same run.',
     engine: BOXER_FOUR,
     pipe: () => fittedExhaust(fullSpec(BOXER_FOUR)).pipe,
     collector: () => fittedExhaust(fullSpec(BOXER_FOUR)).collector,
@@ -2344,6 +2371,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       firingOffset: 360,
       ...fourValveHead(DEFAULT_ENGINE.bore),
       exhaustLayout: '2into1',
+      exhaustHeaders: true,
+      headerRun: 'lengthways',
       ...idling(0.074),
       // A modern 1200 cc parallel twin's.
       revLimit: 7500,

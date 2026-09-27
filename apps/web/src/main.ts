@@ -38,7 +38,7 @@ import {
   defaultMerge,
   runnerBore,
 } from './scene/headerTool.js';
-import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatTurbos, turboHeight } from './scene/turboPlacement.js';
+import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatManifolds, seatTurbos, turboHeight } from './scene/turboPlacement.js';
 import {
   lockedFrom,
   graphTurboSize,
@@ -50,6 +50,7 @@ import {
 import {
   carriedGeometry,
   compileExhaust,
+  graphFromJson,
   addAtJunction,
   copyToSiblingRunners,
   defaultDuctId,
@@ -58,6 +59,7 @@ import {
   placeLoosePipe,
   removeDuct,
   type DuctDirections,
+  type ExhaustGraph,
 } from './model/exhaustGraph.js';
 import { Viewer } from './scene/Viewer.js';
 import { Panel, SAMPLE_RATES, type ViewOptions } from './ui/Panel.js';
@@ -564,8 +566,8 @@ const panel = new Panel(panelEl, config, {
     selectTurbo(null);
     afterTurboEdit(true);
   },
-  onReseed: (turbos) => {
-    reseedGraph(true, turbos);
+  onReseed: (turbos, graph) => {
+    reseedGraph(true, turbos, graph);
     rebuildPipeGeometry();
     audio.setGraph(config.graph!);
     saveConfig();
@@ -665,9 +667,9 @@ function touchesGeometry(partial: Partial<EngineSpec>): boolean {
  * aimed again.
  *
  * With `fromConfig` the graph is built from `config.pipe` and `config.collector` as they stand, which is
- * what loading a preset wants.
+ * what loading a preset wants, or is `drawn`, the exhaust a preset has drawn for it.
  */
-function reseedGraph(fromConfig = false, turbos?: number): void {
+function reseedGraph(fromConfig = false, turbos?: number, drawn?: ExhaustGraph): void {
   // As many turbos as there were, unless a preset says how many it has.
   const count = turbos ?? config.graph?.turbos?.length ?? 0;
   if (!fromConfig) {
@@ -677,13 +679,22 @@ function reseedGraph(fromConfig = false, turbos?: number): void {
     if (carried.pipe) config.pipe = carried.pipe;
     if (carried.collector) config.collector = carried.collector;
   }
-  config.graph = compileExhaust(config.engine, config.pipe, config.collector, count);
-  editedDuctId = defaultDuctId(config.graph) ?? editedDuctId;
+  const graph = (drawn ? graphFromJson(drawn) : null) ?? compileExhaust(config.engine, config.pipe, config.collector, count);
+  config.graph = graph;
+  editedDuctId = defaultDuctId(graph) ?? editedDuctId;
 }
 
 function rebuildPipeGeometry(): void {
   const cylinders = engineMesh.bankCount;
   const graph = config.graph!;
+
+  // Seated first: building a compiled manifold or header can add pipes.
+  const ports = Array.from({ length: cylinders }, (_, b) => engineMesh.exhaustPort(b));
+  seatManifolds(graph, ports, config.engine);
+  seatTurbos(graph, ports, config.engine);
+  seatLengthwaysHeaders(graph, ports, config.engine);
+  seatHeaders(graph, ports, config.engine);
+  refitBends(graph, ports, config.engine);
 
   // One mesh per duct, one merge body per junction that has one.
   while (pipeMeshes.length < graph.ducts.length) {
@@ -697,11 +708,6 @@ function rebuildPipeGeometry(): void {
     m.dispose();
   }
 
-  const ports = Array.from({ length: cylinders }, (_, b) => engineMesh.exhaustPort(b));
-  seatTurbos(graph, ports, config.engine);
-  seatLengthwaysHeaders(graph, ports, config.engine);
-  seatHeaders(graph, ports, config.engine);
-  refitBends(graph, ports, config.engine);
   const turboPorts = turboPortsOf(graph, config.engine);
   const placement = layoutGraph(ports, graph, turboPorts);
   if (!editor.dragging) stablePlacement = placement;

@@ -65,7 +65,7 @@ export interface PanelCallbacks {
    * `config.pipe` and `config.collector` were replaced; rebuild the graph from them, with `turbos` turbos
    * placed where the layout puts them.
    */
-  onReseed: (turbos: number) => void;
+  onReseed: (turbos: number, graph?: ExhaustGraph) => void;
   /** Placing turbos in the view was switched on or off. */
   onPlaceMode: (on: boolean) => void;
   /** Placing loose pipes in the view was switched on or off. */
@@ -443,7 +443,7 @@ export class Panel {
       this.config.pipe.push(...preset.pipe());
       this.config.collector.length = 0;
       if (preset.collector) this.config.collector.push(...preset.collector());
-      this.cb.onReseed(preset.turbos ?? 0);
+      this.cb.onReseed(preset.turbos ?? 0, preset.graph?.());
       this.rebuildAll();
       this.cb.onResetView();
     });

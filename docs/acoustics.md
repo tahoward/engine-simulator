@@ -310,7 +310,7 @@ A turbocharger changes the exhaust note and adds sounds of its own (see
 **In the exhaust.** The turbine is in the gas dynamics, so what it does to the note is solved, not
 filtered. Each pulse arriving at it is partly reflected, back up the manifold, and partly spent turning
 the wheel, so what goes on down the pipe is smaller and rounder: at 4400 rpm on the RB26, the pressure past each
-turbine swings by 45% of what arrives. Two sounds of the turbo's own go into the gas and travel
+turbine swings by 33% of what arrives. Two sounds of the turbo's own go into the gas and travel
 down the pipe to the tailpipe with the rest:
 
 - **The turbine's whistle.** The wheel's first two shaft orders pulse the flow through it, by 0.4% at

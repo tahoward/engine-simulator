@@ -213,21 +213,22 @@ charge air empties, and the compressor recovers, over and over: on the RB26, 18 
 surge, and it is where the flutter comes from. It is not scripted: it comes out of the compressor's
 characteristic and the inertia of the air, as Greitzer's model of it does.
 
-The RB26 preset's exhaust has the real engine's layout: the front three cylinders' manifold feeds one
-turbo at the front of the engine, the rear three's another at the rear, and the two downpipes meet
-between them. At 0.7 bar, with its naturally aspirated self on the same cams and runners for comparison:
+The RB26 preset's exhaust has the real engine's layout: the front three cylinders' pipes feed one
+turbo, the rear three's another, both on the exhaust side of the head, and the two turbos' outlets meet
+behind them. At 0.8 bar, with its naturally aspirated self on the same cams, runners and pipes for
+comparison:
 
 ```
                           2000   3000   4000   5000   6000   7500 rpm   full throttle, N·m
-naturally aspirated        228    228    228    263    267    221
-twin turbos, 0.7 bar       368    398    387    405    387    308
-boost, bar                0.68   0.69   0.69   0.72   0.69   0.70
+naturally aspirated        227    225    230    264    272    227
+twin turbos, 0.8 bar       390    413    399    413    392    312
+boost, bar                0.71   0.78   0.79   0.79   0.79   0.79
 ```
 
 Its turbos are small, as the real engine's T28s are, and each is fed the pulses of three cylinders:
-full boost from 2000 rpm, and near their choke above 6000, where the exhaust backs up to 0.8-1.1 bar
-behind them. At 4400 rpm each pulse arriving at a turbine swings the pressure there by about 18 kPa;
-past it, by 8.
+near full boost from 2000 rpm, and near their choke above 6000, where the exhaust backs up to 1.2-1.3
+bar behind them. At 4400 rpm each pulse arriving at a turbine swings the pressure there by about
+18 kPa; past it, by 6.
 
 ## The flame
 

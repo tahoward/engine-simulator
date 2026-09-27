@@ -72,7 +72,7 @@ fn fitted_exhaust(spec: &EngineSpec) -> (Vec<PipeSegment>, Vec<PipeSegment>) {
     let run_length = f64::max(2.2 - primary_length - can_length - 0.5, 0.35);
     let collector = vec![
         seg(SegmentKind::Cone, 0.16, d_primary * 1.25, d_collector, 0.0),
-        seg(SegmentKind::Pipe, run_length, d_collector, d_collector, 0.2),
+        seg(SegmentKind::Pipe, run_length, d_collector, d_collector, 0.0),
         seg(SegmentKind::Chamber, can_length, d_collector, can_dia, 0.0),
         seg(SegmentKind::Pipe, 0.5, d_collector, d_collector, 0.0),
     ];
