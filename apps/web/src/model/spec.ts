@@ -1513,6 +1513,19 @@ export function crankPins(spec: EngineSpec): CrankPin[] {
   return pins;
 }
 
+/**
+ * Which gaps between neighbouring throws of `crankPins` carry a main bearing: entry `i` is the gap after
+ * throw `i`. There is always one at each end of the crank as well.
+ *
+ * A main between every throw, as a fully counterweighted inline or V crank has: five for an inline four,
+ * seven for a six, five for a V8. A flat engine's opposed pair sit on neighbouring pins half a turn apart,
+ * joined by a web, with the mains between the pairs: three for a flat four, four for a six.
+ */
+export function mainBearingsAfter(spec: EngineSpec): boolean[] {
+  const throws = crankPins(spec).length;
+  return Array.from({ length: Math.max(throws - 1, 0) }, (_, i) => !isBoxer(spec) || i % 2 === 1);
+}
+
 /** Intervals between successive firings within one bank, crank degrees. */
 export function bankFiringIntervals(spec: EngineSpec, bank: number): number[] {
   const plan = firingPlan(spec);

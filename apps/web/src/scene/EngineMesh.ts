@@ -26,6 +26,7 @@ import {
   type EngineSpec,
   clearanceVolume,
   crankPins,
+  mainBearingsAfter,
   exhaustPortDiameter,
   cylinderSpacing,
   firingPlan,
@@ -152,35 +153,44 @@ export class EngineMesh {
   }
 
   private buildCrank(throws: Array<{ angles: number[]; z: number }>): void {
+    const s = this.spec;
+    const a = s.stroke / 2;
+    const mainAfter = mainBearingsAfter(s);
+    const steel = new THREE.MeshStandardMaterial(STEEL);
+    const cast = new THREE.MeshStandardMaterial(CAST);
+    const shell = new THREE.MeshStandardMaterial({ ...BEARING, side: THREE.DoubleSide });
+    const webShape = crankWebShape(a);
+
+    // Where each pin is round the shaft, with the throw's first cylinder's pin up +y at angle 0: rotating the
+    // crank by -theta carries it to a*(sin(theta - angle), cos(theta - angle)), TDC when theta == angle.
+    const pinAt = (angle: number) => {
+      const phi = (angle * Math.PI) / 180;
+      return new THREE.Vector2(-a * Math.sin(phi), a * Math.cos(phi));
+    };
+
     // A split throw's pins sit side by side along the shaft, each half as wide.
-    const pins = throws.flatMap(({ angles, z }) =>
+    const throwPins = throws.map(({ angles, z }) =>
       angles.map((angle, k) => ({
         angle,
         z: z + (angles.length > 1 ? (k - (angles.length - 1) / 2) * 0.016 : 0),
         width: angles.length > 1 ? 0.015 : 0.03,
       })),
     );
-    const s = this.spec;
-    const a = s.stroke / 2;
 
-    // The main journals: one either side of every throw, between its webs and the next throw's, and a
-    // length out past each end for the nose and the flywheel flange. Each runs in a main bearing.
-    const reach = (pin: (typeof pins)[number]) => pin.width / 2 + WEB_THICKNESS;
-    const spans = throws.map(({ z }) => {
-      const own = pins.filter((p) => Math.abs(p.z - z) < 0.02);
-      return { from: Math.min(...own.map((p) => p.z - reach(p))), to: Math.max(...own.map((p) => p.z + reach(p))) };
-    });
-    const steel = new THREE.MeshStandardMaterial(STEEL);
-    const shell = new THREE.MeshStandardMaterial({ ...BEARING, side: THREE.DoubleSide });
-    const mains: Array<[number, number]> = [];
-    if (spans.length > 0) {
-      mains.push([spans[0]!.from - END_JOURNAL, spans[0]!.from]);
-      for (let i = 0; i + 1 < spans.length; i++) mains.push([spans[i]!.to, spans[i + 1]!.from]);
-      mains.push([spans.at(-1)!.to, spans.at(-1)!.to + END_JOURNAL]);
-    }
-    for (const [from, to] of mains) {
+    const addWeb = (angle: number, z: number) => {
+      const geom = new THREE.ExtrudeGeometry(webShape, { depth: WEB_THICKNESS, bevelEnabled: false, curveSegments: 20 });
+      geom.translate(0, 0, -WEB_THICKNESS / 2);
+      const web = new THREE.Mesh(geom, cast);
+      web.name = 'web';
+      web.userData = { angle };
+      web.rotation.z = (angle * Math.PI) / 180;
+      web.position.z = z;
+      web.castShadow = true;
+      this.crank.add(web);
+    };
+    const addMain = (from: number, to: number) => {
       const length = to - from;
-      if (length < 0.004) continue;
+      if (length < 0.004) return;
       // Into the webs a little either side, so there is no seam where they meet.
       const journal = new THREE.Mesh(new THREE.CylinderGeometry(MAIN_RADIUS, MAIN_RADIUS, length + 0.002, 20), steel);
       journal.name = 'main journal';
@@ -196,45 +206,50 @@ export class EngineMesh {
       bearing.rotation.x = Math.PI / 2;
       bearing.position.z = (from + to) / 2;
       this.bearings.add(bearing);
-    }
+    };
 
-    const webShape = crankWebShape(a);
-    const cast = new THREE.MeshStandardMaterial(CAST);
-    for (const [i, { angle, z, width }] of pins.entries()) {
-      // Local pin position: rotating the crank by -theta must carry this to
-      // a*(sin(theta - angle), cos(theta - angle)), which is TDC when theta == angle.
-      const phi = (angle * Math.PI) / 180;
-      const x = -a * Math.sin(phi);
-      const y = a * Math.cos(phi);
-
-      // A web either side of the throw, each drawn with its pin up +y and turned round the shaft to it. The
-      // pins of a split throw sit side by side, so only the outer side of each has a web.
-      const first = i === 0 || pins[i - 1]!.z < z - 0.02;
-      const last = i === pins.length - 1 || pins[i + 1]!.z > z + 0.02;
-      for (const side of [-1, 1]) {
-        if ((side < 0 && !first) || (side > 0 && !last)) continue;
-        const geom = new THREE.ExtrudeGeometry(webShape, { depth: WEB_THICKNESS, bevelEnabled: false, curveSegments: 20 });
-        geom.translate(0, 0, -WEB_THICKNESS / 2);
-        const web = new THREE.Mesh(geom, cast);
-        web.name = 'web';
-        web.userData = { angle };
-        web.rotation.z = phi;
-        web.position.z = z + side * (width / 2 + WEB_THICKNESS / 2);
-        web.castShadow = true;
-        this.crank.add(web);
+    // Every throw: its pins, and a web with a counterweight on each side that faces a main journal. Between
+    // two throws with no main, one web runs straight from the one's pin to the next's instead.
+    let mainFrom = -Infinity;
+    throwPins.forEach((own, t) => {
+      const first = own[0]!;
+      const last = own.at(-1)!;
+      const lo = first.z - first.width / 2;
+      const hi = last.z + last.width / 2;
+      const mainBefore = t === 0 || mainAfter[t - 1]!;
+      const mainNext = t === throwPins.length - 1 || mainAfter[t]!;
+      if (mainBefore) {
+        addWeb(first.angle, lo - WEB_THICKNESS / 2);
+        addMain(t === 0 ? lo - WEB_THICKNESS - END_JOURNAL : mainFrom, lo - WEB_THICKNESS);
+      }
+      if (mainNext) {
+        addWeb(last.angle, hi + WEB_THICKNESS / 2);
+        mainFrom = hi + WEB_THICKNESS;
+        if (t === throwPins.length - 1) addMain(mainFrom, mainFrom + END_JOURNAL);
+      } else {
+        const next = throwPins[t + 1]![0]!;
+        const to = next.z - next.width / 2;
+        const shape = linkWebShape(pinAt(last.angle), pinAt(next.angle));
+        const depth = Math.max(to - hi, 0.004);
+        const geom = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 20 });
+        geom.translate(0, 0, hi);
+        const link = new THREE.Mesh(geom, cast);
+        link.name = 'link web';
+        link.castShadow = true;
+        this.crank.add(link);
       }
 
-      // One big-end journal per pin, shared by the cylinders hanging off it — which is what
-      // ties a V-twin's firing interval to its V angle.
-      const pin = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.0135, 0.0135, width, 16),
-        new THREE.MeshStandardMaterial(STEEL),
-      );
-      pin.rotation.x = Math.PI / 2;
-      pin.position.set(x, y, z);
-      pin.castShadow = true;
-      this.crank.add(pin);
-    }
+      // One big-end journal per pin, shared by the cylinders hanging off it — which is what ties a V-twin's
+      // firing interval to its V angle.
+      for (const { angle, z, width } of own) {
+        const at = pinAt(angle);
+        const pin = new THREE.Mesh(new THREE.CylinderGeometry(PIN_RADIUS, PIN_RADIUS, width, 16), steel);
+        pin.rotation.x = Math.PI / 2;
+        pin.position.set(at.x, at.y, z);
+        pin.castShadow = true;
+        this.crank.add(pin);
+      }
+    });
   }
 
   private buildCylinder(
@@ -589,6 +604,10 @@ const AXIS_Y = new THREE.Vector3(0, 1, 0);
 const WEB_THICKNESS = 0.011;
 /** Radius of the crank's main journals, m. */
 const MAIN_RADIUS = 0.019;
+/** Radius of its crankpins, m. */
+const PIN_RADIUS = 0.0135;
+/** Radius of the boss a web has round a crankpin, m. */
+const PIN_BOSS = 0.022;
 /** How far the crank runs on past its end throws, to the nose at one end and the flange at the other, m. */
 const END_JOURNAL = 0.03;
 
@@ -599,7 +618,7 @@ const END_JOURNAL = 0.03;
  */
 export function crankWebShape(throwRadius: number): THREE.Shape {
   const a = throwRadius;
-  const boss = 0.022;
+  const boss = PIN_BOSS;
   const reach = 1.5 * a;
   const half = (75 * Math.PI) / 180;
   const shape = new THREE.Shape();
@@ -612,6 +631,42 @@ export function crankWebShape(throwRadius: number): THREE.Shape {
   shape.absarc(0, a, boss, 0, Math.PI, false);
   shape.closePath();
   return shape;
+}
+
+/**
+ * The web joining two neighbouring pins with no main bearing between them, as an opposed pair's pins in a
+ * flat engine are: the outline round both pins' bosses, and round the shaft's axis too, which is what it
+ * turns about.
+ */
+export function linkWebShape(a: THREE.Vector2, b: THREE.Vector2): THREE.Shape {
+  const points: THREE.Vector2[] = [];
+  const ring = (c: THREE.Vector2, r: number) => {
+    for (let i = 0; i < 48; i++) {
+      const t = (i / 48) * 2 * Math.PI;
+      points.push(new THREE.Vector2(c.x + r * Math.cos(t), c.y + r * Math.sin(t)));
+    }
+  };
+  ring(a, PIN_BOSS);
+  ring(b, PIN_BOSS);
+  ring(new THREE.Vector2(0, 0), MAIN_RADIUS);
+  return new THREE.Shape(convexHull(points));
+}
+
+/** The convex hull of `points`, anticlockwise: Andrew's monotone chain. */
+function convexHull(points: THREE.Vector2[]): THREE.Vector2[] {
+  const sorted = [...points].sort((p, q) => p.x - q.x || p.y - q.y);
+  const cross = (o: THREE.Vector2, p: THREE.Vector2, q: THREE.Vector2) =>
+    (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+  const half = (list: THREE.Vector2[]) => {
+    const out: THREE.Vector2[] = [];
+    for (const p of list) {
+      while (out.length >= 2 && cross(out[out.length - 2]!, out[out.length - 1]!, p) <= 0) out.pop();
+      out.push(p);
+    }
+    out.pop();
+    return out;
+  };
+  return [...half(sorted), ...half([...sorted].reverse())];
 }
 
 function disposeChildren(group: THREE.Group): void {
