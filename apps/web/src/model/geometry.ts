@@ -11,6 +11,8 @@ import {
   type EngineSpec,
   type PipeSegment,
   clearanceVolume,
+  crankPins,
+  cylinderSpacing,
   cylinderZ,
   firingPlan,
   physicalBank,
@@ -50,6 +52,85 @@ export function exhaustPortOf(spec: EngineSpec, cylinder: number): { position: V
     position: [px * c - py * s, px * s + py * c, z],
     direction: [side * c, side * s, 0],
   };
+}
+
+/** How far the crank runs on past its end throws, to the nose at one end and the flange at the other, m. */
+export const END_JOURNAL = 0.03;
+
+/**
+ * The outline of the block and heads: one rounded casting per bank, from the crankcase up past the valve
+ * springs, and the crankcase round the crank's sweep, the whole of it along the crank. What the drawn
+ * engine's see-through shell is, and what a turbo is put clear of.
+ */
+export interface EngineShell {
+  /** How long the block is along the crank, m, centred on the origin as the engine is. */
+  length: number;
+  /** Each bank's casting: how far it is turned about the crank from straight up, in the world, radians. */
+  banks: number[];
+  /** Each casting's width across its bank, and how far up its bank's axis it runs from and to, m. */
+  width: number;
+  bottom: number;
+  top: number;
+  /** How round its edges are, m. */
+  rounding: number;
+  /** The crankcase, a cylinder along the crank: its radius, and its length, m. */
+  crankcase: { radius: number; length: number };
+  /** How far the whole engine is turned about the crank so a V straddles vertical, radians. */
+  straddle: number;
+}
+
+export function engineShell(spec: EngineSpec): EngineShell {
+  const plan = firingPlan(spec);
+  const deg = Math.PI / 180;
+  const a = spec.stroke / 2;
+  const boreArea = (Math.PI * spec.bore * spec.bore) / 4;
+  const deckY = a + spec.rodLength + spec.bore * 0.34 + clearanceVolume(spec) / boreArea;
+  const spacing = cylinderSpacing(spec);
+  const length = (crankPins(spec).length - 1) * spacing + Math.max(spacing, spec.bore * 1.3);
+  const straddle = plan.bankCount > 1 ? (spec.vAngle / 2) * deg : 0;
+  const turns = new Set(plan.banks.map((b) => (b === 0 ? 0 : -spec.vAngle * deg)));
+  const top = deckY + spec.bore * 0.52;
+  const bottom = a * 1.2;
+  const width = spec.bore * 2.3;
+  return {
+    length,
+    banks: [...turns].map((t) => t + straddle),
+    width,
+    bottom,
+    top,
+    rounding: Math.min(width, top - bottom) * 0.12,
+    crankcase: { radius: a * 1.5 + 0.012, length: length + 2 * END_JOURNAL },
+    straddle,
+  };
+}
+
+/** How far `p` is outside the engine's outline (`engineShell`), m: negative inside it, by how deep. */
+export function engineShellDistance(shell: EngineShell, p: Vec3): number {
+  const dz = Math.abs(p[2]);
+  let best = solidCylinder(Math.hypot(p[0], p[1]) - shell.crankcase.radius, dz - shell.crankcase.length / 2);
+  const r = shell.rounding;
+  const qz = dz - (shell.length / 2 - r);
+  for (const turn of shell.banks) {
+    // Into the casting's frame: its bank's axis up, across it along x.
+    const c = Math.cos(turn);
+    const s = Math.sin(turn);
+    const x = p[0] * c + p[1] * s;
+    const y = -p[0] * s + p[1] * c - (shell.top + shell.bottom) / 2;
+    const qx = Math.abs(x) - (shell.width / 2 - r);
+    const qy = Math.abs(y) - ((shell.top - shell.bottom) / 2 - r);
+    const outside = Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0));
+    best = Math.min(best, outside + Math.min(Math.max(qx, qy, qz), 0) - r);
+  }
+  return best;
+}
+
+/**
+ * How far outside a solid cylinder a point is, m, from how far it is outside the cylinder's curved side
+ * and outside its ends: negative inside, by how deep.
+ */
+export function solidCylinder(radial: number, along: number): number {
+  const outside = Math.hypot(Math.max(radial, 0), Math.max(along, 0));
+  return outside > 0 ? outside : Math.max(radial, along);
 }
 
 /**

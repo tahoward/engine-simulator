@@ -156,10 +156,11 @@ export const SAMPLE_RATES: Array<[number, string]> = [
   [24000, '24 kHz · ~47% CPU, exhaust to ~1.2 kHz'],
 ];
 
-/** What the Cylinders menu offers: a count, and for six whether it is a V. */
+/** What the Cylinders menu offers: a count, and for a twin or a six whether it is a V. */
 const ENGINE_TYPES: Array<[string, string]> = [
   ['1', 'Single'],
-  ['2', 'Twin'],
+  ['2', 'Parallel twin'],
+  ['2v', 'V-twin'],
   ['3', 'Inline three'],
   ['4', 'Inline four'],
   ['5', 'Inline five'],
@@ -173,7 +174,7 @@ const ENGINE_TYPES: Array<[string, string]> = [
 /** The Cylinders menu entry for an engine. */
 function engineTypeOf(eng: EngineSpec): string {
   if (isBoxer(eng)) return `${eng.cylinders}b`;
-  if (eng.cylinders === 6 && eng.vAngle > 0) return '6v';
+  if ((eng.cylinders === 2 || eng.cylinders === 6) && eng.vAngle > 0) return `${eng.cylinders}v`;
   return String(eng.cylinders);
 }
 
@@ -495,6 +496,7 @@ export class Panel {
 
     cylSel.addEventListener('change', () => {
       const boxer = cylSel.value.endsWith('b');
+      const vTwin = cylSel.value === '2v';
       const vee = cylSel.value === '6v' || cylSel.value === '8' || boxer;
       const n = parseInt(cylSel.value, 10) as EngineSpec['cylinders'];
       const eng = this.config.engine;
@@ -503,13 +505,14 @@ export class Panel {
         // Keep the plumbing sensible for the new count: a single has nothing to merge, and a
         // V engine's default is a collector per bank.
         exhaustLayout: n === 1 ? 'open' : vee ? 'perBank' : 'merged',
-        // A V angle is what makes a six a V6, and means nothing on an inline engine. A twin keeps
-        // whatever angle it had, which is how it chooses between parallel and V. A boxer is its
+        // A V angle is what makes a twin a V-twin or a six a V6, and means nothing on an inline engine. A
+        // V-twin keeps the angle it had, and one from a parallel twin gets a Ducati's 90. A boxer is its
         // banks laid flat, 180 degrees apart, on a crank of its own.
+        ...(vTwin ? { vAngle: eng.cylinders === 2 && eng.vAngle > 0 && !isBoxer(eng) ? eng.vAngle : 90 } : {}),
         ...(cylSel.value === '8' ? { vAngle: 90 } : {}),
         ...(cylSel.value === '6v' ? { vAngle: 60 } : {}),
         ...(boxer ? { vAngle: 180, crankType: 'boxer' as const } : {}),
-        ...(n !== 2 && !vee ? { vAngle: 0 } : {}),
+        ...(!vTwin && !vee ? { vAngle: 0 } : {}),
         // Leaving a boxer hands the crank back: a V8 gets the crank its menu shows.
         ...(!boxer && eng.crankType === 'boxer'
           ? { crankType: n === 8 ? ('crossplane' as const) : ('shared' as const) }
@@ -541,24 +544,19 @@ export class Panel {
 
     const vRow = this.slider(multiWrap, {
       label: 'V angle',
-      min: 0,
+      // A V stays a V: at no angle it is an inline engine, which has its own entry in the Cylinders menu.
+      min: 15,
       max: 120,
       step: 1,
       value: spec.vAngle,
       sync: () => this.config.engine.vAngle,
       format: (v) => {
         const off = firingOffsetDeg({ ...this.config.engine, vAngle: v });
-        const named = v === 0 ? ' parallel' : v === 45 ? ' Harley' : v === 90 ? ' Ducati' : '';
+        const named = v === 45 ? ' Harley' : v === 90 ? ' Ducati' : '';
         return `${v.toFixed(0)}\u00b0${named} \u2192 fires ${off.toFixed(0)}/${(720 - off).toFixed(0)}`;
       },
       onInput: (v) => {
-        /**
-         * A V6 stays a V6. At no angle a six is an inline six, so letting the angle reach zero would turn
-         * the engine into a different one mid-drag — and hide this slider, which only shows for a V, from
-         * under the pointer. Inline six has its own entry in the Cylinders menu.
-         */
-        const vee = this.config.engine.cylinders === 6 ? Math.max(v, 15) : v;
-        this.cb.onEngine({ vAngle: vee });
+        this.cb.onEngine({ vAngle: v });
         this.syncStats();
       },
     });
@@ -1490,7 +1488,8 @@ export class Panel {
 
     this.crankRow.classList.toggle('hidden', n !== 8);
     // A boxer's banks are flat by definition; at any other angle it would be a V on a boxer's crank.
-    this.vAngleRow.classList.toggle('hidden', plan.bankCount < 2 || isBoxer(eng));
+    // Nor has a parallel twin one: it is the V-twin's entry that has.
+    this.vAngleRow.classList.toggle('hidden', plan.bankCount < 2 || isBoxer(eng) || (n === 2 && eng.vAngle === 0));
     this.offsetToggleEl.classList.toggle('hidden', n !== 2);
     this.offsetWrapEl.classList.toggle('hidden', n !== 2 || eng.firingOffset === null);
   }

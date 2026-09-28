@@ -368,11 +368,9 @@ export function compileLayout(
   spec: EngineSpec,
   pipe: PipeSegment[],
   collector: PipeSegment[],
-  turbos = 0,
 ): ExhaustGraph {
   const groups = collectorGroups(spec);
   const ducts: ExhaustDuct[] = [];
-  const mounts: TurboMount[] = [];
   const copy = (segments: PipeSegment[]) => segments.map((s) => makeSegment(s));
 
   // Where each cylinder sits along the crank, for chaining a bank's runners in order.
@@ -495,40 +493,6 @@ export function compileLayout(
       return carrying;
     };
 
-    /**
-     * Twin turbos on one bank, as on the RB26: the bank's front and rear halves each chain rearwards to a
-     * turbo at their own rear end, over the middle and the back of the engine, and the turbos' downpipes
-     * meet. Each downpipe's length comes out of the collector, as the downpipes of a V's two banks do.
-     */
-    if (banks.length === 1 && turbos === 2 && mounts.length === 0 && members.length >= 2) {
-      const order = [...members].sort((a, b) => (pinOf.get(a) ?? a) - (pinOf.get(b) ?? b));
-      const half = Math.ceil(order.length / 2);
-      const halves = [order.slice(0, half), order.slice(half)];
-      let downDia = 0;
-      halves.forEach((halfMembers, h) => {
-        const node = `merge${g}-t${h}`;
-        chain(halfMembers, node, `${g}-t${h}`);
-        const dia = gathering(halfMembers.length) * 1.25;
-        downDia = Math.max(downDia, dia);
-        tail.push({
-          id: `down${g}-t${h}`,
-          segments: [makeSegment({ kind: 'pipe', length: TWIN_DOWNPIPE, dIn: dia, dOut: dia })],
-          from: { kind: 'node', node },
-          to: { kind: 'node', node: `merge${g}` },
-          role: 'downpipe',
-        });
-        mounts.push({ id: `turbo${h + 1}`, node, position: null, rotation: [0, 0, 0, 1] });
-      });
-      tail.push({
-        id: `collector${g}`,
-        segments: shortened(collectorAfter(downDia), TWIN_DOWNPIPE),
-        from: { kind: 'node', node: `merge${g}` },
-        to: { kind: 'mouth' },
-        role: 'collector',
-      });
-      continue;
-    }
-
     if (banks.length === 1) {
       const lastLink = chain(members, `merge${g}`, `${g}`);
       tail.push({
@@ -612,11 +576,71 @@ export function compileLayout(
     });
   });
   ducts.push(...tail);
-  return { ducts, ...(mounts.length > 0 ? { turbos: mounts } : {}) };
+  return { ducts };
 }
 
-/** How long each of a single bank's twin turbos' downpipes is, m. */
-const TWIN_DOWNPIPE = 0.3;
+/**
+ * The exhaust `spec` asks for: equal-length headers into one merge per collector where it has
+ * `exhaustHeaders` and something to merge, and a manifold along the ports otherwise.
+ *
+ * Turbocharged, with `turbos` more than none, it has a turbo for each bank of the engine, however many were
+ * asked for, every port of the bank piped straight into its inlet (`compileBankTurbos`).
+ */
+export function compileExhaust(
+  spec: EngineSpec,
+  pipe: PipeSegment[],
+  collector: PipeSegment[],
+  turbos = 0,
+): ExhaustGraph {
+  const layout = exhaustLayoutOf(spec);
+  if (turbos > 0) return compileBankTurbos(spec, pipe, collector);
+  return spec.exhaustHeaders && layout !== 'open' ? compileCollectorLayout(spec, pipe, collector) : compileLayout(spec, pipe, collector);
+}
+
+/** How long each downpipe from a turbo under a bank to where the two meet is as compiled, m. */
+const BANK_DOWNPIPE = 0.3;
+
+/**
+ * A turbo for each bank of the engine: every cylinder's runner from its port into its bank's turbo, and out
+ * of each, a collector of its own, or with two banks merged, a downpipe to where the two meet behind the
+ * engine and one collector from there, as much shorter as the downpipes are long. A layout open to the air
+ * has no collector, so its pipe, which ran from the port, runs from each turbo's outlet instead.
+ */
+function compileBankTurbos(spec: EngineSpec, pipe: PipeSegment[], fitted: PipeSegment[]): ExhaustGraph {
+  const collector = fitted.length > 0 ? fitted : pipe;
+  const banks = physicalBankCount(spec) > 1 ? [0, 1] : [0];
+  const nodeOf = (bank: number) => `turbo-b${bank}`;
+  const copy = (segments: PipeSegment[]) => segments.map((s) => makeSegment(s));
+  const ducts: ExhaustDuct[] = Array.from({ length: spec.cylinders }, (_, cylinder) => ({
+    id: `runner${cylinder}`,
+    segments: copy(pipe),
+    from: { kind: 'valve', cylinder },
+    to: { kind: 'node', node: nodeOf(banks.length > 1 ? physicalBank(spec, cylinder) : 0) },
+    role: 'runner',
+  }));
+  if (banks.length === 1 || exhaustLayoutOf(spec) !== 'merged') {
+    for (const bank of banks) {
+      // The port's pipe after the turbo is not a collector to carry to another layout.
+      const role = fitted.length > 0 ? 'collector' : 'downpipe';
+      ducts.push({ id: `collector${bank}`, segments: copy(collector), from: { kind: 'node', node: nodeOf(bank) }, to: { kind: 'mouth' }, role });
+    }
+  } else {
+    const first = collector[0];
+    const dia = first ? segmentDiameter(first, 0) : 0.05;
+    for (const bank of banks) {
+      ducts.push({
+        id: `down-b${bank}`,
+        segments: [makeSegment({ kind: 'pipe', length: BANK_DOWNPIPE, dIn: dia, dOut: dia })],
+        from: { kind: 'node', node: nodeOf(bank) },
+        to: { kind: 'node', node: 'merge0' },
+        role: 'downpipe',
+      });
+    }
+    ducts.push({ id: 'collector0', segments: shortened(copy(collector), BANK_DOWNPIPE), from: { kind: 'node', node: 'merge0' }, to: { kind: 'mouth' }, role: 'collector' });
+  }
+  const turbos = banks.map((bank): TurboMount => ({ id: `turbo${bank + 1}`, node: nodeOf(bank), position: null, rotation: [0, 0, 0, 1] }));
+  return { ducts, turbos };
+}
 
 /**
  * The equal-length alternative: every runner of a group into one junction, then its collector.
@@ -627,31 +651,6 @@ const TWIN_DOWNPIPE = 0.3;
  * pipes snapping together make; this is kept for anything that needs the symmetric system, which is what
  * the physics tests of cancellation and pulse spacing are about.
  */
-/**
- * The exhaust `spec` asks for: equal-length headers into one merge per collector where it has
- * `exhaustHeaders` and something to merge, and a manifold along the ports otherwise.
- */
-export function compileExhaust(
-  spec: EngineSpec,
-  pipe: PipeSegment[],
-  collector: PipeSegment[],
-  turbos = 0,
-): ExhaustGraph {
-  const graph =
-    spec.exhaustHeaders && exhaustLayoutOf(spec) !== 'open'
-      ? compileCollectorLayout(spec, pipe, collector)
-      : compileLayout(spec, pipe, collector, turbos);
-  // Otherwise a turbo goes where each collector starts, as many as asked for and there are collectors.
-  if (turbos > 0 && !graph.turbos) {
-    const at = graph.ducts.filter((d) => d.role === 'collector' && d.from.kind === 'node').slice(0, turbos);
-    const mounts = at.map(
-      (d, i): TurboMount => ({ id: `turbo${i + 1}`, node: (d.from as { node: string }).node, position: null, rotation: [0, 0, 0, 1] }),
-    );
-    if (mounts.length > 0) graph.turbos = mounts;
-  }
-  return graph;
-}
-
 export function compileCollectorLayout(
   spec: EngineSpec,
   pipe: PipeSegment[],
@@ -718,8 +717,9 @@ function shortened(segments: PipeSegment[], length: number): PipeSegment[] {
  */
 export function carriedGeometry(graph: ExhaustGraph): { pipe?: PipeSegment[]; collector?: PipeSegment[] } {
   const generated = (d: ExhaustDuct) => d.role === 'stub' || d.role === 'manifold' || d.role === 'downpipe';
+  // Not one into a turbo, which is a flange and a bend fitted to reach it.
   const runner =
-    graph.ducts.find((d) => d.role === 'runner') ??
+    graph.ducts.find((d) => d.role === 'runner' && !(d.to.kind === 'node' && turboAt(graph, d.to.node))) ??
     graph.ducts.find((d) => d.from.kind === 'valve' && !d.role && d.segments.length > 0);
   const collector =
     graph.ducts.find((d) => d.role === 'collector') ??

@@ -18,8 +18,9 @@
   and the bend are fitted, and locked in the segment list; only the straight out of the port is edited. The collector's junction is
   fixed where the primaries meet. It can be moved from its pipe's triad like any other junction; the
   bends follow it, and the primaries' lengths change with them.
-- **Layout → Cylinders** changes only the layout: single, twin, inline three to six, V6, V8, or a
-  four- or six-cylinder boxer. It also builds an exhaust to suit. The **Exhaust** menu below it
+- **Layout → Cylinders** changes only the layout: single, parallel twin, V-twin, inline three to six, V6,
+  V8, or a four- or six-cylinder boxer. A V-twin, V6 or V8 has a **V angle**, from 15 to 120 degrees; a
+  V-twin chosen from a parallel twin starts at 90. It also builds an exhaust to suit. The **Exhaust** menu below it
   picks the pipe style: separate pipes, one collector per bank, or one collector for all cylinders.
 - **Operating point** has no speed control: the engine turns as fast as its torque drives it
   against friction and the **Load**, so the **Throttle**, the load and the exhaust tuning all set
@@ -83,6 +84,12 @@ Turbos are part of the exhaust: you put them in the view and pipe them up.
   [triad](#the-triad), whose axes are the turbo's own: red along its shaft. The pipes feeding it follow,
   their curves into the inlet fitted again, and the pipe drawn up to each curve left as it was.
   <kbd>Delete</kbd> takes it out, leaving the pipes that fed it open.
+- **Changing the engine's layout** keeps it turbocharged, with a turbo for each bank: one on an inline
+  engine or a single, one under each bank of a V or a boxer. Each sits halfway along the engine, out from
+  its bank's ports the way they point, as close in as leaves it clear of the engine, with its shaft along
+  the engine, its outlet facing rearwards and its inlet facing the ports. Every port of the bank is piped
+  straight into the inlet. From the outlets, each bank has its own collector, or with the banks merged,
+  the two downpipes meet behind the engine.
 - The line under the button says how many turbos there are. The next gives the boost, the turbos'
   speed, the pressure the exhaust works against at their inlets, and whether the wastegate is open, the
   blow-off valve is venting or the compressor is surging. See

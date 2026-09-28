@@ -38,7 +38,17 @@ import {
   defaultMerge,
   runnerBore,
 } from './scene/headerTool.js';
-import { matchLength, moveJunction, moveTurbo, refitBends, seatHeaders, seatManifolds, seatTurbos, turboHeight } from './scene/turboPlacement.js';
+import { seatEngineTurbos } from './scene/engineTurbos.js';
+import {
+  matchLength,
+  moveJunction,
+  moveTurbo,
+  refitBends,
+  seatHeaders,
+  seatManifolds,
+  seatTurbos,
+  turboHeight,
+} from './scene/turboPlacement.js';
 import {
   lockedFrom,
   graphTurboSize,
@@ -695,9 +705,10 @@ function rebuildPipeGeometry(): void {
   // Seated first: building a compiled manifold or header can add pipes.
   const ports = Array.from({ length: cylinders }, (_, b) => engineMesh.exhaustPort(b));
   seatManifolds(graph, ports, config.engine);
-  seatTurbos(graph, ports, config.engine);
   seatLengthwaysHeaders(graph, ports, config.engine);
   seatHeaders(graph, ports, config.engine);
+  seatEngineTurbos(graph, ports, config.engine);
+  seatTurbos(graph, ports, config.engine);
   refitBends(graph, ports, config.engine);
 
   // One mesh per duct, one merge body per junction that has one.

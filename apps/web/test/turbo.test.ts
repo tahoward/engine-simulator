@@ -346,29 +346,16 @@ describe('a pipe fitted into a turbo’s inlet', () => {
   });
 });
 
-describe('the RB26 preset', () => {
+describe('the RB26 preset, its exhaust compiled', () => {
   const preset = ENGINE_PRESETS.find((p) => p.name.includes('RB26'))!;
   const spec = presetEngine(preset, defaultConfig().engine);
   const graph = compileExhaust(spec, preset.pipe(), preset.collector!(), preset.turbos);
 
-  it('has two turbos, each fed by three cylinders', () => {
+  it('has one turbo, as an engine of one bank does, every cylinder through it', () => {
     expect(validateGraph(graph, 6)).toEqual([]);
-    expect(graph.turbos).toHaveLength(2);
-    for (const turbo of graph.turbos!) {
-      const fed = [0, 1, 2, 3, 4, 5].filter((c) =>
-        pathToAir(graph, c).some((d) => d.to.kind === 'node' && d.to.node === turbo.node),
-      );
-      expect(fed).toHaveLength(3);
-    }
-  });
-
-  it('seats each turbo where its three cylinders’ manifold ends', () => {
-    const g = JSON.parse(JSON.stringify(graph)) as ExhaustGraph;
-    const ports = portsOf(spec);
-    seatTurbos(g, ports, spec);
-    expect(g.turbos!.every((t) => t.position !== null)).toBe(true);
-    const placement = layoutGraph(ports, g, turboPortsOf(g, spec));
-    for (const t of g.turbos!) expect(pipesMeetAt(g, placement, t.node)).toBe(true);
+    expect(graph.turbos).toHaveLength(1);
+    const node = graph.turbos![0]!.node;
+    for (let c = 0; c < 6; c++) expect(pathToAir(graph, c).some((d) => d.to.kind === 'node' && d.to.node === node), `cylinder ${c}`).toBe(true);
   });
 });
 
@@ -797,16 +784,19 @@ describe('a compiled header', () => {
   });
 });
 
-/** A compiled manifold, laid along the engine with each port's stub bent into it, as one is drawn: each preset's engine, its exhaust compiled rather than any drawn for it. */
+/**
+ * A compiled manifold, laid along the engine with each port's stub bent into it, as one is drawn: each
+ * preset's engine, its exhaust compiled rather than any drawn for it, and without turbos, which take the
+ * ports' pipes straight into them instead.
+ */
 describe('a compiled manifold', () => {
   const seat = (name: string) => {
     const preset = ENGINE_PRESETS.find((p) => p.name === name)!;
     const spec = presetEngine(preset, defaultConfig().engine);
-    const graph = compileExhaust(spec, preset.pipe(), preset.collector!(), preset.turbos ?? 0);
+    const graph = compileExhaust(spec, preset.pipe(), preset.collector!());
     const compiled = JSON.parse(JSON.stringify(graph)) as ExhaustGraph;
     const ports = portsOf(spec);
     seatManifolds(graph, ports, spec);
-    seatTurbos(graph, ports, spec);
     refitBends(graph, ports, spec);
     return { spec, graph, compiled, ports };
   };
@@ -818,7 +808,6 @@ describe('a compiled manifold', () => {
     for (const d of graph.ducts.filter((d) => d.role === 'stub')) {
       expect(total([d]), d.id).toBeCloseTo(compiled.ducts.find((c) => c.id === d.id)!.segments[0]!.length, 3);
     }
-    // Up to the turbos, whose downpipes are bent to meet below them.
     const upstream = (g: ExhaustGraph, c: number) => pathToAir(g, c).filter((d) => d.role === 'stub' || d.role === 'manifold');
     for (let c = 0; c < spec.cylinders; c++) expect(total(upstream(graph, c)), `cylinder ${c}`).toBeCloseTo(total(upstream(compiled, c)), 3);
   });
@@ -876,15 +865,5 @@ describe('a compiled manifold', () => {
     }
   });
 
-  it('seats twin turbos on their manifolds, their downpipes meeting below the rear one and the collector leaving rearwards', () => {
-    const { spec, graph, ports } = seat('Inline six, Nissan RB26DETT');
-    const turbos = turboPortsOf(graph, spec);
-    expect(turbos.size).toBe(2);
-    for (const { outlet } of turbos.values()) expect(outlet.dir[1]).toBeCloseTo(-1, 6);
-    const placement = layoutGraph(ports, graph, turbos);
-    const merge = graph.ducts.find((d) => d.role === 'downpipe')!.to as { node: string };
-    expect(junctionAt(graph, merge.node)?.axis).toEqual([0, 0, 1]);
-    expect(pipesMeetAt(graph, placement, merge.node)).toBe(true);
-  });
 });
 
