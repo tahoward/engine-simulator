@@ -367,8 +367,9 @@ menu.
 
 ## Sharing
 
-The whole setup is saved in the page URL (the part after `#`). So you can share an engine and
-exhaust you like as a link. Refreshing the page also keeps what you were working on.
+The whole setup is saved in the page URL (the part after `#`): the engine, its exhaust, and the
+launch's car and settings. So you can share an engine and exhaust you like as a link. Refreshing the
+page also keeps what you were working on.
 
 **Export engine**, under the engine preset menu, saves the engine as a file: its layout and settings,
 and its exhaust as drawn, as JSON named for its layout, `engine-v8-crossplane.json` say. **Import
