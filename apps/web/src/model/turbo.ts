@@ -103,8 +103,42 @@ export function quatNormalise(q: Quat): Quat {
   return n > 1e-12 ? [q[0] / n, q[1] / n, q[2] / n, q[3] / n] : [...IDENTITY];
 }
 
+/**
+ * One solid cylinder of the room a turbo takes up, in its own frame: along axis `axis` (0 x, 1 y, 2 z),
+ * centred at `centre`, `half` its length each way and of radius `radius`, m.
+ */
+export interface TurboPart {
+  axis: 0 | 1 | 2;
+  centre: Vec3;
+  half: number;
+  radius: number;
+}
+
+/**
+ * The room a turbo of `size` takes up, in its own frame: solid cylinders round each part `TurboMesh`
+ * draws, the turbine's scroll and outlet, the bearing housing, the compressor's scroll, nose and outlet,
+ * and the inlet's neck.
+ */
+export function turboBody(size: TurboSize): TurboPart[] {
+  const s = size.scroll;
+  const d = size.depth;
+  const outlet = 0.5 * d + 0.45 * s;
+  const bore = Math.max(size.outletDia / 2 + 0.004, 0.25 * s);
+  const bearing = 0.5 * d + 0.35 * s;
+  const comp = bearing + 0.75 * s;
+  return [
+    { axis: 0, centre: [0, 0, 0], half: Math.max(d / 2, 0.36 * s), radius: 0.98 * s },
+    { axis: 0, centre: [-(outlet - 0.225 * s), 0, 0], half: 0.225 * s, radius: bore * 1.3 },
+    { axis: 0, centre: [bearing, 0, 0], half: 0.35 * s, radius: 0.3 * s },
+    { axis: 0, centre: [comp, 0, 0], half: 0.4 * s, radius: s },
+    { axis: 0, centre: [comp + 0.6 * s, 0, 0], half: 0.25 * s, radius: 0.42 * s },
+    { axis: 1, centre: [comp, 0.9 * s, 0.3 * s], half: 0.3 * s, radius: 0.2 * s },
+    { axis: 2, centre: [0, 0, -0.95 * s], half: 0.2 * s, radius: 0.45 * s },
+  ];
+}
+
 /** The inlet flange in the turbo's own frame: on the side of the scroll, the gas arriving along +z. */
-function localInlet(size: TurboSize): Vec3 {
+export function localInlet(size: TurboSize): Vec3 {
   return [0, 0, -1.15 * size.scroll];
 }
 

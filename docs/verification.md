@@ -77,9 +77,14 @@ matters.
   it, and its node not as a junction; tidying must leave its pipes as they are; taking it out must leave the
   pipe open again; moved, the pipe must follow it and still meet its inlet; and it must survive a link.
   Heard through the Wasm build it must make boost, with a pipe drawn from its outlet or
-  without. The RB26 must compile to two turbos, each fed by
-  three cylinders, seated where their manifolds end. Turned a quarter turn about an axis, a turbo's
-  outlet must turn by that, with its pipe still meeting its inlet.
+  without. The RB26, its exhaust compiled, must have one turbo with every cylinder through it. Turned a
+  quarter turn about an axis, a turbo's outlet must turn by that, with its pipe still meeting its inlet.
+- **Turbos a layout seats.** Switched to any entry of the Cylinders menu, with headers or manifolds and
+  one turbo or two, the engine must have one turbo for each bank, its outlet facing rearwards, halfway
+  along the engine and out from its bank's ports the way they point, with every port of the bank piped
+  straight into its inlet and meeting it. Each must be clear of the engine's outline, of every pipe but its
+  own where they meet its flanges, and of the other turbo; and a turbo that has been put somewhere must be
+  left there.
 - **Pipes into a turbo.** A pipe fitted to a turbo's inlet must run straight in when the inlet is on
   its own line. Off to one side but facing the same way, it must be one smooth bend, an S, ending on the
   flange, leaving the way the pipe was going and meeting the flange square, with no two stations along

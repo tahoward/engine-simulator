@@ -328,7 +328,7 @@ export function seatLengthwaysHeaders(graph: ExhaustGraph, ports: ExhaustPort[],
   if (spec.headerRun !== 'lengthways') return;
   const merges = new Set<string>();
   for (const d of graph.ducts) {
-    if (d.role === 'collector' && d.from.kind === 'node' && !junctionAt(graph, d.from.node)) merges.add(d.from.node);
+    if (d.role === 'collector' && d.from.kind === 'node' && !junctionAt(graph, d.from.node) && !turboAt(graph, d.from.node)) merges.add(d.from.node);
   }
   const header = (d: ExhaustDuct) => d.role === 'runner' && d.from.kind === 'valve' && !d.fitted && d.segments.length > 0;
   for (const node of merges) {

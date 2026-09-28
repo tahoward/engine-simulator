@@ -37,7 +37,7 @@ import {
   physicalBankCount,
   pistonPosition,
 } from '../model/spec.js';
-import { exhaustPortOf } from '../model/geometry.js';
+import { END_JOURNAL, engineShell, exhaustPortOf } from '../model/geometry.js';
 import { valveLift } from '../model/cam.js';
 
 const STEEL = { color: 0x8d949e, metalness: 0.92, roughness: 0.34 };
@@ -158,7 +158,7 @@ export class EngineMesh {
       });
     }
 
-    this.buildShell(zOf(0), zOf(pins.length - 1));
+    this.buildShell();
 
     // Straddle vertical, so a V looks like a V rather than leaning.
     this.group.rotation.z = ((plan.bankCount > 1 ? this.spec.vAngle / 2 : 0) * Math.PI) / 180;
@@ -469,30 +469,26 @@ export class EngineMesh {
    * The block and heads, see-through: one rounded casting per bank from the crankcase up past the valve
    * springs, and the crankcase round the crank. Only an outline, so the parts moving inside it all show.
    */
-  private buildShell(zFirst: number, zLast: number): void {
-    const s = this.spec;
-    const a = s.stroke / 2;
+  private buildShell(): void {
+    const shell = engineShell(this.spec);
     const mat = new THREE.MeshStandardMaterial(SHELL);
-    const long = zLast - zFirst + Math.max(this.spacing, s.bore * 1.3);
-    const top = this.deckY + s.bore * 0.52;
-    const bottom = a * 1.2;
-    const width = s.bore * 2.3;
-    const banks = new Set(this.cyls.map((c) => c.rotation));
-    for (const rotation of banks) {
-      const bank = new THREE.Mesh(new RoundedBoxGeometry(width, top - bottom, long, 3, Math.min(width, top - bottom) * 0.12), mat);
+    const { width, top, bottom, length } = shell;
+    for (const turn of shell.banks) {
+      // In the engine's own frame, which the group turns by the straddle.
+      const rotation = turn - shell.straddle;
+      const bank = new THREE.Mesh(new RoundedBoxGeometry(width, top - bottom, length, 3, shell.rounding), mat);
       bank.name = 'shell';
-      bank.position.set(0, (top + bottom) / 2, (zFirst + zLast) / 2);
+      bank.position.set(0, (top + bottom) / 2, 0);
       bank.position.applyAxisAngle(AXIS_Z, rotation);
       bank.rotation.z = rotation;
       bank.renderOrder = 20;
       this.shell.add(bank);
     }
     // The crankcase: round the counterweights' sweep, along the whole crank.
-    const reach = a * 1.5 + 0.012;
-    const crankcase = new THREE.Mesh(new THREE.CylinderGeometry(reach, reach, long + 2 * END_JOURNAL, 40), mat);
+    const { radius, length: crankLength } = shell.crankcase;
+    const crankcase = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, crankLength, 40), mat);
     crankcase.name = 'shell';
     crankcase.rotation.x = Math.PI / 2;
-    crankcase.position.z = (zFirst + zLast) / 2;
     crankcase.renderOrder = 20;
     this.shell.add(crankcase);
   }
@@ -663,8 +659,6 @@ const PIN_WIDTH = 2 * ROD_STAGGER - 0.002;
 const ROD_THICKNESS = ROD_STAGGER - 0.003;
 /** Radius of the boss a web has round a crankpin, m. */
 const PIN_BOSS = 0.022;
-/** How far the crank runs on past its end throws, to the nose at one end and the flange at the other, m. */
-const END_JOURNAL = 0.03;
 
 /**
  * A crank web's outline, with its pin at `(0, throwRadius)`: a boss round the pin, and the counterweight on

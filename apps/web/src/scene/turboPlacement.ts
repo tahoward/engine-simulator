@@ -12,15 +12,15 @@ import {
   endsAt,
   junctionAt,
   newDuctId,
+  turboAt,
   newNodeId,
   type ExhaustDuct,
   type ExhaustGraph,
   type Quat,
-  type TurboMount,
 } from '../model/exhaustGraph.js';
 import type { Vec3 } from '../model/geometry.js';
 import { makeSegment, segmentDiameter, type EngineSpec, type PipeSegment } from '../model/spec.js';
-import { graphTurboSize, quatFromAxisAngle, quatMultiply, seatTurbo, turboPorts, turboPortsOf, type TurboSize } from '../model/turbo.js';
+import { graphTurboSize, seatTurbo, turboPortsOf } from '../model/turbo.js';
 import { MIN_BEND_BORES, bendAnchor, fitCurve, type BendAnchor } from './drawing.js';
 import { bendRadius } from './PipeMesh.js';
 import { layoutGraph, type ExhaustPort } from './exhaustLayout.js';
@@ -165,7 +165,8 @@ const LENGTH_TOLERANCE = 5e-4;
 export function seatHeaders(graph: ExhaustGraph, ports: ExhaustPort[], _spec: EngineSpec): void {
   const merges = new Set<string>();
   for (const d of graph.ducts) {
-    if (d.role === 'collector' && d.from.kind === 'node' && !junctionAt(graph, d.from.node)) merges.add(d.from.node);
+    // Not a turbo's, which its ports' pipes bend straight into.
+    if (d.role === 'collector' && d.from.kind === 'node' && !junctionAt(graph, d.from.node) && !turboAt(graph, d.from.node)) merges.add(d.from.node);
   }
   for (const node of merges) {
     const ends = endsAt(graph, node);
@@ -210,13 +211,10 @@ export function seatHeaders(graph: ExhaustGraph, ports: ExhaustPort[], _spec: En
  * It sits as far out from the ports, and as far along from each, as makes each port's bend the length its
  * stub was compiled at, and it runs a cylinder's pitch between joins, so the manifold sounds as it did.
  *
- * Only for a manifold nothing has touched yet, from its first cylinder's stub to where it ends: a collector,
- * or a turbo, which is seated on its end facing along it. One that goes on through a downpipe to meet another
- * bank's is left to the layout.
+ * Only for a manifold nothing has touched yet, from its first cylinder's stub to where it ends in a
+ * collector. One that goes on through a downpipe to meet another bank's is left to the layout.
  */
-export function seatManifolds(graph: ExhaustGraph, ports: ExhaustPort[], spec: EngineSpec): void {
-  const size = graphTurboSize(graph, spec);
-  const seated: TurboMount[] = [];
+export function seatManifolds(graph: ExhaustGraph, ports: ExhaustPort[], _spec: EngineSpec): void {
   const firsts = graph.ducts.filter(
     (d) => d.role === 'stub' && d.from.kind === 'valve' && !d.fitted && d.segments.length === 2 && d.to.kind === 'node',
   );
@@ -233,9 +231,8 @@ export function seatManifolds(graph: ExhaustGraph, ports: ExhaustPort[], spec: E
       node = link.to.node;
     }
     const last = nodes.at(-1)!;
-    const turbo = graph.turbos?.find((t) => t.node === last);
     const collector = graph.ducts.find((d) => d.role === 'collector' && d.from.kind === 'node' && d.from.node === last);
-    if ((!turbo && !collector) || (turbo && turbo.position) || nodes.some((n) => junctionAt(graph, n))) continue;
+    if (!collector || nodes.some((n) => junctionAt(graph, n))) continue;
     const stubs = nodes.map((n) =>
       graph.ducts.find((d) => d.role === 'stub' && d.from.kind === 'valve' && d !== first && d.to.kind === 'node' && d.to.node === n),
     );
@@ -297,47 +294,8 @@ export function seatManifolds(graph: ExhaustGraph, ports: ExhaustPort[], spec: E
       stub!.headingYaw = 0;
       stub!.headingPitch = 0;
     });
-    for (const d of [...links, ...(turbo ? [] : [collector!])]) laid(d);
-    if (turbo) {
-      const end = bendTo(stubPorts.at(-1)!, reach);
-      seatTurbo(turbo, [end.x, end.y, end.z], [along.x, along.y, along.z], size);
-      // Rolled about its inlet so its outlet faces down, clear of the head, rather than back at it.
-      turbo.rotation = quatMultiply(turbo.rotation, quatFromAxisAngle([0, 0, 1], Math.PI / 2));
-      seated.push(turbo);
-    }
+    for (const d of [...links, collector]) laid(d);
   }
-  seatTwinDownpipes(graph, seated, size);
-}
-
-/** How far below the lower of two turbos' outlets their downpipes meet, m. */
-const DOWNPIPE_DROP = 0.12;
-
-/**
- * Where twin turbos seated on their manifolds (`seatManifolds`) each have a downpipe to one junction and a
- * collector out of it: the junction fixed below the rearmost turbo's outlet, the collector leaving it
- * rearwards, and each downpipe one bend from its turbo's outlet into it.
- */
-function seatTwinDownpipes(graph: ExhaustGraph, turbos: TurboMount[], size: TurboSize): void {
-  if (turbos.length < 2) return;
-  const downpipes = turbos.map((t) => graph.ducts.find((d) => d.role === 'downpipe' && d.from.kind === 'node' && d.from.node === t.node));
-  const node = downpipes[0]?.to.kind === 'node' ? downpipes[0].to.node : null;
-  if (!node || junctionAt(graph, node) || downpipes.some((d) => !d || d.fitted || d.to.kind !== 'node' || d.to.node !== node)) return;
-  const collector = graph.ducts.find((d) => d.role === 'collector' && d.from.kind === 'node' && d.from.node === node);
-  if (!collector) return;
-  const outlets = turbos.map((t) => turboPorts(t as TurboMount & { position: Vec3 }, size).outlet);
-  const rear = outlets.reduce((a, o) => (o.point[2] > a.point[2] ? o : a));
-  const lowest = Math.min(...outlets.map((o) => o.point[1]));
-  const merge = new THREE.Vector3(rear.point[0], lowest - DOWNPIPE_DROP, rear.point[2]);
-  const axis = new THREE.Vector3(0, 0, 1);
-  (graph.junctions ??= []).push({ node, position: [merge.x, merge.y, merge.z], axis: [0, 0, 1] });
-  collector.headingYaw = 0;
-  collector.headingPitch = 0;
-  downpipes.forEach((d, i) => {
-    const o = outlets[i]!;
-    const bore = segmentDiameter(d!.segments[0]!, 0);
-    d!.segments = [fitCurve(new THREE.Vector3(...o.point), new THREE.Vector3(...o.dir), merge, axis, { dIn: bore, dOut: bore })];
-    d!.fitted = true;
-  });
 }
 
 interface Primary {
