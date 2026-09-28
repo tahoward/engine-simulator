@@ -127,7 +127,8 @@ const HELMHOLTZ_HZ: f64 = 18.0;
 const WINDMILL_LOSS: f64 = 1.0;
 
 /// Speeds below which the compressor is taken to be this fraction of full speed, for its
-/// characteristic only, so it does not divide by zero.
+/// characteristic, so it does not divide by zero; and the turbine too, so a stopped wheel still takes
+/// the torque the gas puts on it and starts to turn.
 const MIN_SPEED_FRACTION: f64 = 0.02;
 
 // --- Sound ---
@@ -512,8 +513,9 @@ impl Turbo {
         ETA_COMPRESSOR * math::max(1.0 - ETA_FALLOFF * d * d, ETA_FLOOR)
     }
 
-    /// Pressure rise across the compressor, Pa, at flow `m` (kg/s).
-    fn compressor_rise(&self, m: f64) -> f64 {
+    /// Pressure rise across the compressor, Pa, at flow `m` (kg/s), and the part of it the wheel does
+    /// work for: all of it but the loss of the air forced through its passages, which the flow pays.
+    fn compressor_rise(&self, m: f64) -> (f64, f64) {
         let s = self.omega / self.size.full_speed;
         let s2 = s * s;
         let rho = gas::P_AMB / (gas::R * gas::T_AMB);
@@ -521,14 +523,15 @@ impl Turbo {
         let loss = (WINDMILL_LOSS * m * m.abs()) / (2.0 * rho * a * a);
         if m <= 0.0 {
             // Backwards through the wheel: its shut-off pressure, plus the loss of forcing air the
-            // wrong way through the passages.
-            return self.size.peak_rise * s2 * MG_F0 - loss;
+            // wrong way through the passages, which resists the reversed flow.
+            let shut_off = self.size.peak_rise * s2 * MG_F0;
+            return (shut_off - loss, shut_off);
         }
         let phi = math::min(m / (math::max(s, MIN_SPEED_FRACTION) * self.size.choke_flow), 5.0);
         let y = phi / MG_W - 1.0;
         let mg = self.size.peak_rise * s2 * (MG_F0 + MG_H * (1.0 + 1.5 * y - 0.5 * y * y * y));
         // Past its choke the wheel does no more work and is only a restriction.
-        math::max(mg, -loss)
+        (math::max(mg, -loss), math::max(mg, 0.0))
     }
 
     /// The turbine as it sits in the exhaust this sample: its flow constants, its wheel's tip speed and
@@ -549,7 +552,7 @@ impl Turbo {
         TurbineSetting {
             k_turbine: size.turbine_k,
             k_wastegate: size.wastegate_k * self.wastegate,
-            tip_speed: self.omega * size.turbine_radius,
+            tip_speed: math::max(self.omega, MIN_SPEED_FRACTION * size.full_speed) * size.turbine_radius,
             pulsation: 1.0 + TURBINE_PULSATION * size.noise * s * s * pulse,
             bypass_noise: size.noise,
         }
@@ -578,10 +581,10 @@ impl Turbo {
         // --- Compressor: its duct's air accelerated by the pressure rise against the charge ---
         let p2 = self.charge_pressure();
         let t2 = self.charge_temp();
-        let rise = self.compressor_rise(self.compressor_flow);
+        let (rise, wheel_rise) = self.compressor_rise(self.compressor_flow);
         self.compressor_flow += dt * size.duct_a_over_l * (gas::P_AMB + rise - p2);
         let m_c = self.compressor_flow;
-        let pr = math::max((gas::P_AMB + math::max(rise, 0.0)) / gas::P_AMB, 1.0);
+        let pr = (gas::P_AMB + wheel_rise) / gas::P_AMB;
         let heating = (math::pow(pr, (GAMMA_AIR - 1.0) / GAMMA_AIR) - 1.0) / self.compressor_efficiency(m_c);
         let p_compressor = m_c.abs() * CP_AIR * gas::T_AMB * heating;
         if m_c < 0.0 {
@@ -592,7 +595,7 @@ impl Turbo {
 
         // --- Shaft ---
         let drag = size.friction * self.omega * self.omega;
-        let omega = math::max(self.omega, 0.02 * size.full_speed);
+        let omega = math::max(self.omega, MIN_SPEED_FRACTION * size.full_speed);
         self.omega += (dt * (turbine.power - p_compressor - drag)) / (size.inertia * omega);
         self.omega = clamp(self.omega, 0.0, 2.0 * size.full_speed);
 
