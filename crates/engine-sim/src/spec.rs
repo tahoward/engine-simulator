@@ -394,6 +394,13 @@ pub struct EngineSnapshot {
     pub torque: f64,
     /// Gauge pressure along the exhaust, Pa, `PIPE_PRESSURE_TAPS` long, port first.
     pub pipe_pressure: Vec<f32>,
+    /// Gauge pressure in every cell of every exhaust duct, Pa: the ducts in the graph's order, each
+    /// from its port end, taking `duct_cells` values in turn.
+    pub duct_pressure: Vec<f32>,
+    /// How many cells of `duct_pressure` each duct has.
+    pub duct_cells: Vec<u32>,
+    /// Each duct's id, in the same order.
+    pub duct_ids: Vec<String>,
     pub peak: f64,
     pub pipe_cells: f64,
     pub substeps: f64,

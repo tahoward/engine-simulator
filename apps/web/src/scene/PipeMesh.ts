@@ -349,22 +349,23 @@ export class PipeMesh {
   private readonly material: THREE.MeshStandardMaterial;
   private showPressure = true;
 
-  /**
-   * Auto-ranging pressure scale, Pa. Decays slowly so the colours stay readable
-   * across a muffler (a few kPa) and an open header (tens of kPa) without the user
-   * having to adjust anything, but does not flicker frame to frame.
-   */
-  private pressureScale = 8000;
-
   /** `ghost` draws it see-through, for a pipe as an edit would leave it, shown before it is made. */
   constructor(ghost = false) {
     this.material = new THREE.MeshStandardMaterial({
       vertexColors: true,
-      metalness: 0.55,
-      roughness: 0.38,
       side: THREE.DoubleSide,
       ...(ghost ? { transparent: true, opacity: 0.45, depthWrite: false } : {}),
     });
+    this.setFinish();
+  }
+
+  /**
+   * Polished metal, or with the pressure shown a duller finish: a metal's colour is mostly what it
+   * reflects, and its own colour, the pressure, would be lost under the reflections.
+   */
+  private setFinish(): void {
+    this.material.metalness = this.showPressure ? 0.15 : 0.55;
+    this.material.roughness = this.showPressure ? 0.55 : 0.38;
   }
 
   get pipeLayout(): PipeLayout | null {
@@ -378,6 +379,7 @@ export class PipeMesh {
 
   setPressureVisible(on: boolean): void {
     this.showPressure = on;
+    this.setFinish();
     if (!on) this.paintMetal();
   }
 
@@ -539,36 +541,25 @@ export class PipeMesh {
   }
 
   /**
-   * Paint the current pressure distribution.
+   * Paint the current pressure distribution, cell by cell.
    *
-   * @param pressure Gauge pressure along the pipe, Pa, port to mouth.
+   * @param cells Gauge pressure in each of the duct's cells, Pa, port end first. The cells are of
+   *   equal length, so each station takes the cell its distance along the pipe falls in.
+   * @param scale The pressure the colour ramp tops out at, Pa.
    */
-  update(pressure: Float32Array): void {
-    if (!this.geometry || !this.layout || !this.showPressure) return;
-
-    let peak = 0;
-    for (const v of pressure) {
-      const a = Math.abs(v);
-      if (a > peak) peak = a;
-    }
-    // Rise fast, fall slowly, with a floor so an idling muffled engine still shows
-    // something rather than amplifying numerical dust into a light show.
-    this.pressureScale =
-      peak > this.pressureScale
-        ? peak
-        : Math.max(1500, this.pressureScale * 0.985 + peak * 0.015);
+  update(cells: Float32Array, scale: number): void {
+    if (!this.geometry || !this.layout || !this.showPressure || cells.length === 0) return;
 
     const colors = this.geometry.getAttribute('color') as THREE.BufferAttribute;
     const arr = colors.array as Float32Array;
-    const taps = pressure.length;
+    const count = cells.length;
     const rgb = new THREE.Color();
 
     for (let i = 0; i < this.stationCount; i++) {
       const st = this.layout.stations[i]!;
-      // Map station position to a tap by normalised distance along the pipe.
       const u = this.layout.totalLength > 0 ? st.x / this.layout.totalLength : 0;
-      const tap = Math.min(taps - 1, Math.max(0, Math.round(u * (taps - 1))));
-      pressureColor(pressure[tap]! / this.pressureScale, rgb);
+      const cell = Math.min(count - 1, Math.max(0, Math.floor(u * count)));
+      pressureColor(cells[cell]! / scale, rgb);
 
       const base = i * (RADIAL + 1) * 3;
       for (let j = 0; j <= RADIAL; j++) {
@@ -601,25 +592,67 @@ export class PipeMesh {
 }
 
 /**
+ * Auto-ranging pressure scale, Pa. Decays slowly so the colours stay readable across a muffler (a few
+ * kPa) and an open header (tens of kPa) without the user having to adjust anything, but does not
+ * flicker frame to frame.
+ */
+export class PressureScale {
+  private scale = 8000;
+
+  /** Take a snapshot's pressures, Pa, and return the scale to colour them on. */
+  track(pressure: Float32Array): number {
+    let peak = 0;
+    for (const v of pressure) {
+      const a = Math.abs(v);
+      if (a > peak) peak = a;
+    }
+    // Rise fast, fall slowly, with a floor so an idling muffled engine still shows
+    // something rather than amplifying numerical dust into a light show.
+    this.scale = peak > this.scale ? peak : Math.max(1500, this.scale * 0.985 + peak * 0.015);
+    return this.scale;
+  }
+}
+
+/**
  * Diverging colour ramp for gauge pressure: compression warm, rarefaction cool.
  * Diverging is the right family here because zero is a meaningful midpoint — it is
  * ambient pressure, not merely the middle of the data range.
  *
  * The midpoint is neutral *metal grey*, not black. Vertex colours multiply the base
  * colour, so a dark midpoint makes an idling pipe look unlit rather than quiet.
+ *
+ * The ramp runs on the square root of the pressure, so a wave a tenth the size of the peak still
+ * shows a third of the way to full colour, and it is laid out in sRGB, where equal steps look equal.
  */
 function pressureColor(t: number, out: THREE.Color): void {
   const c = Math.max(-1, Math.min(1, t));
-  const m = Math.abs(c);
-  const base = 0.55;
-  if (c >= 0) {
-    // grey -> amber -> white-hot
-    out.setRGB(base + (1 - base) * m, base - 0.12 * m + 0.32 * m * m, base - 0.45 * m);
-  } else {
-    // grey -> teal -> pale cyan
-    out.setRGB(base - 0.45 * m, base - 0.05 * m + 0.3 * m * m, base + (1 - base) * m);
-  }
+  const m = Math.sqrt(Math.abs(c));
+  const stops = c >= 0 ? HOT : COLD;
+  const k = m < KNEE ? 0 : 1;
+  const f = k === 0 ? m / KNEE : (m - KNEE) / (1 - KNEE);
+  const a = stops[k]!;
+  const b = stops[k + 1]!;
+  out.setRGB(
+    a[0] + (b[0] - a[0]) * f,
+    a[1] + (b[1] - a[1]) * f,
+    a[2] + (b[2] - a[2]) * f,
+    THREE.SRGBColorSpace,
+  );
 }
+
+/** Where along the ramp its middle stop sits, 0..1. */
+const KNEE = 0.6;
+/** Compression: grey, orange, then yellow-white. Rarefaction: grey, blue, then pale cyan. sRGB. */
+const HOT: [number, number, number][] = [
+  [0.5, 0.52, 0.55],
+  [0.95, 0.38, 0.05],
+  [1, 0.88, 0.4],
+];
+const COLD: [number, number, number][] = [
+  [0.5, 0.52, 0.55],
+  [0.05, 0.42, 0.95],
+  [0.6, 0.92, 1],
+];
 
 const BOUNDARY = new Float64Array(3);
 

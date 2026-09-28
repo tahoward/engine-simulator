@@ -225,6 +225,8 @@ pub struct EngineSim {
     rebuild_ramp_step: f64,
     peak: f64,
     tap_buffer: Vec<f32>,
+    duct_pressure: Vec<f32>,
+    duct_cells: Vec<u32>,
     displacement_m3: f64,
     load_torque_nm: f64,
     plenum: IntakePlenum,
@@ -326,6 +328,8 @@ impl EngineSim {
             rebuild_ramp_step: 1.0 / (0.008 * sample_rate),
             peak: 0.0,
             tap_buffer: vec![0.0; PIPE_PRESSURE_TAPS],
+            duct_pressure: Vec::new(),
+            duct_cells: Vec::new(),
             displacement_m3: 0.0,
             load_torque_nm: 0.0,
             plenum,
@@ -1185,6 +1189,7 @@ impl EngineSim {
     /// A snapshot for the renderer. Resets the peak meter.
     pub fn snapshot(&mut self) -> EngineSnapshot {
         self.wg.sample_pressure(&mut self.tap_buffer);
+        self.wg.sample_duct_pressures(&mut self.duct_pressure, &mut self.duct_cells);
         let spec = &self.spec.spec;
         let cams = if self.on_high_cam { &self.high_cam_spec.as_ref().unwrap().spec } else { spec };
         let banks: Vec<BankSnapshot> = self
@@ -1233,6 +1238,9 @@ impl EngineSim {
             in_lift: first.in_lift,
             torque: self.torque_last,
             pipe_pressure: self.tap_buffer.clone(),
+            duct_pressure: self.duct_pressure.clone(),
+            duct_cells: self.duct_cells.clone(),
+            duct_ids: self.wg.duct_ids.clone(),
             peak: self.peak,
             pipe_cells: (self.wg.cells() + self.intake().cells()) as f64,
             substeps: self.substeps as f64,

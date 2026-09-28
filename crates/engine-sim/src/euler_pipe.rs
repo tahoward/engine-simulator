@@ -671,6 +671,14 @@ impl EulerPipe {
         }
     }
 
+    /// Gauge pressure in every cell of the visible pipe, Pa, port end first, onto the end of `out`.
+    pub fn push_cell_pressures(&self, out: &mut Vec<f32>) {
+        let first = self.port_cells.min(self.n.saturating_sub(1));
+        for i in first..self.n {
+            out.push((self.pressure_at(i) - gas::P_AMB) as f32);
+        }
+    }
+
     /// Gas temperature along the visible pipe, K.
     pub fn sample_temperature(&self, out: &mut [f32]) {
         for (k, o) in out.iter_mut().enumerate().take(self.tap_index.len()) {

@@ -89,6 +89,10 @@ pub struct ExhaustSystem {
     pub ducts: Vec<EulerPipe>,
     /// How many of `ducts` are primaries, one per cylinder.
     pub primary_count: usize,
+    /// Position in `ducts` of each graph duct, in the graph's order.
+    by_graph: Vec<usize>,
+    /// Each graph duct's id, in the graph's order.
+    pub duct_ids: Vec<String>,
     main_collector: Option<usize>,
     air_path: Vec<usize>,
     radiating: Vec<usize>,
@@ -306,6 +310,8 @@ impl ExhaustSystem {
 
         Ok(ExhaustSystem {
             primary_count: valve_fed.len(),
+            by_graph: position,
+            duct_ids: graph.ducts.iter().map(|d| d.id.clone()).collect(),
             ducts,
             main_collector,
             air_path,
@@ -828,6 +834,18 @@ impl ExhaustSystem {
     /// Gauge pressure along the shown duct, for the display.
     pub fn sample_pressure(&self, out: &mut [f32]) {
         self.shown().sample_pressure(out);
+    }
+
+    /// Gauge pressure in every cell of every duct, Pa, into `out`: the ducts in the graph's order, each
+    /// port end first. `cells` takes each duct's cell count.
+    pub fn sample_duct_pressures(&self, out: &mut Vec<f32>, cells: &mut Vec<u32>) {
+        out.clear();
+        cells.clear();
+        for &d in &self.by_graph {
+            let start = out.len();
+            self.ducts[d].push_cell_pressures(out);
+            cells.push((out.len() - start) as u32);
+        }
     }
 
     pub fn sample_wall_temperature(&self, out: &mut [f32]) {

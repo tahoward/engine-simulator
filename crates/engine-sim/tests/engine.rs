@@ -275,6 +275,11 @@ fn produces_a_usable_snapshot() {
     assert_eq!(s.pipe_pressure.len(), 128);
     assert!(s.pipe_pressure.iter().all(|v| v.is_finite()));
     assert!(s.pipe_cells > 8.0);
+    // Every duct's cells, and no more.
+    assert!(!s.duct_cells.is_empty() && s.duct_cells.iter().all(|&n| n > 0));
+    assert_eq!(s.duct_pressure.len(), s.duct_cells.iter().sum::<u32>() as usize);
+    assert_eq!(s.duct_ids.len(), s.duct_cells.len());
+    assert!(s.duct_pressure.iter().all(|v| v.is_finite()));
     // One step per audio sample, for every engine.
     assert_eq!(s.substeps, 1.0);
 }
