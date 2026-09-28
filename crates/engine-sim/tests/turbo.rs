@@ -141,6 +141,25 @@ fn lags_behind_the_throttle() {
     assert!(t > 0.2 && t < 2.5, "90% of the boost after {t} s");
 }
 
+/// Floored from idle, the charge air sloshing back through the compressor as the throttle opens slows
+/// the shaft but does not stop it, and the engine revs up on boost; again after each lift.
+#[test]
+fn spools_up_from_idle_every_time() {
+    let mut sim = rb26(json!({ "throttle": 0, "rpm": 900, "freeRunning": true }));
+    for blip in 0..3 {
+        sim.set_controls(0.0, 0.0);
+        sim.render(2 * FS as usize);
+        sim.set_controls(1.0, 0.0);
+        let mut slowest = f64::INFINITY;
+        for _ in 0..2 * FS as usize {
+            sim.render(1);
+            slowest = slowest.min(sim.turbo().unwrap().shaft_rpm());
+        }
+        assert!(slowest > 1000.0, "blip {blip}: the shaft kept turning, down to {slowest} rpm");
+        assert!(boost(&sim) > 0.5, "blip {blip}: on boost: {}", boost(&sim));
+    }
+}
+
 /// About the real engine's 368 N*m at 4400 rpm, and its power at 6800 no less than the 280 PS it was
 /// rated at nor much more than the 320 or so real ones make.
 #[test]
