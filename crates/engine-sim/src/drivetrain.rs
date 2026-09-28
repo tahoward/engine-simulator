@@ -27,9 +27,9 @@ impl DynoPhase {
     }
 }
 
-/// Values per recorded point: rpm, crank torque (N*m), road speed (km/h), gear (1-6) and volumetric
-/// efficiency (a fraction).
-pub const DYNO_POINT_STRIDE: usize = 5;
+/// Values per recorded point: rpm, crank torque (N*m), road speed (km/h), gear (1-6), volumetric
+/// efficiency (a fraction) and intake manifold pressure (bar, absolute).
+pub const DYNO_POINT_STRIDE: usize = 6;
 
 /// Points held between snapshots.
 const POINT_CAPACITY: usize = 256;
@@ -62,6 +62,8 @@ pub struct DynoRun {
     pub finished: bool,
     /// The engine's volumetric efficiency as of the last intake valve closings, set before each step.
     pub volumetric_efficiency: f64,
+    /// Absolute pressure in the intake manifold, Pa, set before each step.
+    pub intake_pressure: f64,
     points: Vec<f32>,
     point_count: usize,
     capacity: f64,
@@ -69,6 +71,7 @@ pub struct DynoRun {
     cycle_torque: f64,
     cycle_omega: f64,
     cycle_time: f64,
+    cycle_intake: f64,
     cycle_valid: bool,
     best_speed: f64,
     best_speed_at: f64,
@@ -88,6 +91,7 @@ impl DynoRun {
             phase_time: 0.0,
             finished: false,
             volumetric_efficiency: 0.0,
+            intake_pressure: 0.0,
             points: vec![0.0; POINT_CAPACITY * DYNO_POINT_STRIDE],
             point_count: 0,
             capacity: CLUTCH_CAPACITY * full_load_torque,
@@ -95,6 +99,7 @@ impl DynoRun {
             cycle_torque: 0.0,
             cycle_omega: 0.0,
             cycle_time: 0.0,
+            cycle_intake: 0.0,
             cycle_valid: false,
             best_speed: 0.0,
             best_speed_at: 0.0,
@@ -213,15 +218,18 @@ impl DynoRun {
                 self.points[base + 2] = (self.speed * 3.6) as f32;
                 self.points[base + 3] = (self.gear + 1) as f32;
                 self.points[base + 4] = self.volumetric_efficiency as f32;
+                self.points[base + 5] = (self.cycle_intake / self.cycle_time / 1e5) as f32;
                 self.point_count += 1;
             }
             self.cycle_torque = 0.0;
             self.cycle_omega = 0.0;
             self.cycle_time = 0.0;
+            self.cycle_intake = 0.0;
             self.cycle_valid = self.phase == DynoPhase::Pull && self.phase_time >= SETTLE;
         }
         self.cycle_torque += crank_torque * dt;
         self.cycle_omega += omega * dt;
         self.cycle_time += dt;
+        self.cycle_intake += self.intake_pressure * dt;
     }
 }

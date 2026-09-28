@@ -852,6 +852,7 @@ impl EngineSim {
                     fresh += c.trapped_fresh;
                 }
                 dyno.volumetric_efficiency = fresh / self.cyls.len() as f64 / self.full_charge_kg;
+                dyno.intake_pressure = self.plenum.pressure();
                 dyno.step(dt, self.omega_mean, torque - friction, self.cyls[0].angle)
             } else if self.spec.spec.free_running {
                 self.load_torque_nm
