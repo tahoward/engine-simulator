@@ -29,6 +29,11 @@ export interface EngineHost {
   setGraph(graph: ExhaustGraph | null): void;
   /** Start a dyno run through `config`, or with `null` end the one in progress. */
   dyno(config: DynoConfig | null): void;
+  /**
+   * Run the simulation at `scale` of real time: 1 is real time, 0.01 a hundred times slower, with the
+   * sound slowed and pitched down to match. Safe to call before the audio has started.
+   */
+  setTimeScale(scale: number): void;
   /** The latest output samples into `out`. Returns false if there are none yet. */
   readWaveform(out: Float32Array<ArrayBuffer>): boolean;
   /** The magnitude spectrum of the output, dB, into `out`. Returns false if there is none yet. */

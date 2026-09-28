@@ -60,6 +60,10 @@ pub enum Command {
     SnapshotRate {
         hz: f64,
     },
+    /// Share of real time the simulation runs at: 1 is real time, less is slow motion.
+    TimeScale {
+        scale: f64,
+    },
     Controls {
         throttle: f64,
         load: f64,
@@ -401,6 +405,7 @@ fn apply(sim: &mut EngineSim, command: Command, snapshot_interval: &mut usize, s
             None => sim.stop_dyno(),
         },
         Command::SnapshotRate { hz } => *snapshot_interval = ((fs / hz).round() as usize).max(1),
+        Command::TimeScale { scale } => sim.set_time_scale(scale),
         Command::Controls { throttle, load } => sim.set_controls(throttle, load),
         Command::Suspend => *suspended = true,
         Command::Resume => *suspended = false,
@@ -485,5 +490,7 @@ mod tests {
         assert!(matches!(c, Command::Graph { graph: None }));
         let c: Command = serde_json::from_str(r#"{"type":"engine","engine":{"rpm":3000}}"#).unwrap();
         assert!(matches!(c, Command::Engine { .. }));
+        let c: Command = serde_json::from_str(r#"{"type":"timeScale","scale":0.01}"#).unwrap();
+        assert!(matches!(c, Command::TimeScale { scale } if scale == 0.01));
     }
 }

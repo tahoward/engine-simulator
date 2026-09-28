@@ -237,6 +237,12 @@ pub struct EngineSim {
     charge_t: f64,
     graph: Option<ExhaustGraph>,
     wg_options: EulerPipeOptions,
+    /// Simulated samples per output sample: 1 is real time, less is slow motion.
+    time_scale: f64,
+    /// In slow motion, how far the output is from the last simulated sample to the next, 0..1.
+    slow_phase: f64,
+    slow_prev: f64,
+    slow_next: f64,
 }
 
 impl EngineSim {
@@ -338,6 +344,10 @@ impl EngineSim {
             charge_t: gas::T_AMB,
             graph,
             wg_options,
+            time_scale: 1.0,
+            slow_phase: 0.0,
+            slow_prev: 0.0,
+            slow_next: 0.0,
         };
         sim.refresh_cam_profiles(false);
         sim.refresh_derived();
@@ -1267,10 +1277,46 @@ impl EngineSim {
     }
 
     /// Render `out.len()` samples into `out`.
+    ///
+    /// In slow motion the simulation takes `time_scale` steps per output sample, and the output
+    /// is interpolated between them: the sound of a tape played slow, pitched down by as much.
     pub fn render_into(&mut self, out: &mut [f32]) {
-        for o in out.iter_mut() {
-            *o = self.tick() as f32;
+        if self.time_scale >= 1.0 {
+            for o in out.iter_mut() {
+                *o = self.tick() as f32;
+            }
+            // Where slow motion picks up from, without a step.
+            if let Some(&last) = out.last() {
+                self.slow_next = last as f64;
+            }
+            return;
         }
+        for o in out.iter_mut() {
+            self.slow_phase += self.time_scale;
+            while self.slow_phase >= 1.0 {
+                self.slow_phase -= 1.0;
+                self.slow_prev = self.slow_next;
+                self.slow_next = self.tick();
+            }
+            *o = (self.slow_prev + (self.slow_next - self.slow_prev) * self.slow_phase) as f32;
+        }
+    }
+
+    /// Run at `scale` of real time, 0..1: 1 is real time, 0.01 a hundred times slower. The
+    /// simulation itself is unchanged; it is only stepped less often.
+    pub fn set_time_scale(&mut self, scale: f64) {
+        let scale = if scale.is_finite() { scale.clamp(1e-4, 1.0) } else { 1.0 };
+        if scale < 1.0 && self.time_scale >= 1.0 {
+            // Entering slow motion: hold the last sample played until the next is simulated.
+            self.slow_phase = 0.0;
+            self.slow_prev = self.slow_next;
+        }
+        self.time_scale = scale;
+    }
+
+    /// Simulated samples per output sample: 1 is real time, less is slow motion.
+    pub fn time_scale(&self) -> f64 {
+        self.time_scale
     }
 
     /// Render `n` samples into a new buffer.

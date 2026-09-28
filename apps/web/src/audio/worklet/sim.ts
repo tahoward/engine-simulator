@@ -23,6 +23,7 @@ interface Exports {
   sim_start_dyno(h: number, ptr: number, len: number): number;
   sim_stop_dyno(h: number): void;
   sim_set_controls(h: number, throttle: number, load: number): void;
+  sim_set_time_scale(h: number, scale: number): void;
   sim_render(h: number, n: number): number;
   sim_snapshot(h: number): number;
   sim_snapshot_len(h: number): number;
@@ -181,6 +182,11 @@ export class Sim {
   /** The operating point alone. Allocates nothing. */
   setControls(throttle: number, load: number): void {
     this.ex.sim_set_controls(this.handle, throttle, load);
+  }
+
+  /** Run at `scale` of real time: 1 is real time, less is slow motion. */
+  setTimeScale(scale: number): void {
+    this.ex.sim_set_time_scale(this.handle, scale);
   }
 
   /** Render `out.length` samples into `out`. Allocates nothing unless the module's memory grew. */

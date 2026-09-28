@@ -822,6 +822,8 @@ function applyView(v: ViewOptions): void {
     m.setPressureVisible(v.pressure);
   }
   editor.setHandlesVisible(v.handles);
+  timeScale = v.speed;
+  audio.setTimeScale(v.speed);
 }
 
 // ---------------------------------------------------------------------------
@@ -832,6 +834,8 @@ let latest: EngineSnapshot | null = null;
 /** Crank angle the renderer is showing, extrapolated between snapshots. */
 let displayAngle = 0;
 let displayRpm = 0;
+/** Share of real time the simulation runs at, which the crank is turned between snapshots at too. */
+let timeScale = 1;
 
 audio.onSnapshot((s) => {
   latest = s;
@@ -862,7 +866,7 @@ audio.onSnapshot((s) => {
 });
 
 viewer.onFrame((dt) => {
-  if (displayRpm > 0) displayAngle = (displayAngle + displayRpm * 6 * dt) % 720;
+  if (displayRpm > 0) displayAngle = (displayAngle + displayRpm * 6 * dt * timeScale) % 720;
   // Combustion glow: a short flash after the burn begins.
   if (latest) {
     // Extrapolate each bank from its own snapshot angle, keeping the phase relationship.
