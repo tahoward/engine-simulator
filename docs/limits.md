@@ -42,8 +42,12 @@ Where the model is simplified, and by how much.
   lumped shaft, so they cannot spool apart from each other.
 - **The rest of the turbocharger is lumped.** The compressor map is one generic shape scaled to the
   turbo's size, not a real turbo's map. There is no knock, so no boost is too much and the spark is not
-  retarded on boost, as a real engine's would be. The RB26DETT preset makes 399 N·m at 4400 rpm against
-  the real engine's 368, and 331 PS at 6800, against its rated 280 and the 300-320 real ones make.
+  retarded on boost, as a real engine's would be. The shaft has no speed limit, so a turbo too small
+  for the engine, at its choke, spins as fast as its turbine can drive it, well past the speed a real
+  wheel would survive. The RB26DETT preset's turbos are sized from the N1 turbo's published map and
+  the flow a standard pair is reckoned to give, not from a map of the standard one. It makes 387 N·m
+  at 4400 rpm, less friction, against the real engine's 368, and 320 PS at 6800, against its rated 280
+  and the 300-320 real ones make.
 - **Some of the turbocharger's sounds have chosen levels.** The whine is the blades modulating the
   inlet's flow by a depth chosen for it, not solved from the flow through the blades; the turbine's
   whistle is likewise a chosen pulsation of its flow; a stalled compressor's turbulence has a chosen

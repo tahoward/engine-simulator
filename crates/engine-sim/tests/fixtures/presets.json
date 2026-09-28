@@ -1420,7 +1420,7 @@
     "ivo": 352,
     "ivc": 592,
     "boostTarget": 80000,
-    "turboSize": 0.12,
+    "turboSize": 0.16,
     "intercooler": 0.7,
     "blowOff": "atmospheric",
     "outputGain": 1.23
@@ -1476,7 +1476,7 @@
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
      "boostTarget": 80000,
-     "turboSize": 0.12,
+     "turboSize": 0.16,
      "intercooler": 0.7,
      "blowOff": "atmospheric",
      "turboNoise": 1,

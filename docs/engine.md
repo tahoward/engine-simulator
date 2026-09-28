@@ -199,7 +199,10 @@ gas dynamics; the rest is lumped, one state each, and stepped every audio sample
   left of that the pressure it makes falls as the flow falls. The air in its duct has inertia, and the
   charge air is a volume behind it: together they have a Helmholtz resonance near 18 Hz. The efficiency
   is best in the middle of the map and falls toward the choke, so a turbo too small for the engine
-  does ever more work for the same boost at the top end.
+  does ever more work for the same boost at the top end. Up to full speed, the speed its sizing gives
+  it, the choke flow rises in proportion to the shaft speed. Above it the choke flow levels off at 10%
+  more, as the speed lines crowd together near the choke on a real map: a wheel spun faster still makes
+  more pressure at low flow, but passes little more air.
 - **The shaft** is accelerated by the turbine's power less the compressor's and its bearings'. Its
   inertia grows as the wheel's diameter to the fifth, which is why a big turbo lags.
 - **The intercooler** takes a share of the compressor's heating back out of the charge.
@@ -213,7 +216,7 @@ target. The higher the target, the higher the pressure the exhaust backs up to b
 twice the atmosphere's at that flow; at 2 bar, near six times.
 
 The lag is not a filter on a boost map; it is the shaft spinning up. At 3500 rpm, opened from part
-throttle, the RB26's twin turbos take 0.7 s to reach 90% of their boost.
+throttle, the RB26's twin turbos take 1.2 s to reach 90% of their boost.
 
 With the throttle shut on boost and no blow-off valve, the charge air has nowhere to go. Its pressure
 rises, the compressor's flow falls past the surge line, and the characteristic that is stable to the
@@ -229,15 +232,19 @@ comparison:
 
 ```
                           2000   3000   4000   5000   6000   7500 rpm   full throttle, N·m
-naturally aspirated        227    225    230    264    272    227
-twin turbos, 0.8 bar       390    413    399    413    392    312
-boost, bar                0.71   0.78   0.79   0.79   0.79   0.79
+naturally aspirated        227    224    231    255    260    218
+twin turbos, 0.8 bar       291    412    410    427    413    331
+boost, bar                0.28   0.77   0.79   0.79   0.79   0.79
 ```
 
-Its turbos are small, as the real engine's T28s are, and each is fed the pulses of three cylinders:
-near full boost from 2000 rpm, and near their choke above 6000, where the exhaust backs up to 1.2-1.3
-bar behind them. At 4400 rpm each pulse arriving at a turbine swings the pressure there by about
-18 kPa; past it, by 6.
+Its turbos are sized to what is known of the real engine's T28s (see the preset), and each is fed the
+pulses of three cylinders: full boost from 3000 rpm, and near their full speed at the top, about 140k
+rpm, where the exhaust backs up to 1 bar behind them. Past 6400 rpm the torque falls about as fast as
+the speed rises, so the power, less friction, holds near 315 PS to the limit, fading a little as a
+stock engine's does on the dyno. Compressors too small for it reach their choke instead: with ones
+passing 0.12 kg/s each, the shafts run half as fast again as their full speed by 6400 rpm, and the
+power falls from 7000 to 7900. At 4400 rpm each pulse arriving at a turbine swings the pressure there
+by about 17 kPa; past it, by 7.
 
 ## The flame
 
