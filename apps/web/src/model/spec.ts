@@ -688,13 +688,13 @@ export interface LaunchSnapshot {
   gear: number;
   /** Road speed, km/h. */
   speedKmh: number;
-  /** Seconds since the car moved off. */
+  /** Seconds since the clock started, once the car had rolled a foot. */
   elapsed: number;
   /** Distance covered, m. */
   distance: number;
   /** Whether the last pull is over, or the run was stopped. The engine may still be winding down. */
   finished: boolean;
-  /** Seconds from moving off to 60 mph, once the car has reached it. */
+  /** Seconds from the clock starting to 60 mph, once the car has reached it. */
   zeroToSixty: number | null;
   /** Seconds to the quarter mile and the speed there, km/h, once the car has covered it. */
   quarterMile: number | null;
@@ -720,13 +720,39 @@ export interface LaunchConfig {
   finalDrive: number;
   /** Tyre rolling radius, m. */
   tyreRadius: number;
+  /** The tyres' friction coefficient at their peak: see `TYRE_GRIP`. */
+  tyreGrip: number;
   /** The car's mass, kg. */
   mass: number;
+  /** Share of the car's weight on the driven wheels at rest: see `DRIVEN_LOAD`. */
+  drivenLoad: number;
+  /** Whether traction control eases the throttle to stop the driven wheels spinning. */
+  tractionControl: boolean;
   /** Engine speed the clutch is slipped at off the line, rev/min. */
   launchRpm: number;
   /** Engine speed each gear is pulled to before the shift, rev/min. In top gear the run ends there. */
   shiftRpm: number;
+  /** How long each shift takes, from lifting off to full throttle in the next gear, s. */
+  shiftTime: number;
+  /** Whether the gearbox is a dual clutch, which shifts with no gap in the drive. */
+  dualClutch: boolean;
 }
+
+/**
+ * Share of a car's weight on its driven wheels at rest, by the wheels it drives: the rear wheels of a
+ * front-engined car carry about half, and all four carry it all. Driving the rear wheels, the launch
+ * moves more onto them as the car accelerates.
+ */
+export const DRIVEN_LOAD = { rwd: 0.5, awd: 1 } as const;
+
+/**
+ * Tyres' friction coefficients at their peak, on a dry drag strip: a road tyre's, an ultra-high-performance
+ * tyre's such as Michelin's Pilot Sport 4S, and a road-legal track tyre's such as its Cup 2 R.
+ */
+export const TYRE_GRIP = { road: 1.1, performance: 1.3, track: 1.35 } as const;
+
+/** A quick shift of a manual gearbox, s: lift, clutch, shift and back on the throttle. */
+export const MANUAL_SHIFT_TIME = 0.4;
 
 /** A close-ratio six-speed's gears, first to sixth. */
 export const LAUNCH_RATIOS = [3.36, 2.09, 1.47, 1.1, 0.87, 0.71];
@@ -762,7 +788,19 @@ export function fitLaunch(spec: EngineSpec, boosted = false, ratios: number[] = 
   const top = ratios[ratios.length - 1]!;
   const finalDrive = ((shiftRpm * 2 * Math.PI) / 60) * tyreRadius / (top * topSpeed);
   const launchRpm = Math.max(Math.min(0.5 * spec.revLimit, shiftRpm - LAUNCH_RPM_MARGIN), 1000);
-  return { ratios: [...ratios], finalDrive, tyreRadius, mass, launchRpm, shiftRpm };
+  return {
+    ratios: [...ratios],
+    finalDrive,
+    tyreRadius,
+    tyreGrip: TYRE_GRIP.road,
+    mass,
+    drivenLoad: DRIVEN_LOAD.rwd,
+    tractionControl: true,
+    launchRpm,
+    shiftRpm,
+    shiftTime: MANUAL_SHIFT_TIME,
+    dualClutch: false,
+  };
 }
 
 /**
@@ -1758,6 +1796,58 @@ export interface EnginePreset {
    * drawn from. Read with `graphFromJson`, as a saved one is.
    */
   graph?: () => ExhaustGraph;
+  /** The car the engine comes from, for a launch; without one, it gets a car and six-speed fitted to it. */
+  car?: Car;
+}
+
+/**
+ * A real car, as a launch drives it: its gearbox and final drive, its driven tyres and its weight.
+ *
+ * Each gearbox's overall ratios are the real car's. Where a gearbox has a second reduction, as the
+ * S2000's primary gear or the Evora's second final drive, it is folded into the ratios here, since a
+ * launch has one final drive.
+ */
+export interface Car {
+  /** The car, as the Launch section names it. */
+  name: string;
+  /** Gear ratios, first gear first. */
+  ratios: number[];
+  finalDrive: number;
+  /** Rolling radius of the driven tyres, m. */
+  tyreRadius: number;
+  /** Its tyres' peak friction coefficient: see `TYRE_GRIP`. */
+  tyreGrip: number;
+  /** Kerb weight with a 75 kg driver, kg. */
+  mass: number;
+  /** Share of its weight on the driven wheels at rest: 1 for all-wheel drive. */
+  drivenLoad: number;
+  /** How long a shift takes, s: `MANUAL_SHIFT_TIME` for a manual, much less for a dual clutch. */
+  shiftTime: number;
+  /** Whether its gearbox is a dual clutch. */
+  dualClutch: boolean;
+}
+
+/** A driver's weight, kg, added to a car's kerb weight. */
+export const DRIVER_MASS = 75;
+
+/**
+ * The car and gearing a preset's engine launches through: the real car it comes from where it has one,
+ * and `fitLaunch`'s car otherwise. The launch and shift speeds are fitted either way.
+ */
+export function presetLaunch(spec: EngineSpec, boosted: boolean, car: Car | null | undefined): LaunchConfig {
+  const fit = fitLaunch(spec, boosted);
+  if (!car) return fit;
+  return {
+    ...fit,
+    ratios: [...car.ratios],
+    finalDrive: car.finalDrive,
+    tyreRadius: car.tyreRadius,
+    tyreGrip: car.tyreGrip,
+    mass: car.mass,
+    drivenLoad: car.drivenLoad,
+    shiftTime: car.shiftTime,
+    dualClutch: car.dualClutch,
+  };
 }
 
 /**
@@ -2063,6 +2153,20 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   },
   {
     name: 'Inline four, Honda F20C',
+    car: {
+      // Honda's 2001 release: the gears, a 1.160 primary reduction and a 4.100 final drive, 4.756 in all.
+      // 225/50R16 rear tyres, 1274 kg.
+      name: 'Honda S2000 (AP1)',
+      ratios: [3.133, 2.045, 1.481, 1.161, 0.97, 0.81],
+      finalDrive: 4.1 * 1.16,
+      tyreRadius: 0.308,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 1274 + DRIVER_MASS,
+      // Its engine behind the front axle puts its weight 50:50.
+      drivenLoad: 0.5,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
     description:
       'The 2.0 litre four in the Honda S2000: 87 x 84 mm, 11:1, four valves a cylinder and a 9000 rpm redline. Even 180\u00b0 firing on a flat crank, 1-3-4-2, into equal-length headers: twice the firing frequency of a twin at the same rpm, and no half order at all. It makes 195-200 N\u00b7m from 6000 to 8300 rpm and 228 hp at 8300, against the real engine\u2019s 210 N\u00b7m at 7500 and 240 hp at 8300. Its VTEC switches each valve from a mild cam lobe to a wild one at 5500 rpm. Its valves, cams, runners and exhaust are estimates.',
     engine: {
@@ -2133,6 +2237,19 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   },
   {
     name: 'Inline six, Nissan RB26DETT',
+    car: {
+      // Nissan's catalogue for the BNR34 V-Spec: the Getrag 233 six-speed, a 3.545 final drive, 245/40ZR18
+      // tyres and 1560 kg, through ATTESA E-TS Pro to all four wheels.
+      name: 'Nissan Skyline GT-R V-Spec (R34)',
+      ratios: [3.827, 2.36, 1.685, 1.312, 1.0, 0.793],
+      finalDrive: 3.545,
+      tyreRadius: 0.319,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 1560 + DRIVER_MASS,
+      drivenLoad: DRIVEN_LOAD.awd,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
     description:
       'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.7 bar, one for each three cylinders, spool from 2000 rpm, on full boost by 3000, and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 391 N\u00b7m at 4400 rpm and 328 PS at 6800, about 323 hp, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
     engine: NISSAN_RB26,
@@ -2144,6 +2261,21 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   },
   {
     name: 'V6, Toyota 2GR',
+    car: {
+      // Lotus's 2012 specification for the Evora: the Toyota EA60 six-speed with its close-ratio gears,
+      // standard from then on, a 3.777 final drive for first to fourth and 3.238 for fifth and sixth, which
+      // is folded into those two ratios. 255/35ZR19 rear tyres, 1382 kg unladen with a full tank.
+      name: 'Lotus Evora (2012)',
+      ratios: [3.538, 1.913, 1.407, 1.091, 0.9697 * (3.238 / 3.777), 0.8611 * (3.238 / 3.777)],
+      finalDrive: 3.777,
+      tyreRadius: 0.323,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 1382 + DRIVER_MASS,
+      // Mid-engined, 39:61.
+      drivenLoad: 0.61,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
     description:
       'The 3.5 litre 60\u00b0 V6 in half of Toyota\u2019s range, from the Camry to the Lotus Evora. A split-pin crank is what lets it fire evenly every 120\u00b0, in the order 1-2-3-4-5-6, despite a vee too narrow for that on shared pins; each bank hears every other firing, 240\u00b0 apart, through a manifold of its own. Its rod, valves, cam and cam map are estimates. Variable intake cam timing keeps its torque curve flat. The real one also has a two-stage intake; here a second set of runners gained it little, so it has one.',
     engine: TOYOTA_2GR,
@@ -2245,6 +2377,21 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   },
   {
     name: 'V8, Chevrolet LT2',
+    car: {
+      // GM's figures for the Tremec TR-9080 eight-speed dual clutch, and a 5.56 final drive: the 3.55 ring
+      // and pinion and the drop gear before it, as GM lists it for the Z51. 305/30ZR20 Michelin Pilot Sport
+      // 4S rear tyres, 1654 kg.
+      name: 'Chevrolet Corvette Stingray Z51 (C8)',
+      ratios: [2.91, 1.76, 1.22, 0.88, 0.65, 0.51, 0.4, 0.33],
+      finalDrive: 5.56,
+      tyreRadius: 0.337,
+      tyreGrip: TYRE_GRIP.performance,
+      mass: 1654 + DRIVER_MASS,
+      // Mid-engined, 40:60; the dual clutch shifts in about a tenth of a second.
+      drivenLoad: 0.6,
+      shiftTime: 0.1,
+      dualClutch: true,
+    },
     description:
       'The 6.2 litre small-block in the mid-engine Corvette: pushrods, two big valves a cylinder, 11.5:1 and a cam that closes the intake late, which only pays off because its long intake runners ram the charge in. Tubular headers into a silencer each side. It makes about 640 N·m and 495 hp here, as the real engine makes 637 and 495.',
     engine: {
@@ -2257,7 +2404,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       ...idling(LT2_IDLE_THROTTLE),
       revLimit: 6600,
       mouthSpacing: 1.3,
-      flywheelInertia: 0.9,
+      // The crank, flexplate and dual clutch's input: the gearbox has no flywheel of its own.
+      flywheelInertia: 0.4,
       pipeCellSize: 0.035,
       // 4.065 x 3.622 in on a 6.125 in rod.
       bore: 0.10325,
@@ -2287,6 +2435,19 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   },
   {
     name: 'V8, Chevrolet LT6',
+    car: {
+      // The Stingray's eight-speed and 5.56 final drive. With the Z07 package, the one GM times at 2.6 s to
+      // 60 mph: 345/25ZR21 Michelin Pilot Sport Cup 2 R rear tyres, and 27 kg off the 1663 kg car in carbon.
+      name: 'Chevrolet Corvette Z06 Z07 (C8)',
+      ratios: [2.91, 1.76, 1.22, 0.88, 0.65, 0.51, 0.4, 0.33],
+      finalDrive: 5.56,
+      tyreRadius: 0.344,
+      tyreGrip: TYRE_GRIP.track,
+      mass: 1663 - 27 + DRIVER_MASS,
+      drivenLoad: 0.6,
+      shiftTime: 0.1,
+      dualClutch: true,
+    },
     description:
       'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its cam, short runners and headers are tuned for the top end, where it makes about 665 hp at 8200 rpm against the real engine’s 670 at 8400. Below that its variable cam timing and long runners, also estimates, give back the mid-range: 623 N·m at 6000 against 624 at 6300.',
     engine: {

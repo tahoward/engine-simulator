@@ -24,11 +24,26 @@
 **Start launch** runs a standing start at full throttle. The engine revs to the **Launch at** speed, and
 the clutch slips to hold it there until the car catches up. Then each gear is pulled to the **Shift at**
 speed. The run works the throttle itself, and it ends at the shift point in top gear, or when the car
-stops gaining speed. Too much torque for the tyres spins them. The car is slowed by rolling resistance
-and by air drag, with a drag area of 0.6 m².
+stops gaining speed. As the car accelerates, its weight moves onto the rear wheels, so they grip harder.
+Too much torque for the tyres spins them, and a spinning tyre grips about a fifth less than one at its
+peak. The car is slowed by rolling resistance and by air drag, with a drag area of 0.6 m².
 
 - **Car mass** is the car's weight with the driver in it. Auto sizes the car to the engine, about 9 kg
   per kW.
+- **Shift time** is how long each shift takes, from lifting off to full throttle in the next gear. Auto
+  is 0.4 s, a quick manual shift.
+- **Tyre grip** is the tyres' friction coefficient at their peak: 1.1 for a road tyre on auto, about 1.3
+  for an ultra-high-performance tyre such as the Pilot Sport 4S, and 1.35 for a road-legal track tyre
+  such as the Cup 2 R.
+- **Dual-clutch gearbox** shifts with no gap in the drive: the next gear's clutch takes the drive as the
+  last one lets it go, and the throttle stays open. Off, each shift lifts off and takes the clutch out.
+- **All-wheel drive** lets the tyres take the car's whole weight, rather than the share on the rear
+  wheels, so it launches harder before they spin.
+- **Traction control**, on by default, works as a launch control and a dual-clutch gearbox's torque
+  management do. Off the line it cuts the spark to hold the engine at the launch speed. While the clutch
+  slips, it passes no more torque than the tyres can take. In gear it cuts the spark whenever the tyres
+  slip past their peak. Off, an engine with more torque than the tyres can take spins them, and reaches
+  the shift point before the car has the speed for it.
 - **Gearbox** starts as a close-ratio six-speed. Type a ratio into any gear to change it. **×** takes a
   gear out and **Add gear** adds one above the top gear. A gearbox can have from one to eight gears.
   Next to each gear is the road speed it reaches at the shift point.
@@ -36,10 +51,26 @@ and by air drag, with a drag area of 0.6 m².
   out of power against its drag. Type a value to set it yourself. **Reset gearing** puts back the
   six-speed and the auto final drive.
 
-Loading an engine preset or importing an engine puts every launch setting back on auto.
+The presets of real engines launch in the real cars they come from, marked **(stock)**. Each uses its car's
+gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the driven wheels and gearbox:
+
+| Preset | Car | Gearbox | Tyres |
+|---|---|---|---|
+| Honda F20C | Honda S2000 (AP1), 1349 kg | six-speed manual | road |
+| Nissan RB26DETT | Nissan Skyline GT-R V-Spec (R34), 1635 kg, all-wheel drive | Getrag six-speed manual | road |
+| Toyota 2GR | Lotus Evora (2012), 1457 kg | Toyota six-speed manual, close ratios | road |
+| Chevrolet LT2 | Chevrolet Corvette Stingray Z51 (C8), 1729 kg | Tremec eight-speed dual clutch | Pilot Sport 4S |
+| Chevrolet LT6 | Chevrolet Corvette Z06 with the Z07 package (C8), 1711 kg | Tremec eight-speed dual clutch | Pilot Sport Cup 2 R |
+
+The S2000's primary reduction and the Evora's second final drive are folded into the ratios shown, so
+the overall gearing is the real car's. **Reset gearing** goes back to the car's own gearbox. The other
+presets get a car and a six-speed fitted to the engine.
+
+Loading an engine preset or importing an engine puts every launch setting back on auto, or on stock.
 
 The sheet shows a timeslip: 0–60 mph, and the quarter and half mile with the speed at each. Each is timed
-from the moment the car moves. Below that it plots crank power, torque, volumetric efficiency and intake
+from the moment the car has rolled a foot, where a drag strip's clock starts, and where American road
+tests, and the makers' figures from them, start theirs. Below that it plots crank power, torque, volumetric efficiency and intake
 pressure against rpm, one colour per gear.
 
 ## Valves

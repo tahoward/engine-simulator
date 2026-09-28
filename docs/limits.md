@@ -104,12 +104,15 @@ Where the model is simplified, and by how much.
   into the air it draws. A real port injector wets the port walls, and that film takes a few cycles
   to follow a change of throttle. Direct injection, into the cylinder, is not modelled either. There
   is no knock model, so an over-advanced spark just loses power.
-- **The launch car is a point mass on a flat strip.** Its grip is fixed: a friction coefficient of 1.1
-  on 60% of its weight, whatever the speed, with no weight transfer, suspension or tyre heat. Its drag
-  area is fixed at 0.6 m², and its wheels, tyres and half-shafts are one 3 kg·m² body. The gearbox and
-  clutch have no inertia of their own, and every shift takes the same 0.42 s. Real timeslips also
-  depend on the driver, the surface and the air, so the times compare one engine or gearing with
-  another better than they predict a real car's.
+- **The launch car is a point mass on a flat strip.** Its tyres' grip is one friction coefficient
+  for each kind of tyre, with no suspension, tyre heat or surface. The weight moving onto the rear wheels
+  is one fixed share per g, 0.18, the same for every car. Its drag area is fixed at 0.6 m², and its wheels,
+  tyres and half-shafts are one 3 kg·m² body. The gearbox and clutch have no inertia of their own.
+  Traction control is idealised: it knows the tyres' slip exactly, and cuts the spark with no delay
+  beyond the next firing. The performance and track tyres' coefficients, 1.3 and 1.35, are set so the
+  Corvettes come out near their published times: the Stingray at 3.1 s to 60 mph against 2.9 s, and the
+  Z06 at 2.8 s against 2.6 s. Real timeslips also depend on the driver, the surface and the air, so the
+  times compare one engine or gearing with another better than they predict a real car's.
 
 ## Sources
 

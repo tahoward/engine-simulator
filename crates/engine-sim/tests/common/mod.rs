@@ -27,7 +27,7 @@ pub struct EnginePreset {
     pub engine: serde_json::Value,
     /// The whole config the app loads for it.
     pub config: EngineConfig,
-    /// The car and gearing `fitLaunch` sizes for it.
+    /// The car and gearing it launches through: `presetLaunch`.
     pub launch: LaunchConfig,
     pub fitted_exhaust: FittedExhaust,
 }

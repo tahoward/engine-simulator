@@ -32,6 +32,10 @@ import {
   firingPlan,
   fitLaunch,
   fullLoadTorque,
+  DRIVEN_LOAD,
+  DRIVER_MASS,
+  MANUAL_SHIFT_TIME,
+  TYRE_GRIP,
   LAUNCH_RATIOS,
   LAUNCH_RPM_MARGIN,
   MAX_GEARS,
@@ -41,6 +45,7 @@ import {
   isBoxer,
   presetEngine,
   type BlowOff,
+  type Car,
   type LaunchConfig,
   type EngineConfig,
   type EngineSnapshot,
@@ -270,15 +275,22 @@ export class Panel {
   private readonly resyncers: Resync[] = [];
   private readonly rpmEl: HTMLElement;
   private readonly launchBtn: HTMLButtonElement;
+  /** The car the loaded preset's engine comes from, or `null` for one fitted to the engine. */
+  private car: Car | null = null;
   /**
    * The launch's settings where the user has set them; `null` fits them to the engine. The gear ratios'
-   * `null` is the stock six-speed, and the final drive's is geared for it, or for the gears set.
+   * `null` is `car`'s, or the stock six-speed, and the final drive's and mass's are `car`'s, or fitted.
    */
   private launchShift: number | null = null;
   private launchMass: number | null = null;
   private launchRpm: number | null = null;
   private launchRatios: number[] | null = null;
   private launchFinal: number | null = null;
+  private launchAwd: boolean | null = null;
+  private launchShiftTime: number | null = null;
+  private launchTraction = true;
+  private launchGrip: number | null = null;
+  private launchDualClutch: boolean | null = null;
   private launchRunning = false;
   /** Rebuilds the gearbox list from the settings above. */
   private renderGearbox: () => void = () => {};
@@ -444,11 +456,56 @@ export class Panel {
       step: 10,
       value: this.launchConfig().mass,
       sync: () => this.launchMass ?? this.launchConfig().mass,
-      format: (v) => `${Math.round(v)} kg${this.launchMass === null ? ' (auto)' : ''}`,
+      format: (v) =>
+        `${Math.round(v)} kg${this.launchMass !== null ? '' : this.car ? ' (stock)' : ' (auto)'}`,
       onInput: (v) => (this.launchMass = v),
     }).row.title =
-      'What the engine accelerates, driver included. Auto sizes a car to the engine, about 9 kg per kW. ' +
+      'What the engine accelerates, driver included. Stock is the real car\'s kerb weight and a ' +
+      `${DRIVER_MASS} kg driver, for an engine from one; auto sizes a car to the engine, about 9 kg per kW. ` +
       'Lighter is quicker, until the tyres can take no more.';
+    this.slider(launch, {
+      label: 'Shift time',
+      min: 0.05,
+      max: 1,
+      step: 0.01,
+      value: this.launchConfig().shiftTime,
+      sync: () => this.launchShiftTime ?? this.launchConfig().shiftTime,
+      format: (v) =>
+        `${v.toFixed(2)} s${this.launchShiftTime !== null ? '' : this.car ? ' (stock)' : ' (auto)'}`,
+      onInput: (v) => (this.launchShiftTime = v),
+    }).row.title =
+      'How long each shift takes, from lifting off to full throttle in the next gear. Auto is a quick ' +
+      `manual shift, ${MANUAL_SHIFT_TIME} s; a dual-clutch gearbox, as the Corvettes have, takes about 0.1 s.`;
+    this.slider(launch, {
+      label: 'Tyre grip',
+      min: 0.6,
+      max: 1.6,
+      step: 0.01,
+      value: this.launchConfig().tyreGrip,
+      sync: () => this.launchGrip ?? this.launchConfig().tyreGrip,
+      format: (v) => `μ ${v.toFixed(2)}${this.launchGrip !== null ? '' : this.car ? ' (stock)' : ' (auto)'}`,
+      onInput: (v) => (this.launchGrip = v),
+    }).row.title =
+      `The tyres' friction coefficient at their peak grip. Auto is a road tyre, ${TYRE_GRIP.road}; an ` +
+      `ultra-high-performance tyre is about ${TYRE_GRIP.performance}, and a road-legal track tyre ` +
+      `${TYRE_GRIP.track}. Stock is the real car's.`;
+    const dct = toggle(launch, 'Dual-clutch gearbox', this.launchConfig().dualClutch, (v) => (this.launchDualClutch = v));
+    dct.title =
+      'Shift with no gap in the drive: the next gear\'s clutch takes it as the last one lets go, and the ' +
+      'throttle stays open. Off, each shift lifts off and takes the clutch out, as a manual does. Stock ' +
+      'for the Corvettes.';
+    this.resyncers.push(() => (checkbox(dct).checked = this.launchConfig().dualClutch));
+    const awd = toggle(launch, 'All-wheel drive', this.launchIsAwd(), (v) => (this.launchAwd = v));
+    awd.title =
+      'Drive all four wheels, so the tyres can take the whole weight of the car pulling away rather than ' +
+      'what is on the rear. It launches harder before the tyres spin. Stock for the Skyline.';
+    this.resyncers.push(() => (checkbox(awd).checked = this.launchIsAwd()));
+    const tc = toggle(launch, 'Traction control', this.launchTraction, (v) => (this.launchTraction = v));
+    tc.title =
+      'Ease the throttle whenever the driven tyres slip past where they grip best, and open it again as ' +
+      'they come back, as a launch control does. Off, an engine with more torque than the tyres can take ' +
+      'spins them, and reaches the shift point before the car has the speed for it.';
+    this.resyncers.push(() => (checkbox(tc).checked = this.launchTraction));
     this.buildGearbox(launch);
     this.resyncers.push(() => this.renderGearbox());
 
@@ -476,7 +533,7 @@ export class Panel {
        * collector is always replaced — emptied if the preset has none — so no preset inherits one.
        */
       // A different engine gets a car fitted to it.
-      this.resetLaunch();
+      this.resetLaunch(preset.car ?? null);
       this.cb.onEngine(presetEngine(preset, this.config.engine));
       this.config.pipe.length = 0;
       this.config.pipe.push(...preset.pipe());
@@ -508,7 +565,7 @@ export class Panel {
       if (!file) return;
       void file.text().then((text) => {
         this.selected = null;
-        this.resetLaunch();
+        this.resetLaunch(null);
         this.cb.onImportEngine(text);
         this.cb.onResetView();
       });
@@ -1492,27 +1549,58 @@ export class Panel {
     this.rebuildPipeList();
   }
 
-  /** The car and gearbox a launch runs through: the user's settings, and a fit to the engine for the rest. */
+  /**
+   * The car and gearbox a launch runs through: the user's settings, then the real car where the engine
+   * comes from one, and a fit to the engine for the rest.
+   */
   private launchConfig(): LaunchConfig {
     const eng = this.config.engine;
-    const fit = fitLaunch(eng, isTurbocharged(this.config.graph), this.launchRatios ?? LAUNCH_RATIOS);
+    const stock = this.car;
+    const fit = fitLaunch(eng, isTurbocharged(this.config.graph), this.launchRatios ?? stock?.ratios ?? LAUNCH_RATIOS);
     const shiftRpm = Math.min(this.launchShift ?? fit.shiftRpm, eng.revLimit - 50);
     return {
       ...fit,
-      finalDrive: this.launchFinal ?? fit.finalDrive,
-      mass: this.launchMass ?? fit.mass,
+      finalDrive: this.launchFinal ?? stock?.finalDrive ?? fit.finalDrive,
+      tyreRadius: stock?.tyreRadius ?? fit.tyreRadius,
+      tyreGrip: this.launchGrip ?? stock?.tyreGrip ?? fit.tyreGrip,
+      drivenLoad: this.launchDrivenLoad(),
+      tractionControl: this.launchTraction,
+      shiftTime: this.launchShiftTime ?? stock?.shiftTime ?? fit.shiftTime,
+      dualClutch: this.launchDualClutch ?? stock?.dualClutch ?? fit.dualClutch,
+      mass: this.launchMass ?? stock?.mass ?? fit.mass,
       shiftRpm,
       launchRpm: Math.max(Math.min(this.launchRpm ?? fit.launchRpm, shiftRpm - LAUNCH_RPM_MARGIN), 1000),
     };
   }
 
-  /** Every launch setting back to its fit to the engine: a different engine gets a car fitted to it. */
-  private resetLaunch(): void {
+  /** Whether a launch drives all four wheels: the user's choice, or the real car's. */
+  private launchIsAwd(): boolean {
+    return this.launchAwd ?? (this.car?.drivenLoad ?? 0) >= DRIVEN_LOAD.awd;
+  }
+
+  /** The share of the car's weight a launch's driven wheels carry: the real car's where it drives them. */
+  private launchDrivenLoad(): number {
+    if (this.launchIsAwd()) return DRIVEN_LOAD.awd;
+    const own = this.car?.drivenLoad;
+    return own !== undefined && own < DRIVEN_LOAD.awd ? own : DRIVEN_LOAD.rwd;
+  }
+
+  /**
+   * Every launch setting back to auto, for a different engine: the car it comes from where there is one,
+   * and a car fitted to it otherwise.
+   */
+  private resetLaunch(car: Car | null): void {
+    this.car = car;
     this.launchShift = null;
     this.launchMass = null;
     this.launchRpm = null;
     this.launchRatios = null;
     this.launchFinal = null;
+    this.launchAwd = null;
+    this.launchShiftTime = null;
+    this.launchTraction = true;
+    this.launchGrip = null;
+    this.launchDualClutch = null;
   }
 
   /**
@@ -1520,21 +1608,21 @@ export class Panel {
    * shows the road speed it reaches at the shift point, so the gaps between them can be judged.
    */
   private buildGearbox(parent: HTMLElement): void {
-    el('div', 'subhead', parent).textContent = 'Gearbox';
+    const head = el('div', 'subhead', parent);
     const list = el('div', 'subgroup', parent);
     const finalField = el('div', 'field', parent);
     let finalInput: HTMLInputElement | null = null;
-    const finalLabel = (): string => `Final drive${this.launchFinal === null ? ' (auto)' : ''}`;
+    const finalLabel = (): string =>
+      `Final drive${this.launchFinal !== null ? '' : this.car ? ' (stock)' : ' (auto)'}`;
     const buttons = el('div', 'row buttons', parent);
     const addBtn = el('button', '', buttons) as HTMLButtonElement;
     addBtn.textContent = 'Add gear';
     addBtn.title = `Add a gear above the top one, a step taller. At most ${MAX_GEARS}.`;
     const resetBtn = el('button', '', buttons) as HTMLButtonElement;
     resetBtn.textContent = 'Reset gearing';
-    resetBtn.title = 'Back to the stock close-ratio six-speed, with the final drive fitted to the engine.';
     let speeds: HTMLElement[] = [];
 
-    const ratios = (): number[] => [...(this.launchRatios ?? LAUNCH_RATIOS)];
+    const ratios = (): number[] => [...(this.launchRatios ?? this.car?.ratios ?? LAUNCH_RATIOS)];
     const setRatios = (next: number[]): void => {
       this.launchRatios = next;
       this.renderGearbox();
@@ -1542,12 +1630,19 @@ export class Panel {
 
     this.refreshGearbox = () => {
       const cfg = this.launchConfig();
+      const edited = this.launchRatios !== null || this.launchFinal !== null;
+      head.textContent = this.car
+        ? `Gearbox · ${this.car.name}${edited ? ', edited' : ''}`
+        : 'Gearbox';
+      resetBtn.title = this.car
+        ? `Back to the ${this.car.name}'s own ratios and final drive.`
+        : 'Back to the stock close-ratio six-speed, with the final drive fitted to the engine.';
       const shiftOmega = (cfg.shiftRpm * 2 * Math.PI) / 60;
       cfg.ratios.forEach((r, i) => {
         const mph = ((shiftOmega * cfg.tyreRadius) / (r * cfg.finalDrive)) * 2.2369363;
         if (speeds[i]) speeds[i]!.textContent = `${Math.round(mph)} mph`;
       });
-      if (finalInput && this.launchFinal === null) finalInput.value = cfg.finalDrive.toFixed(2);
+      if (finalInput && this.launchFinal === null) finalInput.value = round(cfg.finalDrive, 3);
       const label = finalField.querySelector('label');
       if (label) label.textContent = finalLabel();
     };
@@ -1564,8 +1659,8 @@ export class Panel {
         input.type = 'number';
         input.min = '0.3';
         input.max = '6';
-        input.step = '0.01';
-        input.value = ratio.toFixed(2);
+        input.step = '0.001';
+        input.value = round(ratio, 3);
         input.title = `${ordinal(i + 1)} gear's ratio: engine turns per gearbox output turn.`;
         el('span', 'unit', wrap).textContent = ':1';
         // Applied on `change`, as `numberInto` does, so a half-typed ratio is not committed.
@@ -1573,7 +1668,7 @@ export class Panel {
           const v = Number(input.value);
           if (input.value.trim() === '' || !Number.isFinite(v)) return;
           const clamped = Math.max(0.3, Math.min(6, v));
-          input.value = clamped.toFixed(2);
+          input.value = round(clamped, 3);
           const next = ratios();
           next[i] = clamped;
           this.launchRatios = next;
@@ -1589,14 +1684,14 @@ export class Panel {
       addBtn.disabled = current.length >= MAX_GEARS;
 
       finalField.replaceChildren();
-      finalInput = numberInto(finalField, finalLabel(), this.launchConfig().finalDrive, 1, 10, 0.01, ':1', (v) => {
+      finalInput = numberInto(finalField, finalLabel(), this.launchConfig().finalDrive, 1, 10, 0.001, ':1', (v) => {
         this.launchFinal = v;
         this.refreshGearbox();
-      }, 2);
+      }, 3);
       finalField.title =
         'Turns of the gearbox output per turn of the wheels. Auto gears the top gear so the shift point ' +
-        'comes where the car would run out of power against its drag. Higher is quicker off the line, lower ' +
-        'is faster at the top.';
+        'comes where the car would run out of power against its drag; stock is the real car\'s, for an engine ' +
+        'from one. Higher is quicker off the line, lower is faster at the top.';
       this.refreshGearbox();
     };
 

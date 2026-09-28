@@ -184,12 +184,15 @@ matters.
   meet a shock rather than pour in without end, and a junction must fill the pipe after it no faster than
   sound, choked. Its note must be within 25% of the level at 48 kHz as it revs through the top half of its
   range.
-- **The launch.** The Honda F20C in the car fitted to it must slip the clutch off the line, pull through
-  all six gears, and run 0–60 mph in 4 to 8 s and the quarter mile in 12 to 17 s, around an S2000's 5.5 s
-  and 14 s; it runs 5.7 s and 14.1 s at 103 mph. The clock must not start until the car moves. A shorter
-  final drive must be quicker to 60, a three-speed must stop in third, and a gearbox without gears must not
-  start. A 900 kg car with an LT2 is limited by its tyres, not its engine, so it must be no quicker to 60
-  than 3.5 s.
+- **The launch.** The Honda F20C in the S2000, with its own gears and weight, must slip the clutch off
+  the line, pull through all six gears, and run 0–60 mph in 4 to 8 s and the quarter mile in 12 to 17 s,
+  around the real car's 5.5 s and 14 s; it runs 5.6 s and 14.1 s at 100 mph. The clock must not start
+  until the car has moved. A final drive 30% shorter must go into second at a road speed 30% lower, a
+  three-speed must stop in third, and a gearbox without gears must not start. A 900 kg car with an LT2
+  has far more torque than its tyres can take: traction control must get it to 60 quicker than spinning
+  them, and no quicker than 2.4 s, what their grip allows. The engines from real cars must launch through
+  those cars' gearboxes, and the Skyline through all four wheels must be quicker to 60 than through the
+  rear.
 
 ## The reference renders
 

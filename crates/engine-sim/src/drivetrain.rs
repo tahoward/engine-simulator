@@ -4,11 +4,23 @@
 //! The engine drives the gearbox through a friction clutch whose torque follows the slip speed
 //! through a `tanh`, up to its capacity. Off the line the clutch is slipped to hold the engine at the
 //! launch speed until the car has caught up with it. The driven wheels are a body of their own, tied
-//! to the road by a tyre whose grip also follows its slip through a `tanh`, so an engine with more
-//! torque than the tyres can take spins them up. The car works against rolling resistance and air drag.
+//! to the road by a tyre whose grip follows its slip on Pacejka's magic formula: it rises to a peak,
+//! what the weight on the driven wheels allows, then falls away as the tyre slides, to about four
+//! fifths of that spinning freely. That weight grows as the car accelerates and its weight moves back onto the
+//! rear wheels. An engine with more torque than the tyres can take spins them up, unless traction control
+//! steps in, as a launch control and a dual-clutch gearbox's torque management do. While the clutch slips,
+//! off the line and through each shift, it passes no more torque than the tyres can take at their peak;
+//! off the line the spark is cut to hold the engine at the launch speed, and through a shift while the
+//! engine outruns the gearbox. In gear, the spark is cut while the tyres slip past their peak. The car
+//! works against rolling resistance and air drag.
+//!
+//! A manual shift lifts off and takes the clutch out, then brings both back in the next gear. A
+//! dual-clutch gearbox hands the drive from one clutch to the other with no gap, the new gear's clutch
+//! slipping the engine down to its speed.
 //!
 //! What the run measures is crank torque averaged over each complete engine cycle, as a dyno reports
-//! it, and the time from moving off to 60 mph, the quarter mile and the half mile, as a timeslip does.
+//! it, and the time to 60 mph, the quarter mile and the half mile, as a timeslip does: from the moment
+//! the car has rolled a foot, where a drag strip's clock starts and where American road tests start theirs.
 
 use crate::math::{self, PI};
 use crate::spec::LaunchConfig;
@@ -41,9 +53,11 @@ pub const LAUNCH_POINT_STRIDE: usize = 6;
 /// Points held between snapshots.
 const POINT_CAPACITY: usize = 256;
 
-const SHIFT_OUT: f64 = 0.12;
-const CLUTCH_OUT: f64 = 0.04;
-const SHIFT_IN: f64 = 0.3;
+/// Shares of a shift's time: from lifting off to the next gear going in, of which the clutch takes the
+/// first part to come out; and the clutch and throttle coming back in.
+const SHIFT_OUT: f64 = 0.3;
+const CLUTCH_OUT: f64 = 0.1;
+const SHIFT_IN: f64 = 0.7;
 const SETTLE: f64 = 0.1;
 const CLUTCH_CAPACITY: f64 = 2.5;
 const CLUTCH_SLIP: f64 = 3.0;
@@ -59,18 +73,32 @@ const AIR_DENSITY: f64 = 1.2;
 const DRAG_AREA: f64 = 0.6;
 /// The driven wheels, tyres and half-shafts, about their axle, kg*m^2.
 const WHEEL_INERTIA: f64 = 3.0;
-/// Tyre friction coefficient, and the share of the car's weight on the driven wheels as it pulls away.
-const GRIP: f64 = 1.1;
-const DRIVEN_LOAD: f64 = 0.6;
+/// Height of the centre of gravity over the wheelbase: how much of the car's weight moves onto the rear
+/// wheels for each g it accelerates at.
+const WEIGHT_TRANSFER: f64 = 0.18;
+/// Traction control: the share of the tyres' peak grip a slipping clutch passes, a little under it so the
+/// tyres hold just short of the peak rather than sliding past it; how far the engine may outrun the
+/// gearbox through a shift before the spark is cut, rad/s; and the tyre slip, in units of `TYRE_SLIP`,
+/// past which the spark is cut in gear: the magic formula's peak.
+const TC_GRIP: f64 = 0.98;
+const TC_SYNC: f64 = 10.0;
+const TC_SLIP: f64 = 2.0;
 /// Slip speed over which the tyre builds its grip, m/s: a fixed part, and a part in proportion to speed.
+/// It grips hardest at twice this, about 12% slip at speed.
 const TYRE_SLIP: f64 = 0.4;
 const TYRE_SLIP_RATIO: f64 = 0.06;
+/// The magic formula's shape and stiffness, `sin(C atan(B x))` of the slip in units of `TYRE_SLIP`: a
+/// peak at `x = 2`, and `sin(C pi / 2)`, 81% of it, sliding.
+const TYRE_SHAPE: f64 = 1.4;
+const TYRE_STIFFNESS: f64 = 1.035;
 /// Drivetrain steps per audio sample: the light wheels on a stiff clutch need a finer step than the crank.
 const SUBSTEPS: usize = 4;
 const G: f64 = 9.81;
 const MAX_RUN: f64 = 150.0;
 const STALL_TIME: f64 = 4.0;
 
+/// How far the car rolls before the clock starts, m: a foot.
+const ROLLOUT: f64 = 0.3048;
 /// 60 mph, m/s, and a quarter and a half mile, m.
 const SIXTY_MPH: f64 = 26.8224;
 const QUARTER_MILE: f64 = 402.336;
@@ -96,14 +124,18 @@ pub struct LaunchRun {
     pub distance: f64,
     /// Throttle opening the run commands, 0..1.
     pub throttle: f64,
+    /// Whether traction control, or the launch control, is cutting the spark.
+    pub spark_cut: bool,
+    /// The car's acceleration, m/s^2: how much weight it has moved onto the rear wheels.
+    pub accel: f64,
     /// Clutch engagement, 0..1.
     pub clutch: f64,
     pub elapsed: f64,
     pub phase_time: f64,
     pub finished: bool,
-    /// The run's time when the car first moved, s.
+    /// The run's time when the car had rolled out its first foot, and the clock started, s.
     pub moved_at: Option<f64>,
-    /// Seconds from moving off to 60 mph.
+    /// Seconds from the clock starting to 60 mph.
     pub sixty: Option<f64>,
     pub quarter: Option<Mark>,
     pub half: Option<Mark>,
@@ -135,6 +167,8 @@ impl LaunchRun {
             wheel_speed: 0.0,
             distance: 0.0,
             throttle: 1.0,
+            spark_cut: false,
+            accel: 0.0,
             clutch: 0.0,
             elapsed: 0.0,
             phase_time: 0.0,
@@ -168,7 +202,7 @@ impl LaunchRun {
         self.ratio(g) * self.config.final_drive
     }
 
-    /// Seconds since the car moved off, or 0 before it has.
+    /// Seconds since the clock started, or 0 before it has.
     pub fn run_time(&self) -> f64 {
         self.moved_at.map_or(0.0, |t| self.elapsed - t)
     }
@@ -183,26 +217,41 @@ impl LaunchRun {
         let radius = self.config.tyre_radius;
         let mass = self.config.mass;
         let wheel_mass = WHEEL_INERTIA / (radius * radius);
-        let grip = GRIP * DRIVEN_LOAD * mass * G;
         let h = dt / SUBSTEPS as f64;
+        let traction = self.config.traction_control && !self.finished;
+        // A clutch meant to slip, off the line or through a shift, is held to what the tyres can take.
+        let managed = traction && matches!(self.phase, LaunchPhase::Launch | LaunchPhase::ShiftIn);
         let mut clutch_sum = 0.0;
+        let mut capped = false;
         for _ in 0..SUBSTEPS {
+            let load = math::min(self.config.driven_load + (WEIGHT_TRANSFER * math::max(self.accel, 0.0)) / G, 1.0);
+            let grip = self.config.tyre_grip * load * mass * G;
             let input_omega = (self.wheel_speed * ratio) / radius;
-            let clutch_torque = self.capacity * self.clutch * math::tanh((omega - input_omega) / CLUTCH_SLIP);
+            let mut clutch_torque = self.capacity * self.clutch * math::tanh((omega - input_omega) / CLUTCH_SLIP);
+            if managed {
+                // The most torque the tyres can take at the crank, through this gear.
+                let limit = (TC_GRIP * grip * radius) / (ratio * DRIVELINE_EFFICIENCY);
+                if clutch_torque > limit {
+                    clutch_torque = limit;
+                    capped = true;
+                }
+            }
             let drive = (clutch_torque * ratio * DRIVELINE_EFFICIENCY) / radius;
             let slip = self.wheel_speed - self.speed;
-            let tyre = grip * math::tanh(slip / (TYRE_SLIP + TYRE_SLIP_RATIO * self.speed));
+            let tyre = grip * tyre_curve(slip / (TYRE_SLIP + TYRE_SLIP_RATIO * self.speed));
             let resistance = if self.speed > 0.0 {
                 ROLLING_RESISTANCE * mass * G + 0.5 * AIR_DENSITY * DRAG_AREA * self.speed * self.speed
             } else {
                 0.0
             };
             self.wheel_speed = math::max(self.wheel_speed + ((drive - tyre) / wheel_mass) * h, 0.0);
-            self.speed = math::max(self.speed + ((tyre - resistance) / mass) * h, 0.0);
+            self.accel = (tyre - resistance) / mass;
+            self.speed = math::max(self.speed + self.accel * h, 0.0);
             self.distance += self.speed * h;
             clutch_sum += clutch_torque;
         }
 
+        self.spark_cut = traction && self.cuts_spark(omega, ratio, capped);
         self.time_marks();
         self.record(dt, omega, crank_torque, angle);
         clutch_sum / SUBSTEPS as f64
@@ -255,7 +304,11 @@ impl LaunchRun {
                     self.best_speed_at = self.elapsed;
                 }
                 if rpm >= self.config.shift_rpm {
-                    if self.gear + 1 < self.config.ratios.len() {
+                    if self.gear + 1 < self.config.ratios.len() && self.config.dual_clutch {
+                        // The next gear's clutch takes the drive as the last one lets it go.
+                        self.gear += 1;
+                        self.enter(LaunchPhase::ShiftIn);
+                    } else if self.gear + 1 < self.config.ratios.len() {
                         self.enter(LaunchPhase::ShiftOut);
                     } else {
                         self.finish();
@@ -266,17 +319,21 @@ impl LaunchRun {
             }
             LaunchPhase::ShiftOut => {
                 self.throttle = 0.0;
-                self.clutch = math::max(1.0 - self.phase_time / CLUTCH_OUT, 0.0);
-                if self.phase_time >= SHIFT_OUT {
+                let shift = self.config.shift_time;
+                self.clutch = math::max(1.0 - self.phase_time / (CLUTCH_OUT * shift), 0.0);
+                if self.phase_time >= SHIFT_OUT * shift {
                     self.gear += 1;
                     self.enter(LaunchPhase::ShiftIn);
                 }
             }
             LaunchPhase::ShiftIn => {
-                let u = math::min(self.phase_time / SHIFT_IN, 1.0);
+                let u = math::min(self.phase_time / (SHIFT_IN * self.config.shift_time), 1.0);
                 let smooth = u * u * (3.0 - 2.0 * u);
-                self.clutch = smooth;
-                self.throttle = smooth;
+                // A dual clutch keeps the drive through the shift: the new gear's clutch is in from the
+                // start, slipping the engine down to its speed, and the throttle stays open.
+                let hold = if self.config.dual_clutch { 1.0 } else { smooth };
+                self.clutch = hold;
+                self.throttle = hold;
                 if u >= 1.0 {
                     self.enter(LaunchPhase::Pull);
                 }
@@ -288,9 +345,23 @@ impl LaunchRun {
         }
     }
 
-    /// Note the moment the car moves off, and when it passes 60 mph, the quarter mile and the half mile.
+    /// Whether traction control cuts the spark: off the line, above the launch speed, as a launch
+    /// control holds it there; through a shift, while the clutch is at the tyres' limit and the engine
+    /// outruns the gearbox, so it comes down to the next gear's speed rather than flaring; and in gear while
+    /// the tyres slip past their peak.
+    fn cuts_spark(&self, omega: f64, ratio: f64, capped: bool) -> bool {
+        match self.phase {
+            LaunchPhase::Launch => (omega * 60.0) / (2.0 * PI) > self.config.launch_rpm + LAUNCH_WINDOW,
+            LaunchPhase::ShiftIn => capped && omega - (self.wheel_speed * ratio) / self.config.tyre_radius > TC_SYNC,
+            LaunchPhase::Pull => self.wheel_speed - self.speed > TC_SLIP * (TYRE_SLIP + TYRE_SLIP_RATIO * self.speed),
+            LaunchPhase::ShiftOut | LaunchPhase::Cooldown => false,
+        }
+    }
+
+    /// Note the moment the car has rolled out a foot, and when it passes 60 mph, the quarter mile and the
+    /// half mile.
     fn time_marks(&mut self) {
-        if self.moved_at.is_none() && self.speed > 0.0 {
+        if self.moved_at.is_none() && self.distance >= ROLLOUT {
             self.moved_at = Some(self.elapsed);
         }
         if self.moved_at.is_none() || self.finished {
@@ -335,4 +406,9 @@ impl LaunchRun {
         self.cycle_time += dt;
         self.cycle_intake += self.intake_pressure * dt;
     }
+}
+
+/// The tyre's grip at slip `x`, in units of the slip over which it builds, as a share of its peak.
+fn tyre_curve(x: f64) -> f64 {
+    math::sin(TYRE_SHAPE * math::atan(TYRE_STIFFNESS * x))
 }

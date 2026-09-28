@@ -14,8 +14,8 @@ import {
   PIPE_PRESETS,
   defaultCollector,
   defaultConfig,
-  fitLaunch,
   fittedExhaust,
+  presetLaunch,
 } from '../src/model/spec.js';
 import { presetConfig } from './presetConfig.js';
 
@@ -29,7 +29,7 @@ const engines = ENGINE_PRESETS.map((preset) => {
     name: preset.name,
     engine: preset.engine,
     config: cfg,
-    launch: fitLaunch(cfg.engine, (preset.turbos ?? 0) > 0),
+    launch: presetLaunch(cfg.engine, (preset.turbos ?? 0) > 0, preset.car),
     fittedExhaust: fittedExhaust(cfg.engine),
   };
 });
