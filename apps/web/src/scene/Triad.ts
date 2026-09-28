@@ -4,8 +4,8 @@
  *
  * An arrow moves along its axis, a square between two arrows moves in their plane, and a ring turns about
  * its axis. The axes are the part's own, turned with it (`setOrientation`), in the colours drawing a pipe
- * uses for x, y and z: red, green and blue. Each handle does one constrained thing, so a move does not
- * depend on which way the camera happens to be looking.
+ * uses for x, y and z: red, green and blue, or the engine's (`setEngineFrame`). Each handle does one
+ * constrained thing, so a move does not depend on which way the camera happens to be looking.
  *
  * A part that can be turned but not moved, such as a pipe held where it starts by its port or junction, shows
  * only the rings (`showMoves`).
@@ -148,6 +148,8 @@ export class Triad {
   private readonly hoverMat = new THREE.MeshBasicMaterial({ color: 0xffd166, depthTest: false });
   private hovered: THREE.Mesh | null = null;
   private readonly orientation = new THREE.Quaternion();
+  private engineFrame = false;
+  private ringsOwn = false;
 
   /** `size` is the arrows' length, m; the rings are sized to match. */
   constructor(size = 0.12) {
@@ -204,18 +206,43 @@ export class Triad {
   /** Turn the triad with the part, so its axes are the part's own. */
   setOrientation(q: THREE.Quaternion): void {
     this.orientation.copy(q);
-    this.moving.quaternion.copy(q);
-    this.turning.quaternion.copy(q);
+    this.applyFrames();
   }
 
-  /** Axis `axis` of the part, in the world. */
-  axisDir(axis: number): THREE.Vector3 {
-    return ENGINE_AXES[axis]!.clone().applyQuaternion(this.orientation);
+  /** Line the handles up with the engine's axes instead of the part's, but for rings that are its own. */
+  setEngineFrame(on: boolean): void {
+    this.engineFrame = on;
+    this.applyFrames();
   }
 
-  /** The frame of the ring about axis `axis`, in the world. */
-  ring(axis: number): RingFrame {
-    return ringFrame(axis, this.orientation);
+  /**
+   * Keep the rings on the part's own axes in the engine's frame too: where it turns only about those, as a
+   * pipe held to its opening turns about the opening's axis.
+   */
+  setRingsOwn(on: boolean): void {
+    this.ringsOwn = on;
+    this.applyFrames();
+  }
+
+  /** How a handle of `kind`'s axes are turned: the part's, or none, the engine's. */
+  private frame(kind: TriadHandle['kind']): THREE.Quaternion {
+    const engine = this.engineFrame && (kind !== 'ring' || !this.ringsOwn);
+    return engine ? new THREE.Quaternion() : this.orientation.clone();
+  }
+
+  private applyFrames(): void {
+    this.moving.quaternion.copy(this.frame('axis'));
+    this.turning.quaternion.copy(this.frame('ring'));
+  }
+
+  /** Axis `axis` of a handle of `kind`, in the world. */
+  axisDir(axis: number, kind: TriadHandle['kind'] = 'ring'): THREE.Vector3 {
+    return ENGINE_AXES[axis]!.clone().applyQuaternion(this.frame(kind));
+  }
+
+  /** The frame about axis `axis` of a handle of `kind`, in the world: a ring's, or a square's plane. */
+  ring(axis: number, kind: TriadHandle['kind'] = 'ring'): RingFrame {
+    return ringFrame(axis, this.frame(kind));
   }
 
   /** Show or hide the arrows and squares, for a part that can be turned but not moved. */

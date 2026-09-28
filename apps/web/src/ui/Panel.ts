@@ -85,8 +85,6 @@ export interface PanelCallbacks {
   onExportEngine: () => void;
   /** Replace the engine with one from an exported file's text. */
   onImportEngine: (text: string) => void;
-  /** Whether clicks while drawing lay smooth bends rather than corners. */
-  onBendMode: (on: boolean) => void;
   /** The bend tool was switched on or off. */
   onBendTool: (on: boolean) => void;
   /** The equal-length header tool was switched on or off. */
@@ -615,23 +613,15 @@ export class Panel {
       TOOL_ICONS.draw,
       'Draw a pipe',
       'Start from an exhaust port, a junction, the open end of a pipe (to continue it) or the side of a ' +
-        'pipe (to branch off it), then click to add bends. Click a junction, a pipe or a pipe end to join ' +
-        'it. Bends lock to the engine: across (red), up (green), along the crank (blue), or 45 degrees ' +
-        'between two of them. Alt rounds the bend off the pipe instead, Shift draws freely. A double-click ' +
-        'or Enter finishes in open air; Escape abandons the pipe; right-click finishes it and exits.',
+        'pipe (to branch off it), then click to add corners. Click a junction, a pipe or a pipe end to join ' +
+        'it. Each straight locks to the engine: across (red), up (green), along the crank (blue), or 45 ' +
+        'degrees between two of them. Alt rounds the turn off the pipe instead, Shift draws freely. A ' +
+        'double-click or Enter finishes in open air; Escape abandons the pipe; right-click finishes it and ' +
+        'exits. Bend the straights afterwards with the bend tool.',
     );
     this.drawGroup = el('div', 'tool-group', this.toolOptions);
     el('div', 'tool-name', this.drawGroup).textContent = 'Draw a pipe';
     this.drawHint = el('div', 'hint', this.drawGroup);
-    const bendLabel = el('label', 'toggle', this.drawGroup) as HTMLLabelElement;
-    const bendBox = el('input', '', bendLabel) as HTMLInputElement;
-    bendBox.type = 'checkbox';
-    bendLabel.append(' Bends');
-    bendLabel.title =
-      'Clicks lay smooth bends instead of corners: point the way the pipe should turn to, and how far ' +
-      'from its end you point sets the radius, no tighter than one and a half bores. Holding B does the ' +
-      'same for as long as it is held, or lays corners while this is on.';
-    bendBox.addEventListener('change', () => this.cb.onBendMode(bendBox.checked));
 
     this.placePipeBtn = toolButton(
       bar,
