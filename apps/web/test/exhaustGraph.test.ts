@@ -272,7 +272,7 @@ describe('switching presets', () => {
    * The sequence the panel and `main` follow when a preset is picked (`reseedGraph`), with `compileLayout`
    * standing in for the `compileExhaust` that calls it.
    */
-  it('crossplane, flatplane, crossplane: the same exhaust both times', async () => {
+  it('crossplane, flatplane, crossplane: the same exhaust both times, LT2 to LT6 and back', async () => {
     const { carriedGeometry } = await import('../src/model/exhaustGraph.js');
     const topology = ['cylinders', 'exhaustLayout', 'crankType', 'firingOffset', 'vAngle'];
     const cfg = defaultConfig();
@@ -291,12 +291,12 @@ describe('switching presets', () => {
       cfg.graph = compileLayout(cfg.engine, cfg.pipe, cfg.collector);
       return JSON.stringify(cfg.graph.ducts.map((d) => [d.id, d.segments.map((s) => [s.kind, s.length, s.dIn, s.dOut, s.yaw, s.pitch])]));
     };
-    const first = pick('V8, cross');
-    pick('V8, flat');
-    expect(pick('V8, cross')).toBe(first);
+    const first = pick('V8, Chevrolet LT2');
+    pick('V8, Chevrolet LT6');
+    expect(pick('V8, Chevrolet LT2')).toBe(first);
     pick('Single');
     pick('Inline');
-    expect(pick('V8, cross')).toBe(first);
+    expect(pick('V8, Chevrolet LT2')).toBe(first);
   });
 });
 

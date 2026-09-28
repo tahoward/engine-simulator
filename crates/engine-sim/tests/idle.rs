@@ -23,7 +23,7 @@ fn settles_near_the_idle_speed(name: &str) {
 
     let mut sim = EngineSim::new(FS, &cfg);
     sim.render(FS as usize * 3);
-    // Averaged, because an idle hunts: the overcammed V8 misfires a fifth of its cycles.
+    // Averaged, because an idle hunts.
     let mut sum = 0.0;
     let reads = 20;
     for _ in 0..reads {
@@ -36,7 +36,7 @@ fn settles_near_the_idle_speed(name: &str) {
 }
 
 /// Every preset has an idle test below.
-const PRESETS: [&str; 16] = [
+const PRESETS: [&str; 13] = [
     "Single, megaphone",
     "45° V-twin, 2-into-1",
     "90° V-twin, 2-into-2",
@@ -45,11 +45,8 @@ const PRESETS: [&str; 16] = [
     "Inline five",
     "Inline six, Nissan RB26DETT",
     "V6, Toyota 2GR",
-    "V8, crossplane, headers per bank",
-    "V8, overcammed",
     "V8, Chevrolet LT2",
     "V8, Chevrolet LT6",
-    "V8, flatplane, headers per bank",
     "Boxer four",
     "Boxer six",
     "Parallel twin, 360°",
@@ -83,14 +80,11 @@ idle_tests! {
     presets_idle_inline_five => 5,
     presets_idle_inline_six_nissan_rb26dett => 6,
     presets_idle_v6_toyota_2gr => 7,
-    presets_idle_v8_crossplane_manifold_per_bank => 8,
-    presets_idle_v8_overcammed => 9,
-    presets_idle_v8_chevrolet_lt2 => 10,
-    presets_idle_v8_chevrolet_lt6 => 11,
-    presets_idle_v8_flatplane_manifold_per_bank => 12,
-    presets_idle_boxer_four => 13,
-    presets_idle_boxer_six => 14,
-    presets_idle_parallel_twin_360 => 15,
+    presets_idle_v8_chevrolet_lt2 => 8,
+    presets_idle_v8_chevrolet_lt6 => 9,
+    presets_idle_boxer_four => 10,
+    presets_idle_boxer_six => 11,
+    presets_idle_parallel_twin_360 => 12,
 }
 
 // --- closed throttle must not run away ---
@@ -127,7 +121,7 @@ fn closed_throttle_every_engine_preset_throttle_0_free_running_no_load() {
 #[test]
 fn closed_throttle_and_a_mid_throttle_hold_is_stable_too() {
     println!();
-    for name in ["Single", "Inline four", "V8, crossplane"] {
+    for name in ["Single", "Inline four", "V8, Chevrolet LT2"] {
         let p = common::presets().engine_presets.iter().find(|x| x.name.starts_with(name)).unwrap();
         let mut cfg = p.config.clone();
         cfg.engine = common::with(&cfg.engine, json!({ "throttle": 0.3, "freeRunning": true, "load": 0.3 }));
