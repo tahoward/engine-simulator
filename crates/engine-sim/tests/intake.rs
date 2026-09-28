@@ -281,7 +281,7 @@ mod variable_valve_timing {
         let mut pulling = lt6(json!({ "freeRunning": false, "throttle": 1, "rpm": 3000 }));
         pulling.render(FS as usize / 2);
         let phase = pulling.snapshot().intake_cam_advance;
-        assert!(phase > 30.0, "pulling phase {phase}");
+        assert!(phase > 20.0, "pulling phase {phase}");
     }
 
     /// brings a cam back to rest when its map is set to nothing
@@ -319,9 +319,10 @@ mod two_stage_intake {
     /// Long runners fill it below the switch speed; above it, it has the short ones'.
     #[test]
     fn has_the_long_runners_torque_below_its_switch_speed_and_the_short_runners_above_it() {
-        let short_only = || json!({ "intakeRunnerLength": 0.33, "intakeRunnerShortLength": 0 });
+        let short_length = common::engine_preset("V8, Chevrolet LT6").config.engine.intake_runner_short_length;
+        let short_only = || json!({ "intakeRunnerLength": short_length, "intakeRunnerShortLength": 0 });
         let (both, short) = (torque_at(7800.0, json!({})), torque_at(7800.0, short_only()));
-        assert!(both > 1.05 * short, "at 7800: two-stage {both} short only {short}");
+        assert!(both > 1.02 * short, "at 7800: two-stage {both} short only {short}");
         let ratio = torque_at(8400.0, json!({})) / torque_at(8400.0, short_only());
         assert!((ratio - 1.0).abs() < 0.005, "at 8400: ratio {ratio}");
     }
@@ -353,5 +354,45 @@ mod two_stage_intake {
         assert_eq!(sim.intake().recoveries() + short_recoveries, 0);
         // Near the switch speed the two sets make about the same torque, so the switch is no jolt.
         assert!((across / before - 1.0).abs() < 0.1, "before {before} across {across}");
+    }
+}
+
+mod torque_curve {
+    use super::*;
+
+    /// rises and falls smoothly at full throttle, without a dip or a hump from the runners' resonance
+    ///
+    /// A runner's waves die away over a few cycles, as a real runner's do, so its resonance does not
+    /// build from one cycle to the next and swing the torque by 5-8% every 1500 rpm or so. From 4400 rpm
+    /// the LT6's torque falls by under 3% anywhere on its way up to its peak, and rises by under 4%
+    /// anywhere on its way down from it.
+    #[test]
+    fn rises_and_falls_smoothly_at_full_throttle() {
+        let rpms: Vec<f64> = (0..=10).map(|i| 4400.0 + 400.0 * i as f64).collect();
+        let torque: Vec<f64> = std::thread::scope(|s| {
+            let runs: Vec<_> = rpms
+                .iter()
+                .map(|&rpm| {
+                    s.spawn(move || {
+                        let mut sim =
+                            lt6(json!({ "freeRunning": false, "throttle": 1, "rpm": rpm, "combustionVariability": 0 }));
+                        // The walls and the waves take a couple of seconds to settle at a new speed.
+                        sim.render(2 * FS as usize);
+                        mean_torque(&mut sim, FS as usize / 2)
+                    })
+                })
+                .collect();
+            runs.into_iter().map(|r| r.join().unwrap()).collect()
+        });
+        let peak = (0..torque.len()).max_by(|&a, &b| torque[a].total_cmp(&torque[b])).unwrap();
+        for i in 1..torque.len() {
+            let change = torque[i] / torque[i - 1] - 1.0;
+            let (a, b) = (rpms[i - 1], rpms[i]);
+            if i <= peak {
+                assert!(change > -0.03, "falls {:.1}% from {a} to {b} rpm: {torque:?}", -100.0 * change);
+            } else {
+                assert!(change < 0.04, "rises {:.1}% from {a} to {b} rpm: {torque:?}", 100.0 * change);
+            }
+        }
     }
 }

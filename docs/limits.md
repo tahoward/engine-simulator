@@ -9,6 +9,9 @@ Where the model is simplified, and by how much.
 - **The intake runners are simplified.** Each is one straight duct, solved like the exhaust but
   with some things left out:
   - The runners' pressure is not radiated, so there is no intake roar.
+  - What their waves lose to turbulence, the bend into the port and the valve seat is not worked out
+    one loss at a time: it is one factor, five times the boundary-layer loss of a smooth tube, chosen
+    so a wave dies away over a few cycles as it does in a real runner.
   - Their walls exchange no heat, so the charge is not warmed on its way in, as a hot port warms a
     real one.
   - The solver carries a single gamma, 1.33, where cool air's is 1.40, so the air in them carries
@@ -22,9 +25,9 @@ Where the model is simplified, and by how much.
 - **Some effects that make high-output engines strong are missing.** Direct injection cools the
   charge as the fuel evaporates, and a rich mixture at full throttle adds a few percent of power.
   Neither is modelled. A 6.2 litre V8 in the proportions of a Chevrolet LT2 comes out at about 600
-  N·m and 460 hp, against the real engine’s 637 N·m and 495 hp. The Honda F20C makes about 195 N·m
-  and 225 hp, against 210 and 240. The LT6, the 8600 rpm flat-plane V8, comes out at 650 hp at 8400
-  rpm, against 670, and at 577 N·m at 6300 against 624. Their cams, cam maps, rods, runners and
+  N·m and 460 hp, against the real engine’s 637 N·m and 495 hp. The Honda F20C makes about 185 N·m
+  and 210 hp, against 210 and 240. The LT6, the 8600 rpm flat-plane V8, comes out at 630 hp at 8400
+  rpm, against 670, and at 580 N·m at 6200 against 624 at 6300. Their cams, cam maps, rods, runners and
   headers are estimates where they are not published.
 - **Cam profile switching is on speed alone.** A real VTEC ECU also checks the load, the oil pressure
   and the road speed before it engages the high-speed lobes; here it switches on engine speed only,
