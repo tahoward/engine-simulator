@@ -107,8 +107,11 @@ class EngineProcessor extends AudioWorkletProcessor {
       this.sinceSnapshot = 0;
       const snapshot = this.sim.snapshot();
       const msg: FromWorklet = { type: 'snapshot', snapshot };
-      // Transfer the pressure array rather than structured-cloning it: each snapshot has its own.
-      this.port.postMessage(msg, [snapshot.pipePressure.buffer as ArrayBuffer]);
+      // Transfer the pressure arrays rather than structured-cloning them: each snapshot has its own.
+      this.port.postMessage(msg, [
+        snapshot.pipePressure.buffer as ArrayBuffer,
+        snapshot.ductPressure.buffer as ArrayBuffer,
+      ]);
     }
 
     return true;

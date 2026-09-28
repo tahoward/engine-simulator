@@ -24,7 +24,7 @@ import {
 } from './model/spec.js';
 import { EngineMesh } from './scene/EngineMesh.js';
 import { PipeEditor } from './scene/PipeEditor.js';
-import { PipeMesh } from './scene/PipeMesh.js';
+import { PipeMesh, PressureScale } from './scene/PipeMesh.js';
 import { ductDirections, freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustPlacement } from './scene/exhaustLayout.js';
 import { JointMesh } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
@@ -121,6 +121,8 @@ const engineMesh = new EngineMesh(config.engine, viewer.clipPlane);
  * `PipeSegment[]`; the panel copies an edit to the other runners when they are linked.
  */
 const pipeMeshes: PipeMesh[] = [];
+/** The pressure scale every duct is coloured on. */
+const pipeScale = new PressureScale();
 /**
  * Which duct the drag handles are attached to.
  *
@@ -840,10 +842,17 @@ audio.onSnapshot((s) => {
   // authoritative value. Snapping straight to it makes the piston strobe.
   const err = shortestAngle(s.crankAngle - displayAngle);
   displayAngle += err * 0.25;
-  // Every duct gets the same pressure colouring. The snapshot carries the pressure along whichever duct
-  // the listener mostly hears — the collector if there is one — so the primaries show an
-  // indicative field rather than their own.
-  for (const m of pipeMeshes) m.update(s.pipePressure);
+  // Each duct shows its own cells, all on one scale so their colours compare. A duct the solver has
+  // that is not drawn, a turbo's exit, is passed over.
+  const scale = pipeScale.track(s.ductPressure);
+  const ducts = config.graph!.ducts;
+  let at = 0;
+  s.ductIds.forEach((id, k) => {
+    const n = s.ductCells[k]!;
+    const i = ducts.findIndex((d) => d.id === id);
+    if (i >= 0) pipeMeshes[i]?.update(s.ductPressure.subarray(at, at + n), scale);
+    at += n;
+  });
   scope.onSnapshot(s);
   dynoSheet.onSnapshot(s.dyno);
   panel.updateReadouts(s);

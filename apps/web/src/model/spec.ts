@@ -632,6 +632,18 @@ export interface EngineSnapshot {
    * Index 0 is the port, last index is the mouth.
    */
   pipePressure: Float32Array;
+  /**
+   * Gauge pressure in every cell of every exhaust duct, Pa: the ducts in the graph's order, each from
+   * its port end, taking `ductCells` values in turn.
+   */
+  ductPressure: Float32Array;
+  /** How many cells of `ductPressure` each duct has. */
+  ductCells: number[];
+  /**
+   * Each duct's id, in the same order. The solver's graph is not quite the one drawn: it leaves out
+   * loose pipes and adds a turbo's exit, so the ids say which pipe is which.
+   */
+  ductIds: string[];
   /** Peak output sample magnitude since the last snapshot, for a level meter. */
   peak: number;
   /**
