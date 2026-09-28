@@ -118,7 +118,6 @@ export interface PanelCallbacks {
 }
 
 export interface ViewOptions {
-  cutaway: boolean;
   pressure: boolean;
   handles: boolean;
 }
@@ -276,7 +275,6 @@ export class Panel {
 
   private selected: number | null = null;
   private readonly view: ViewOptions = {
-    cutaway: true,
     pressure: true,
     handles: true,
   };
@@ -1431,10 +1429,6 @@ export class Panel {
 
     // ---- View ------------------------------------------------------------
     const viewSec = section(root, 'View', true);
-    toggle(viewSec, 'Cutaway section', this.view.cutaway, (on) => {
-      this.view.cutaway = on;
-      this.cb.onView(this.view);
-    });
     toggle(viewSec, 'Pressure colouring', this.view.pressure, (on) => {
       this.view.pressure = on;
       this.cb.onView(this.view);

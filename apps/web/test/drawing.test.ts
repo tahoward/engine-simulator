@@ -188,7 +188,7 @@ describe('quantising', () => {
 describe('snap targets', () => {
   const spec = { ...defaultConfig().engine, cylinders: 8, vAngle: 90, crankType: 'crossplane', exhaustLayout: 'perBank' } as EngineSpec;
   const ports = (): ExhaustPort[] => {
-    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    const mesh = new EngineMesh(spec);
     return Array.from({ length: mesh.bankCount }, (_, i) => mesh.exhaustPort(i));
   };
 
@@ -398,7 +398,7 @@ describe('joining the end of a pipe', () => {
 describe('branching from the side of a pipe', () => {
   const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
   const ports = (): ExhaustPort[] => {
-    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    const mesh = new EngineMesh(spec);
     return [mesh.exhaustPort(0)];
   };
 
@@ -481,7 +481,7 @@ describe('deleting', () => {
   const runner = () => [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.042 })];
   const collector = () => [makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.06 })];
   const portsOf = (spec: EngineSpec): ExhaustPort[] => {
-    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    const mesh = new EngineMesh(spec);
     return Array.from({ length: mesh.bankCount }, (_, i) => mesh.exhaustPort(i));
   };
 
@@ -680,7 +680,7 @@ describe('deleting', () => {
 describe('attaching leaves the pipe attached to alone', () => {
   const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
   const ports = (): ExhaustPort[] => {
-    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    const mesh = new EngineMesh(spec);
     return [0, 1].map((i) => mesh.exhaustPort(i));
   };
   const pipe = () => [
@@ -751,7 +751,7 @@ describe('deleting keeps the exhaust in one piece', async () => {
 
   it.each(cases)('%s', (_name, preset, layout) => {
     const spec = { ...defaultConfig().engine, ...preset.engine, ...(layout ? { exhaustLayout: layout } : {}) } as EngineSpec;
-    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    const mesh = new EngineMesh(spec);
     const ports = Array.from({ length: mesh.bankCount }, (_, i) => mesh.exhaustPort(i));
     const base = compileLayout(spec, preset.pipe(), preset.collector!());
     const before = layoutGraph(ports, base);
@@ -814,7 +814,7 @@ describe('deleting keeps the exhaust in one piece', async () => {
 describe('deleting from the middle of a pipe', () => {
   const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
   const ports = (): ExhaustPort[] => {
-    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    const mesh = new EngineMesh(spec);
     return [0, 1].map((i) => mesh.exhaustPort(i));
   };
   const pipe = () => [
@@ -856,7 +856,7 @@ describe('deleting from the middle of a pipe', () => {
 describe('detaching a branch from the side of a pipe', () => {
   const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
   const ports = (): ExhaustPort[] => {
-    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    const mesh = new EngineMesh(spec);
     return [0, 1].map((i) => mesh.exhaustPort(i));
   };
   const pipe = () => [
@@ -898,7 +898,7 @@ describe('detaching a branch from the side of a pipe', () => {
 describe('detaching a pipe from a placed pipe', () => {
   const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
   const ports = (): ExhaustPort[] => {
-    const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+    const mesh = new EngineMesh(spec);
     return [0, 1].map((i) => mesh.exhaustPort(i));
   };
 

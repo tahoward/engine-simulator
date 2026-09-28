@@ -113,7 +113,7 @@ const audio: EngineHost =
     ? new (await import('./audio/NativeEngine.js')).NativeEngine(config, sampleRate)
     : new AudioEngine(config, sampleRate, matchMedia('(pointer: coarse)').matches ? 'playback' : 'interactive');
 const viewer = new Viewer(viewportEl);
-const engineMesh = new EngineMesh(config.engine, viewer.clipPlane);
+const engineMesh = new EngineMesh(config.engine);
 /**
  * One mesh per duct in the graph, in the graph's order.
  *
@@ -818,7 +818,6 @@ function sceneBounds(): THREE.Box3 {
 }
 
 function applyView(v: ViewOptions): void {
-  viewer.setCutaway(v.cutaway);
   for (const m of pipeMeshes) {
     m.setPressureVisible(v.pressure);
   }

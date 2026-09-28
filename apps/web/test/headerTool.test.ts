@@ -36,7 +36,7 @@ import { refitBends } from '../src/scene/turboPlacement.js';
 const v8 = { ...defaultConfig().engine, cylinders: 8, vAngle: 90, crankType: 'crossplane', exhaustLayout: 'perBank' } as EngineSpec;
 const boxer = { ...defaultConfig().engine, cylinders: 4, vAngle: 180, crankType: 'boxer', exhaustLayout: 'perBank' } as EngineSpec;
 const portsOf = (spec: EngineSpec): ExhaustPort[] => {
-  const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+  const mesh = new EngineMesh(spec);
   return Array.from({ length: mesh.bankCount }, (_, i) => mesh.exhaustPort(i));
 };
 const runner = (graph: ExhaustGraph, cylinder: number) =>

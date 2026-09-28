@@ -19,7 +19,7 @@ import { seatEngineTurbos } from '../src/scene/engineTurbos.js';
 import { refitBends, seatHeaders, seatManifolds, seatTurbos } from '../src/scene/turboPlacement.js';
 
 const portsOf = (spec: EngineSpec): ExhaustPort[] => {
-  const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+  const mesh = new EngineMesh(spec);
   return Array.from({ length: mesh.bankCount }, (_, i) => mesh.exhaustPort(i));
 };
 
