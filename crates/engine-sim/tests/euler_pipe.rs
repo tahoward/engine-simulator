@@ -19,7 +19,7 @@ use std::f64::consts::PI;
 
 const FFT: usize = 32768;
 
-/// `makeSegment({ kind, length, dIn, dOut })`.
+/// A segment of `kind`, `length` and inlet diameter `d_in`, with its outlet diameter `d_out` or the default.
 fn seg(kind: SegmentKind, length: f64, d_in: f64, d_out: Option<f64>) -> PipeSegment {
     make_segment(SegmentPartial {
         kind: Some(kind),
@@ -67,7 +67,7 @@ fn valve(throat_area: f64, cyl_pressure: f64, cyl_temp: f64) -> ValveState {
     ValveState { throat_area, cyl_pressure, cyl_temp, ..Default::default() }
 }
 
-/// Number of integer `k` from 0 with `k < x`: the trip count of `for (let k = 0; k < x; k++)`.
+/// Number of integers `k` from 0 with `k < x`.
 fn upto(x: f64) -> usize {
     x.ceil() as usize
 }
@@ -702,7 +702,7 @@ mod geometry_and_robustness {
             worst = worst.max(r.substeps);
             total += r.substeps;
         }
-        // Sized for roughly 2 substeps per audio sample; the cap is 8.
+        // Sized for roughly 2 substeps per audio sample, and even the worst sample takes no more than 8.
         assert!((total as f64 / iters as f64) < 4.0, "mean {}", total as f64 / iters as f64);
         assert!(worst <= 8, "worst {worst}");
     }
@@ -994,8 +994,7 @@ mod the_open_end_reflects_less_at_high_frequency_as_a_real_one_does {
     }
 }
 
-/// The solver runs one implementation, its cell loops vectorised two cells at a time with a scalar
-/// tail. These are the checks that stay meaningful on it: violent states that reach every branch of
+/// The solver's cell loops are vectorised two cells at a time with a scalar tail. These are the checks that stay meaningful on it: violent states that reach every branch of
 /// the Riemann solver and the limiters, and cell counts of both parities so the tails are exercised.
 mod vectorised_loops {
     use super::*;
@@ -1018,9 +1017,9 @@ mod vectorised_loops {
 
     /// Deliberately violent states, to reach the code paths a well-behaved duct never does.
     ///
-    /// The vectorised Riemann solver computes all four of the scalar version's branches and
+    /// The vectorised Riemann solver computes all four of the scalar `hllc`'s branches and
     /// selects, so the supersonic ones only get tested if something is actually supersonic.
-    /// Mach numbers out to +/-2.5 guarantee faces where `sL >= 0` and where `sR <= 0`, and the
+    /// Mach numbers out to +/-2.5 guarantee faces where `s_l >= 0` and where `s_r <= 0`, and the
     /// pressure and density jumps drive the limiter into its zero-slope guard. Every limiter has
     /// to come through with a physical state and without needing a recovery.
     #[test]

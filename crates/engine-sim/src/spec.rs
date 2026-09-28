@@ -125,29 +125,6 @@ pub enum ExhaustLayoutSpec {
     TwoIntoOne,
 }
 
-impl ExhaustLayoutSpec {
-    fn as_str(self) -> &'static str {
-        match self {
-            ExhaustLayoutSpec::Open => "open",
-            ExhaustLayoutSpec::PerBank => "perBank",
-            ExhaustLayoutSpec::Merged => "merged",
-            ExhaustLayoutSpec::Single => "single",
-            ExhaustLayoutSpec::TwoIntoTwo => "2into2",
-            ExhaustLayoutSpec::TwoIntoOne => "2into1",
-        }
-    }
-}
-
-impl ExhaustLayout {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            ExhaustLayout::Open => "open",
-            ExhaustLayout::PerBank => "perBank",
-            ExhaustLayout::Merged => "merged",
-        }
-    }
-}
-
 /// Everything about the engine. The web app's `EngineSpec` documents each field.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
@@ -1139,11 +1116,6 @@ pub fn exhaust_layout_of(spec: &EngineSpec) -> ExhaustLayout {
         ExhaustLayoutSpec::Merged => ExhaustLayout::Merged,
         _ => ExhaustLayout::Open,
     }
-}
-
-/// The raw layout string the spec holds, as the web app keys a layout change on.
-pub fn exhaust_layout_name(spec: &EngineSpec) -> &'static str {
-    spec.exhaust_layout.as_str()
 }
 
 /// Which collector each cylinder feeds, or -1 for a cylinder that vents straight out.

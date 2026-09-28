@@ -10,4 +10,3 @@
  * would run its `registerProcessor`.
  */
 export const CONTROL_PARAMS = ['throttle', 'load'] as const;
-export type ControlParam = (typeof CONTROL_PARAMS)[number];

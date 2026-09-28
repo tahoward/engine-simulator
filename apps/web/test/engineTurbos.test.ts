@@ -26,16 +26,16 @@ const portsOf = (spec: EngineSpec): ExhaustPort[] => {
 /** Seated as the view seats a graph when it is rebuilt. */
 function rebuild(graph: ExhaustGraph, spec: EngineSpec): ExhaustPort[] {
   const ports = portsOf(spec);
-  seatManifolds(graph, ports, spec);
+  seatManifolds(graph, ports);
   seatLengthwaysHeaders(graph, ports, spec);
-  seatHeaders(graph, ports, spec);
+  seatHeaders(graph, ports);
   seatEngineTurbos(graph, ports, spec);
   seatTurbos(graph, ports, spec);
   refitBends(graph, ports, spec);
   return ports;
 }
 
-/** Each entry of the Cylinders menu, as the panel switches to it. */
+/** Entries of the Cylinders menu, as the panel switches to them. */
 const ENGINE_TYPES: Array<[string, Partial<EngineSpec>]> = [
   ['a single', { cylinders: 1, exhaustLayout: 'open', vAngle: 0 }],
   ['a twin', { cylinders: 2, exhaustLayout: 'merged' }],

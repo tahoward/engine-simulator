@@ -45,10 +45,11 @@ the web app alone runs without it. See
 ## Controls
 
 - **Space** starts and stops.
-- **Click a pipe** to select it; **drag the blue spheres** to lengthen and angle a segment, **drag the
-  rings** to change its diameter, or type exact sizes into the panel.
-- **Draw a pipe** in the panel to route a new runner from a port, a junction or the side of a pipe.
-- **Delete** or **Backspace** removes the selected segment or junction.
+- **Click a pipe** to select it; **drag its triad's arrows and rings** to move and turn it, **drag the
+  pale rings** round it to change its diameter, or **right-click** it to type exact sizes into its menu.
+- **Draw a pipe**, in the view's toolbar, routes a new pipe from a port, a junction or the open end of a
+  pipe, and can join the side of another.
+- **Delete** or **Backspace** removes the selected segment or turbo.
 - The whole configuration round-trips through the URL hash, so an exhaust you like is a shareable link.
 
 See [the Controls page](https://tahoward.github.io/engine-simulator/controls/) for the rest.

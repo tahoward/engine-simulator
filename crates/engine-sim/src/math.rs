@@ -142,12 +142,6 @@ pub fn sign(x: f64) -> f64 {
     }
 }
 
-/// `Number.isFinite`.
-#[inline(always)]
-pub fn is_finite(x: f64) -> bool {
-    x.is_finite()
-}
-
 /// ToUint32, as `x >>> 0` applies it to a number: truncated, then taken modulo 2^32.
 pub fn to_uint32(x: f64) -> u32 {
     if !x.is_finite() {

@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::f64::consts::PI;
 
-/// `expect(actual).toBeCloseTo(expected, digits)`: within half a unit in the `digits`th decimal place.
+/// `actual` within half a unit of `expected` in the `digits`th decimal place.
 #[track_caller]
 fn assert_close(actual: f64, expected: f64, digits: f64) {
     let tol = 10f64.powf(-digits) / 2.0;
@@ -92,8 +92,8 @@ fn structural_mode_rings_to_a_peak_of_about_the_impulse_it_was_struck_with() {
 // The structure-borne sounds, pitched and levelled for the engine they are in.
 //
 // Rung at a single cylinder's frequencies and levels, a large engine's mechanical layer would sit far
-// too high and too loud. Piston slap is counted outright, because a TDC check that compared each angle
-// with itself would never fire and the slap would never sound.
+// too high and too loud. Piston slap is counted outright, because a TDC crossing that never registered
+// would leave the slap silent with nothing else to show for it.
 
 fn sim(engine: Value) -> EngineSim {
     let mut cfg = common::default_config();

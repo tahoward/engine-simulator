@@ -141,8 +141,9 @@ const WHINE_ORDERS: [(f64, f64); 5] =
 /// How deeply the blades modulate the air drawn into the compressor at full speed: the blade-pass
 /// tone's share of the inlet's volume flow. It goes as the square of the speed.
 const WHINE_DEPTH: f64 = 0.005;
-/// Relative speed of the second turbo of a pair.
-const TWIN_DETUNE: f64 = 1.012;
+/// How much faster each turbo's whine runs than the one before's, so several beat rather than sounding
+/// as one tone.
+const TURBO_DETUNE: f64 = 1.012;
 
 /// The turbine's pulsation of the exhaust flow at full speed, at the first two shaft orders, as a
 /// share of its flow: its whistle, carried down the pipe.
@@ -364,7 +365,6 @@ pub struct Turbo {
     energy: f64,
     wastegate: f64,
     blow_off: f64,
-    blow_off_flow: f64,
     back_pressure: f64,
     /// Where the turbine ran on its map last sample: its efficiency and blade speed ratio.
     turbine_efficiency: f64,
@@ -374,7 +374,8 @@ pub struct Turbo {
 
     // Sound
     noise: Noise,
-    whine_phase: [[f64; 5]; 2],
+    /// Each turbo's whine harmonics.
+    whine_phase: Vec<[f64; 5]>,
     turbine_phase: [f64; 2],
     /// The compressor inlet and the atmospheric blow-off valve's outlet, radiating as the tailpipe does.
     inlet: FarField,
@@ -407,13 +408,12 @@ impl Turbo {
             energy: mass * gas_energy(gas::T_AMB),
             wastegate: 0.0,
             blow_off: 0.0,
-            blow_off_flow: 0.0,
             back_pressure: gas::P_AMB,
             turbine_efficiency: 0.0,
             blade_speed_ratio: 0.0,
             since_reverse: f64::INFINITY,
             noise: Noise::new(0x7ab0_c3d1 as f64),
-            whine_phase: [[0.0; 5]; 2],
+            whine_phase: vec![[0.0; 5]; size.count as usize],
             turbine_phase: [0.0; 2],
             inlet: FarField::new(sample_rate, (2.0 * c) / inlet_radius),
             vent: FarField::new(sample_rate, (2.0 * c) / vent_radius),
@@ -437,6 +437,7 @@ impl Turbo {
         self.mass *= scale;
         self.energy *= scale;
         self.omega = clamp(self.omega, 0.0, 1.2 * size.full_speed);
+        self.whine_phase.resize(size.count as usize, [0.0; 5]);
         self.size = size;
     }
 
@@ -473,10 +474,6 @@ impl Turbo {
 
     pub fn blow_off(&self) -> f64 {
         self.blow_off
-    }
-
-    pub fn blow_off_flow(&self) -> f64 {
-        self.blow_off_flow
     }
 
     /// Whether the compressor has run backwards in the last tenth of a second.
@@ -608,7 +605,6 @@ impl Turbo {
         self.blow_off += (dt / BLOW_OFF_TAU) * (bov_target - self.blow_off);
         self.blow_off = clamp(self.blow_off, 0.0, 1.0);
         let vent = orifice_mass_flow(size.blow_off_area * self.blow_off, 0.7, p2, t2, gas::P_AMB, GAMMA_AIR);
-        self.blow_off_flow = vent;
 
         // --- Charge air: in from the compressor through the intercooler, out through the throttle ---
         let t_in = if m_c >= 0.0 {
@@ -663,9 +659,8 @@ impl Turbo {
 
         // --- The blades' modulation of the air drawn in ---
         let mut whine = 0.0;
-        let voices = size.count as usize;
-        for v in 0..voices {
-            let speed = if v == 0 { shaft_hz } else { shaft_hz * TWIN_DETUNE };
+        let mut speed = shaft_hz;
+        for v in 0..self.whine_phase.len() {
             for (h, &(order, rel)) in WHINE_ORDERS.iter().enumerate() {
                 let hz = speed * order;
                 let fade = self.fade(hz);
@@ -676,6 +671,7 @@ impl Turbo {
                     whine += rel * fade * math::sin(2.0 * PI * *ph);
                 }
             }
+            speed *= TURBO_DETUNE;
         }
         whine *= (WHINE_DEPTH * s * s) / size.count;
 

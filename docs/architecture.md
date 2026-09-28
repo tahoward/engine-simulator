@@ -101,7 +101,7 @@ apps/web/src/audio/
   NativeEngine.ts               on the desktop: Tauri commands to the native simulation
   worklet/processor.ts  sim.ts  the AudioWorkletProcessor, and the Wasm module it runs
   worklet/simWasm.ts            the Wasm module, base64 (npm run build:sim)
-apps/web/src/scene/             Viewer, animated cutaway EngineMesh, PipeMesh, PipeEditor, fittings
+apps/web/src/scene/             Viewer, animated EngineMesh, PipeMesh, PipeEditor, junction marks
 apps/web/src/ui/                control panel, waveform/spectrum/pressure scope
 apps/web/test/                  interface tests, and the Wasm build against the reference renders
 apps/web/bench/                 real-time cost of the Wasm build

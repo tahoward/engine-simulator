@@ -327,7 +327,7 @@ describe('a pipe fitted into a turbo’s inlet', () => {
     expect(runner.fitted).toBe(true);
     expect(runner.segments).toHaveLength(drawn.length + 1);
     expect(runner.segments.slice(0, drawn.length)).toEqual(drawn);
-    expect(fittedBend(graph, runner)).toBe(drawn.length);
+    expect(fittedBend(runner)).toBe(drawn.length);
     expect(pipesMeetAt(graph, layoutGraph(ports, graph, turboPortsOf(graph, spec)), mount.node)).toBe(true);
     // Back where it was, the pipe runs straight in again as it did.
     moveTurbo(graph, ports, spec, mount.id, [px, py, pz], mount.rotation);
@@ -401,7 +401,7 @@ describe('a pipe drawn to join another', () => {
     expect(validateGraph(graph, 2)).toEqual([]);
     expect(meets(graph, node)).toBe(true);
     expect(runner1.segments.at(-1)!.curve).toBeDefined();
-    expect(fittedBend(graph, runner1)).toBe(runner1.segments.length - 1);
+    expect(fittedBend(runner1)).toBe(runner1.segments.length - 1);
     // It arrives along the pipe it joins, so the two merge side by side.
     const placement = layoutGraph(ports, graph);
     const anchor = bendAnchor(graph, placement, node, 'runner1')!;
@@ -504,7 +504,7 @@ describe('a pipe drawn to join another', () => {
     expect(total(runner1)).toBeCloseTo(want, 3);
     expect(runner1.swing).toBe(true);
     expect(runner1.segments).toHaveLength(drawn + 2);
-    expect(lockedFrom(graph, runner1)).toBe(drawn);
+    expect(lockedFrom(runner1)).toBe(drawn);
     expect(meets(graph, node)).toBe(true);
     // Refitting on the next rebuild keeps it the length it was matched to.
     refitBends(graph, ports, spec);
@@ -585,7 +585,7 @@ describe('the engine’s length', () => {
 describe('a loose pipe', () => {
   it('is put down attached to nothing, where it was put, and the solver is not given it', async () => {
     const { placeLoosePipe, solverGraph } = await import('../src/model/exhaustGraph.js');
-    const { spec, graph, ports } = single();
+    const { graph, ports } = single();
     const id = placeLoosePipe(graph, [0.4, 0.2, 0.3], 0.04, 0.3);
     expect(validateGraph(graph, 1)).toEqual([]);
     const placement = layoutGraph(ports, graph);
@@ -597,14 +597,12 @@ describe('a loose pipe', () => {
     expect(solverGraph(graph).ducts.map((d) => d.id)).toEqual(['runner0']);
     // And survives a link.
     expect(graphFromJson(JSON.parse(JSON.stringify(graph)))).toEqual(graph);
-    void spec;
   });
 
   it('is attached by a pipe drawn into its start, and is then fed like any other', async () => {
     const { attachToLooseStart, placeLoosePipe, solverGraph } = await import('../src/model/exhaustGraph.js');
     const { spec, graph, ports } = single();
     const id = placeLoosePipe(graph, [0.5, 0.25, 0.1], 0.04, 0.3);
-    const loose = graph.ducts.find((d) => d.id === id)!;
     const before = layoutGraph(ports, graph).ducts.get(id)!;
     const node = attachToLooseStart(graph, 'runner0', id, [1, 0, 0])!;
     refitBends(graph, ports, spec);
@@ -618,7 +616,6 @@ describe('a loose pipe', () => {
     expect(after.heading.angleTo(before.heading)).toBeLessThan(1e-9);
     expect(pipesMeetAt(graph, placement, node)).toBe(true);
     expect(graph.ducts.find((d) => d.id === 'runner0')!.fitted).toBe(true);
-    void loose;
   });
 });
 
@@ -660,7 +657,7 @@ describe('deleting a pipe in the middle', () => {
   it('leaves the pipes that carried on from it loose, where they lie', async () => {
     const { loosenChildren } = await import('../src/scene/drawing.js');
     const { removeDuct, solverGraph } = await import('../src/model/exhaustGraph.js');
-    const { spec, graph, ports } = single();
+    const { graph, ports } = single();
     // Port → runner → junction → middle pipe → junction → tail, as drawing them would make.
     graph.ducts[0]!.to = { kind: 'node', node: 'a' };
     graph.ducts.push(
@@ -678,7 +675,6 @@ describe('deleting a pipe in the middle', () => {
     expect(now.heading.angleTo(was.heading)).toBeLessThan(1e-9);
     expect(validateGraph(graph, 1)).toEqual([]);
     expect(solverGraph(graph).ducts.map((d) => d.id)).not.toContain('tail');
-    void spec;
   });
 });
 
@@ -692,7 +688,7 @@ describe('a compiled header', () => {
       const ports = portsOf(spec);
       const length = preset.pipe()[0]!.length;
       const bore = preset.pipe()[0]!.dIn;
-      seatHeaders(graph, ports, spec);
+      seatHeaders(graph, ports);
       refitBends(graph, ports, spec);
       expect(validateGraph(graph, spec.cylinders)).toEqual([]);
       const placement = layoutGraph(ports, graph, turboPortsOf(graph, spec));
@@ -704,7 +700,7 @@ describe('a compiled header', () => {
       // into the collector, so only the straight out of the port is edited.
       const swinging = runners.filter((r) => r.segments.filter((s) => s.curve).length === 2);
       expect(swinging.length).toBeGreaterThan(0);
-      for (const r of swinging) expect(lockedFrom(graph, r)).toBe(1);
+      for (const r of swinging) expect(lockedFrom(r)).toBe(1);
       for (const r of runners) {
         expect(r.fitted, r.id).toBe(true);
         for (const s of r.segments) {
@@ -736,7 +732,7 @@ describe('a compiled header', () => {
       expect(rounded(graphFromJson(JSON.parse(JSON.stringify(graph))))).toEqual(rounded(graph));
       // Done once: seating again changes nothing.
       const before = JSON.stringify(graph);
-      seatHeaders(graph, ports, spec);
+      seatHeaders(graph, ports);
       expect(JSON.stringify(graph)).toBe(before);
     });
   }
@@ -756,7 +752,7 @@ describe('a compiled header', () => {
     const ports = portsOf(spec);
     const length = preset.pipe().reduce((a, s) => a + s.length, 0);
     seatLengthwaysHeaders(graph, ports, spec);
-    seatHeaders(graph, ports, spec);
+    seatHeaders(graph, ports);
     refitBends(graph, ports, spec);
     expect(validateGraph(graph, spec.cylinders)).toEqual([]);
     const placement = layoutGraph(ports, graph);
@@ -796,7 +792,7 @@ describe('a compiled manifold', () => {
     const graph = compileExhaust(spec, preset.pipe(), preset.collector!());
     const compiled = JSON.parse(JSON.stringify(graph)) as ExhaustGraph;
     const ports = portsOf(spec);
-    seatManifolds(graph, ports, spec);
+    seatManifolds(graph, ports);
     refitBends(graph, ports, spec);
     return { spec, graph, compiled, ports };
   };
@@ -840,7 +836,7 @@ describe('a compiled manifold', () => {
     }
     // Done once: seating again changes nothing.
     const before = JSON.stringify(graph);
-    seatManifolds(graph, ports, spec);
+    seatManifolds(graph, ports);
     expect(JSON.stringify(graph)).toBe(before);
   });
 
@@ -851,10 +847,10 @@ describe('a compiled manifold', () => {
     expect(validateGraph(graph, spec.cylinders)).toEqual([]);
     const ports = portsOf(spec);
     const before = JSON.stringify(graph);
-    seatManifolds(graph, ports, spec);
+    seatManifolds(graph, ports);
     seatTurbos(graph, ports, spec);
     seatLengthwaysHeaders(graph, ports, spec);
-    seatHeaders(graph, ports, spec);
+    seatHeaders(graph, ports);
     expect(JSON.stringify(graph)).toBe(before);
     refitBends(graph, ports, spec);
     const turbos = turboPortsOf(graph, spec);

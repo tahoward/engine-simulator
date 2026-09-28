@@ -498,24 +498,6 @@ impl CrossModes {
         self.aux.fill(0.0);
     }
 
-    /// Acoustic energy held in the modes, J.
-    pub fn energy(&self) -> f64 {
-        let mut e = 0.0;
-        for ch in 0..self.cell_in.len() {
-            let g = self.gain[ch];
-            if !(g > 0.0) {
-                continue;
-            }
-            for k in self.mode_from[ch]..self.mode_to[ch] {
-                let w = self.omega[k];
-                let a = self.amp[k];
-                let v = self.aux[k];
-                e += (a * a + if w > 0.0 { (v * v) / (w * w) } else { 0.0 }) / (2.0 * g);
-            }
-        }
-        e
-    }
-
     /// Frequency of every mode kept, at the current gas state, Hz.
     pub fn frequencies(&self) -> Vec<f64> {
         self.omega.iter().map(|w| w / (2.0 * PI)).collect()

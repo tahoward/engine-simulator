@@ -95,7 +95,10 @@ fn builds_boost_with_the_exhaust_and_the_wastegate_holds_it() {
     assert!((high - 0.8).abs() < 0.06, "held at the target at 6500 rpm: {high}");
     // Shut below the target, and open once there. How far depends on the pulses the manifold delivers as
     // well as on the flow, and on the drawn exhaust it is furthest open around 5000 rpm.
-    assert!(wg_mid > wg_low + 0.1 && wg_high > wg_low + 0.1, "the wastegate opens to hold the target: {wg_low} {wg_mid} {wg_high}");
+    assert!(
+        wg_mid > wg_low + 0.1 && wg_high > wg_low + 0.1,
+        "the wastegate opens to hold the target: {wg_low} {wg_mid} {wg_high}"
+    );
 }
 
 /// A higher target is reached too, and makes more torque: the turbine's nozzle is sized for it, and
@@ -315,4 +318,48 @@ fn a_turbo_with_nothing_attached_does_nothing() {
     assert_eq!(sim.pipe_solver().turbine_count(), 0);
     sim.render(FS as usize / 10);
     assert!(sim.turbo().is_none());
+}
+
+/// The RB26 with each cylinder's runner drawn into a turbo of its own, the six outlets joining.
+fn rb26_six_turbos() -> engine_sim::exhaust_graph::ExhaustGraph {
+    let mut graph = common::engine_preset(RB26).config.graph.clone().unwrap();
+    let outlet = graph.ducts.iter().find(|d| d.id == "drawn8").unwrap().clone();
+    graph.ducts.retain(|d| d.id != "drawn7" && d.id != "drawn8");
+    graph.turbos.clear();
+    let runners: Vec<usize> =
+        (0..graph.ducts.len()).filter(|&i| matches!(graph.ducts[i].from, DuctSource::Valve { .. })).collect();
+    for (n, &i) in runners.iter().enumerate() {
+        let node = format!("t{n}");
+        graph.ducts[i].to = DuctSink::Node { node: node.clone() };
+        let mut out = outlet.clone();
+        out.id = format!("turbo-out{n}");
+        out.from = DuctSource::Node { node: node.clone() };
+        graph.ducts.push(out);
+        graph.turbos.push(TurboMount { id: format!("turbo{n}"), node, position: None, rotation: None });
+    }
+    graph
+}
+
+/// Six turbos, one on each cylinder, drawn in while the engine runs on two: all six turn, make
+/// boost and whine, and going back to two leaves the engine running as before.
+#[test]
+fn takes_any_number_of_turbos() {
+    let mut sim = rb26(json!({ "throttle": 1, "rpm": 5000 }));
+    sim.render(FS as usize);
+    sim.set_graph(Some(rb26_six_turbos()));
+    assert_eq!(sim.pipe_solver().turbine_count(), 6);
+    let mut loudest = 0.0f64;
+    for _ in 0..3 * FS as usize {
+        sim.render(1);
+        let sound = sim.turbo().unwrap().last_sound();
+        assert!(sound.is_finite());
+        loudest = loudest.max(sound.abs());
+    }
+    assert!(loudest > 0.0, "the turbos sound");
+    assert!(boost(&sim) > 0.3, "boost {}", boost(&sim));
+
+    sim.set_graph(common::engine_preset(RB26).config.graph.clone());
+    assert_eq!(sim.pipe_solver().turbine_count(), 2);
+    sim.render(2 * FS as usize);
+    assert!(boost(&sim) > 0.5, "boost {}", boost(&sim));
 }

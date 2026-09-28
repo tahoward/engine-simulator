@@ -114,7 +114,7 @@ pub fn distance(a: Vec3, b: Vec3) -> f64 {
 
 fn normalise(v: Vec3) -> Vec3 {
     let h = math::hypot(&[v[0], v[1], v[2]]);
-    // `|| 1`: a zero or NaN length divides by one.
+    // A zero or NaN length divides by one.
     let l = if h == 0.0 || h.is_nan() { 1.0 } else { h };
     [v[0] / l, v[1] / l, v[2] / l]
 }

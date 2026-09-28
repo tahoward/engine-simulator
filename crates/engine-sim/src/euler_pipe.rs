@@ -227,8 +227,6 @@ impl Default for ValveState {
 pub struct AdvanceResult {
     /// Volume flow leaving the mouth, m^3/s, averaged over the substeps taken.
     pub mouth_flow: f64,
-    /// Mass flow through the valve, kg/s, positive out of the cylinder.
-    pub valve_mass_flow: f64,
     /// Absolute pressure at the valve seat, Pa.
     pub port_pressure: f64,
     pub substeps: usize,
@@ -335,10 +333,6 @@ pub struct EulerPipe {
     pub recoveries: u64,
     /// Times the junction boundary had to clamp a degenerate end state. Should stay zero.
     pub junction_clamps: u64,
-    /// Faces that were treated as supersonic outflow.
-    pub supersonic_faces: u64,
-    /// Faces a junction filled at the speed of sound: choked, as a nozzle is, the most it can pass.
-    pub choked_faces: u64,
     heat_counter: i32,
     heat_batch: f64,
     /// The last `(p_ghost / p)^(1/gamma)` each end's junction boundary took, keyed by the bits of
@@ -464,8 +458,6 @@ impl EulerPipe {
             valve_flux_out: 0.0,
             recoveries: 0,
             junction_clamps: 0,
-            supersonic_faces: 0,
-            choked_faces: 0,
             heat_counter: 0,
             heat_batch: 0.0,
             junction_pow: [(f64::NAN.to_bits(), f64::NAN); 2],
@@ -626,10 +618,6 @@ impl EulerPipe {
         self.area_cell[0]
     }
 
-    pub fn mouth_area(&self) -> f64 {
-        self.area_cell[self.n - 1]
-    }
-
     /// First quarter-wave resonance of the duct as it is currently filled, Hz, integrated over the
     /// solved temperature field, with the mouth's end correction.
     pub fn quarter_wave_hz(&self) -> f64 {
@@ -697,6 +685,7 @@ impl EulerPipe {
         let h = dt / substeps as f64;
 
         let mut mouth_acc = 0.0;
+        // Summed only to catch a valve flow gone non-finite.
         let mut valve_acc = 0.0;
         for _ in 0..substeps {
             self.begin_step(h);
@@ -710,14 +699,12 @@ impl EulerPipe {
 
         let inv = 1.0 / substeps as f64;
         let mut mouth_flow = mouth_acc * inv;
-        let mut valve_mass_flow = valve_acc * inv;
-        if !mouth_flow.is_finite() || !valve_mass_flow.is_finite() || !self.is_finite() {
+        if !mouth_flow.is_finite() || !valve_acc.is_finite() || !self.is_finite() {
             self.reset_to_quiescent();
             mouth_flow = 0.0;
-            valve_mass_flow = 0.0;
             self.recoveries += 1;
         }
-        AdvanceResult { mouth_flow, valve_mass_flow, port_pressure: self.port_pressure(), substeps }
+        AdvanceResult { mouth_flow, port_pressure: self.port_pressure(), substeps }
     }
 
     /// Mass flow through the valve at this duct's inlet, kg/s, positive out of the cylinder.
@@ -1261,7 +1248,6 @@ impl EulerPipe {
 
         // Supersonic outflow: impose nothing.
         if u >= c {
-            self.supersonic_faces += 1;
             let flux = hllc(r, u, p, r, u, p);
             self.set_face(n, flux);
             self.mouth_mass_flow = self.f0[n] * self.area_face[n];
@@ -1449,9 +1435,6 @@ impl EulerPipe {
         let c_end = math::sqrt((GAMMA * math::max(st.p, MIN_JUNCTION_P)) / math::max(st.rho, MIN_JUNCTION_RHO));
         let outward = if end == DuctEnd::Outlet { st.u } else { -st.u };
         if outward >= c_end && gas::P_AMB + junction_gauge <= st.p {
-            if commit {
-                self.supersonic_faces += 1;
-            }
             let flux = hllc(st.rho, st.u, st.p, st.rho, st.u, st.p);
             if !commit {
                 return flux.0 * self.area_face[face];
@@ -1483,9 +1466,6 @@ impl EulerPipe {
             let t_star = (2.0 * math::max(junction_temp, gas::T_AMB)) / (GAMMA + 1.0);
             let c_star = math::sqrt(GAMMA * gas::R * t_star);
             if u_raw.abs() > c_star {
-                if commit {
-                    self.choked_faces += 1;
-                }
                 let p_star = math::max(gas::P_AMB + junction_gauge, 1e-3) * CHOKED_PRESSURE_RATIO;
                 let r_star = p_star / (gas::R * t_star);
                 let u_star = if end == DuctEnd::Outlet { -c_star } else { c_star };
@@ -1545,16 +1525,6 @@ impl EulerPipe {
         self.area_face[face]
     }
 
-    /// Mass flux through a face, kg/s, positive in the duct's +x direction.
-    pub fn face_mass_flux(&self, face: usize) -> f64 {
-        self.f0[face] * self.area_face[face]
-    }
-
-    /// Energy flux through a face, W.
-    pub fn face_energy_flux(&self, face: usize) -> f64 {
-        self.f2[face] * self.area_face[face]
-    }
-
     /// Mean wall temperature, K.
     pub fn mean_wall_temp(&self) -> f64 {
         let mut sum = 0.0;
@@ -1574,14 +1544,6 @@ impl EulerPipe {
     /// Wall temperatures, for a rebuild to inherit.
     pub fn export_wall(&self) -> Vec<f64> {
         self.wall_t.clone()
-    }
-
-    pub fn reset(&mut self) {
-        self.mouth_phi = 0.0;
-        self.mouth_cut_state = 0.0;
-        if let Some(c) = &mut self.cross_modes {
-            c.reset();
-        }
     }
 }
 
@@ -1736,7 +1698,7 @@ pub fn duct_cell_count(length: f64, cell_size: f64, max_cells: usize, min_dx: f6
     if min_dx > 0.0 {
         count = math::min(count, math::max(1.0, (length / min_dx).floor()));
     }
-    // `count | 0`.
+    // Truncated, with a non-finite count taken as zero.
     if count.is_finite() { count as usize } else { 0 }
 }
 

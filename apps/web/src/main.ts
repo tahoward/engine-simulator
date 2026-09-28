@@ -3,7 +3,7 @@
  * consumers — audio thread, 3D scene, control panel — pointed at the same object.
  *
  * Data flow:
- *   panel / 3D handles  ->  config (mutated in place)  ->  AudioEngine.setGraph/setEngine
+ *   panel / 3D handles  ->  config (mutated in place)  ->  EngineHost.setGraph/setEngine
  *                                                      ->  PipeMesh.rebuild, JointMesh.rebuild
  *   worklet snapshot @60 Hz  ->  EngineMesh.update, PipeMesh.update, Panel, Scope
  */
@@ -127,8 +127,7 @@ const pipeScale = new PressureScale();
  * Which duct the drag handles are attached to.
  *
  * Starts on the graph's default duct (`defaultDuctId`, the same rule the panel uses), and follows
- * whichever duct is picked in the scene or in the panel's duct menu. Reset to it whenever the graph is
- * reseeded.
+ * whichever duct is picked in the scene. Reset to it whenever the graph is reseeded.
  */
 let editedDuctId = defaultDuctId(config.graph!) ?? 'runner0';
 /** The junction selected in the scene, if one is. Segments and junctions are selected one or the other. */
@@ -164,7 +163,7 @@ function directionsOf(placement: ExhaustPlacement | null): DuctDirections | unde
  * Take the edited pipe off its junction if the edit left the pipes there no longer meeting.
  *
  * Pipes are straight tube: shorten one that runs into a junction and it falls short of it. Left joined,
- * the fitting would have to grow to bridge the gap. So its end is left open instead, which is what
+ * it would end short of the junction, with a gap between. So its end is left open instead, which is what
  * cutting a real pipe short does. Pipes that join it in a fitted bend are fitted again first, so they
  * follow it wherever it goes; only a pipe drawn into it without one can fall short. If the edited pipe was
  * the one the junction follows, it is those *others* that stop meeting, and it is still the edited one
@@ -219,8 +218,8 @@ const editor = new PipeEditor(
       rebuildPipeGeometry();
       panel.syncPipe();
       panel.syncTurbos();
-      // Rebuilding the waveguide reallocates and briefly ramps the audio, so during
-      // a drag it is throttled; the editor always sends a final commit on release.
+      // Rebuilding the solver's ducts reallocates and briefly ramps the audio, so during
+      // a drag it waits: the editor always sends a final commit on release.
       // A settled edit is kept in the link too, so a reload comes back to it.
       if (commit) {
         audio.setGraph(config.graph!);
@@ -406,7 +405,7 @@ const panel = new Panel(panelEl, toolsEl, config, {
      *
      * And so does anything that moves the ports, while the exhaust is still as compiled: a manifold's
      * lengths are cut to the spacing of the ports, so after a bore change they would not reach, and
-     * the fittings would grow to bridge the gaps. An exhaust the user has edited is theirs, and is left alone.
+     * would leave gaps at the junctions. An exhaust the user has edited is theirs, and is left alone.
      */
     if (touchesTopology(partial) || (touchesGeometry(partial) && !hasBeenEdited(config.graph!))) {
       reseedGraph();
@@ -706,14 +705,14 @@ function rebuildPipeGeometry(): void {
 
   // Seated first: building a compiled manifold or header can add pipes.
   const ports = Array.from({ length: cylinders }, (_, b) => engineMesh.exhaustPort(b));
-  seatManifolds(graph, ports, config.engine);
+  seatManifolds(graph, ports);
   seatLengthwaysHeaders(graph, ports, config.engine);
-  seatHeaders(graph, ports, config.engine);
+  seatHeaders(graph, ports);
   seatEngineTurbos(graph, ports, config.engine);
   seatTurbos(graph, ports, config.engine);
   refitBends(graph, ports, config.engine);
 
-  // One mesh per duct, one merge body per junction that has one.
+  // One mesh per duct, and a mark for each junction of two or more pipes.
   while (pipeMeshes.length < graph.ducts.length) {
     const m = new PipeMesh();
     pipeMeshes.push(m);
@@ -756,11 +755,6 @@ function rebuildPipeGeometry(): void {
     panel.showJoint(null);
   }
 
-  /**
-   * The editor's handles belong to one duct, so they must use the frame that duct was actually built
-   * with — not the bare port direction. With a collector those differ by however far the runner had to
-   * be aimed to reach the collar, and handles laid out on the port direction would sit off the pipe.
-   */
   // One mesh per turbo, where it was put.
   const turbos = graph.turbos ?? [];
   while (turboMeshes.length < turbos.length) {
@@ -795,8 +789,13 @@ function rebuildPipeGeometry(): void {
   editor.turboHeight = turboHeight(ports);
   editor.turboOutletDia = size.outletDia;
 
+  /**
+   * The editor's handles belong to one duct, so they must use the frame that duct was actually built
+   * with — not the bare port direction. With a collector those differ by however far the runner had to
+   * be aimed to reach the collar, and handles laid out on the port direction would sit off the pipe.
+   */
   const editedDuct = graph.ducts.find((d) => d.id === editedDuctId) ?? graph.ducts[0];
-  editor.lockedFrom = editedDuct ? lockedFrom(graph, editedDuct) : null;
+  editor.lockedFrom = editedDuct ? lockedFrom(editedDuct) : null;
   if (editedDuct) {
     const place = placement.ducts.get(editedDuct.id);
     const meshIndex = graph.ducts.indexOf(editedDuct);

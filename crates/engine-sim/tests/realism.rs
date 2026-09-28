@@ -339,7 +339,7 @@ fn stays_finite_with_degenerate_listener_geometry() {
     }
 }
 
-// --- nothing regressed in the basics ---
+// --- the basics still hold ---
 
 /// Still produces a stable, audible signal across presets.
 #[test]

@@ -454,7 +454,7 @@ impl EngineSim {
         }
     }
 
-    /// Replace the engine with `next`: the whole spec, as the web app's `{ ...spec, ...partial }`.
+    /// Replace the engine with `next`, the whole spec. `set_engine_json` takes only the changes.
     pub fn set_engine(&mut self, next: EngineSpec) {
         let prev = &self.spec.spec;
         let prev_temp = prev.port_gas_temp;
@@ -680,11 +680,6 @@ impl EngineSim {
             self.clack.iter().map(hz).collect(),
             self.slap.iter().map(hz).collect(),
         )
-    }
-
-    /// Number of banks actually running.
-    pub fn bank_count(&self) -> usize {
-        self.cyls.len()
     }
 
     fn allocate_per_cylinder(&mut self) {
@@ -1312,11 +1307,6 @@ impl EngineSim {
             self.slow_prev = self.slow_next;
         }
         self.time_scale = scale;
-    }
-
-    /// Simulated samples per output sample: 1 is real time, less is slow motion.
-    pub fn time_scale(&self) -> f64 {
-        self.time_scale
     }
 
     /// Render `n` samples into a new buffer.

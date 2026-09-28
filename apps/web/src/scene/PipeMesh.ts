@@ -155,13 +155,6 @@ export function layoutPipe(
 
 
 /**
- * `dir` turned by `yaw` about the vertical, then by `pitch` about its new horizontal right axis.
- *
- * The one convention every turn in the exhaust uses — a segment's corner, a duct leaving its port, a drawn
- * segment's fit — so they all agree. Pitching about a *horizontal* axis changes elevation by exactly
- * `pitch` and leaves the horizontal heading alone, which is what makes `turnBetween` an exact inverse.
- */
-/**
  * The frame a bend is described in: x along `dir`, the way it starts, y as near straight up as that allows,
  * and z across.
  */
@@ -275,6 +268,13 @@ export function acrossAxis(dir: THREE.Vector3): THREE.Vector3 {
   return a.normalize();
 }
 
+/**
+ * `dir` turned by `yaw` about the vertical, then by `pitch` about its new horizontal right axis.
+ *
+ * The one convention every turn in the exhaust uses — a segment's corner, a duct leaving its port, a drawn
+ * segment's fit — so they all agree. Pitching about a *horizontal* axis changes elevation by exactly
+ * `pitch` and leaves the horizontal heading alone, which is what makes `turnBetween` an exact inverse.
+ */
 export function turnHeading(dir: THREE.Vector3, yaw = 0, pitch = 0): THREE.Vector3 {
   return new THREE.Vector3(...turnDir([dir.x, dir.y, dir.z], yaw, pitch));
 }
@@ -343,7 +343,7 @@ export class PipeMesh {
   private mesh: THREE.Mesh | null = null;
   private geometry: THREE.BufferGeometry | null = null;
   private layout: PipeLayout | null = null;
-  /** Ring offset in the vertex buffer for each station. */
+  /** How many stations the tube has, each a ring in the vertex buffer. */
   private stationCount = 0;
 
   private readonly material: THREE.MeshStandardMaterial;

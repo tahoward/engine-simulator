@@ -104,17 +104,6 @@ fn gamma_constants(gamma_raw: f64) -> GammaConstants {
     constants_for_key(key)
 }
 
-/// Signed mass flow across a valve, kg/s. Positive means from `a` to `b`.
-pub fn valve_mass_flow(area: f64, p_a: f64, t_a: f64, p_b: f64, t_b: f64, gamma: f64) -> f64 {
-    if area <= 0.0 {
-        return 0.0;
-    }
-    if p_a > p_b {
-        return orifice_mass_flow(area, VALVE_CD, p_a, t_a, p_b, gamma);
-    }
-    -orifice_mass_flow(area, VALVE_CD, p_b, t_b, p_a, gamma)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

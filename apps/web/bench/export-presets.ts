@@ -17,21 +17,14 @@ import {
   fitDyno,
   fittedExhaust,
 } from '../src/model/spec.js';
-import { compileExhaust, graphFromJson } from '../src/model/exhaustGraph.js';
+import { presetConfig } from './presetConfig.js';
 
 // Run from `bench/dist`, four levels below the repository root.
 const root = fileURLToPath(new URL('../../../../', import.meta.url));
 const outPath = `${root}crates/engine-sim/tests/fixtures/presets.json`;
 
 const engines = ENGINE_PRESETS.map((preset) => {
-  const cfg = defaultConfig();
-  cfg.engine = { ...cfg.engine, ...preset.engine };
-  cfg.pipe = preset.pipe();
-  if (preset.collector) cfg.collector = preset.collector();
-  // A preset with turbos carries its exhaust as the app compiles it, since the turbos are part of it.
-  if (preset.turbos) cfg.graph = compileExhaust(cfg.engine, cfg.pipe, cfg.collector, preset.turbos);
-  // A preset with an exhaust drawn for it carries that.
-  if (preset.graph) cfg.graph = graphFromJson(preset.graph()) ?? undefined;
+  const cfg = presetConfig(preset);
   return {
     name: preset.name,
     engine: preset.engine,

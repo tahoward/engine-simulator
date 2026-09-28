@@ -28,7 +28,7 @@ fn spec_of(partial: Value) -> EngineSpec {
     common::with(&common::default_config().engine, partial)
 }
 
-/// `makeSegment({ length, dIn })`, either left to its default.
+/// A segment of `length` and inlet diameter `d_in`, either left to its default.
 fn seg(length: Option<f64>, d_in: Option<f64>) -> PipeSegment {
     make_segment(SegmentPartial { length, d_in, ..Default::default() })
 }
@@ -468,9 +468,9 @@ mod walking_the_graph_for_the_panel_and_the_url {
     ///
     /// A graph survives the URL.
     ///
-    /// Saved as base64 JSON in the hash, so it comes back as plain data with no prototypes and no
-    /// guarantee of being well formed. Rebuilding through `make_segment` is what stops a truncated link
-    /// putting undefined diameters into the solver.
+    /// Saved as base64 JSON in the hash, so it comes back as plain data with no guarantee of being well
+    /// formed. Rebuilding each segment through `copy_segment` is what stops a truncated link putting
+    /// missing diameters into the solver.
     #[test]
     fn round_trips_through_json_and_still_validates() {
         let mut original = compile_layout(&v8_spec(), &[of_length(0.4)], &[of_length(0.6)]);
@@ -510,12 +510,10 @@ mod walking_the_graph_for_the_panel_and_the_url {
 
 /// A drawn graph can outlive the engine it was drawn for, and the audio thread must survive that.
 ///
-/// `set_engine` and `set_graph` are separate messages, so switching a V-twin to a V8 rebuilds the exhaust
-/// once with the new cylinder count and the *old* graph before the new one arrives — and that graph has
-/// no pipe on cylinders 3 to 8. `ExhaustSystem` rightly refuses to build it. A failure landing inside the
-/// worklet's message handler would leave a two-duct exhaust attached to an eight-cylinder engine; the
-/// next `process` call would read `primaries[2]`, find nothing, and the node would die for good, so
-/// switching engine would silence the app permanently.
+/// `set_engine` and `set_graph` are separate calls, so switching a V-twin to a V8 rebuilds the exhaust
+/// once with the new cylinder count and the *stale* graph before the new one arrives — and that graph has
+/// no pipe on cylinders 3 to 8. `ExhaustSystem` rightly refuses to build it, so the rebuild uses the
+/// exhaust compiled from the layout instead until a graph that fits arrives.
 ///
 /// Nothing on the audio thread may fail: there is nothing above it to catch anything, and the cost of
 /// being wrong is the whole app going quiet.

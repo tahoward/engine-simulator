@@ -15,8 +15,7 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
     environment: 'node',
-    // The Euler solver is roughly fifteen times the cost of the delay lines it
-    // replaced, and several tests render seconds of audio at 48 kHz.
+    // Several tests render seconds of audio at 48 kHz through the Euler solver.
     testTimeout: 120_000,
   },
 });

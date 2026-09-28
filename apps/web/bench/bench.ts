@@ -2,16 +2,17 @@
  * Real-time cost of the simulation the web app ships: the Wasm build, through the same `Sim` the
  * AudioWorklet uses, in Node's V8 (the JavaScript engine in Chrome). `npm run bench`.
  *
- * For each engine preset, the fraction of one core it needs to make a second of audio, held at
- * `BENCH_RPM` (6500 by default) at full throttle, the solver's worst case. Rendered in blocks of 128,
- * as the worklet renders, after half a second of warm-up, and reported as the best of
- * `BENCH_REPEATS` (3): the work is deterministic, so anything slower than the fastest run is the rest
- * of the machine. `cargo run --release -p engine-sim --example bench` measures the native build the
+ * For each engine preset, with the exhaust the app gives it, the fraction of one core it needs to make
+ * a second of audio, held at `BENCH_RPM` (6500 by default) at full throttle, the solver's worst case.
+ * Rendered in blocks of 128, as the worklet renders, after half a second of warm-up, and reported as
+ * the best of `BENCH_REPEATS` (3): the work is deterministic, so anything slower than the fastest run
+ * is the rest of the machine. `cargo run --release -p engine-sim --example bench` measures the native build the
  * same way.
  */
 
-import { ENGINE_PRESETS, defaultConfig } from '../src/model/spec.js';
+import { ENGINE_PRESETS } from '../src/model/spec.js';
 import { Sim } from '../src/audio/worklet/sim.js';
+import { presetConfig } from './presetConfig.js';
 
 const FS = 48000;
 const RPM = Number(process.env.BENCH_RPM ?? 6500);
@@ -24,10 +25,8 @@ console.log(`${'preset'.padEnd(width)}  % of one core @ ${RPM} rpm  (spread)`);
 let worst = { name: '', fraction: 0 };
 for (const p of ENGINE_PRESETS) {
   if (ONLY && !p.name.includes(ONLY)) continue;
-  const cfg = defaultConfig();
-  cfg.engine = { ...cfg.engine, ...p.engine, rpm: RPM, throttle: 1, freeRunning: false };
-  cfg.pipe = p.pipe();
-  if (p.collector) cfg.collector = p.collector();
+  const cfg = presetConfig(p);
+  cfg.engine = { ...cfg.engine, rpm: RPM, throttle: 1, freeRunning: false };
   const sim = new Sim(FS, cfg);
   const block = new Float32Array(128);
   for (let i = 0; i < FS / 2 / 128; i++) sim.renderInto(block);

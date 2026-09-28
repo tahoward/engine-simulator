@@ -53,7 +53,6 @@ function build(over: Partial<EngineSpec>, seconds = 1): { sim: Sim; spec: Engine
 const V8 = { cylinders: 8 as const, vAngle: 90, exhaustLayout: 'perBank' as const };
 
 describe('the drawn mechanism', () => {
-
   /**
    * Pose the mesh as the app does.
    *
@@ -429,7 +428,7 @@ describe('the drawn mechanism', () => {
 
 describe('every preset', () => {
   it('draws for every preset without stretching a rod', () => {
-      for (const preset of ENGINE_PRESETS) {
+    for (const preset of ENGINE_PRESETS) {
       const s = spec(preset.engine);
       const mesh = new EngineMesh(s);
       const plan = firingPlan(s);
@@ -449,5 +448,21 @@ describe('every preset', () => {
         }
       }
     }
+  });
+});
+
+describe('rebuilding', () => {
+  it('releases the geometry and materials it drew before', () => {
+    const mesh = new EngineMesh(spec({ cylinders: 8, vAngle: 90 }));
+    const drawn = new Set<THREE.BufferGeometry | THREE.Material>();
+    mesh.group.traverse((o) => {
+      if (!(o instanceof THREE.Mesh)) return;
+      drawn.add(o.geometry);
+      for (const m of [o.material].flat() as THREE.Material[]) drawn.add(m);
+    });
+    const released = new Set<unknown>();
+    for (const d of drawn) d.addEventListener('dispose', () => released.add(d));
+    mesh.setSpec(spec({ cylinders: 4 }));
+    expect(released.size).toBe(drawn.size);
   });
 });

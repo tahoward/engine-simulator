@@ -439,17 +439,15 @@ describe('branching from the side of a pipe', () => {
     expect(placement.ducts.get(branch)!.heading.angleTo(through)).toBeGreaterThan(0.5);
   });
 
-  it('fits a ball where the branch leaves the pipe', async () => {
-    const { buildJointGeometry, hubShape } = await import('../src/scene/jointMesh.js');
+  it('marks a junction of three pipes where the branch leaves the pipe', async () => {
+    const { JointMesh } = await import('../src/scene/jointMesh.js');
     const { graph, node } = branched();
     const joint = layoutGraph(ports(), graph).joints.get(node)!;
     expect(joint.limbs).toHaveLength(3);
-    const hub = hubShape(joint);
-    // Everything meets at one point, so the fitting is a ball a little wider than the pipe.
-    expect(hub.kind).toBe('ball');
-    expect(hub.radius).toBeGreaterThan(0.021);
-    expect(hub.radius).toBeLessThan(0.021 * 1.3);
-    expect(buildJointGeometry(joint)).not.toBeNull();
+    const mark = new JointMesh();
+    mark.rebuild(joint);
+    expect(mark.pickTarget).not.toBeNull();
+    mark.dispose();
   });
 
   it('still makes sound', async () => {
@@ -533,15 +531,12 @@ describe('deleting', () => {
   it('a collector junction is only deleted once the collector after it is: then its runners end open', async () => {
     const { removeDuct, removeJunction, compileCollectorLayout } = await import('../src/model/exhaustGraph.js');
     const graph = compileCollectorLayout(v8, runner(), collector());
-    const joint = layoutGraph(portsOf(v8), graph).joints.get('merge0')!;
-    const { throughPipe } = await import('../src/scene/jointMesh.js');
     // Four runners into a collector: nothing runs straight through, so the collector leaving it holds it.
-    expect(throughPipe(joint)).toBeNull();
     const before = JSON.stringify(graph);
-    expect(removeJunction(graph, 'merge0', throughPipe(joint))).toBe(false);
+    expect(removeJunction(graph, 'merge0')).toBe(false);
     expect(JSON.stringify(graph)).toBe(before);
     expect(removeDuct(graph, 'collector0')).toBe(true);
-    expect(removeJunction(graph, 'merge0', null)).toBe(true);
+    expect(removeJunction(graph, 'merge0')).toBe(true);
     expect(graph.ducts.some((d) => d.id === 'collector0')).toBe(false);
     for (const d of graph.ducts) if (d.from.kind === 'valve' && d.to.kind === 'node') expect(d.to.node).not.toBe('merge0');
     // The other bank is untouched.
@@ -557,14 +552,14 @@ describe('deleting', () => {
    * the cylinder that joined there is left ending in air.
    */
   it('a manifold junction deleted: the manifold rejoins, one stub ends open', async () => {
-    const { removeJunction } = await import('../src/model/exhaustGraph.js');
-    const { throughPipe } = await import('../src/scene/jointMesh.js');
+    const { endsAt, removeJunction } = await import('../src/model/exhaustGraph.js');
     const graph = compileLayout(v8, runner(), collector());
-    const joint = layoutGraph(portsOf(v8), graph).joints.get('merge0-1')!;
-    // The manifold widens here, so only the graph can say it runs through.
+    // The manifold widens here, so the graph records that it runs through.
     const onward = graph.ducts.find((d) => d.from.kind === 'node' && d.from.node === 'merge0-1')!;
-    const stub = joint.limbs.map((l) => l.duct!).find((d) => d !== onward.id && d !== onward.continues)!;
-    removeJunction(graph, 'merge0-1', throughPipe(joint));
+    const stub = endsAt(graph, 'merge0-1')
+      .map((e) => e.duct.id)
+      .find((d) => d !== onward.id && d !== onward.continues)!;
+    removeJunction(graph, 'merge0-1');
     expect(graph.ducts.find((d) => d.id === stub)!.to).toEqual({ kind: 'mouth' });
     expect(graph.ducts.some((d) => d.id === 'collector0')).toBe(true);
     expect(validateGraph(graph, 8)).toEqual([]);
@@ -573,7 +568,6 @@ describe('deleting', () => {
   /** A tee deleted rejoins the pipe it was teed onto, once no branch leaves it. */
   it.each(['into', 'out of'])('a tee branching %s a pipe: deleting it rejoins the pipe', async (way) => {
     const { removeJunction } = await import('../src/model/exhaustGraph.js');
-    const { throughPipe } = await import('../src/scene/jointMesh.js');
     const single = { ...defaultConfig().engine, cylinders: way === 'into' ? 2 : 1, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
     const graph = compileLayout(single, [makeSegment({ kind: 'pipe', length: 0.8, dIn: 0.042 })], []);
     const before = graph.ducts.find((d) => d.id === 'runner0')!.segments.reduce((a, sg) => a + sg.length, 0);
@@ -601,16 +595,15 @@ describe('deleting', () => {
         headingPitch: 0,
       });
     }
-    const joint = layoutGraph(portsOf(single), graph).joints.get(node)!;
-    const through = throughPipe(joint);
-    expect(through?.[0]).toBe('runner0');
+    // The graph records the pipe running through: the half after the split carries on from runner0.
+    expect(graph.ducts.some((d) => d.from.kind === 'node' && d.from.node === node && d.continues === 'runner0')).toBe(true);
 
     // A branch leaving it holds it, until the branch is deleted.
     if (way === 'out of') {
-      expect(removeJunction(graph, node, through)).toBe(false);
+      expect(removeJunction(graph, node)).toBe(false);
       graph.ducts = graph.ducts.filter((d) => d.id !== 'drawn0');
     }
-    expect(removeJunction(graph, node, through)).toBe(true);
+    expect(removeJunction(graph, node)).toBe(true);
     const pipe = graph.ducts.find((d) => d.id === 'runner0')!;
     expect(pipe.to).toEqual({ kind: 'mouth' });
     expect(pipe.segments.reduce((a, sg) => a + sg.length, 0)).toBeCloseTo(before, 9);
@@ -633,7 +626,6 @@ describe('deleting', () => {
   /** Deleting the middle of a two-stage merge must not leave a junction nothing flows into. */
   it('deletes a pipe in the middle of a tri-Y, what carries on from it still fed', async () => {
     const { removeDuct } = await import('../src/model/exhaustGraph.js');
-    const four = { ...defaultConfig().engine, cylinders: 4, vAngle: 0 } as EngineSpec;
     const graph: ExhaustGraph = {
       ducts: [
         ...[0, 1, 2, 3].map((i) => ({
@@ -665,7 +657,6 @@ describe('deleting', () => {
     expect(graph.ducts.find((d) => d.id === 'midA')!.to).toEqual({ kind: 'node', node: 'tail' });
     expect(graph.ducts.find((d) => d.id === 'midB')!.to).toEqual({ kind: 'node', node: 'tail' });
     expect(validateGraph(graph, 4)).toEqual([]);
-    void four;
   });
 });
 
@@ -729,19 +720,16 @@ describe('attaching leaves the pipe attached to alone', () => {
 });
 
 /**
- * No deletion leaves a giant fitting, or moves a pipe it did not touch.
+ * No deletion moves a pipe it did not touch.
  *
- * Deleting a segment of a pipe that runs into a junction leaves it short of the junction, and a fitting
- * grown to bridge the gap could reach tens of centimetres. And pipes the layout aims, a V-twin's runners
- * and an 8-into-1's downpipes, would be re-aimed after every deletion, swinging pipes nobody touched by
- * metres. Every single deletion on every preset is tried here, doing what the app does: fix every pipe
+ * Pipes the layout aims, a V-twin's runners and an 8-into-1's downpipes, would be re-aimed after every
+ * deletion, swinging pipes nobody touched by metres. Every single deletion on every preset is tried here, doing what the app does: fix every pipe
  * where it stands, delete, take the edited pipe off its junction if it no longer reaches, and tidy with
  * the directions from before the delete.
  */
 describe('deleting keeps the exhaust in one piece', async () => {
   const { ENGINE_PRESETS } = await import('../src/model/spec.js');
   const { ductDirections, freezeHeadings, pipesMeetAt } = await import('../src/scene/exhaustLayout.js');
-  const { hubShape, throughPipe } = await import('../src/scene/jointMesh.js');
   const { childDucts, disconnectEnd, nodeOrder, removeDuct, removeJunction } = await import('../src/model/exhaustGraph.js');
   const clone = (g: ExhaustGraph): ExhaustGraph => JSON.parse(JSON.stringify(g));
 
@@ -767,11 +755,7 @@ describe('deleting keeps the exhaust in one piece', async () => {
     const check = (label: string, g: ExhaustGraph, touched: string) => {
       expect(validateGraph(g, spec.cylinders), label).toEqual([]);
       const after = layoutGraph(ports, g);
-      // Junctions are not drawn, so what matters is that the pipes still meet and the fitting a selected one
-      // shows does not balloon.
-      for (const [node, joint] of after.joints) {
-        expect(hubShape(joint).radius, `${label}: ${node}`).toBeLessThan(0.06);
-      }
+      // No pipe the delete did not touch moves.
       for (const [id, pts] of points(g, after)) {
         if (id === touched) continue;
         for (const q of pts) {
@@ -783,9 +767,8 @@ describe('deleting keeps the exhaust in one piece', async () => {
 
     for (const node of nodeOrder(base)) {
       const g = clone(base);
-      const joint = before.joints.get(node);
       // Refused where a pipe it would delete has others carrying on from it: then nothing changes.
-      if (!removeJunction(g, node, joint ? throughPipe(joint) : null, dirs)) {
+      if (!removeJunction(g, node, dirs)) {
         expect(g, `delete junction ${node}`).toEqual(base);
         continue;
       }

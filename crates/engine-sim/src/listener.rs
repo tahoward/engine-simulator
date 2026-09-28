@@ -69,13 +69,6 @@ impl Listener {
         let ground = self.air_ground.process(self.ground_loss.process(bounced)) * self.ground_gain;
         direct + ground
     }
-
-    pub fn reset(&mut self) {
-        self.delay.reset();
-        self.ground_loss.reset();
-        self.air_direct.reset();
-        self.air_ground.reset();
-    }
 }
 
 /// One-pole corner, Hz, approximating atmospheric absorption over `metres`: ISO 9613-1's 0.11 dB/m

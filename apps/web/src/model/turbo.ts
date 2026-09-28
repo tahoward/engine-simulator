@@ -23,7 +23,7 @@ import {
   removeJunction,
 } from './exhaustGraph.js';
 import type { Vec3 } from './geometry.js';
-import { type EngineSpec, displacement, segmentDiameter } from './spec.js';
+import { type EngineSpec, displacement } from './spec.js';
 
 /** Swept volume one turbo is drawn for, m^3: a size of turbo in the middle of the range. */
 const REFERENCE_SWEPT_PER_TURBO = 1.3e-3;
@@ -164,7 +164,7 @@ export function turboPorts(mount: TurboMount & { position: Vec3 }, size: TurboSi
  * turbo or another pipe. Joined at both ends, it is not edited, but fitted again whenever the pipe before
  * it or what it joins moves.
  */
-export function fittedBend(_graph: ExhaustGraph, duct: ExhaustDuct): number | null {
+export function fittedBend(duct: ExhaustDuct): number | null {
   if (!duct.fitted || duct.segments.length === 0 || duct.to.kind !== 'node') return null;
   return duct.segments.length - 1;
 }
@@ -173,8 +173,8 @@ export function fittedBend(_graph: ExhaustGraph, duct: ExhaustDuct): number | nu
  * Where `duct` stops being edited: its fitted bend, and the swing before it if it takes one, since that
  * was fitted with it, to its length. `null` when all of it is edited.
  */
-export function lockedFrom(graph: ExhaustGraph, duct: ExhaustDuct): number | null {
-  const from = fittedBend(graph, duct);
+export function lockedFrom(duct: ExhaustDuct): number | null {
+  const from = fittedBend(duct);
   if (from === null) return null;
   return duct.swing && from > 0 ? from - 1 : from;
 }
@@ -250,17 +250,6 @@ export function connectToTurbo(graph: ExhaustGraph, ductId: string, turboId: str
   return true;
 }
 
-/** The bore to give a turbo's outlet when nothing else says: a little wider than what feeds it. */
-export function outletDiaFor(graph: ExhaustGraph, node: string, fallback: number): number {
-  let area = 0;
-  for (const e of endsAt(graph, node)) {
-    if (e.end !== 'outlet') continue;
-    const last = e.duct.segments[e.duct.segments.length - 1];
-    if (last) area += (Math.PI * segmentDiameter(last, 1) ** 2) / 4;
-  }
-  return area > 0 ? Math.max(Math.sqrt((4 * area) / Math.PI), fallback) : fallback;
-}
-
 /**
  * Take a turbo out. The pipes that fed it end in open air where its inlet was, and its outlet pipe goes,
  * since nothing feeds it any more. Refused, returning `false`, where that pipe has children of its own.
@@ -270,9 +259,9 @@ export function removeTurbo(graph: ExhaustGraph, turboId: string, dirs?: DuctDir
   if (!mount) return false;
   const inUse = endsAt(graph, mount.node).length > 0;
   // Refused where its outlet pipe carries on into others, as deleting that pipe would take them with it.
-  if (inUse && !junctionRemoval(graph, mount.node, null, true)) return false;
+  if (inUse && !junctionRemoval(graph, mount.node, true)) return false;
   graph.turbos = graph.turbos!.filter((t) => t !== mount);
   if (graph.turbos.length === 0) delete graph.turbos;
-  if (inUse) removeJunction(graph, mount.node, null, dirs, true);
+  if (inUse) removeJunction(graph, mount.node, dirs, true);
   return true;
 }

@@ -138,7 +138,7 @@ export function fitBend(duct: ExhaustDuct, origin: THREE.Vector3, heading: THREE
   const last = drawn.at(-1);
   const start = last ? segmentDiameter(last, 1) : (duct.segments[0]?.dIn ?? anchor.dia);
   const bend = fitCurve(entry, entryDir, target, anchor.dir, { dIn: start, dOut: anchor.dia });
-  // The same bend as before keeps its id, so the panel's row for it stays put.
+  // The same bend as before keeps its id, so the segment menu's row for it stays put.
   const old = duct.fitted ? duct.segments.at(-1) : undefined;
   if (old) bend.id = old.id;
   duct.segments = [...drawn, bend];
@@ -162,7 +162,7 @@ const LENGTH_TOLERANCE = 5e-4;
  * Only for a merge nothing has touched yet: every pipe into it a compiled runner from a port, and one
  * collector out of it, not yet fixed in place. Once done, the merge is fixed, so it is done once.
  */
-export function seatHeaders(graph: ExhaustGraph, ports: ExhaustPort[], _spec: EngineSpec): void {
+export function seatHeaders(graph: ExhaustGraph, ports: ExhaustPort[]): void {
   const merges = new Set<string>();
   for (const d of graph.ducts) {
     // Not a turbo's, which its ports' pipes bend straight into.
@@ -214,7 +214,7 @@ export function seatHeaders(graph: ExhaustGraph, ports: ExhaustPort[], _spec: En
  * Only for a manifold nothing has touched yet, from its first cylinder's stub to where it ends in a
  * collector. One that goes on through a downpipe to meet another bank's is left to the layout.
  */
-export function seatManifolds(graph: ExhaustGraph, ports: ExhaustPort[], _spec: EngineSpec): void {
+export function seatManifolds(graph: ExhaustGraph, ports: ExhaustPort[]): void {
   const firsts = graph.ducts.filter(
     (d) => d.role === 'stub' && d.from.kind === 'valve' && !d.fitted && d.segments.length === 2 && d.to.kind === 'node',
   );
