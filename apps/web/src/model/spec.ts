@@ -2095,6 +2095,45 @@ const F20C_IDLE_THROTTLE = 0.078;
 /** Level-matched to the single at idle, as the other presets are to this one. */
 const F20C_GAIN = 1.31;
 const F20C_CAM = { evo: 108, evc: 392, ivo: 328, ivc: 625 };
+/**
+ * The 2.0 litre 3S-GTE of the SW20 MR2 Turbo, in its second generation, 1990-1993, as Japan had it:
+ * 86.0 x 86.0 mm, 8.8:1, and a twin-entry CT26 turbo on 0.7 bar through an air-to-air intercooler,
+ * rated at 225 PS at 6000 rpm and 304 N*m at 3200. North America's, on the same boost, was rated at
+ * 200 hp and 271 N*m.
+ */
+const TOYOTA_3SGTE: Partial<EngineSpec> = {
+  cylinders: 4,
+  vAngle: 0,
+  exhaustLayout: 'merged',
+  ...idling(0.076),
+  // Its fuel cut, a little past the 7000 rpm redline.
+  revLimit: 7200,
+  flywheelInertia: 0.25,
+  pipeCellSize: 0.035,
+  bore: 0.086,
+  stroke: 0.086,
+  // Estimated: the 3S's rod is quoted at 145-146 mm.
+  rodLength: 0.1455,
+  compressionRatio: 8.8,
+  ...fourValveHead(0.086),
+  // 8.2 mm of intake lift, as published. Its timing is estimated: 236 degrees on each cam, with little
+  // overlap, as a turbo engine's are.
+  maxLift: 0.0082,
+  evo: 126,
+  evc: 362,
+  ivo: 354,
+  ivc: 590,
+  // The CT26 on 0.7 bar, the low end of the 0.69-0.76 bar it is quoted at. Its size is an estimate: no
+  // map of its compressor is published.
+  boostTarget: 0.7e5,
+  turboSize: 0.3,
+  intercooler: 0.7,
+  // Estimated: most factory valves recirculate.
+  blowOff: 'recirculating',
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 1.63,
+};
+
 /** The LT2 preset's idle throttle and output gain. See `idling`. */
 const LT2_IDLE_THROTTLE = 0.075;
 const LT2_GAIN = 2.1;
@@ -2225,6 +2264,29 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       makeSegment({ kind: 'chamber', length: 0.38, dIn: 0.06, dOut: 0.16 }),
       makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.055 }),
     ],
+  },
+  {
+    name: 'Inline four, Toyota 3S-GTE',
+    car: {
+      // The Japanese 1992-93 GT-S hardtop: the E153 five-speed and its 4.285 final drive, 1250 kg,
+      // 225/50R15 rear tyres, and grip at the 0.92 g the later cars pull on a skidpad, the middle of the
+      // 0.90-0.94 quoted, raised for grip driving rather than cornering. Mid-engined, 44:56.
+      name: 'Toyota MR2 GT-S (SW20, 1992-93)',
+      ratios: [3.23, 1.913, 1.258, 0.918, 0.731],
+      finalDrive: 4.285,
+      tyreRadius: 0.295,
+      tyreGrip: 0.92 * SKIDPAD_TO_DRIVE,
+      mass: 1250 + DRIVER_MASS,
+      drivenLoad: 0.56,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
+    description:
+      'The 2.0 litre turbocharged four in the SW20 MR2 Turbo and the ST185 Celica GT-Four: 86 x 86 mm, 8.8:1, four valves a cylinder and a 7000 rpm redline. It fires every 180\u00b0, 1-3-4-2, like any inline four, all four into one twin-entry CT26 turbo through an intercooler, here on 0.5 bar against the 0.7 of the standard car. It makes about 265 N\u00b7m from 2500 to 5000 rpm and 201 hp at 6000, close to the North American engine\u2019s rated 271 N\u00b7m at 3200 and 200 hp at 6000. Its cams, turbo size and exhaust are estimates, and its four runners share one turbine entry where the real manifold pairs them into two.',
+    engine: TOYOTA_3SGTE,
+    pipe: () => fittedExhaust(fullSpec(TOYOTA_3SGTE)).pipe,
+    collector: () => fittedExhaust(fullSpec(TOYOTA_3SGTE)).collector,
+    turbos: 1,
   },
   {
     name: 'Inline three',

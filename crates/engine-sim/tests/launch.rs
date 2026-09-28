@@ -104,8 +104,8 @@ fn traction_control_beats_spinning_the_tyres() {
     assert!(held > 2.4, "0-60 in {held} s");
 }
 
-/// The engines from real cars launch through those cars: the Skyline's six-speed to all four wheels, and
-/// the Corvettes' eight-speed dual clutch.
+/// The engines from real cars launch through those cars: the Skyline's six-speed to all four wheels, the
+/// Corvettes' eight-speed dual clutch, and the MR2's five-speed.
 #[test]
 fn real_engines_launch_through_their_own_cars() {
     let r34 = &common::engine_preset("Inline six, Nissan RB26DETT").launch;
@@ -114,6 +114,9 @@ fn real_engines_launch_through_their_own_cars() {
     let z06 = &common::engine_preset("V8, Chevrolet LT6").launch;
     assert_eq!(z06.ratios.len(), 8);
     assert!(z06.shift_time < 0.2);
+    let mr2 = &common::engine_preset("Inline four, Toyota 3S-GTE").launch;
+    assert_eq!(mr2.ratios, vec![3.23, 1.913, 1.258, 0.918, 0.731]);
+    assert_eq!(mr2.final_drive, 4.285);
 }
 
 /// All four wheels driven get a car off the line quicker than two.
