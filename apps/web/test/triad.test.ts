@@ -15,6 +15,7 @@ import {
   ringFrame,
   snapTo,
   snapTurnToEngine,
+  Triad,
 } from '../src/scene/Triad.js';
 
 /** A ray from `from` through `to`. */
@@ -74,6 +75,24 @@ describe('the triad', () => {
     expect(ring.axis.distanceTo(new THREE.Vector3(0, 0, -1))).toBeLessThan(1e-12);
     expect(ring.u.dot(ring.axis)).toBeCloseTo(0, 12);
     expect(ring.v.dot(ring.axis)).toBeCloseTo(0, 12);
+  });
+
+  it('lines up with the engine in its frame, but for rings that are the part’s own', () => {
+    const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+    const triad = new Triad();
+    triad.setOrientation(q);
+    const near = (a: THREE.Vector3, b: THREE.Vector3) => expect(a.distanceTo(b)).toBeLessThan(1e-12);
+    near(triad.axisDir(0, 'axis'), new THREE.Vector3(0, 0, -1));
+    triad.setEngineFrame(true);
+    near(triad.axisDir(0, 'axis'), new THREE.Vector3(1, 0, 0));
+    near(triad.ring(0).axis, new THREE.Vector3(1, 0, 0));
+    triad.setRingsOwn(true);
+    // The arrows stay the engine's; the rings go back to the part's.
+    near(triad.axisDir(0, 'plane'), new THREE.Vector3(1, 0, 0));
+    near(triad.ring(0).axis, new THREE.Vector3(0, 0, -1));
+    triad.setEngineFrame(false);
+    near(triad.axisDir(0, 'axis'), new THREE.Vector3(0, 0, -1));
+    triad.dispose();
   });
 
   it('frames a pipe segment with x along it and y as near up as it can be', () => {
