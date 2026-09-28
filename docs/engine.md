@@ -61,8 +61,8 @@ On a 6.2 litre V8 with that late intake closing, at full throttle:
 
 ```
                           4000   4500   4950   5400   5800 rpm
-tuned 450 mm runner        97%   101%   101%    99%    98%     volumetric efficiency
-80 mm stub                 82%    82%    85%    85%    83%
+tuned 450 mm runner        95%   101%    99%    96%    94%     volumetric efficiency
+80 mm stub                 83%    83%    86%    84%    83%
 ```
 
 A runner's length sets where it is tuned. Long ones make torque low down and short ones make power
@@ -76,33 +76,39 @@ path to the plenum, and the manifold switches to it at **Switch to short runners
 flap opens. It switches back 150 rpm lower, so it does not flap back and forth at the switch speed.
 Both sets are solved, on the same grid; the gas in the one being left, measured from the valve, is
 laid onto the other, so the charge in the ports and its flow carry on through the switch. On the LT6,
-with 370 mm runners switching to 330 mm ones at 8100 rpm:
+with 355 mm runners switching to 345 mm ones at 8250 rpm:
 
 ```
                           3000   4500   5500   6300   7800   8400 rpm      full throttle, N·m
-330 mm runners only        392    531    549    556    520    556
-two-stage                  394    557    563    577    586    556
+345 mm runners only        412    511    548    574    535    536
+two-stage                  414    516    549    579    550    536
 ```
 
-Longer long runners peak higher on it, 646 N·m at 6300 for 450 mm ones, but dip as far below: 370 mm
-gives the flattest curve.
+Longer long runners peak higher on it, 602 N·m at 6300 for 450 mm ones, but fall away sooner above
+that, to 492 at 7800: 355 mm gives the flattest curve.
 
 The runners are solved on the finest grid the sample rate allows, 35 mm at 48 kHz, even where the
 cost budget coarsens the exhaust. A runner is only a few hundred millimetres long, and its ends are a
 good part of it, so its ramming depends on resolution far more than the exhaust's sound does: on 70
-mm cells, at the speed they are tuned for, the LT2 fills two points less and the LT6 eight.
+mm cells, at the speed they are tuned for, the LT2 fills four points less and the LT6 six.
 
 **Headers scavenge.** With equal-length headers, each cylinder's primary runs all the way to one
 merge per collector, instead of joining a manifold along the ports. The **Equal-length header** tool
 builds them ([Controls](controls.md#equal-length-headers)), and the presets that have them come with them. The wave each exhaust pulse sends
 back from the merge reaches the next cylinder's port as a suction during the overlap, and pulls fresh
 charge through the cylinder after its exhaust. On the LT6, whose cam holds both valves open for 70°,
-450 mm primaries tuned for 8400 rpm fill the cylinder to 109% there, against 104% on a manifold.
+410 mm primaries tuned for 8400 rpm fill the cylinder to 105% there, against 101% on a manifold.
 
-A runner's sound dies away through the viscous and thermal boundary layer at its walls. That is
-worked out from the runner's own bore and air, using Kirchhoff's formula for a tube: about 13 /s for
-a 49 mm runner. The exhaust's damping is fitted to hot gas in steel pipes and is ten times that. In a
-runner it would damp away the waves that do the ramming.
+A runner's sound dies away through the viscous and thermal boundary layer at its walls, and through
+the turbulence, the bend into the port and the valve seat. The first is worked out from the runner's
+own bore and air, using Kirchhoff's formula for a tube: about 12 /s for the LT6's 53 mm runners.
+Kirchhoff's formula is for a small wave in a smooth, straight tube of still air, and the rest are not
+modelled one by one, so the damping is five times that. A wave then loses more than half its strength
+over one cycle at 8400 rpm and is gone within a few, as the pressure measured in real runners is.
+On Kirchhoff's figure alone it rings on long enough to build from one cycle to the next, and the
+full-throttle torque rises and falls by 5-8% every 1500 rpm or so as the runner's resonance comes
+in and out of step with the cycle. The exhaust's damping is fitted to hot gas in steel pipes and is
+two and a half times the runners'.
 
 ## Cam profile switching
 
@@ -121,9 +127,9 @@ it 85° after, switching at 5500 rpm:
 
 ```
                           2000   3000   4000   5000   6500   7000   8000   8300 rpm   full throttle, N·m
-high cam only              124    134    139    179    194    194    193    192
-low cam only               178    183    190    190    162    146
-switching at 5500          178    183    190    190    194    194    193    192
+high cam only              126    134    141    179    188    187    184    182
+low cam only               176    182    188    185    154    142
+switching at 5500          176    182    188    185    188    187    184    182
 ```
 
 ## Variable valve timing
@@ -141,14 +147,16 @@ ECU weighs the air by, because the overlap itself raises that pressure at idle. 
 load would advance the cam further and stall an engine with a big cam.
 
 What it buys depends on the cam. On the LT6, whose cam is tuned for 8400 rpm, the intake cam is
-advanced 40° up to 4500 rpm and eased back to rest by 7500. That map was found by running the engine
-at a fixed cam position at each speed: the best advance is about 40° at 4000-5000 rpm, 20° at
-5500-6500 and none from 7000. Moving the exhaust cam either way lost torque almost everywhere.
+advanced 30° up to 4550 rpm and eased back to rest by 7750. That map was found by running the engine
+at a fixed cam position at each speed: the best advance is about 40° at 4000-4500 rpm, 30° at
+5000-5500, 20° at 6000 and 10° or less from 6500. Holding 30° rather than 40° below 4550 gives up to
+15 N·m at 4000-4500 and keeps the dip around 3300 shallower. Moving the exhaust cam either way lost
+torque almost everywhere.
 
 ```
                           3000   4500   6300   8400 rpm      full throttle, N·m
-cam fixed                  391    441    562    556
-intake map                 394    557    577    556
+cam fixed                  395    420    563    536
+intake map                 414    516    579    536
 ```
 
 On the 2GR, the cam rests late, so its runners ram the charge in at the top end, and the phaser
@@ -157,9 +165,9 @@ away:
 
 ```
                           2000   3000   4000   5200   6400 rpm      full throttle, N·m
-cam fixed early            315    325    360    315    286
-cam fixed late             283    292    337    363    342
-intake 40° at low speed    323    321    356    361    342
+cam fixed early            320    314    330    292    243
+cam fixed late             283    294    330    358    327
+intake 40° at low speed    320    324    345    357    327
 ```
 
 ## The turbocharger

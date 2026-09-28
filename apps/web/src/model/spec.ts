@@ -1907,7 +1907,7 @@ const TOYOTA_2GR: Partial<EngineSpec> = {
   // Estimated. The intake cam rests late, closing 65 degrees after bottom dead centre, which lets the
   // runners ram the charge in at the top end; below that its phaser advances it up to 40 degrees, so it
   // closes before the charge flows back out. With the cam fixed at either end, torque falls by a tenth
-  // to a sixth somewhere in the range: above 5000 rpm with it early, at 3000 and below with it late.
+  // to a quarter somewhere in the range: above 5000 rpm with it early, at 3000 and below with it late.
   ivo: 357,
   ivc: 605,
   vvtIntakeLow: 40,
@@ -2039,7 +2039,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'Inline four, Honda F20C',
     description:
-      'The 2.0 litre four in the Honda S2000: 87 x 84 mm, 11:1, four valves a cylinder and a 9000 rpm redline. Even 180\u00b0 firing on a flat crank, 1-3-4-2, into equal-length headers: twice the firing frequency of a twin at the same rpm, and no half order at all. It makes about 195 N\u00b7m from 6500 to 8300 rpm and 225 hp at 8300, against the real engine\u2019s 210 N\u00b7m at 7500 and 240 hp at 8300. Its VTEC switches each valve from a mild cam lobe to a wild one at 5500 rpm. Its valves, cams, runners and exhaust are estimates.',
+      'The 2.0 litre four in the Honda S2000: 87 x 84 mm, 11:1, four valves a cylinder and a 9000 rpm redline. Even 180\u00b0 firing on a flat crank, 1-3-4-2, into equal-length headers: twice the firing frequency of a twin at the same rpm, and no half order at all. It makes about 185 N\u00b7m from 6000 to 8300 rpm and 210 hp at 8300, against the real engine\u2019s 210 N\u00b7m at 7500 and 240 hp at 8300. Its VTEC switches each valve from a mild cam lobe to a wild one at 5500 rpm. Its valves, cams, runners and exhaust are estimates.',
     engine: {
       cylinders: 4,
       vAngle: 0,
@@ -2056,8 +2056,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       rodLength: 0.153,
       // The North American engine's; the Japanese one's is 11.7.
       compressionRatio: 11,
-      // Estimated, like the cams and the runners, and tuned with them to put its torque peak near 7500
-      // rpm and its power peak at 8300, where the real engine has them. Valves a little larger than a
+      // Estimated, like the cams and the runners, and tuned with them to hold its torque to 8300 rpm and
+      // put its power peak there, where the real engine has it. Valves a little larger than a
       // typical four-valve head's for the bore: with a typical head's, torque falls away above 7000.
       exValveCount: 2,
       exValveDia: 0.032,
@@ -2065,7 +2065,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       inValveDia: 0.0376,
       // VTEC: a mild lobe for low speed, and at 5500 rpm, where the two make about the same torque and
       // within the 5500-6000 the real engine's ECU switches at, a wild one for the top end. On the high
-      // cam alone it makes 125-140 N·m below 4000; on the low one alone, 145 at 7000.
+      // cam alone it makes 125-140 N·m below 4000; on the low one alone, 140 at 7000.
       maxLift: 0.009,
       evo: 128,
       evc: 372,
@@ -2263,7 +2263,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'V8, Chevrolet LT6',
     description:
-      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its cam, short runners and headers are tuned for the top end, where it makes about 650 hp at 8400 rpm against the real engine’s 670. Below that its variable cam timing and long runners, also estimates, give back most of the mid-range: 577 N·m at 6300 against 624.',
+      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its cam, short runners and headers are tuned for the top end, where it makes about 630 hp at 8400 rpm against the real engine’s 670. Below that its variable cam timing and long runners, also estimates, give back most of the mid-range: 580 N·m at 6200 against 624 at 6300.',
     engine: {
       cylinders: 8,
       vAngle: 90,
@@ -2287,29 +2287,33 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       inValveDia: 0.042,
       inValveCount: 2,
       // Estimated: a race-bred cam, the intake closing late because the runners and headers are tuned
-      // to ram the charge in after bottom dead centre at the top end. Tuned with them for power at 8400.
+      // to ram the charge in after bottom dead centre at the top end. Tuned with them and the cam map for
+      // power at 8400 and the flattest curve below it.
       maxLift: 0.0135,
-      evo: 105,
-      evc: 395,
-      ivo: 325,
-      ivc: 630,
+      evo: 104,
+      evc: 397,
+      ivo: 327,
+      ivc: 628,
       // Estimated: a two-stage manifold, as the real one has. The short runners are tuned for 8400 rpm; the
-      // long ones fill it better from 4500 to 7800, by up to 50 N·m, and fall behind above that. Of the
-      // lengths tried, 370-440 mm, these give the flattest curve: longer ones peak higher but dip lower.
-      intakeRunnerLength: 0.37,
-      intakeRunnerShortLength: 0.33,
-      intakeSwitchRpm: 8100,
-      // Estimated, like the cams, and tuned on the dyno at full throttle: the intake advanced 40 degrees up
-      // to 4500 rpm, easing back to rest by 7500, which gives back the mid-range a cam tuned for 8400 costs
-      // it. The best advance, found point by point, is about 40 degrees at 4000-5000, 20 at 5500-6500 and
-      // none from 7000. Retarding the exhaust cam, or advancing it, lost torque almost everywhere.
-      vvtIntakeLow: 40,
-      vvtLowRpm: 4500,
-      vvtHighRpm: 7500,
+      // long ones, a centimetre longer, fill it better from 7200 to 8200, by up to 15 N·m, and fall behind
+      // above that. Longer long runners peak higher in the mid-range, 600 N·m at 6300 for 450 mm ones, but
+      // fall away sooner above it: these give the flattest curve.
+      intakeRunnerLength: 0.355,
+      intakeRunnerShortLength: 0.345,
+      intakeSwitchRpm: 8250,
+      // Estimated, like the cams, and tuned on the dyno at full throttle: the intake advanced 30 degrees up
+      // to 4550 rpm, easing back to rest by 7750, which gives back the mid-range a cam tuned for 8400 costs
+      // it. The best advance, found point by point, is about 40 degrees at 4000-4500, 30 at 5000-5500, 20
+      // at 6000 and 10 or less from 6500; holding 30 below 4550 rather than 40 costs up to 15 N·m at
+      // 4000-4500 and keeps the dip around 3300 shallower. Retarding the exhaust cam, or advancing it, lost
+      // torque almost everywhere.
+      vvtIntakeLow: 30,
+      vvtLowRpm: 4550,
+      vvtHighRpm: 7750,
       outputGain: LT6_GAIN,
     },
     // Estimated: equal-length headers, their primaries tuned for 8400 rpm.
-    pipe: () => [makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.045 })],
+    pipe: () => [makeSegment({ kind: 'pipe', length: 0.41, dIn: 0.045 })],
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.16, dIn: 0.068, dOut: 0.076 }),
       makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.076 }),

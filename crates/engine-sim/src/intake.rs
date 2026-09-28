@@ -255,8 +255,17 @@ impl IntakeRunners {
     }
 }
 
+/// How many times Kirchhoff's boundary-layer loss a runner's waves lose. His figure is for a small wave
+/// in a smooth, straight tube of still air. At full throttle a runner carries large pulses on a
+/// turbulent flow, round a bend into the port and past the valve seat. With this factor a wave in the
+/// LT6's runners loses more than half its strength over one cycle at 8400 rpm, and dies out within a
+/// few, as pressure measured in real runners does. With Kirchhoff's figure alone it takes five cycles
+/// to lose as much, so a runner's resonance builds from one cycle to the next, and the full-throttle
+/// torque swings by 5-8% between speeds a few hundred rpm apart.
+const RUNNER_LOSS_FACTOR: f64 = 5.0;
+
 /// Acoustic damping of a runner, 1/s: Kirchhoff's boundary-layer loss for a wide tube at `hz`, its
-/// quarter-wave resonance, as `k = 2 c alpha`.
+/// quarter-wave resonance, as `k = 2 c alpha`, scaled by `RUNNER_LOSS_FACTOR`.
 fn runner_damping(radius: f64, hz: f64) -> f64 {
     const AIR_VISCOSITY: f64 = 1.82e-5;
     const AIR_PRANDTL: f64 = 0.71;
@@ -264,5 +273,5 @@ fn runner_damping(radius: f64, hz: f64) -> f64 {
     let nu = AIR_VISCOSITY / (gas::P_AMB / (gas::R * gas::T_AMB));
     let alpha = (math::sqrt((2.0 * PI * hz * nu) / 2.0) / (math::max(radius, 1e-3) * c))
         * (1.0 + (gas::GAMMA_AIR - 1.0) / math::sqrt(AIR_PRANDTL));
-    2.0 * c * alpha
+    RUNNER_LOSS_FACTOR * 2.0 * c * alpha
 }

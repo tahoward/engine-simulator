@@ -46,6 +46,9 @@ matters.
   cylinder to over 95% at its tuned speed. That must be more than 10 points above an 80 mm stub, and
   more than it fills either side of that speed. An 800 mm runner must make more torque than a 250 mm
   one at 3500 rpm and less at 6450.
+- **A smooth torque curve.** Held at each 400 rpm from 4400 to 8400, the LT6 at full throttle must
+  fall by under 3% from one speed to the next on its way up to its peak, and rise by under 4% on its
+  way down, so its runners' resonance does not build from one cycle to the next into dips and humps.
 - **Variable valve timing.** On the LT6 its cam map must lift the torque at 4500 rpm by more than
   10%, and change nothing at 8400, where the map has the cams at rest. The cams must sit at rest at
   idle, move under load, and return to rest when the map is set to nothing.
@@ -53,8 +56,8 @@ matters.
   than its high-speed cam alone, and the same at 8000, where it is on that cam. It must switch at its
   switch speed, stay switched inside the 150 rpm below it, and switch back below that, and the valves
   must open to each lobe's own lift.
-- **Two-stage intake.** On the LT6 at 7800 rpm, just below its switch speed, the two-stage intake must
-  make more than 5% more torque than its short runners alone, and the same at 8400, where it is on them. It must switch at its switch
+- **Two-stage intake.** On the LT6 at 7800 rpm, below its switch speed, the two-stage intake must
+  make more than 2% more torque than its short runners alone, and the same at 8400, where it is on them. It must switch at its switch
   speed, stay switched inside the 150 rpm below it, switch back below that, and change the torque by
   less than 10% across the switch, with no solver recoveries.
 - **Turbocharger.** On the RB26 preset, the boost must stay under 0.5 bar at 1500 rpm and hold within
