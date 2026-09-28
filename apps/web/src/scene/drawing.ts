@@ -709,8 +709,8 @@ export function slideBend(segments: PipeSegment[], index: number, before: number
  *
  * `port` starts a runner, `node` joins an existing junction, `ductEnd` joins the far end of a duct — which
  * means making a junction there if it does not already have one — and `ductSurface` is a T, which splits
- * the duct it lands on. As a *start*, the last two continue a pipe from its open end and branch off its
- * side. `turboInlet` is a turbo's inlet flange, which a route can end on but not start from. `free` is the
+ * the duct it lands on. As a *start*, `ductEnd` continues a pipe from its open end; a route cannot start
+ * from a `ductSurface`, nor from `turboInlet`, a turbo's inlet flange, which it can only end on. `free` is the
  * fallback: no target, so the route just carries on to a point in
  * space and the duct ends in open air.
  */

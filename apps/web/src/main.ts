@@ -415,6 +415,9 @@ const panel = new Panel(panelEl, toolsEl, config, {
   onExportEngine: () => exportEngine(),
   onImportEngine: (text) => importEngine(text),
   onBendTool: (on) => editor.setBendTool(on),
+  onBendSegment: (id, index) => {
+    editor.startBend(id, index);
+  },
   onHeaderTool: (on) => {
     if (!on) {
       editor.setHeaderTool(null);

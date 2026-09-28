@@ -266,8 +266,6 @@ function drawSnapOf(e: { shiftKey: boolean; altKey: boolean }): DrawSnap {
 const STRAIGHT_ON_COLOUR = new THREE.Color(0xffffff);
 /** A segment not locked to a direction. */
 const PREVIEW_COLOUR = 0x8cff9e;
-/** How far the guide along a locked direction runs on past the segment's end, m. */
-const GUIDE_REACH = 0.6;
 
 function axisColour(dir: THREE.Vector3): THREE.Color {
   const c = new THREE.Color(0, 0, 0);
@@ -373,17 +371,11 @@ export class PipeEditor {
   } | null = null;
   /** The target the preview is currently offering, for anything that wants to describe it. */
   snapped: SnapTarget | null = null;
-  private readonly preview: THREE.Line;
-  private readonly previewGeom = new THREE.BufferGeometry();
-  private readonly previewMat = new THREE.LineDashedMaterial({
-    color: PREVIEW_COLOUR,
-    dashSize: 0.02,
-    gapSize: 0.012,
-  });
-  /** A faint line through the tip along the locked direction, so its orientation reads in 3D. */
-  private readonly guide: THREE.Line;
-  private readonly guideGeom = new THREE.BufferGeometry();
-  private readonly guideMat = new THREE.LineBasicMaterial({ transparent: true, opacity: 0.35 });
+  /**
+   * The segment the next click would add, as a see-through pipe of the bore it would be: a straight, or the
+   * bend fitted into what it would join. Tinted the colour of the way it runs.
+   */
+  private readonly drawGhost = new PipeMesh(true);
   private readonly marker: THREE.Mesh;
 
   /**
@@ -458,17 +450,9 @@ export class PipeEditor {
     // Right-click ends a tool or opens a menu, so the browser's must not appear over it.
     dom.addEventListener('contextmenu', this.onContextMenu);
 
-    this.previewGeom.setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-    this.preview = new THREE.Line(this.previewGeom, this.previewMat);
-    this.preview.visible = false;
-    this.preview.renderOrder = 12;
-    this.group.add(this.preview);
+    this.drawGhost.group.visible = false;
+    this.group.add(this.drawGhost.group);
 
-    this.guideGeom.setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
-    this.guide = new THREE.Line(this.guideGeom, this.guideMat);
-    this.guide.visible = false;
-    this.guide.renderOrder = 11;
-    this.group.add(this.guide);
 
     this.marker = new THREE.Mesh(
       new THREE.SphereGeometry(0.016, 16, 12),
@@ -933,6 +917,24 @@ export class PipeEditor {
     });
     if (!best) return false;
     const { duct, index } = best as { duct: ExhaustDuct; index: number };
+    return this.placeBendAt(duct, index);
+  }
+
+  /**
+   * Switch the bend tool on with its rings on segment `index` of pipe `ductId`, as clicking it would, from its
+   * menu. Returns whether it is one that can be bent.
+   */
+  startBend(ductId: string, index: number): boolean {
+    const duct = this.context?.graph.ducts.find((d) => d.id === ductId);
+    if (!duct) return false;
+    if (!this.bendTool) this.setBendTool(true);
+    return this.placeBendAt(duct, index);
+  }
+
+  /** Put the bend tool's rings where segment `index` of `duct` starts, if it can be bent. */
+  private placeBendAt(duct: ExhaustDuct, index: number): boolean {
+    const ctx = this.context;
+    if (!ctx) return false;
     const seg = duct.segments[index];
     const locked = lockedFrom(ctx.graph, duct);
     const place = ctx.placement.ducts.get(duct.id);
@@ -1058,8 +1060,7 @@ export class PipeEditor {
   }
 
   private hidePreview(): void {
-    this.preview.visible = false;
-    this.guide.visible = false;
+    this.drawGhost.group.visible = false;
     this.marker.visible = false;
     this.snapped = null;
     this.cb.onAim?.(null);
@@ -1231,9 +1232,15 @@ export class PipeEditor {
     return free ? { kind: 'free', point: free } : null;
   }
 
-  /** Whether a route can start from this target. */
+  /** Whether a route can start from this target: not the side of a pipe, which a route may only end on. */
   private static startable(target: SnapTarget | null): boolean {
-    return !!target && target.kind !== 'free' && target.kind !== 'turboInlet' && target.kind !== 'looseStart';
+    return (
+      !!target &&
+      target.kind !== 'free' &&
+      target.kind !== 'turboInlet' &&
+      target.kind !== 'looseStart' &&
+      target.kind !== 'ductSurface'
+    );
   }
 
   /**
@@ -1241,9 +1248,7 @@ export class PipeEditor {
    *
    * From a port it is a new runner, replacing whatever the cylinder had. From a junction it is a new pipe
    * leaving it. From the open end of a pipe it *continues that pipe* — the same duct, with segments added —
-   * since a pipe carrying on is one pipe, not two joined end to end. From the side of a pipe it is a
-   * branch: the pipe is split there, as a T is when something is drawn *into* its side, and the new pipe
-   * leaves the junction that makes.
+   * since a pipe carrying on is one pipe, not two joined end to end.
    */
   private beginRoute(target: SnapTarget): void {
     const ctx = this.context;
@@ -1283,12 +1288,6 @@ export class PipeEditor {
         origin: target.point.clone(),
         heading: joint ? joint.axis.clone() : this.heading.clone(),
       };
-    } else if (target.kind === 'ductSurface') {
-      const node = splitDuctAt(ctx.graph, target.duct, target.x);
-      if (!node) return;
-      from = { kind: 'node', node };
-      // Leaves along the pipe until the first click turns it, which is the frame the layout will use too.
-      place = { origin: target.point.clone(), heading: (target.dir ?? this.heading).clone() };
     } else {
       return;
     }
@@ -1358,12 +1357,14 @@ export class PipeEditor {
       delete duct.fitted;
     }
 
-    const straightOut = target.kind === 'free' ? this.portRun(duct, tip, point) : null;
+    const straightOut = target.kind === 'free' ? this.straightRun(duct, tip, point) : null;
     if (straightOut !== null) {
-      // Out of an exhaust port, straight on at first: the next segment turns.
+      // Out of an exhaust port straight on at first, the next segment turning; from an open end, all the way.
       if (straightOut < MIN_DRAW_LENGTH) return;
-      duct.headingYaw = 0;
-      duct.headingPitch = 0;
+      if (duct.segments.length === 0) {
+        duct.headingYaw = 0;
+        duct.headingPitch = 0;
+      }
       duct.segments.push(makeSegment({ kind: 'pipe', length: straightOut, dIn: dia, dOut: dia }));
     } else if (duct.segments.length === 0) {
       /**
@@ -1409,12 +1410,15 @@ export class PipeEditor {
   }
 
   /**
-   * How long a pipe's first segment out of an exhaust port runs, m, straight on out of it towards `point`:
-   * as far along the port's direction as the point is, in the drawing's length steps. `null` for any other
-   * segment, which may turn.
+   * How long the route's next segment runs, m, straight on towards `point`, where it has to: the first out of
+   * an exhaust port, and every one carrying a pipe on from its open end, which goes straight on until it
+   * joins something. As far along the way it goes as the point is, in the drawing's length steps. `null` for
+   * any other segment, which may turn.
    */
-  private portRun(duct: ExhaustDuct, tip: { point: THREE.Vector3; dir: THREE.Vector3 }, point: THREE.Vector3): number | null {
-    if (duct.from.kind !== 'valve' || duct.segments.length > 0) return null;
+  private straightRun(duct: ExhaustDuct, tip: { point: THREE.Vector3; dir: THREE.Vector3 }, point: THREE.Vector3): number | null {
+    const fromPort = duct.from.kind === 'valve' && duct.segments.length === 0;
+    const fromEnd = !!this.route && this.route.base > 0;
+    if (!fromPort && !fromEnd) return null;
     return quantiseLength(Math.max(point.clone().sub(tip.point).dot(tip.dir), 0), LENGTH_GRID_M);
   }
 
@@ -2146,7 +2150,7 @@ export class PipeEditor {
         this.marker.position.copy(target!.point);
         this.colourMarker(target!);
       }
-      this.preview.visible = false;
+      this.drawGhost.group.visible = false;
       return;
     }
 
@@ -2161,33 +2165,27 @@ export class PipeEditor {
 
     const aimed = this.aim(tip, target, snap);
     let { point, dir, name } = aimed;
-    // Out of an exhaust port the first segment runs straight on.
-    const run = target.kind === 'free' ? this.portRun(duct, tip, point) : null;
+    // Out of an exhaust port the first segment runs straight on, and carrying on from an open end every one.
+    const run = target.kind === 'free' ? this.straightRun(duct, tip, point) : null;
     if (run !== null) {
       point = tip.point.clone().addScaledVector(tip.dir, run);
       dir = tip.dir.clone();
       name = 'straight on';
     }
 
-    // Joining something, the bend the pipe will take to arrive along it.
+    // Joining something, the bend the pipe will take to arrive along it, tapering to its bore; else a straight.
     const anchor = this.connectionAnchor(target, this.route.ductId);
-    const curve = anchor ? fitCurve(tip.point, tip.dir, anchor.point, anchor.dir) : null;
-    const path = curve ? layoutPipe([curve], tip.point, tip.dir).stations.map((st) => st.position) : [tip.point, point];
-    this.previewGeom.setFromPoints(path);
-    this.preview.computeLineDistances();
-    this.preview.visible = true;
-    if (dir) {
-      this.previewMat.color.copy(name === 'straight on' ? STRAIGHT_ON_COLOUR : axisColour(dir));
-      this.guideMat.color.copy(this.previewMat.color);
-      this.guideGeom.setFromPoints([
-        tip.point,
-        tip.point.clone().addScaledVector(dir, point.distanceTo(tip.point) + GUIDE_REACH),
-      ]);
-      this.guide.visible = true;
-    } else {
-      this.previewMat.color.set(PREVIEW_COLOUR);
-      this.guide.visible = false;
+    const dia = this.routeDiameter(duct);
+    const reach = point.distanceTo(tip.point);
+    if (anchor) {
+      this.drawGhost.rebuild([fitCurve(tip.point, tip.dir, anchor.point, anchor.dir, { dIn: dia, dOut: anchor.dia })], tip.point, tip.dir);
+    } else if (reach > 1e-4) {
+      const heading = point.clone().sub(tip.point).normalize();
+      this.drawGhost.rebuild([makeSegment({ kind: 'pipe', length: reach, dIn: dia, dOut: dia })], tip.point, heading);
     }
+    this.drawGhost.group.visible = !!anchor || reach > 1e-4;
+    const colour = !dir || anchor ? new THREE.Color(PREVIEW_COLOUR) : name === 'straight on' ? STRAIGHT_ON_COLOUR : axisColour(dir);
+    this.drawGhost.setTint(colour);
     const length = `${Math.round(point.distanceTo(tip.point) * 1000)} mm`;
     const described = `${name ? `${name}, ` : ''}${length}`;
     this.cb.onAim?.(target.kind === 'free' ? described : null);
@@ -2367,12 +2365,11 @@ export class PipeEditor {
       d.geometry.dispose();
       (d.material as THREE.Material).dispose();
     }
-    this.previewGeom.dispose();
-    this.guideGeom.dispose();
+    this.drawGhost.dispose();
     this.ghost.dispose();
     this.ghostPipe.geometry.dispose();
     (this.ghostPipe.material as THREE.Material).dispose();
-    for (const m of [this.matHover, this.matSelected, this.matRing, this.previewMat, this.guideMat]) {
+    for (const m of [this.matHover, this.matSelected, this.matRing]) {
       m.dispose();
     }
   }
