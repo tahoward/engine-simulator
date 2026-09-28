@@ -1870,7 +1870,7 @@ const PRESET_KEEPS = [
  * Over the defaults rather than over the current engine, because a preset only states what it changes
  * from them — which is also how its exhaust is sized, in `fullSpec`. Merged over the current engine,
  * every field a preset leaves out would come from whatever was loaded before it: a V-twin after a V8
- * would get the V8's bore, and anything after the overcammed V8 its cam.
+ * would get the V8's bore, and anything after the F20C its high-speed cam.
  */
 export function presetEngine(preset: EnginePreset, current: EngineSpec): EngineSpec {
   const spec: EngineSpec = { ...DEFAULT_ENGINE, ...preset.engine };
@@ -2285,97 +2285,6 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     graph: () => structuredClone(toyota2grExhaust) as ExhaustGraph,
   },
   {
-    name: 'V8, crossplane, headers per bank',
-    description:
-      'The American V8. Fires every 90\u00b0 overall, but the crossplane crank deals those firings out unevenly between the banks — 180-90-180-270 down each side — and with a collector per bank that uneven arrival pattern is the burble.',
-    engine: {
-      cylinders: 8,
-      vAngle: 90,
-      crankType: 'crossplane',
-      exhaustLayout: 'perBank',
-      exhaustHeaders: true,
-      headerRun: 'lengthways',
-      ...idling(0.075),
-      // Pushrods and a heavy crank: a road V8's 6500.
-      revLimit: 6500,
-      mouthSpacing: 1.3,
-      flywheelInertia: 0.9,
-      // The same cells as everything else. At one step per sample, cost goes only as the cell
-      // count, so 35 mm costs a V8 a couple of points of a core and gives it its top octave.
-      pipeCellSize: 0.035,
-      bore: 0.102,
-      stroke: 0.084,
-      rodLength: 0.145,
-      compressionRatio: 10,
-      // A 102 mm bore carries far bigger valves than the default 500 cc single.
-      exValveDia: 0.041,
-      inValveDia: 0.048,
-      maxLift: 0.011,
-      outputGain: 1.6,
-    },
-    pipe: () => [makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.044 })],
-    // Bank pipe, silencer, tailpipe — the length is most of why a road V8 sounds deep.
-    collector: () => [
-      makeSegment({ kind: 'cone', length: 0.16, dIn: 0.062, dOut: 0.072 }),
-      makeSegment({ kind: 'pipe', length: 1.15, dIn: 0.072 }),
-      makeSegment({ kind: 'chamber', length: 0.45, dIn: 0.072, dOut: 0.2 }),
-      makeSegment({ kind: 'pipe', length: 0.55, dIn: 0.064 }),
-    ],
-  },
-  {
-    name: 'V8, overcammed',
-    description:
-      'A small-block with far more cam than the street wants: 300\u00b0 of duration on a tight lobe separation, so both valves hang open together for 90\u00b0 around top dead centre. At idle, exhaust is pushed back up the intake and breathed in again, so the charge is mostly spent gas and the manifold has almost no vacuum. About one cycle in five fails to light, and the rest burn late and unevenly: that is the lope.',
-    engine: {
-      cylinders: 8,
-      vAngle: 90,
-      crankType: 'crossplane',
-      exhaustLayout: 'perBank',
-      exhaustHeaders: true,
-      headerRun: 'lengthways',
-      // Idle is where a big cam is heard. The overlap costs little at wide-open throttle; nearly
-      // shut, the manifold is the lowest pressure the exhaust can reach, so it back-flows into the
-      // intake. Measured at 800 rpm on this throttle, against the stock crossplane at the same: 0.78
-      // bar in the manifold rather than 0.30, and 63% of the trapped charge spent gas rather than
-      // 24%. That is past the dilution limit (`DILUTION_ONSET` in `crates/engine-sim/src/cylinder.rs`), and a fifth of
-      // cycles misfire where the stock engine misfires none. On 6% it is half, an engine about to
-      // stall rather than one with a lope; on 12%, almost none. It needs more air to idle than the
-      // stock engine's 7.5%: on this throttle the stock one runs up to 950.
-      ...idling(0.083),
-      // Built to rev, and needs to: a cam this size only starts to pull past 4000.
-      revLimit: 7000,
-      mouthSpacing: 1.3,
-      flywheelInertia: 0.7,
-      pipeCellSize: 0.035,
-      // A 350: 4.030 x 3.48 in on a 5.7 in rod, with 2.02/1.60 in valves.
-      bore: 0.1024,
-      stroke: 0.0884,
-      rodLength: 0.1448,
-      compressionRatio: 11,
-      exValveDia: 0.0406,
-      inValveDia: 0.0513,
-      maxLift: 0.015,
-      // 305 and 295 degrees, 45 degrees either side of overlap, on a 105-degree lobe separation.
-      evo: 100,
-      evc: 405,
-      ivo: 315,
-      ivc: 610,
-      // An idle this dilute burns slowly and wants the spark early to make up for it.
-      ignition: 690,
-      // The crossplane's gain rather than level-matched at idle, so the two V8s compare directly and
-      // opening this one up does not clip.
-      outputGain: 1.6,
-    },
-    pipe: () => [makeSegment({ kind: 'pipe', length: 0.8, dIn: 0.044 })],
-    // Long-tube headers into short collectors and a glasspack-sized can: loud, not open.
-    collector: () => [
-      makeSegment({ kind: 'cone', length: 0.16, dIn: 0.062, dOut: 0.076 }),
-      makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.076 }),
-      makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.076, dOut: 0.13 }),
-      makeSegment({ kind: 'pipe', length: 0.35, dIn: 0.07 }),
-    ],
-  },
-  {
     name: 'V8, Chevrolet LT2',
     car: {
       // GM's figures for the Tremec TR-9080 eight-speed dual clutch, and a 5.56 final drive: the 3.55 ring
@@ -2505,39 +2414,6 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       makeSegment({ kind: 'pipe', length: 0.9, dIn: 0.076 }),
       makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.076, dOut: 0.19 }),
       makeSegment({ kind: 'pipe', length: 0.35, dIn: 0.07 }),
-    ],
-  },
-  {
-    name: 'V8, flatplane, headers per bank',
-    description:
-      'The same engine on a flat crank, so each bank fires evenly every 180\u00b0 and its collector hears four equally spaced pulses. Same firing intervals overall as the crossplane, completely different voice — this is the Ferrari.',
-    engine: {
-      cylinders: 8,
-      vAngle: 90,
-      crankType: 'flatplane',
-      exhaustLayout: 'perBank',
-      exhaustHeaders: true,
-      headerRun: 'lengthways',
-      // Deliberately the loud one: a flat-crank V8 on short pipes.
-      ...idling(0.078),
-      // Oversquare, light and flat-cranked, so it revs like the Ferrari it is.
-      revLimit: 9000,
-      mouthSpacing: 1.3,
-      flywheelInertia: 0.5,
-      pipeCellSize: 0.035,
-      bore: 0.094,
-      stroke: 0.067,
-      rodLength: 0.132,
-      compressionRatio: 12,
-      ...fourValveHead(0.094),
-      maxLift: 0.0105,
-      outputGain: 0.82,
-    },
-    pipe: () => [makeSegment({ kind: 'pipe', length: 0.44, dIn: 0.042 })],
-    collector: () => [
-      makeSegment({ kind: 'cone', length: 0.14, dIn: 0.058, dOut: 0.07 }),
-      makeSegment({ kind: 'pipe', length: 0.85, dIn: 0.07 }),
-      makeSegment({ kind: 'cone', length: 0.25, dIn: 0.07, dOut: 0.09 }),
     ],
   },
   {

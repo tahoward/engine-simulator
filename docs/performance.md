@@ -30,20 +30,17 @@ Boxer four                            111           22.7%    26.0%
 Inline five                           125           26.6%    30.4%
 Inline six, Nissan RB26DETT           101           34.2%    38.3%
 Boxer six                             194           35.8%    40.8%
-V8, flatplane, headers per bank       182           40.0%    45.6%
 V6, Toyota 2GR                        144           42.3%    47.0%
 V8, Chevrolet LT6                     216           42.5%    47.6%
 V8, Chevrolet LT2                     234    272    45.7%    53.3%
-V8, overcammed                        246    296    46.2%    52.5%
-V8, crossplane, headers per bank      242    260    46.7%    54.0%
 ```
 
 `cells` counts the exhaust's, and `asked` is what it would have at the cell size it asks for, where
 [the grid budget](#the-grid-budget) coarsens it. Each cylinder also has an intake runner, always on
 the finest grid the sample rate allows, and the budget charges those cells first: see
 [The intake](engine.md#the-intake) for why the runners are not coarsened. So on an engine whose
-budget is tight, the exhaust gives up cells instead. Three of the V8s do: their long primaries ask
-for 260 to 296 cells, and get 234 to 246.
+budget is tight, the exhaust gives up cells instead. The LT2 does: its long primaries ask for 272
+cells, and get 234.
 
 Speed matters less than what the engine is made of — cylinders, junctions and pipe cells. From 3000
 to 6500 rpm every preset costs at most 4 points more, the most on the 2GR V6 and the turbocharged
