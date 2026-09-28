@@ -26,15 +26,18 @@ fn boost(sim: &EngineSim) -> f64 {
     sim.turbo().unwrap().boost() / 1e5
 }
 
-/// Mean torque over half a second, N*m, after `settle` seconds at `rpm` on full throttle.
-fn torque_at(rpm: f64, settle: f64) -> f64 {
-    let mut sim = rb26(json!({ "throttle": 1, "rpm": rpm }));
+/// Mean torque at the crank, less friction, over half a second, N*m, after `settle` seconds at `rpm` on
+/// full throttle, with the fields in `over` on top.
+fn torque_at(rpm: f64, settle: f64, over: Value) -> f64 {
+    let mut o = json!({ "throttle": 1, "rpm": rpm });
+    o.as_object_mut().unwrap().extend(over.as_object().unwrap().clone());
+    let mut sim = rb26(o);
     sim.render((settle * FS) as usize);
     let n = FS as usize / 2;
     let mut t = 0.0;
     for _ in 0..n {
         sim.render(1);
-        t += sim.snapshot().torque;
+        t += sim.snapshot().torque - sim.friction_torque();
     }
     t / n as f64
 }
@@ -150,13 +153,15 @@ fn spools_up_from_idle_every_time() {
         sim.set_controls(0.0, 0.0);
         sim.render(2 * FS as usize);
         sim.set_controls(1.0, 0.0);
-        let mut slowest = f64::INFINITY;
+        let (mut slowest, mut most) = (f64::INFINITY, f64::NEG_INFINITY);
         for _ in 0..2 * FS as usize {
             sim.render(1);
             slowest = slowest.min(sim.turbo().unwrap().shaft_rpm());
+            most = most.max(boost(&sim));
         }
         assert!(slowest > 1000.0, "blip {blip}: the shaft kept turning, down to {slowest} rpm");
-        assert!(boost(&sim) > 0.5, "blip {blip}: on boost: {}", boost(&sim));
+        // Once it reaches the rev limiter, the cut fuel starves the turbine and the boost falls back.
+        assert!(most > 0.5, "blip {blip}: on boost: {most}");
     }
 }
 
@@ -164,11 +169,20 @@ fn spools_up_from_idle_every_time() {
 /// rated at nor much more than the 320 or so real ones make.
 #[test]
 fn makes_about_the_real_engines_torque_and_power() {
-    let t4400 = torque_at(4400.0, 3.0);
+    let t4400 = torque_at(4400.0, 3.0, json!({}));
     assert!((t4400 - 368.0).abs() < 0.1 * 368.0, "{t4400} N*m at 4400 rpm");
-    let t6800 = torque_at(6800.0, 3.0);
+    let t6800 = torque_at(6800.0, 3.0, json!({}));
     let ps = t6800 * 6800.0 * 2.0 * std::f64::consts::PI / 60.0 / 735.5;
     assert!(ps > 280.0 && ps < 350.0, "{ps} PS at 6800 rpm");
+}
+
+/// Turbos too small for the engine run out of air at the top end: at their choke, spun faster, they
+/// pass little more air, so the power falls away rather than holding level to the limit.
+#[test]
+fn too_small_run_out_of_air_at_the_top_end() {
+    let power = |rpm: f64| torque_at(rpm, 3.0, json!({ "turboSize": 0.12 })) * rpm;
+    let (at_7000, at_7900) = (power(7000.0), power(7900.0));
+    assert!(at_7900 < 0.99 * at_7000, "power at 7900 {at_7900} against 7000 {at_7000}");
 }
 
 /// A blow-off valve vents the charge when the throttle shuts, so the compressor never runs backwards.

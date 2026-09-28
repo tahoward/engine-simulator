@@ -825,6 +825,13 @@ impl EngineSim {
     }
 
     /// Mean crank speed, rev/min.
+    /// The torque friction takes off the crank at its present mean speed, N*m: a friction mean
+    /// effective pressure of 0.8 bar plus 120 Pa per rad/s.
+    pub fn friction_torque(&self) -> f64 {
+        let fmep = 0.8e5 + 120.0 * self.omega_mean;
+        (fmep * self.displacement_m3) / (4.0 * PI)
+    }
+
     pub fn rpm(&self) -> f64 {
         let w = if self.integrating_crank() { self.omega_display } else { self.omega_mean };
         (w * 60.0) / (2.0 * PI)
@@ -853,8 +860,7 @@ impl EngineSim {
         let torque = self.torque_last;
 
         if self.integrating_crank() {
-            let fmep = 0.8e5 + 120.0 * self.omega_mean;
-            let friction = (fmep * self.displacement_m3) / (4.0 * PI);
+            let friction = self.friction_torque();
             let load = if let Some(dyno) = &mut self.dyno {
                 let mut fresh = 0.0;
                 for c in &self.cyls {

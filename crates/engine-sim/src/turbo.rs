@@ -55,7 +55,14 @@ const ETA_BEST_FLOW: f64 = 0.6;
 const ETA_FALLOFF: f64 = 0.8;
 const ETA_FLOOR: f64 = 0.45;
 
-/// The compressor's characteristic, `f(phi)` for flow `phi` as a fraction of its choke flow at full
+/// The compressor's choke flow on a speed line above full speed, as a multiple of the full speed's.
+/// Up to full speed a speed line chokes at a flow in proportion to the speed. Above it the lines crowd
+/// together on a real map, as the air entering the inducer nears the speed of sound relative to the
+/// blades, and here the choke flow levels off at this: an overspeeding wheel makes more pressure at
+/// low flow but passes little more air, so a turbo too small for the engine runs out at the top end.
+const CHOKE_CEILING: f64 = 1.1;
+
+/// The compressor's characteristic, `f(phi)` for flow `phi` as a fraction of its choke flow at its
 /// speed: a Moore-Greitzer cubic, `F0 + H (1 + 1.5 y - 0.5 y^3)` with `y = phi / W - 1`. It has its
 /// peak pressure rise, 1, at `phi = 2 W`, the surge line, at 44% of the choke flow as on a typical
 /// map; to the left of that the pressure falls with falling flow, which is what makes the compression
@@ -505,10 +512,17 @@ impl Turbo {
         self.blade_speed_ratio
     }
 
+    /// Choke flow of all the compressors together on the speed line at `s` of full speed, kg/s.
+    fn choke_at(&self, s: f64) -> f64 {
+        let s = math::max(s, MIN_SPEED_FRACTION);
+        let over = CHOKE_CEILING - 1.0;
+        let line = if s <= 1.0 { s } else { 1.0 + over * math::tanh((s - 1.0) / over) };
+        line * self.size.choke_flow
+    }
+
     /// Isentropic efficiency of the compressor at flow `m` (kg/s) at its present speed.
     fn compressor_efficiency(&self, m: f64) -> f64 {
-        let s = math::max(self.omega / self.size.full_speed, MIN_SPEED_FRACTION);
-        let phi = m.abs() / (s * self.size.choke_flow);
+        let phi = m.abs() / self.choke_at(self.omega / self.size.full_speed);
         let d = (phi - ETA_BEST_FLOW) / (1.0 - ETA_BEST_FLOW);
         ETA_COMPRESSOR * math::max(1.0 - ETA_FALLOFF * d * d, ETA_FLOOR)
     }
@@ -527,7 +541,7 @@ impl Turbo {
             let shut_off = self.size.peak_rise * s2 * MG_F0;
             return (shut_off - loss, shut_off);
         }
-        let phi = math::min(m / (math::max(s, MIN_SPEED_FRACTION) * self.size.choke_flow), 5.0);
+        let phi = math::min(m / self.choke_at(s), 5.0);
         let y = phi / MG_W - 1.0;
         let mg = self.size.peak_rise * s2 * (MG_F0 + MG_H * (1.0 + 1.5 * y - 0.5 * y * y * y));
         // Past its choke the wheel does no more work and is only a restriction.
@@ -679,7 +693,7 @@ impl Turbo {
         whine *= (WHINE_DEPTH * s * s) / size.count;
 
         // --- Stall: left of the surge line the wheel's flow breaks up, around a few shaft orders ---
-        let phi = m_c / (math::max(s, MIN_SPEED_FRACTION) * size.choke_flow);
+        let phi = m_c / self.choke_at(s);
         let surge_line = 2.0 * MG_W;
         let stall = if s > 0.1 { clamp((surge_line - phi) / surge_line, 0.0, 1.0) } else { 0.0 };
         let stall_hz = clamp(shaft_hz, 50.0, 0.2 * self.sample_rate);

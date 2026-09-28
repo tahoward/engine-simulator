@@ -1873,11 +1873,13 @@ const NISSAN_RB26: Partial<EngineSpec> = {
   ivo: 352,
   ivc: 592,
   // Two Garrett T28s, one for each three cylinders (`turbos` below), on 0.8 bar through an intercooler.
-  // Their size is an estimate, chosen for the top end small turbos give: they near their choke above
-  // 6000, and the exhaust works against more back pressure. Each fed by three cylinders' pulses, they
-  // hold full boost from 2000 rpm.
+  // Their size is an estimate: no map of the standard compressor is published. The R33's N1 turbo, a
+  // bigger one, flows up to 0.20 kg/s at 0.8 bar on Mitsubishi's map of it, and a standard pair is
+  // reckoned good for 20-22 lb/min each at peak power, 0.15-0.17 kg/s. Sized to that, they reach full
+  // speed near the rev limit rather than well below it. Each fed by three cylinders' pulses, they hold
+  // full boost from 3000 rpm.
   boostTarget: 0.8e5,
-  turboSize: 0.12,
+  turboSize: 0.16,
   intercooler: 0.7,
   // The factory valve recirculates; this is the atmospheric one so many are fitted with instead.
   blowOff: 'atmospheric',
@@ -2109,7 +2111,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'Inline six, Nissan RB26DETT',
     description:
-      'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.8 bar, one for each three cylinders, spool from 2000 rpm and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 399 N\u00b7m at 4400 rpm and 331 PS at 6800, about 330 hp on the dyno, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
+      'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.8 bar, one for each three cylinders, spool from 2000 rpm, on full boost by 3000, and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 387 N\u00b7m at 4400 rpm and 320 PS at 6800, about 315 hp, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
     engine: NISSAN_RB26,
     pipe: () => fittedExhaust(fullSpec(NISSAN_RB26)).pipe,
     collector: () => fittedExhaust(fullSpec(NISSAN_RB26)).collector,
