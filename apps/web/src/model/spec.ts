@@ -746,10 +746,17 @@ export interface LaunchConfig {
 export const DRIVEN_LOAD = { rwd: 0.5, awd: 1 } as const;
 
 /**
- * Tyres' friction coefficients at their peak, on a dry drag strip: a road tyre's, an ultra-high-performance
- * tyre's such as Michelin's Pilot Sport 4S, and a road-legal track tyre's such as its Cup 2 R.
+ * How much harder a tyre grips driving in a straight line than cornering, where a skidpad measures it:
+ * a tyre's peak grip is typically 5-10% higher along its rolling direction than across it.
  */
-export const TYRE_GRIP = { road: 1.1, performance: 1.3, track: 1.35 } as const;
+export const SKIDPAD_TO_DRIVE = 1.07;
+
+/**
+ * Tyres' friction coefficients at their peak, driving: a road tyre's, and the Corvettes', from the 1.22 g
+ * the Z06 with the Z07 package pulls on a skidpad on its Pilot Sport Cup 2 R tyres, which the Stingray is
+ * given too.
+ */
+export const TYRE_GRIP = { road: 1.1, corvette: 1.22 * SKIDPAD_TO_DRIVE } as const;
 
 /** A quick shift of a manual gearbox, s: lift, clutch, shift and back on the throttle. */
 export const MANUAL_SHIFT_TIME = 0.4;
@@ -2294,7 +2301,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       ratios: [2.91, 1.76, 1.22, 0.88, 0.65, 0.51, 0.4, 0.33],
       finalDrive: 5.56,
       tyreRadius: 0.337,
-      tyreGrip: TYRE_GRIP.performance,
+      tyreGrip: TYRE_GRIP.corvette,
       mass: 1654 + DRIVER_MASS,
       // Mid-engined, 40:60; the dual clutch shifts in about a tenth of a second.
       drivenLoad: 0.6,
@@ -2351,7 +2358,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       ratios: [2.91, 1.76, 1.22, 0.88, 0.65, 0.51, 0.4, 0.33],
       finalDrive: 5.56,
       tyreRadius: 0.344,
-      tyreGrip: TYRE_GRIP.track,
+      tyreGrip: TYRE_GRIP.corvette,
       mass: 1663 - 27 + DRIVER_MASS,
       drivenLoad: 0.6,
       shiftTime: 0.1,
