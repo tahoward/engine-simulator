@@ -31,7 +31,7 @@ fn audio_start(
     frames: Channel<InvokeResponseBody>,
 ) -> Result<StreamInfo, String> {
     let mut slot = state.audio.lock().map_err(|e| e.to_string())?;
-    // The old stream closes before the new one opens.
+    // Any running stream closes before the new one opens.
     *slot = None;
     let (tx, rx) = mpsc::channel::<Frame>();
     std::thread::Builder::new()

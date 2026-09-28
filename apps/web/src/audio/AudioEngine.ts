@@ -28,7 +28,6 @@ const LAG_WINDOWS_GOOD = 3;
 export class AudioEngine implements EngineHost {
   private ctx: AudioContext | null = null;
   private node: AudioWorkletNode | null = null;
-  private master: GainNode | null = null;
   private analyser: AnalyserNode | null = null;
   private readonly listeners = new Set<SnapshotListener>();
   private readonly lagListeners = new Set<LagListener>();
@@ -40,7 +39,6 @@ export class AudioEngine implements EngineHost {
   private behind = false;
   private config: EngineConfig;
   private starting: Promise<void> | null = null;
-  private masterGain = 1;
   private timeScale = 1;
 
   /**
@@ -92,7 +90,6 @@ export class AudioEngine implements EngineHost {
     this.node?.disconnect();
     this.ctx = null;
     this.node = null;
-    this.master = null;
     this.analyser = null;
     this.starting = null;
     await ctx.close();
@@ -145,14 +142,12 @@ export class AudioEngine implements EngineHost {
     analyser.smoothingTimeConstant = 0.6;
 
     const master = ctx.createGain();
-    master.gain.value = this.masterGain;
 
     node.connect(analyser);
     analyser.connect(master);
     master.connect(ctx.destination);
 
     this.node = node;
-    this.master = master;
     if (this.timeScale !== 1) this.post({ type: 'timeScale', scale: this.timeScale });
     this.analyser = analyser;
 
@@ -257,12 +252,7 @@ export class AudioEngine implements EngineHost {
     if (rest) this.post({ type: 'engine', engine: rest });
   }
 
-  /**
-   * Replace the whole duct graph, for an exhaust that was drawn rather than chosen.
-   *
-   * `null` hands the solver back to compiling one from the layout spec, which is what a change of
-   * cylinder count or merge plan needs.
-   */
+  /** Replace the whole duct graph; `null` hands the solver back to compiling one from the layout spec. */
   setGraph(graph: ExhaustGraph | null): void {
     // Loose pipes carry no gas, so the solver is not given them.
     const solved = graph ? solverGraph(graph) : null;
@@ -282,12 +272,6 @@ export class AudioEngine implements EngineHost {
 
   private post(msg: ToWorklet): void {
     this.node?.port.postMessage(msg);
-  }
-
-  /** Master output level, linear. Independent of the physical `outputGain`. */
-  setMasterGain(value: number): void {
-    this.masterGain = Math.max(0, value);
-    if (this.master) this.master.gain.value = this.masterGain;
   }
 
   /** Fills `out` with the current time-domain waveform. Returns false if audio was never started. */

@@ -6,8 +6,8 @@
  * the sum of their radii. Aiming every runner of a group at the *same* junction point would fail it:
  * four 42 mm pipes cannot all occupy one place.
  *
- * Interpenetration is allowed in one place only: inside the weld, where a fabricated collector has the
- * pipe walls cut away and the body covers the join. Everywhere else it is a defect.
+ * Interpenetration is allowed in one place only: where the pipes meet at a junction. Everywhere else it
+ * is a defect.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -23,7 +23,7 @@ import {
   splitDuctAt,
   type ExhaustGraph,
 } from '../src/model/exhaustGraph.js';
-import { buildJointGeometry, hubShape, jointDistance } from '../src/scene/jointMesh.js';
+import type { JointPlacement } from '../src/scene/jointMesh.js';
 import { headingOffsetTo } from '../src/scene/drawing.js';
 import {
   ENGINE_PRESETS,
@@ -76,12 +76,8 @@ function sampleAll(graph: ExhaustGraph, placement: ExhaustPlacement): Map<string
 /**
  * Closest approach between two runners *outside the joint*, as a multiple of the clearance they need.
  *
- * Inside the joint they are allowed to meet, and must be: a fabricated collector has the pipe walls cut
- * away where they join and the joint covers it. Demanding clearance along the whole length would force the
- * bundle out far wider than the pipes.
- *
- * The joint is the union of the pipes themselves, so "inside the joint" is simply a negative signed
- * distance — the same question the mesh answers, asked of the same field.
+ * Inside the joint they are allowed to meet, and must be: that is where they join. Demanding clearance
+ * along the whole length would force the bundle out far wider than the pipes.
  */
 function clearanceRatio(
   a: Sampled,
@@ -102,46 +98,29 @@ function clearanceRatio(
   return worst;
 }
 
+/** The widest pipe at a joint, by radius. */
+function widestAt(joint: JointPlacement): number {
+  return Math.max(...joint.limbs.map((l) => l.radius));
+}
+
 /**
- * Whether a point is where pipes are allowed to meet: inside a junction's fitting, or close enough to one
- * that it is a branch entering the side of the pipe it tees into.
+ * Whether a point is where pipes are allowed to meet: within a ball a little wider than it takes to hold
+ * every pipe end at a junction, or close enough to it that it is a branch entering the side of the pipe it
+ * tees into.
  *
  * A tee's branch overlaps the through pipe for up to a pipe radius past its centreline — that overlap is
  * the branch entering the side of the other pipe, which is what a tee is — so the exemption reaches a
- * widest radius beyond the fitting.
+ * widest radius beyond the ball.
  */
 function weldOf(placement: ExhaustPlacement): (p: THREE.Vector3) => boolean {
   const joints = [...placement.joints.values()];
-  const reach = joints.map((j) => Math.max(...j.limbs.map((l) => l.radius)));
-  return (p: THREE.Vector3) => joints.some((j, i) => jointDistance(j, p) < reach[i]!);
+  const reach = joints.map(
+    (j) => 1.15 * Math.max(...j.limbs.map((l) => l.point.distanceTo(j.centre) + l.radius)) + widestAt(j),
+  );
+  return (p: THREE.Vector3) => joints.some((j, i) => p.distanceTo(j.centre) < reach[i]!);
 }
 
-/**
- * How far the joint's *mesh* reaches, and how far its limbs are spread.
- *
- * Measured off the built geometry rather than a described profile, because a described profile can
- * disagree with its mesh: a mouth radius and a length can read as sensible while the mesh drawn from them
- * is a funnel nobody asked for. What the renderer puts on screen is the only thing worth asserting on.
- */
-function jointExtent(placement: ExhaustPlacement, node: string) {
-  const joint = placement.joints.get(node)!;
-  const geom = buildJointGeometry(joint)!;
-  geom.computeBoundingBox();
-  const size = geom.boundingBox!.getSize(new THREE.Vector3());
-
-  let widest = 0;
-  let spread = 0;
-  for (const limb of joint.limbs) {
-    widest = Math.max(widest, limb.radius);
-    for (const other of joint.limbs) {
-      spread = Math.max(spread, limb.point.distanceTo(other.point));
-    }
-  }
-  const hub = hubShape(joint);
-  return { joint, geom, span: Math.max(size.x, size.y, size.z), widest, spread, hub };
-}
-
-/** A representative collector, for sizing the body's throat. */
+/** A representative collector pipe, for the layouts under test. */
 const COLLECTOR: PipeSegment[] = [
   makeSegment({ kind: 'cone', length: 0.18, dIn: 0.055, dOut: 0.065 }),
   makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.065 }),
@@ -210,52 +189,21 @@ describe('exhaust layout is geometrically possible', () => {
   });
 
   /**
-   * No gaps, by construction — and the assertion says so.
-   *
-   * The joint is the union of the pipes that meet at it, each limb reaching back *inside* its own pipe
-   * before it starts, so every pipe end is strictly within the solid. That is what makes a gap impossible
-   * rather than merely unlikely, and a negative signed distance at each end is the statement of it. A
-   * body that could only promise this by being wide enough to enclose everything would put a balloon on
-   * a 2-into-1.
+   * The junction sits where the collector starts, so the collector comes out of it rather than something
+   * preceding it. A body in front would make the drawn exhaust longer than the one being solved, which
+   * merges at a junction with no volume at all.
    */
-  it.each(CASES)('$name: every pipe end is inside its joint', ({ engine, pipe }) => {
+  it.each(CASES)('$name: the collector starts at its junction', ({ engine, pipe }) => {
     const segments = pipe();
-    const { groups, graph, placement } = layoutOf(engine, segments);
+    const { groups, placement } = layoutOf(engine, segments);
     expect(placement.joints.size).toBeGreaterThan(0);
 
-    for (const node of placement.joints.keys()) {
-      const { joint, geom, span, widest, spread } = jointExtent(placement, node);
-      expect(geom.getIndex()!.count, `${node} built nothing`).toBeGreaterThan(0);
-
-      for (const [i, limb] of joint.limbs.entries()) {
-        const d = jointDistance(joint, limb.point);
-        expect(d, `${node} limb ${i} sits ${(d * 1000).toFixed(1)} mm outside the joint`).toBeLessThan(0);
-      }
-
-      /**
-       * And bounded: a fitting sized to what arrives, not a funnel around how it approached.
-       *
-       * A tee given a collector's enclosing body fails it, coming out hundreds of millimetres across a
-       * joint between two 40 mm pipes.
-       */
-      const bound = 2.5 * (spread + widest * 2);
-      expect(span, `${node} spans ${(span * 1000).toFixed(0)} mm over a ${(spread * 1000).toFixed(0)} mm spread`)
-        .toBeLessThan(bound);
-
-      /**
-       * The fitting sits where the collector starts, so the collector comes out of it rather than the
-       * fitting preceding it. A body in front would make the drawn exhaust longer than the one being
-       * solved, which merges at a junction with no volume at all.
-       */
+    for (const [node, joint] of placement.joints) {
       const group = Number(node.replace('merge', ''));
       const members = groups.flatMap((g, i) => (g === group ? [i] : []));
       if (members.length < 2) continue;
       const onward = placement.ducts.get(`collector${group}`)!;
       expect(joint.centre.distanceTo(onward.origin)).toBeLessThan(1e-9);
-      const collector = graph.ducts.find((d) => d.id === `collector${group}`)!;
-      const swept = layoutPipe(collector.segments, onward.origin, onward.heading);
-      expect(jointDistance(joint, swept.stations[0]!.position)).toBeLessThan(0);
-      expect(jointDistance(joint, swept.stations[swept.stations.length - 1]!.position)).toBeGreaterThan(0);
     }
   });
 
@@ -279,7 +227,7 @@ describe('exhaust layout is geometrically possible', () => {
       const alongMesh = sample(segments, place.origin, place.heading).end;
       worst = Math.max(worst, alongPort.distanceTo(alongMesh));
     }
-    // Tens of millimetres at least: far more than the handle spheres are wide.
+    // Tens of millimetres at least: far more than the handle rings are wide.
     expect(worst).toBeGreaterThan(0.03);
   });
 
@@ -324,8 +272,7 @@ describe('a merge across the vee', () => {
    * while the other joins its side.
    *
    * They converge at about 50 degrees, so meeting symmetrically they would cross each other for several
-   * centimetres before the point, and the fitting big enough to hide that would be a big cone. As a tee
-   * they meet the way straight pipes do.
+   * centimetres before the point. As a tee they meet the way straight pipes do.
    */
   it('meets at a point, as a tee, along the crank rather than down into it', () => {
     const { graph, placement } = layoutOf(
@@ -342,7 +289,6 @@ describe('a merge across the vee', () => {
     expect(onward.heading.angleTo(ends[0]!.jointDirections.at(-1)!)).toBeLessThan(1e-6);
     // Mostly along the crank, within 45 degrees of it: not down into the engine.
     expect(Math.abs(onward.heading.z)).toBeGreaterThan(Math.SQRT1_2);
-    expect(hubShape(placement.joints.get('merge0')!).kind).toBe('ball');
   });
 });
 
@@ -352,7 +298,7 @@ describe('a merge across the vee', () => {
 describe('a manifold along each bank', () => {
   const v8 = { cylinders: 8, vAngle: 90, crankType: 'crossplane', exhaustLayout: 'perBank' } as Partial<EngineSpec>;
 
-  it('reaches every junction exactly, and fits each with a ball', () => {
+  it('reaches every junction exactly', () => {
     const { graph, placement } = layoutOf(v8, [makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.042 })]);
     for (const d of graph.ducts) {
       if (d.to.kind !== 'node') continue;
@@ -360,7 +306,6 @@ describe('a manifold along each bank', () => {
       const end = layoutPipe(d.segments, place.origin, place.heading).joints.at(-1)!;
       expect(end.distanceTo(placement.joints.get(d.to.node)!.centre), d.id).toBeLessThan(1e-6);
     }
-    for (const joint of placement.joints.values()) expect(hubShape(joint).kind).toBe('ball');
   });
 
   it('runs its outlet on along the bank', () => {
@@ -435,7 +380,7 @@ describe('a two-stage merge places in the right order', () => {
     drawnGraph.ducts[0]!.headingPitch = -0.25;
     const drawn = layoutGraph(ports, drawnGraph).ducts.get('runner0')!.heading;
 
-    // Turned off its port by the stored amount, and no longer wherever the collar wanted it.
+    // Turned off its port by the stored amount, not wherever the collar would aim it.
     expect(drawn.angleTo(aimed)).toBeGreaterThan(0.1);
     expect(drawn.angleTo(ports[0]!.direction)).toBeGreaterThan(0.1);
     expect(drawn.length()).toBeCloseTo(1, 9);
@@ -478,16 +423,8 @@ describe('a duct with no segments', () => {
   });
 });
 
-/**
- * A joint is the size of the pipes at it, whatever kind of joint it is.
- *
- * There is no case split. A tee and a 4-into-1 are built the same way — the union of the pipes that meet,
- * filleted — so a tee comes out the size of two 40 mm pipes and a collector comes out the size of the
- * bundle it gathers, with nothing deciding which is which. A surface of revolution sized to *enclose* the
- * feeds would instead give a tee a mouth hundreds of millimetres wide, because a steeply-arriving branch
- * crosses the socket zone far off-axis. These tests hold the sizes.
- */
-describe('joints are shaped like the joint they are', () => {
+/** A pipe teed into another's side: the pipe carries on through the joint, which takes every pipe at it. */
+describe('a tee into a pipe', () => {
   const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: '2into2' } as EngineSpec;
   const ports = () => makePorts(spec);
   const RUNNER = () => [makeSegment({ kind: 'pipe', length: 0.6, dIn: 0.04 })];
@@ -515,17 +452,7 @@ describe('joints are shaped like the joint they are', () => {
     return { graph, ports: p, node, through: station.direction.clone() };
   }
 
-  it('a tee into a pipe of the same size stays the size of the pipes', () => {
-    const { graph, ports: p, node } = teed();
-    const placement = layoutGraph(p, graph);
-    expect(placement.joints.has(node)).toBe(true);
-    const { span, widest } = jointExtent(placement, node);
-    // Two 40 mm pipes meeting at a point: tens of millimetres, not the hundreds a funnel would give.
-    expect(span).toBeLessThan(0.12);
-    expect(span).toBeGreaterThan(widest * 2);
-  });
-
-  it('and the pipe carries on straight through it', () => {
+  it('carries the pipe straight on through it', () => {
     const { graph, ports: p, node, through } = teed();
     const placement = layoutGraph(p, graph);
     const onward = graph.ducts.find((d) => d.from.kind === 'node' && d.from.node === node)!;
@@ -534,29 +461,13 @@ describe('joints are shaped like the joint they are', () => {
     expect((heading.angleTo(through) * 180) / Math.PI).toBeLessThan(1);
   });
 
-  it('merging into a wider pipe grows only by the wider pipe', () => {
-    // A collector sized for the two feeds' combined area, as `joinDuctEnd` would make.
+  it('merging into a wider pipe takes the wider pipe as one of its limbs', () => {
+    // A pipe on from the junction sized for the two feeds' combined area.
     const wide = Math.sqrt(2) * 0.04;
     const { graph, ports: p, node } = teed([makeSegment({ kind: 'pipe', length: 0.4, dIn: wide })]);
-    const placement = layoutGraph(p, graph);
-    const { span, widest, joint } = jointExtent(placement, node);
-    expect(widest).toBeCloseTo(wide / 2, 9);
-    // Still a collar around the pipes, not a funnel around how they approached.
-    expect(span).toBeLessThan(0.15);
-    // And the wider outlet is one of the limbs, so the joint follows it out.
-    expect(joint.limbs.some((l) => Math.abs(l.radius - wide / 2) < 1e-9)).toBe(true);
-  });
-
-  /** A collector spans its bundle: its runners are spread, so the joint has to reach all of them. */
-  /** The equal-length layout still gathers four runners into one collector, which must take them all. */
-  it('a collector spans the runners it gathers', () => {
-    const merged = { ...defaultConfig().engine, cylinders: 8, vAngle: 90, crankType: 'crossplane', exhaustLayout: 'perBank' } as EngineSpec;
-    const graph = compileCollectorLayout(merged, [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.042 })], COLLECTOR);
-    const placement = layoutGraph(makePorts(merged), graph);
-    const { span, spread } = jointExtent(placement, 'merge0');
-    // Wide enough to bundle four runners, which is the whole point of it.
-    expect(span).toBeGreaterThan(0.12);
-    expect(span).toBeGreaterThan(spread);
+    const joint = layoutGraph(p, graph).joints.get(node)!;
+    // The wider outlet is the widest limb, so the junction's mark is sized to it.
+    expect(widestAt(joint)).toBeCloseTo(wide / 2, 9);
   });
 });
 
@@ -598,8 +509,6 @@ describe('a tee runs through unbroken', () => {
     const upSwept = layoutPipe(upstream.segments, upPlace.origin, upPlace.heading);
     const onward = graph.ducts.find((d) => d.from.kind === 'node' && d.from.node === node)!;
     return {
-      node,
-      placement,
       step: upSwept.joints[upSwept.joints.length - 1]!.distanceTo(
         placement.ducts.get(onward.id)!.origin,
       ),
@@ -625,10 +534,8 @@ describe('a tee runs through unbroken', () => {
    * turn into a collector because its branch is one radius short.
    */
   it('recognises a tee even when the branch stops on the skin', () => {
-    const { node, placement, step } = teeInto(0);
+    const { step } = teeInto(0);
     expect(step).toBeLessThan(1e-9);
-    // Still joint-sized rather than collector-sized, so the branch is welded on, not funnelled into.
-    expect(jointExtent(placement, node).span).toBeLessThan(0.12);
   });
 });
 

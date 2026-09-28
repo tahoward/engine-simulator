@@ -51,7 +51,7 @@ struct Compiled {
 
 fn fixture() -> Fixture {
     let text = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/scenarios.json"))
-        .expect("fixtures: run `npm run capture` in apps/web");
+        .expect("tests/fixtures/scenarios.json");
     serde_json::from_str(&text).expect("fixture parses")
 }
 

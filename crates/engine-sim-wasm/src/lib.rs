@@ -32,15 +32,6 @@ pub extern "C" fn alloc(len: usize) -> *mut u8 {
     p
 }
 
-/// Free what `alloc` reserved, for a message that was never passed on.
-///
-/// # Safety
-/// `ptr` and `len` must be exactly what `alloc` returned and was given.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn dealloc(ptr: *mut u8, len: usize) {
-    drop(unsafe { Vec::from_raw_parts(ptr, 0, len.max(1)) });
-}
-
 /// Take back the bytes of a message the caller wrote with `alloc`.
 unsafe fn take(ptr: *mut u8, len: usize) -> Vec<u8> {
     unsafe { Vec::from_raw_parts(ptr, len, len.max(1)) }

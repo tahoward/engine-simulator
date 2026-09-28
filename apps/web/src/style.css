@@ -313,10 +313,6 @@ button.tool-btn:hover .tool-tip {
   gap: 4px;
 }
 
-.row.disabled {
-  opacity: 0.4;
-}
-
 .hidden {
   display: none !important;
 }
@@ -498,7 +494,7 @@ button.primary.running {
   background: var(--hot);
 }
 
-/* ---------- segment list ---------- */
+/* ---------- segments and junctions ---------- */
 
 .joint {
   padding: 8px;
@@ -530,27 +526,15 @@ button.primary.running {
   color: var(--accent-2);
 }
 
-.segments {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-
 .segment {
   padding: 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel-2);
-  cursor: pointer;
 }
 
 .segment.locked {
   opacity: 0.6;
-}
-
-.segment.selected {
-  border-color: var(--good);
-  box-shadow: 0 0 0 1px rgba(140, 255, 158, 0.25);
 }
 
 .segment-head {
@@ -861,10 +845,6 @@ button.tool:hover {
   justify-content: space-between;
   font-weight: 600;
   font-size: 12px;
-}
-
-.seg-menu .segment {
-  cursor: default;
 }
 
 .seg-menu-add {

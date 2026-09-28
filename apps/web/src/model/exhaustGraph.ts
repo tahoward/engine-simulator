@@ -1,21 +1,18 @@
 /**
  * The exhaust as a graph of ducts joined at nodes.
  *
- * This is the thing the solver is built from, rather than one primary geometry shared by every cylinder
- * plus one collector per bank. That shape suits a topology picked from a dropdown, but it cannot express
- * what drawing pipes implies: runners of different lengths, a tri-Y, or a branch part way along another
- * duct.
+ * This is the thing the solver is built from. It expresses what drawing pipes implies: runners of
+ * different lengths, a tri-Y, or a branch part way along another duct.
  *
  * The model is deliberately small. A duct is a list of `PipeSegment`s with something at each end —
  * a cylinder's exhaust valve, a node, or open air — and a node is nothing but an id that several duct
- * ends happen to share. That is enough for every layout the app has today and for the ones it does
- * not, with no special cases: a 4-into-1 is four ducts and a collector sharing one node, a tri-Y is
- * two pairs sharing two nodes that feed a third, and a T-branch is a duct that was split in two so
- * its middle became a node.
+ * ends happen to share. That is enough for any layout, with no special cases: a 4-into-1 is four
+ * ducts and a collector sharing one node, a tri-Y is two pairs sharing two nodes that feed a third,
+ * and a T-branch is a duct that was split in two so its middle became a node.
  *
- * Nothing here knows about three.js or about the solver. `compileLayout` turns the existing
- * `exhaustLayout` spec into a graph, so presets, saved URLs and the layout dropdown all keep working
- * and the solver only ever sees a graph.
+ * Nothing here knows about three.js or about the solver. `compileExhaust` turns the spec's
+ * `exhaustLayout` into a graph, so presets and saved URLs compile to one and the solver only ever
+ * sees a graph.
  */
 
 import { type Vec3, distance, exhaustPortOf, sweepEnd, turnBetweenDirs, turnDir } from './geometry.js';
@@ -258,7 +255,7 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
 /**
  * The duct to select when nothing has been chosen yet: the first one leaving a valve, else the first.
  *
- * One rule, shared by the scene's handles and the panel's duct menu, so a reseed lands both on the same
+ * One rule, shared by the scene's handles and the panel, so a reseed lands both on the same
  * duct. A graph always starts at the valves, but a hand-edited one need not list them first.
  */
 export function defaultDuctId(graph: ExhaustGraph): string | undefined {
@@ -292,34 +289,6 @@ export function endsAt(
     if (duct.to.kind === 'node' && duct.to.node === node) ends.push({ duct, end: 'outlet' });
   }
   return ends;
-}
-
-/**
- * Ducts that vent to air, downstream-most first.
- *
- * The order matters and is not cosmetic: `refreshMouthPaths` lays the mouths out *in a line* by
- * index and gives each its own delay and gain, so reordering them changes the sound. Node-fed ducts
- * come first because a node-fed duct is further downstream than a valve-fed one — which is a real
- * ordering rather than an arbitrary one: collectors, then cylinders venting alone.
- */
-export function radiatingDucts(graph: ExhaustGraph): ExhaustDuct[] {
-  const mouths = graph.ducts.filter((d) => d.to.kind === 'mouth');
-  const rank = (d: ExhaustDuct) => (d.from.kind === 'node' ? 0 : 1);
-  return mouths
-    .map((d, i) => ({ d, i }))
-    .sort((a, b) => rank(a.d) - rank(b.d) || a.i - b.i)
-    .map((m) => m.d);
-}
-
-/** The duct each cylinder's valve feeds, or `null` if the graph does not give it one. */
-export function valveDucts(graph: ExhaustGraph, cylinders: number): Array<ExhaustDuct | null> {
-  const out: Array<ExhaustDuct | null> = new Array(cylinders).fill(null);
-  for (const duct of graph.ducts) {
-    if (duct.from.kind !== 'valve') continue;
-    if (duct.from.cylinder < 0 || duct.from.cylinder >= cylinders) continue;
-    out[duct.from.cylinder] ??= duct;
-  }
-  return out;
 }
 
 /**
@@ -512,7 +481,7 @@ export function compileLayout(
      *
      * A bank of one cylinder aims its runner straight there. A bank of several gets a downpipe from the end
      * of its manifold, cut to the length that reaches: the banks are mirror images, so the two downpipes are
-     * the same length and meet exactly, at a plain fitting. That length is taken out of the collector, so
+     * the same length and meet exactly, at a plain junction. That length is taken out of the collector, so
      * the path from each valve to the air — which is what the tuning depends on — keeps the length the
      * runner and collector give it.
      */
@@ -549,7 +518,7 @@ export function compileLayout(
         to: { kind: 'node', node: `merge${g}` },
         // The manifold carries on into it, so its junction is laid out on the manifold rather than
         // aimed. Without this, a bank of two — whose manifold is its first runner — would have both
-        // runners aimed at a collar, and the fitting would come out a 29 cm collector. The downpipe itself
+        // runners aimed at a collar 29 cm across. The downpipe itself
         // is still aimed where the banks meet: see `layoutGraph`.
         ...(carried ? { continues: carried } : {}),
         role: 'downpipe',
@@ -647,9 +616,8 @@ function compileBankTurbos(spec: EngineSpec, pipe: PipeSegment[], fitted: PipeSe
  *
  * The textbook tuned header — each
  * cylinder's path to air the same length, so its pulses reach the merge evenly spaced and matched
- * cylinders cancel their low orders. `compileLayout` builds manifolds instead, because that is what straight
- * pipes snapping together make; this is kept for anything that needs the symmetric system, which is what
- * the physics tests of cancellation and pulse spacing are about.
+ * cylinders cancel their low orders. `compileExhaust` builds it for an engine with `exhaustHeaders`;
+ * `compileLayout` builds manifolds instead, because that is what straight pipes snapping together make.
  */
 export function compileCollectorLayout(
   spec: EngineSpec,
@@ -735,7 +703,7 @@ export function carriedGeometry(graph: ExhaustGraph): { pipe?: PipeSegment[]; co
  *
  * What "the tuned length" means once the exhaust is a graph: a runner plus whatever it merges into,
  * however many stages that takes. Follows the first duct leaving each junction, which is the only
- * choice for every layout that exists today and an arbitrary but harmless one for a diverging Y.
+ * choice for every compiled layout and an arbitrary but harmless one for a diverging Y.
  * Stops if it ever revisits a duct, so a loop cannot hang the panel.
  */
 export function pathToAir(graph: ExhaustGraph, cylinder: number): ExhaustDuct[] {
@@ -1034,7 +1002,7 @@ export function childDucts(graph: ExhaustGraph, duct: ExhaustDuct): ExhaustDuct[
 export function removeDuct(graph: ExhaustGraph, ductId: string, dirs?: DuctDirections): boolean {
   const duct = graph.ducts.find((d) => d.id === ductId);
   if (!duct || duct.from.kind === 'valve') return false;
-  // Not where pipes would go with it. See `loosenDownstream`, which frees them first.
+  // Not where pipes would go with it. See `loosenChildren`, which frees them first.
   if (strands(graph, duct)) return false;
   graph.ducts = graph.ducts.filter((d) => d !== duct);
   // Nothing carries on from a pipe that has gone, nor from a new one given its id.
@@ -1060,7 +1028,7 @@ export function strands(graph: ExhaustGraph, duct: ExhaustDuct): boolean {
  *
  * For a pipe that no longer reaches the junction it was joined to — shortened by deleting a segment,
  * say. Pipes are straight tube that snaps together, so one cut short does not stretch to stay joined,
- * and a fitting grown to bridge the gap would be 36 cm across. The junction it left is tidied.
+ * and left joined would leave a gap at the junction. The junction it left is tidied.
  */
 export function disconnectEnd(graph: ExhaustGraph, ductId: string, dirs?: DuctDirections): boolean {
   const duct = graph.ducts.find((d) => d.id === ductId);
@@ -1079,19 +1047,17 @@ export function disconnectEnd(graph: ExhaustGraph, ductId: string, dirs?: DuctDi
  *
  * The pipes that went into it end in open air where it was. A pipe running straight *through* is rejoined:
  * a tee's through pipe was only split so something could join it, so deleting the tee rejoins it into one
- * pipe and leaves the branch that joined it open. Where the graph records which pipe carries on
- * (`ExhaustDuct.continues`), that decides it; otherwise the caller says, from the geometry, as `[in, out]`.
- * Refused, returning `false`, while any other pipe leaves it: see `junctionRemoval`. With `outsGo` those
+ * pipe and leaves the branch that joined it open. Which pipe carries on is what the graph records
+ * (`ExhaustDuct.continues`). Refused, returning `false`, while any other pipe leaves it: see `junctionRemoval`. With `outsGo` those
  * go with it instead, as a turbo's outlet pipe does.
  */
 export function removeJunction(
   graph: ExhaustGraph,
   node: string,
-  through?: [string, string] | null,
   dirs?: DuctDirections,
   outsGo = false,
 ): boolean {
-  const plan = junctionRemoval(graph, node, through, outsGo);
+  const plan = junctionRemoval(graph, node, outsGo);
   if (!plan) return false;
   const { feeds, outs, keepIn, keepOut } = plan;
 
@@ -1119,18 +1085,14 @@ export function removeJunction(
 export function junctionRemoval(
   graph: ExhaustGraph,
   node: string,
-  through?: [string, string] | null,
   outsGo = false,
 ): { feeds: ExhaustDuct[]; outs: ExhaustDuct[]; keepIn?: ExhaustDuct; keepOut?: ExhaustDuct } | null {
   const ends = endsAt(graph, node);
   const feeds = ends.filter((e) => e.end === 'outlet').map((e) => e.duct);
   const outs = ends.filter((e) => e.end === 'inlet').map((e) => e.duct);
-  // What the graph says runs through, where it says — a manifold, or a pipe that was split — else the
-  // caller's reading of the geometry. A manifold widens at each junction, so geometry alone misses it.
-  const carried = outs.find((d) => d.continues && feeds.some((f) => f.id === d.continues));
-  const via: [string, string] | null | undefined = carried ? [carried.continues!, carried.id] : through;
-  const keepIn = via ? feeds.find((d) => d.id === via[0]) : undefined;
-  const keepOut = via ? outs.find((d) => d.id === via[1]) : undefined;
+  // What the graph says runs through: a manifold, or a pipe that was split.
+  const keepOut = outs.find((d) => d.continues && feeds.some((f) => f.id === d.continues));
+  const keepIn = keepOut ? feeds.find((f) => f.id === keepOut.continues) : undefined;
   // Nothing may leave it but a pipe running straight through, which is rejoined: a pipe branching off it,
   // or carrying the flow on from it, goes first. With `outsGo`, as for a turbo, whose outlet pipe comes
   // with it, the pipes leaving go with it instead, so long as nothing carries on from them.

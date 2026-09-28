@@ -1,5 +1,5 @@
 /**
- * Where each duct of the exhaust is drawn: one primary per cylinder, plus a collector per group.
+ * Where each duct of the exhaust graph is drawn, and the pipes that meet at each junction.
  *
  * Pure geometry, no scene objects, so the layout can be tested for pipes occupying the same space
  * rather than inspected by eye.
@@ -35,16 +35,9 @@ export interface DuctPlacement {
 }
 
 /**
- * Where each duct meets a junction, for `jointMesh` to build geometry from.
- *
- * Limbs rather than a profile. A mouth radius, a throat radius and a length would be enough to lathe a
- * surface of revolution about the junction's axis, and nothing more. That can only ever *enclose* the
- * pipes, because they are not axisymmetric about the joint: they arrive at their own angles and offsets, so
- * a body wide enough to contain them all is wider than any of them, which reads as a balloon on a 2-into-1.
- * And no surface of revolution around a tee makes sense at all.
- *
- * Giving the mesh the actual limbs lets it size a fitting to the pipes instead — a ball where they meet at a
- * point, a collector drum where they arrive spread apart — with every pipe end inside it, so there is no gap.
+ * Where each duct is drawn, and each junction as its limbs: every pipe meeting there, where it arrives and
+ * which way. The junction's mark (`JointMesh`) is sized from them, and a pipe drawn to join the junction
+ * arrives along its axis.
  */
 export interface ExhaustPlacement {
   /** Where each duct is drawn, by duct id. */
@@ -81,10 +74,9 @@ const SOCKET_RATIO = 1.3;
  * How far apart the feed *ends* must be, as a multiple of the widest pipe's radius, before the joint is
  * treated as gathering them at their centroid rather than sitting on the widest pipe's end.
  *
- * A merge body exists to gather ends that are spread around a collar. At a T they are not spread: the
- * branch and the pipe it joins finish at the same point, so there is nothing to gather and a body is pure
- * invention — for a 40 mm branch onto a 40 mm pipe it would be a 391 mm mouth tapering over 720 mm, a
- * funnel where there should be a joint.
+ * A joint gathers ends that are spread around a collar. At a T they are not spread: the branch and the
+ * pipe it joins finish at the same point, so there is nothing to gather, and the joint sits on the pipe
+ * being joined.
  *
  * Measured on the *ends*, not on the socket-zone bundle radius, and that distinction matters: the bundle
  * radius is inflated by a steeply-arriving branch passing through the socket zone well off-axis, so it says
@@ -158,7 +150,7 @@ function sampleRunner(duct: ExhaustDuct, place: DuctPlacement, stride = 3): Runn
  * off its port or its node and that is that. If it was compiled from a layout, there is no stored
  * heading and it gets aimed — the collar search below picks a direction for each runner so the bundle
  * is as tight as the geometry allows. Drawing therefore makes the aiming machinery redundant for the
- * ducts it touches, which is the intended direction of travel: a drawn route needs no derivation.
+ * ducts it touches: a drawn route needs no derivation.
  */
 export function layoutGraph(
   ports: ExhaustPort[],
@@ -168,8 +160,6 @@ export function layoutGraph(
   const ducts = new Map<string, DuctPlacement>();
   const joints = new Map<string, JointPlacement>();
 
-  // Valve-fed ducts start at a known port. A drawn one is finished here; one that will be aimed gets
-  // its port direction for now and is overwritten when its junction is solved.
   // A loose pipe is where it was put down, heading as stored off world +x.
   for (const duct of graph.ducts) {
     if (duct.from.kind !== 'free') continue;
@@ -179,6 +169,8 @@ export function layoutGraph(
     });
   }
 
+  // Valve-fed ducts start at a known port. A drawn one is finished here; one that will be aimed gets
+  // its port direction for now and is overwritten when its junction is solved.
   for (const duct of graph.ducts) {
     if (duct.from.kind !== 'valve') continue;
     const port = ports[duct.from.cylinder];
@@ -217,7 +209,7 @@ export function layoutGraph(
       /**
        * A turbo has a place of its own, where it was put down. Its outlet pipe starts from its outlet
        * flange, turned off the way the gas leaves it; what feeds it ends at its inlet however it was drawn,
-       * so nothing is aimed and there is no fitting to build.
+       * so nothing is aimed and there is no joint.
        */
       const turbo = turbos.get(node);
       if (turbo) {
@@ -348,9 +340,8 @@ export function layoutGraph(
        * Pipes from opposite sides meeting at a point: a tee if they converge, a plain meeting if head on.
        *
        * Converging at an acute angle — a V-twin's two runners, about 50 degrees apart — two pipes meeting
-       * symmetrically cross each other for several centimetres before the point, and a fitting big enough
-       * to hide that is a big ball. So one carries straight on into the outlet and the other joins its side,
-       * as a drawn tee does. Arriving nearly head on — two banks' downpipes — they barely overlap, and meet
+       * symmetrically cross each other for several centimetres before the point. So one carries straight on
+       * into the outlet and the other joins its side, as a drawn tee does. Arriving nearly head on — two banks' downpipes — they barely overlap, and meet
        * symmetrically with the outlet leaving between them.
        */
       let teeInto: RunnerSample | null = null;
@@ -369,14 +360,12 @@ export function layoutGraph(
        * The joint's limbs: every pipe that meets here, and which way it arrives.
        *
        * No cases and no sizing. A tee is two limbs and an outlet, a 4-into-1 is five limbs, a tri-Y is two
-       * joints of three — and `jointMesh` sizes a fitting to whichever it is, following the pipes rather
-       * than enclosing them.
+       * joints of three — and the junction's mark is sized from them.
        */
       const limbs: JointLimb[] = samples.map((sm) => ({
         point: sm.end.clone(),
         dir: sm.endDir.clone(),
         radius: ductOutletRadius(sm.duct),
-        duct: sm.duct.id,
       }));
 
       for (const d of downstream) {
@@ -409,7 +398,6 @@ export function layoutGraph(
           point: mouth.clone(),
           dir: place.heading.clone().negate(),
           radius: segmentDiameter(d.segments[0]!, 0) / 2,
-          duct: d.id,
         });
       }
 
@@ -584,15 +572,15 @@ function aimRunners(
    * Pipes from opposite sides of a V always meet at a point.
    *
    * They cannot collide on the way — they come from opposite sides — and where they overlap at the end is
-   * the joint itself, drawn as a tee or a fitting. A collar here only spreads their ends apart around the
-   * junction, which turns a V-twin's 2-into-1 into a big cone.
+   * the joint itself. A collar here only spreads their ends apart around the junction, which turns a
+   * V-twin's 2-into-1 into a big cone.
    */
   if (meetAtPoint) {
     /**
      * Two pipes of different lengths still meet exactly, where they can.
      *
      * One point for both only works if they are the same length; shorten one — delete a segment of a
-     * V-twin's runner — and the shorter falls short, leaving a gap the fitting would grow to 20 cm to span.
+     * V-twin's runner — and the shorter falls short, leaving a gap of up to 20 cm at the junction.
      * The point both can reach is on the circle where a sphere of each one's reach about its own start
      * meets the other's, and of that circle the point furthest along the way the merge heads.
      */
@@ -656,7 +644,7 @@ const JOIN_TOLERANCE = 0.005;
  * Whether every pipe running into `node` actually reaches it.
  *
  * Pipes are straight tube that snaps together, so a junction whose pipes do not meet is not a joint but
- * a gap — the fitting would have to grow to bridge it.
+ * a gap.
  */
 export function pipesMeetAt(graph: ExhaustGraph, placement: ExhaustPlacement, node: string): boolean {
   const turbo = placement.turbos.get(node);

@@ -28,7 +28,7 @@ export type SegmentKind =
    * reverse cone, or a pipe the same all the way along.
    */
   | 'pipe'
-  /** The same as a tapering `pipe`, as older exhausts describe one. */
+  /** The same as a tapering `pipe`, under the name some presets and saved exhausts give one. */
   | 'cone'
   /** Sudden expansion into a large-diameter volume, then back down: a muffler can. */
   | 'chamber';
@@ -473,7 +473,7 @@ export interface EngineSpec {
    *
    * A fraction rather than N*m because a fixed torque means a different thing on every engine: 60 N*m
    * holds a 500 cc single down hard and is nothing to a 5.5 litre V8, which with a light flywheel would
-   * run to its limiter in a few hundredths of a second. See `loadTorqueOf`.
+   * run to its limiter in a few hundredths of a second. See `load_torque_of` in `crates/engine-sim/src/spec.rs`.
    */
   load: number;
 
@@ -484,7 +484,7 @@ export interface EngineSpec {
    * Cell length for the exhaust gas-dynamics solver, m.
    *
    * The trade between fidelity and CPU. Smaller cells resolve higher frequencies — roughly
-   * `c / (10 * cellSize)` before numerical dissipation takes over — and cost more cells. The solver
+   * `c / (10 * pipeCellSize)` before numerical dissipation takes over — and cost more cells. The solver
    * takes exactly one step per audio sample, which puts a floor under this: a cell has to be long
    * enough for the fastest wave not to cross it in one sample, about 34 mm at 48 kHz and 37 mm at
    * 44.1 kHz, and anything smaller asked for is raised to that.
@@ -752,9 +752,6 @@ export function fitDyno(spec: EngineSpec, boosted = false): DynoConfig {
  */
 export const FULL_LOAD_BMEP = 11e5;
 
-/** Number of crank degrees in one full four-stroke cycle. */
-export const CYCLE_DEG = 720;
-
 // ---------------------------------------------------------------------------
 // Gas properties
 // ---------------------------------------------------------------------------
@@ -793,16 +790,6 @@ export const GAS = {
 /** Speed of sound in exhaust gas at temperature `t` (K), m/s. */
 export function speedOfSound(t: number, gamma: number = GAS.gammaExh): number {
   return Math.sqrt(gamma * GAS.R * t);
-}
-
-/** Speed of sound in ambient air, m/s. What the radiated wave travels at once it is out. */
-export function ambientSoundSpeed(): number {
-  return speedOfSound(GAS.tAmb, GAS.gammaAir);
-}
-
-/** Gas density at pressure `p` (Pa) and temperature `t` (K), kg/m^3. */
-export function density(p: number, t: number): number {
-  return p / (GAS.R * t);
 }
 
 // ---------------------------------------------------------------------------
@@ -1991,7 +1978,7 @@ const LT6_GAIN = 0.93;
 export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'Single, megaphone',
-    description: 'The 500 cc thumper this project started as.',
+    description: 'A 500 cc air-cooled thumper.',
     // A big air-cooled single is out of breath well before 7000.
     engine: { cylinders: 1, exhaustLayout: 'single', revLimit: 7000, ...idling(0.072), outputGain: 0.68 },
     pipe: () => PIPE_PRESETS[1]!.build(),

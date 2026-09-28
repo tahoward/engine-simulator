@@ -249,8 +249,9 @@ mod no_fixed_rate_numerical_artefacts {
         // perturbation at sampleRate/N — at N = 16 that is exactly 3000 Hz. It would appear in
         // every preset and dominate the expansion chamber, which has a high-Q tailpipe mode there.
         //
-        // Deliberately checked on that preset, since it is the one that amplifies it most, and
-        // with every stochastic source disabled so nothing can mask it.
+        // Deliberately checked on that preset, since it is the one that amplifies it most, as well as
+        // the open header and the street muffler, with every stochastic source disabled so nothing
+        // can mask it.
         for preset in [0, 2, 3] {
             let r = tone_peak(preset, FS / 16.0);
             assert!(r < 8.0, "preset {preset} has a spike at the heat batch rate: {r}");

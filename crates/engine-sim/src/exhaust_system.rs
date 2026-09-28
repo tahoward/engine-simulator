@@ -6,9 +6,7 @@
 //! on where the firing interval puts it.
 
 use crate::dsp::Noise;
-use crate::euler_pipe::{
-    DESIGN_WAVE_SPEED, DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, OutletKind, ValveState,
-};
+use crate::euler_pipe::{DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, OutletKind, ValveState};
 use crate::exhaust_graph::{
     DuctRole, End, ExhaustGraph, ends_at, node_order, path_to_air, radiating_ducts, validate_graph, valve_ducts,
 };
@@ -587,7 +585,7 @@ impl ExhaustSystem {
     /// Each side's flux is linear in its pressure near where it passes nothing, with slope `A/c`, as
     /// the ordinary junction has it. So for a trial flow `m` each side's pressure follows, and the flow
     /// the turbine passes between those two falls as `m` rises: the one `m` where the two agree is
-    /// found by bisection. Each side's pressure is then corrected against the flux its ducts actually
+    /// found by Newton's method, kept inside a bisection bracket. Each side's pressure is then corrected against the flux its ducts actually
     /// pass, and the flow solved again.
     fn solve_turbine(&mut self, ni: usize) {
         let setting = self.turbine.unwrap();
@@ -900,6 +898,3 @@ impl ExhaustSystem {
         }
     }
 }
-
-/// The design wave speed, for callers sizing against the junction's velocity ceiling.
-pub const JUNCTION_MAX_SPEED: f64 = DESIGN_WAVE_SPEED;

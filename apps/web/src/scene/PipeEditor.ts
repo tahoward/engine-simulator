@@ -1,13 +1,14 @@
 /**
  * Direct manipulation of the exhaust in 3D.
  *
- * The selected segment has a triad (`Triad.ts`): its arrows and squares move the segment's end along an
- * axis or in a plane, the length and the corner following, and its rings turn the segment about where it
- * starts. A ring around each joint sets the diameter there: drag it outward to open the pipe up, inward to
- * choke it down. A selected turbo has a triad of its own, which moves and turns it.
+ * The selected pipe has a triad (`Triad.ts`) where it starts: its arrows and squares move the junction it
+ * starts from along an axis or in a plane, the pipe with it, or a loose pipe itself, and its rings turn the
+ * pipe about where it starts. A bend further along has a ring of its own, which rolls it. A ring around
+ * each joint sets the diameter there: drag it outward to open the pipe up, inward to choke it down. A
+ * selected turbo has a triad of its own, which moves and turns it.
  *
- * Both write through the same mutation helpers the numeric panel uses, so the two
- * editors cannot drift apart — there is exactly one `PipeSegment[]`.
+ * Both edit the same `PipeSegment[]` the segment menu does, so the two editors cannot drift apart —
+ * there is exactly one.
  *
  * Turning is free acoustically: the 1D model integrates area against *axial*
  * distance, so folding a long pipe to fit the viewport does not change the note.
@@ -96,7 +97,7 @@ import {
 const MIN_RADIUS = 0.006;
 const MAX_RADIUS = 0.22;
 
-/** Live geometry edits are cheap to draw but force a waveguide rebuild, so throttle those. */
+/** Live geometry edits are cheap to draw but force the solver's ducts to be rebuilt, so throttle those. */
 const AUDIO_COMMIT_MS = 200;
 
 /** A diameter handle: the ring at a joint, or at the inlet. */
@@ -346,7 +347,7 @@ export class PipeEditor {
   /** Turbos are drawn this size, and put down at this height unless snapped to a pipe. Set by the owner. */
   private size: TurboSize = { scroll: 0.07, depth: 0.06, outletDia: 0.058, inletDia: 0.042 };
   turboHeight = 0;
-  /** The bore a turbo's outlet is given when a pipe is first drawn into it. Set by the owner. */
+  /** The bore a pipe drawn from a turbo's outlet starts at. Set by the owner. */
   turboOutletDia = 0.058;
   /** The turbo the owner has selected, which the turbo triad is on. */
   private selectedTurbo: string | null = null;
@@ -354,8 +355,8 @@ export class PipeEditor {
    * The route in progress.
    *
    * The duct is added to the graph as soon as drawing starts, rather than being assembled and inserted at
-   * the end. That keeps one source of truth — the renderer draws it, the solver hears it, and the panel
-   * lists it, all while it is still being drawn — instead of a second, parallel representation that has to
+   * the end. That keeps one source of truth — the renderer draws it and the solver hears it, all while it
+   * is still being drawn — instead of a second, parallel representation that has to
    * be kept in step with the first.
    */
   private route: {
@@ -372,8 +373,6 @@ export class PipeEditor {
     /** Segments the duct already had, when the route continues an existing pipe rather than a new one. */
     base: number;
   } | null = null;
-  /** The target the preview is currently offering, for anything that wants to describe it. */
-  snapped: SnapTarget | null = null;
   /**
    * The segment the next click would add, as a see-through pipe of the bore it would be: a straight, or the
    * bend fitted into what it would join. Tinted the colour of the way it runs.
@@ -534,14 +533,6 @@ export class PipeEditor {
     this.placeTurboTriad();
   }
 
-  get placing(): boolean {
-    return this.placeMode;
-  }
-
-  /**
-   * Follow the pointer with the turbo being placed: on the level it is put down at, or, near an open pipe
-   * end, with its inlet flange on that end and turned to take the pipe.
-   */
   /** Size the loose pipe that placing puts down, as `placeLoosePipe` will: `length` long, of `dia` bore. */
   setLoosePipe(length: number, dia: number): void {
     this.ghostPipe.geometry.dispose();
@@ -550,6 +541,11 @@ export class PipeEditor {
       .translate(0, 0, length / 2);
   }
 
+  /**
+   * Follow the pointer with the turbo being placed: on the level it is put down at, or, near an open pipe
+   * end, with its inlet flange on that end and turned to take the pipe. A loose pipe being placed follows
+   * it on the level of the ports.
+   */
   private updateGhost(): void {
     const ctx = this.context;
     if (!ctx) return;
@@ -666,10 +662,6 @@ export class PipeEditor {
     this.applyHandleVisibility();
   }
 
-  get bendToolOn(): boolean {
-    return this.bendTool;
-  }
-
   /** Whether a tool is on: drawing, placing, bending or the header. */
   get toolOn(): boolean {
     return this.drawMode || this.placeMode || this.bendTool || this.header !== null;
@@ -713,10 +705,6 @@ export class PipeEditor {
     if (setup) this.headerTriad.setOrientation(frameAlong(setup.axis));
     this.updateHeader();
     this.applyHandleVisibility();
-  }
-
-  get headerOn(): boolean {
-    return this.header !== null;
   }
 
   /** The shortest the pipes can all be and reach where they merge, m: 0 with no openings picked. */
@@ -939,7 +927,7 @@ export class PipeEditor {
     const ctx = this.context;
     if (!ctx) return false;
     const seg = duct.segments[index];
-    const locked = lockedFrom(ctx.graph, duct);
+    const locked = lockedFrom(duct);
     const place = ctx.placement.ducts.get(duct.id);
     if (!seg || !place || seg.kind === 'chamber' || (locked !== null && index >= locked)) return false;
     const swept = layoutPipe(duct.segments, place.origin, place.heading);
@@ -1073,7 +1061,6 @@ export class PipeEditor {
   private hidePreview(): void {
     this.drawGhost.group.visible = false;
     this.marker.visible = false;
-    this.snapped = null;
     this.cb.onAim?.(null);
   }
 
@@ -1213,7 +1200,7 @@ export class PipeEditor {
       const st = ctx.meshes[i]!.stationAt(hit.point);
       if (!st) continue;
       // A bend into a turbo or a junction is fitted, not drawn, so nothing branches off it.
-      const locked = lockedFrom(ctx.graph, duct);
+      const locked = lockedFrom(duct);
       if (locked !== null && st.segment >= locked) continue;
       // Nor off a bend drawn into it: a pipe is split along its length, and a bend is not cut.
       if (duct.segments[st.segment]?.curve) continue;
@@ -1535,18 +1522,13 @@ export class PipeEditor {
   }
 
   /**
-   * Where the edited duct's segments stop being editable: its bend into a turbo, joined at both ends, which
-   * is fitted rather than drawn. `null` when all of it is. Set by the owner.
+   * Where the edited duct's segments stop being editable: its fitted bend, and any swing before it, joined
+   * at both ends and fitted rather than drawn. `null` when all of it is. Set by the owner.
    */
   lockedFrom: number | null = null;
 
   /** Header diameter to start a runner at. Set by the owner from the engine's port. */
   portDiameter = 0.042;
-
-  setPipe(pipe: PipeSegment[]): void {
-    this.pipe = pipe;
-    this.rebuildHandles();
-  }
 
   /**
    * Point the handles at a different duct.
@@ -1564,10 +1546,6 @@ export class PipeEditor {
   setPortFrame(origin: THREE.Vector3, heading: THREE.Vector3): void {
     this.origin.copy(origin);
     this.heading.copy(heading).normalize();
-  }
-
-  get selectedIndex(): number | null {
-    return this.selected;
   }
 
   select(index: number | null): void {
@@ -1600,7 +1578,7 @@ export class PipeEditor {
       const r0 = this.pipe[0]!.dIn / 2;
       this.addRing(this.origin, this.heading, r0, { kind: 'inlet', segment: 0 });
     }
-    // No handles on a bend into a turbo: it is fitted to both its ends, not drawn.
+    // No handles on a fitted bend: it is fitted to both its ends, not drawn.
     const editable = Math.min(this.lockedFrom ?? layout.joints.length, layout.joints.length);
     for (let i = 0; i < editable; i++) {
       this.addRing(layout.joints[i]!, layout.jointDirections[i]!, layout.jointRadii[i]!, { kind: 'ring', segment: i });
@@ -1990,11 +1968,6 @@ export class PipeEditor {
   }
 
   /**
-   * The direction `duct`'s stored heading is turned off, as `layoutGraph` reads it: its port's, a turbo's
-   * outlet flange's, or the world's for a pipe leaving a junction, which is stored in world terms from here
-   * on, since the junction's own direction is worked out afresh each time.
-   */
-  /**
    * The axis of the face a pipe starts from, which it turns about, held to it: its port's, its turbo
    * outlet's, the way the pipe it carries on from finishes, or its junction's. `null` for a loose pipe,
    * which is held to nothing.
@@ -2029,6 +2002,11 @@ export class PipeEditor {
     return carried !== undefined && !carried.fitted;
   }
 
+  /**
+   * The direction `duct`'s stored heading is turned off, as `layoutGraph` reads it: its port's, a turbo's
+   * outlet flange's, or the world's for a pipe leaving a junction, which is stored in world terms from here
+   * on, since the junction's own direction is worked out afresh each time.
+   */
   private headingBase(duct: ExhaustDuct): THREE.Vector3 {
     const ctx = this.context!;
     if (duct.from.kind === 'valve') return ctx.ports[duct.from.cylinder]?.direction.clone() ?? this.heading.clone();
@@ -2204,7 +2182,6 @@ export class PipeEditor {
     this.marker.visible = target.kind !== 'free';
     this.marker.position.copy(point);
     this.styleMarker(target);
-    this.snapped = target;
   }
 
   private onPointerMove = (e: PointerEvent): void => {

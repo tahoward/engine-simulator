@@ -15,37 +15,39 @@ build differs:
 - `npm run bench` in `apps/web` measures the Wasm build, as the web app runs it, in Node's V8 (the
   JavaScript engine in Chrome), rendered in blocks of 128 as the worklet renders.
 
-Measured on an Apple M3 Max:
+Both run each preset exactly as the app loads it, with the exhaust drawn or compiled for it and its
+turbos. Measured on an Apple M3 Max:
 
 ```
-preset                              cells   native     Wasm
-Single, megaphone                      26     5.1%     6.1%
-45° V-twin, 2-into-1                   46    10.0%    11.8%
-90° V-twin, 2-into-2                   46     9.2%    11.4%
-Parallel twin, 360°                    33    10.9%    11.5%
-Inline three                           73    17.3%    20.2%
-Inline four, Honda F20C               112    20.9%    24.5%
-Boxer four                             85    22.3%    25.4%
-Inline five                            88    26.3%    30.2%
-Inline six                             94    31.6%    35.7%
-Boxer six                             150    33.5%    39.0%
-V6, Toyota 2GR                        148    34.3%    39.9%
-V8, flatplane, manifold per bank      122    39.4%    44.0%
-V8, overcammed                        142    41.2%    47.5%
-V8, Chevrolet LT6                     216    41.5%    46.7%
-V8, crossplane, manifold per bank     134    41.6%    48.6%
-V8, Chevrolet LT2                     234    43.8%    51.8%
+preset                              cells  asked   native     Wasm
+Single, megaphone                      26            5.2%     6.1%
+90° V-twin, 2-into-2                   46            9.6%    11.6%
+45° V-twin, 2-into-1                   46           10.5%    12.3%
+Parallel twin, 360°                    47           11.5%    13.3%
+Inline three                           97           18.2%    21.1%
+Inline four, Honda F20C               112           21.9%    25.4%
+Boxer four                            111           22.7%    26.0%
+Inline five                           125           26.6%    30.4%
+Inline six, Nissan RB26DETT           101           34.2%    38.3%
+Boxer six                             194           35.8%    40.8%
+V8, flatplane, headers per bank       182           40.0%    45.6%
+V6, Toyota 2GR                        144           42.3%    47.0%
+V8, Chevrolet LT6                     216           42.5%    47.6%
+V8, Chevrolet LT2                     234    272    45.7%    53.3%
+V8, overcammed                        246    296    46.2%    52.5%
+V8, crossplane, headers per bank      242    260    46.7%    54.0%
 ```
 
-`cells` counts the exhaust's. Each cylinder also has an intake runner, always on the finest grid
-the sample rate allows, and the budget charges those cells first: see [The intake](engine.md#the-intake)
-for why the runners are not coarsened. So on an engine whose budget is tight, the exhaust gives up
-cells instead. The crossplane V8, with eight junctions along its manifolds, has its exhaust at 134
-cells where it would otherwise have 182. Engines with headers have two junctions rather than eight,
-which leaves room for the long primaries.
+`cells` counts the exhaust's, and `asked` is what it would have at the cell size it asks for, where
+[the grid budget](#the-grid-budget) coarsens it. Each cylinder also has an intake runner, always on
+the finest grid the sample rate allows, and the budget charges those cells first: see
+[The intake](engine.md#the-intake) for why the runners are not coarsened. So on an engine whose
+budget is tight, the exhaust gives up cells instead. Three of the V8s do: their long primaries ask
+for 260 to 296 cells, and get 234 to 246.
 
-Speed barely matters: every preset costs within about a point of the same at its own rpm. What
-matters is what the engine is made of — cylinders, junctions and pipe cells.
+Speed matters less than what the engine is made of — cylinders, junctions and pipe cells. From 3000
+to 6500 rpm every preset costs at most 4 points more, the most on the 2GR V6 and the turbocharged
+RB26.
 
 The desktop app has headroom the web app does not, beyond the table: its render thread keeps two
 device buffers of audio ready ahead of the device, so an occasional slow block goes unheard, where
@@ -91,9 +93,10 @@ counted in pipe cells, with each cylinder and each junction charged as a fixed n
 cells available = 1216 − 102 × cylinders − 27 × junctions
 ```
 
-Those weights come from timing every preset and fitting cost to what each engine is made of: about
-6.6% of a core per cylinder, 1.7% per junction and 0.064% per cell. If the pipes need more cells than
-the budget leaves, the cell size is increased in 1% steps until they fit. All ducts share one cell
+The weights are conservative for a cylinder. Fitting the table's native costs to what each engine is
+made of gives about 2.9% of a core per cylinder, 1.6% per junction and 0.058% per cell, so a
+cylinder costs about 49 cells' worth rather than 102, and a junction the 27 it is charged. If the
+pipes need more cells than the budget leaves, the cell size is increased in 1% steps until they fit. All ducts share one cell
 size.
 
 Cells are sized by *length*, not by a fixed count per pipe, so a short pipe costs less.

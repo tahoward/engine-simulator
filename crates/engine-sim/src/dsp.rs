@@ -26,10 +26,6 @@ impl OnePole {
     pub fn set_cutoff(&mut self, hz: f64, sample_rate: f64) {
         self.c = 1.0 - math::exp((-2.0 * PI * hz) / sample_rate);
     }
-
-    pub fn reset(&mut self) {
-        self.y = 0.0;
-    }
 }
 
 /// One structural mode: a two-pole band-pass that rings at `hz` with the given decay.
@@ -131,11 +127,6 @@ impl Impact {
         self.pos += 1;
         v
     }
-
-    pub fn reset(&mut self) {
-        self.pos = self.window.len();
-        self.amp = 0.0;
-    }
 }
 
 /// Deterministic white noise: xorshift32.
@@ -208,11 +199,6 @@ impl Delay {
         let b = self.buf[(i + 1).rem_euclid(n) as usize] as f64;
         self.write = (self.write + 1) % len;
         a + (b - a) * frac
-    }
-
-    pub fn reset(&mut self) {
-        self.buf.fill(0.0);
-        self.write = 0;
     }
 }
 

@@ -581,17 +581,11 @@ export class EngineMesh {
       pinAngleDeg: (c.pinAngle * 180) / Math.PI,
     };
   }
-
-  /** Diameter the port should hand off to the first pipe segment, m. */
-  get portDiameter(): number {
-    return exhaustPortDiameter(this.spec) * 0.95;
-  }
 }
 
 const AXIS_Z = new THREE.Vector3(0, 0, 1);
 const AXIS_Y = new THREE.Vector3(0, 1, 0);
 
-/** Empty a group, releasing GPU buffers. Materials are shared, so only geometry. */
 /** How thick each crank web is along the shaft, m. */
 const WEB_THICKNESS = 0.011;
 /** Radius of the crank's main journals, m. */
@@ -663,6 +657,7 @@ function convexHull(points: THREE.Vector2[]): THREE.Vector2[] {
   return [...half(sorted), ...half([...sorted].reverse())];
 }
 
+/** Empty a group, releasing its geometry and materials. */
 function disposeChildren(group: THREE.Group): void {
   for (const child of [...group.children]) {
     disposeTree(child);
@@ -672,6 +667,8 @@ function disposeChildren(group: THREE.Group): void {
 
 function disposeTree(node: THREE.Object3D): void {
   node.traverse((o) => {
-    if (o instanceof THREE.Mesh) o.geometry.dispose();
+    if (!(o instanceof THREE.Mesh)) return;
+    o.geometry.dispose();
+    for (const m of [o.material].flat() as THREE.Material[]) m.dispose();
   });
 }

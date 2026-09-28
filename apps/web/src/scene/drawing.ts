@@ -1,8 +1,9 @@
 /**
  * Turning clicked points into pipe segments, and finding what a click should snap to.
  *
- * Pipes are straight runs that turn at sharp corners where segments meet, so a segment drawn to a
- * clicked point is exact: it turns, where it starts, to face the point, and runs the distance to it.
+ * A drawn pipe is straight runs that turn at sharp corners where segments meet, so a segment drawn to a
+ * clicked point is exact: it turns, where it starts, to face the point, and runs the distance to it. Where
+ * it joins something it finishes in a smooth bend fitted to arrive along it (`fitCurve`).
  * Every segment after the first inherits the previous one's direction and turns off it; the first
  * turns off its port's or junction's direction, which the duct stores as its heading.
  *
@@ -430,17 +431,6 @@ export function swingPipe(
   });
 }
 
-/**
- * Where a pipe ending at `node` bends in to, and the way it arrives there: what it is joining, where that
- * has a place of its own.
- *
- * A turbo's inlet flange, arrived at square. Or a junction that carries a pipe on through it (see
- * `ExhaustDuct.continues`): one made at another pipe's open end, or on its side, is where that pipe is, and
- * the pipe joining it arrives along the pipe the gas carries on through, merging into it rather than
- * meeting it at a corner. Turn that pipe where it leaves, and the bend follows it. A junction
- * placed where its pipes' ends average out has no place apart from them, so `null`, as for the pipe that
- * is itself carried on.
- */
 /** A duct's bore `x` m along it. */
 export function diameterAt(segments: PipeSegment[], x: number): number {
   let at = 0;
@@ -459,6 +449,17 @@ export interface BendAnchor {
   dia: number;
 }
 
+/**
+ * Where a pipe ending at `node` bends in to, and the way it arrives there: what it is joining, where that
+ * has a place of its own.
+ *
+ * A turbo's inlet flange, arrived at square. A junction that has been moved, where it was put. Or a
+ * junction that carries a pipe on through it (see `ExhaustDuct.continues`): one made at another pipe's open
+ * end, or on its side, is where that pipe is, and the pipe joining it arrives along the pipe the gas carries
+ * on through, merging into it rather than meeting it at a corner. Turn that pipe where it leaves, and the
+ * bend follows it. A junction placed where its pipes' ends average out has no place apart from them, so
+ * `null`, as for the pipe that is itself carried on.
+ */
 export function bendAnchor(
   graph: ExhaustGraph,
   placement: ExhaustPlacement,

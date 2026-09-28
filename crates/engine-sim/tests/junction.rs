@@ -555,11 +555,11 @@ fn rev_hand_drawn_three(fs: f64) -> (EngineSim, f64, f64) {
 }
 
 /// Revved hard, gas in a link comes to race back into a junction faster than sound, from well below the
-/// junction's pressure. Passed through as though a choked end could not feel the junction, it pours in
-/// without end: the pipes behind the junction lock at six atmospheres, those past it fall to a partial
-/// vacuum, the note dies and the engine stops pulling at 4000 rpm. It meets a shock instead, and revs to
-/// its limiter. And the junction fills the pipe after it no faster than sound, choked, rather than at
-/// whatever speed the acoustic estimate asks and then clamped: never clamped at all.
+/// junction's pressure. It meets a shock there: passed through as though a choked end could not feel
+/// the junction, it would pour in without end, lock the pipes behind the junction at six atmospheres,
+/// pull those past it to a partial vacuum, and kill the note and the pull at 4000 rpm. With the shock
+/// the engine revs to its limiter. And the junction fills the pipe after it no faster than sound,
+/// choked, rather than at whatever speed the acoustic estimate asks, so it is never clamped at all.
 #[test]
 fn a_hand_drawn_manifold_revs_to_its_limiter_without_locking_a_junction() {
     let limit = hand_drawn_three().engine.rev_limit;
@@ -574,8 +574,8 @@ fn a_hand_drawn_manifold_revs_to_its_limiter_without_locking_a_junction() {
     }
 }
 
-/// And it sounds the same at 32 kHz as at 48: clamped, the flow out of the last junction came out twice
-/// as loud and rough at the coarser grid.
+/// And it sounds the same at 32 kHz as at 48: filled choked rather than clamped, the flow out of the last
+/// junction is no louder or rougher on the coarser grid.
 #[test]
 fn a_hand_drawn_manifold_sounds_the_same_at_32_khz_as_at_48() {
     let (_, _, fine) = rev_hand_drawn_three(48000.0);

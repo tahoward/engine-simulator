@@ -1,7 +1,7 @@
 /**
  * Hand-rolled control panel.
  *
- * The segment list edits the selected duct's own `PipeSegment[]` in the exhaust graph, the
+ * The segment menu edits the selected duct's own `PipeSegment[]` in the exhaust graph, the
  * same array the 3D handles edit when they are on that duct, so this never owns a copy of
  * the geometry — it renders whatever the array currently says
  * and writes edits straight back. `syncPipe` refreshes the input values in place
@@ -203,8 +203,8 @@ export class Panel {
    * The graph the current selection belongs to.
    *
    * A preset or a change of cylinder count replaces the graph wholesale, and an id that still exists in
-   * the new one is not the same duct: staying on `collector0` after picking a V8 would leave the list
-   * editing a collector buried inside the merge body, where deleting a segment is invisible and nearly inaudible.
+   * the new one is not the same duct: staying on `collector0` after picking a V8 would leave the menu
+   * editing a pipe nobody picked.
    * A new graph therefore resets the selection to the first runner.
    */
   private selectionGraph: ExhaustGraph | null = null;
@@ -370,7 +370,6 @@ export class Panel {
     load.row.title =
       'Braking torque at the crank, as a share of what this engine makes at full throttle, ' +
       'so the same setting loads a single and a V8 alike.';
-    // Also redraws the N·m figure, which follows the engine's size.
     this.slider(op, {
       label: 'Flywheel inertia',
       min: 0.02,
@@ -1129,8 +1128,8 @@ export class Panel {
 
     // ---- Turbocharger ----------------------------------------------------
     /**
-     * Turbos are placed in the view and piped up like the rest of the exhaust; what is here is placing
-     * them, and the settings every turbo shares.
+     * Turbos are placed in the view, with the toolbar's tool, and piped up like the rest of the exhaust; what
+     * is here is how many there are, the one selected, and the settings every turbo shares.
      */
     const turbo = section(root, 'Turbocharger', true);
     this.turboCountEl = el('div', 'readout', turbo);
@@ -1470,12 +1469,6 @@ export class Panel {
     this.rebuildPipeList();
   }
 
-  /**
-   * Re-render every control from the config.
-   *
-   * Needed after an engine preset, which changes layout, V angle and firing all at once —
-   * individual slider callbacks would each fire a rebuild and the selects would go stale.
-   */
   /** `slider`, kept in step with the config when it has a `sync`. */
   private slider(parent: HTMLElement, o: SliderOpts): ReturnType<typeof slider> {
     const s = slider(parent, o);
@@ -1484,6 +1477,12 @@ export class Panel {
     return s;
   }
 
+  /**
+   * Re-render every control from the config.
+   *
+   * Needed after an engine preset, which changes layout, V angle and firing all at once —
+   * individual slider callbacks would each fire a rebuild and the selects would go stale.
+   */
   rebuildAll(): void {
     this.cylSel.value = engineTypeOf(this.config.engine);
     this.crankSel.value =
@@ -1495,11 +1494,10 @@ export class Panel {
   }
 
   /**
-   * Offer only the plumbing and the controls that mean something for this cylinder count.
+   * Offer only the controls that mean something for this engine.
    *
-   * A single has nothing to merge with; an inline four has one bank, so per-bank and merged are
-   * the same pipework and its V angle is meaningless; only a V8 has a crank choice; and the
-   * firing-offset override is a twin's shared-crankpin escape hatch, not a general control.
+   * An inline engine's V angle is meaningless; only a V8 has a crank choice; and the firing-offset
+   * override is a twin's shared-crankpin escape hatch, not a general control.
    */
   private syncLayoutOptions(): void {
     const eng = this.config.engine;
@@ -1539,7 +1537,7 @@ export class Panel {
       return;
     }
     const pipe = this.currentSegments();
-    // Added to the pipe as drawn: before a bend into a turbo, which is fitted to what comes before it.
+    // Added to the pipe as drawn: before a fitted bend, which is fitted to what comes before it.
     const at = this.lockedFrom() ?? pipe.length;
     const last = pipe[at - 1];
     const dIn = last ? segmentDiameter(last, 1) : 0.042;
@@ -1583,21 +1581,20 @@ export class Panel {
     this.cb.onPipe();
   }
 
-  /** Where the edited pipe stops being editable: its bend into a turbo, if it has one. */
+  /** Where the edited pipe stops being editable: its fitted bend, and any swing before it (`lockedFrom`). */
   private lockedFrom(): number | null {
-    const graph = this.config.graph;
     const duct = this.currentDuct();
-    return graph && duct ? lockedFrom(graph, duct) : null;
+    return duct ? lockedFrom(duct) : null;
   }
 
-  /** The duct the list is editing, or the first one if the selection has gone stale. */
+  /** The duct the menu is editing, or the first one if the selection has gone stale. */
   private currentDuct(): ExhaustDuct | null {
     const graph = this.config.graph;
     if (!graph || graph.ducts.length === 0) return null;
     return graph.ducts.find((d) => d.id === this.selectedDuctId) ?? graph.ducts[0]!;
   }
 
-  /** Segments the list edits. Falls back to `config.pipe` when there is no graph yet, so callers need no guard. */
+  /** Segments the menu edits. Falls back to `config.pipe` when there is no graph yet, so callers need no guard. */
   private currentSegments(): PipeSegment[] {
     return this.currentDuct()?.segments ?? this.config.pipe;
   }
@@ -1719,7 +1716,7 @@ export class Panel {
   }
 
   /**
-   * A segment's menu: its row, as the list had it, and for the pipe it is in, whether the other cylinders'
+   * A segment's menu: its row, and for the pipe it is in, whether the other cylinders'
    * follow it and, joined at its far end, its length. A segment that ends the pipe in open air, with nothing
    * attached, offers a pipe or a chamber to carry on with.
    */
@@ -1798,7 +1795,7 @@ export class Panel {
     el('span', 'segment-index', head).textContent = String(index + 1);
 
     const kind = el('select', 'segment-kind', head) as HTMLSelectElement;
-    // Every pipe can taper, so an older exhaust's cone is a pipe here.
+    // Every pipe can taper, so a cone is shown as a pipe here.
     for (const k of ['pipe', 'chamber'] as SegmentKind[]) {
       kind.appendChild(option(k, k));
     }
@@ -1826,7 +1823,7 @@ export class Panel {
     mkTool('↑', 'Move earlier in the exhaust', () => this.move(list, index, -1));
     mkTool('↓', 'Move later in the exhaust', () => this.move(list, index, 1));
     mkTool('⧉', 'Duplicate', () => this.duplicate(list, index));
-    mkTool('×', 'Delete. Only the last segment of a pipe can be, and only once nothing carries on from it.', () =>
+    mkTool('×', 'Delete. The segments after it are left as a loose pipe where they lie; a fitted bend takes the pipe off what it joins.', () =>
       this.remove(list, index),
     );
 
@@ -2109,7 +2106,6 @@ export class Panel {
     this.drawHint.textContent = active ? ROUTE_HINT : START_HINT;
   }
 
-  /** Say which way the next segment is aimed, since a direction is hard to judge in perspective. */
   /** Show the bend tool as on or off, and turn off what it replaces. */
   setBendToolState(on: boolean): void {
     if (on && this.drawing) {
@@ -2178,12 +2174,12 @@ export class Panel {
     this.bendToolHint.textContent = aim ?? BEND_HINT;
   }
 
+  /** Say which way the next segment is aimed, since a direction is hard to judge in perspective. */
   setDrawAim(aim: string | null): void {
     if (!this.drawing || !this.drawingRoute) return;
     this.drawHint.textContent = aim ? `Next segment: ${aim}` : ROUTE_HINT;
   }
 
-  /** Show draw mode as on or off, without telling anyone: for when the owner switched it. */
   /** Show whether loose pipes are being placed: from the button, or ended in the view by Escape. */
   setPlacingPipeState(on: boolean): void {
     if (on && this.drawing) {
@@ -2289,7 +2285,7 @@ export class Panel {
     this.toolOptions.classList.toggle('hidden', !tools.some(([on]) => on));
   }
 
-  /** Switch the list to a duct picked in the scene. */
+  /** Switch the menu to a duct picked in the scene. */
   showDuct(id: string): void {
     this.selectedDuctId = id;
     this.selected = null;
@@ -2434,7 +2430,7 @@ function option(value: string, label: string): HTMLOptionElement {
 }
 
 /**
- * Show a segment row as not editable: a bend into a turbo, fitted to both its ends. Its fields still show
+ * Show a segment row as not editable: a bend, or the swing before it, fitted to both its ends. Its fields still show
  * its length and bore, kept up to date as it is fitted again, but take no input.
  */
 function lockRow(row: SegmentRow): void {

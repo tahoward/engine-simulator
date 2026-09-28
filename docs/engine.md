@@ -92,8 +92,9 @@ cost budget coarsens the exhaust. A runner is only a few hundred millimetres lon
 good part of it, so its ramming depends on resolution far more than the exhaust's sound does: on 70
 mm cells, at the speed they are tuned for, the LT2 fills two points less and the LT6 eight.
 
-**Headers scavenge.** With **Equal-length headers**, each cylinder's primary runs all the way to one
-merge per collector, instead of joining a manifold along the ports. The wave each exhaust pulse sends
+**Headers scavenge.** With equal-length headers, each cylinder's primary runs all the way to one
+merge per collector, instead of joining a manifold along the ports. The **Equal-length header** tool
+builds them ([Controls](controls.md#equal-length-headers)), and the presets that have them come with them. The wave each exhaust pulse sends
 back from the merge reaches the next cylinder's port as a suction during the overlap, and pulls fresh
 charge through the cylinder after its exhaust. On the LT6, whose cam holds both valves open for 70°,
 450 mm primaries tuned for 8400 rpm fill the cylinder to 109% there, against 104% on a manifold.
@@ -180,8 +181,8 @@ gas dynamics; the rest is lumped, one state each, and stepped every audio sample
   Its power is the isentropic expansion across it at 68% efficiency, and the gas leaves it cooler by
   the work it did. The cylinders push out against its inlet pressure, which costs pumping work and
   leaves more spent gas in the cylinder.
-- **Twin turbos** share one lumped shaft and the settings, with the airflow split evenly between them;
-  each turbine is solved on its own, on the pulses of the cylinders feeding it.
+- **Two or more turbos** share one lumped shaft and the settings, with the airflow split evenly between
+  them; each turbine is solved on its own, on the pulses of the cylinders feeding it.
 - **The wastegate** opens a bypass around the turbine as the boost reaches its target, over a few
   hundredths of a bar, so the turbine takes less of the exhaust. It is a spring and diaphragm with a
   40 ms lag, not a controller, so the boost settles near the target rather than exactly on it.
@@ -342,7 +343,7 @@ muffler has quietened the exhaust.
 bounce arrives later and duller, and mixing it with the direct sound cancels some frequencies.
 At 1.5 m, the first cancelled frequency is near 400 Hz, right in the middle of the engine note.
 Air also absorbs high frequencies, so a distant engine sounds muffled, not just quieter. All of
-this changes when you change ear height, exhaust height or ground surface.
+this changes when you change ear height, exhaust height or the ground reflection.
 
 
 ## More cylinders

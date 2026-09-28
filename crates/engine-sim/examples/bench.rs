@@ -1,20 +1,23 @@
 //! Real-time cost of the simulation, per engine preset: the fraction of one core it needs to make a
 //! second of audio. `cargo run --release -p engine-sim --example bench`.
 //!
-//! The presets come from the parity fixture, so this measures exactly the engines the web app ships.
-//! Each runs held at `BENCH_RPM` (6500 by default) at full throttle, the worst case for the solver,
+//! The presets come from `tests/fixtures/presets.json` (`npm run export:presets` in apps/web), so this
+//! measures exactly the engines the web app ships, each with the exhaust the app gives it. Each runs held at `BENCH_RPM` (6500 by default) at full throttle, the worst case for the solver,
 //! warmed up for half a second, then timed over `BENCH_SECONDS` (3) and reported as the best of
 //! `BENCH_REPEATS` (3): the work is deterministic, so anything slower than the fastest run is the
-//! rest of the machine.
+//! rest of the machine. `cells` is the exhaust's; `asked` is what it would have without the grid
+//! budget, shown where the budget coarsens it.
 
 use std::time::Instant;
 
+use engine_sim::euler_pipe::EulerPipeOptions;
 use engine_sim::{EngineConfig, EngineSim};
 use serde::Deserialize;
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Fixture {
-    compiled: Vec<Preset>,
+    engine_presets: Vec<Preset>,
 }
 
 #[derive(Deserialize)]
@@ -28,7 +31,7 @@ fn env(name: &str, default: f64) -> f64 {
 }
 
 fn main() {
-    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/scenarios.json");
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/presets.json");
     let fixture: Fixture = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
     let fs = 48000.0;
     let rpm = env("BENCH_RPM", 6500.0);
@@ -36,10 +39,10 @@ fn main() {
     let repeats = env("BENCH_REPEATS", 3.0) as usize;
     let only = std::env::var("BENCH_ONLY").ok();
 
-    let width = fixture.compiled.iter().map(|p| p.name.chars().count()).max().unwrap_or(10);
-    println!("{:width$}  cells  substeps  % of one core @ {rpm} rpm  (spread)", "preset");
+    let width = fixture.engine_presets.iter().map(|p| p.name.chars().count()).max().unwrap_or(10);
+    println!("{:width$}  cells  asked  substeps  % of one core @ {rpm} rpm  (spread)", "preset");
     let mut worst = (String::new(), 0.0f64);
-    for p in &fixture.compiled {
+    for p in &fixture.engine_presets {
         if only.as_deref().is_some_and(|o| !p.name.contains(o)) {
             continue;
         }
@@ -48,6 +51,15 @@ fn main() {
         cfg.engine.throttle = 1.0;
         cfg.engine.free_running = false;
         let mut sim = EngineSim::new(fs, &cfg);
+        let asked = EngineSim::with_options(
+            fs,
+            &cfg,
+            EulerPipeOptions { cell_size: Some(cfg.engine.pipe_cell_size), ..Default::default() },
+            None,
+        )
+        .pipe_solver()
+        .cells();
+        let cells = sim.pipe_solver().cells();
         let mut buf = vec![0.0f32; (fs * 0.5) as usize];
         sim.render_into(&mut buf);
         let mut buf = vec![0.0f32; (fs * seconds) as usize];
@@ -61,9 +73,10 @@ fn main() {
         let spread = runs.iter().copied().fold(0.0, f64::max) - best;
         let snap = sim.snapshot();
         println!(
-            "{:width$}  {:>5}  {:>8}  {:>10.1}%  {:>8.1}",
+            "{:width$}  {:>5}  {:>5}  {:>8}  {:>10.1}%  {:>8.1}",
             p.name,
-            sim.pipe_solver().cells(),
+            cells,
+            if asked == cells { String::new() } else { asked.to_string() },
             snap.substeps,
             best * 100.0,
             spread * 100.0

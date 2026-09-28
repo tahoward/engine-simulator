@@ -7,7 +7,7 @@
 //! harmless because nothing traps and a select copies bits.
 //!
 //! Two kinds of clamp appear in the solver and they differ on NaN, so both are provided:
-//! `max_js` is `Math.max`, which propagates NaN, and `select(gt(x, k), x, k)` is `x > k ? x : k`,
+//! `max_js` is `Math.max`, which propagates NaN, and `select(x.gt(k), x, k)` is `x > k ? x : k`,
 //! which discards it. The recovery path depends on a broken cell staying NaN.
 //!
 //! `load` and `store` take the two elements from `i` without a bounds check, so they are `unsafe`: the

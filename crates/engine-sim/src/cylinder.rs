@@ -114,14 +114,10 @@ pub struct Cylinder {
     pub torque: f64,
     /// Reciprocating inertia torque at the crank, N*m.
     pub inertia_torque: f64,
-    /// Heat lost to the walls this step, W.
-    pub wall_heat_flux: f64,
     /// Times the gas temperature had to be clamped. Should stay zero.
     pub clamp_hits: u64,
     /// Rate of cylinder pressure rise, Pa/s.
     pub dpdt: f64,
-    /// The state after the last step.
-    pub end_state: CylState,
 
     next_angle: f64,
     /// The crank at `crank_angle` on the crank `crank_id`: a substep ends where the next begins, so
@@ -239,10 +235,8 @@ impl Cylinder {
             exhaust_cam_offset: 0.0,
             torque: 0.0,
             inertia_torque: 0.0,
-            wall_heat_flux: 0.0,
             clamp_hits: 0,
             dpdt: 0.0,
-            end_state: CylState::default(),
             next_angle: 0.5,
             crank_angle: f64::NAN,
             crank_id: 0,
@@ -287,10 +281,6 @@ impl Cylinder {
 
     pub fn set_temp(&mut self, value: f64) {
         self.energy = self.mass * energy_at(value);
-    }
-
-    pub fn volume(&self, spec: &EngineSpec) -> f64 {
-        cylinder_volume(spec, self.angle)
     }
 
     /// Absolute pressure, Pa.
@@ -398,7 +388,6 @@ impl Cylinder {
 
         // --- Wall heat transfer (Woschni) ---
         let dq_wall = self.woschni(si, p, v, omega, t_now) * dt;
-        self.wall_heat_flux = dq_wall / dt;
 
         let dq = dq_comb + dq_wall;
 
@@ -452,20 +441,6 @@ impl Cylinder {
         let t_after = self.temp();
         let p_after = (self.mass * gas::R * t_after) / v_after;
         self.dpdt = (p_after - p_before) / dt;
-        let b_after = 1.0 - self.fresh_mass / math::max(self.mass, MIN_MASS);
-        let f_after = self.fuel_mass / math::max(self.mass, MIN_MASS);
-        self.end_state = CylState {
-            pressure: p_after,
-            temp: t_after,
-            burned: if b_after < 0.0 {
-                0.0
-            } else if b_after > 1.0 {
-                1.0
-            } else {
-                b_after
-            },
-            fuel: if f_after > 1.0 { 1.0 } else { f_after },
-        };
 
         // Woschni's motored pressure, compressed isentropically with the volume.
         let t_motored = (self.motored_pressure * v) / self.ref_mass_r;

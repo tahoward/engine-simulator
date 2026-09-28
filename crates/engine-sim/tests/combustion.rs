@@ -18,7 +18,7 @@ fn default_engine() -> EngineSpec {
     common::presets().default_engine.clone()
 }
 
-/// `expect(actual).toBeCloseTo(expected, digits)`: within half a unit in the `digits`th decimal place.
+/// `actual` within half a unit of `expected` in the `digits`th decimal place.
 #[track_caller]
 fn assert_close(actual: f64, expected: f64, digits: f64) {
     let tol = 10f64.powf(-digits) / 2.0;

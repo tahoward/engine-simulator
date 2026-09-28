@@ -234,8 +234,8 @@ A solved wall temperature gives three things a fixed one can't:
 
 - **Warm-up.** From cold, 1.2 mm tubing takes tens of seconds to heat up (measured 293 → 646 K
   over 60 s). Gas temperature sets the speed of sound, so the tuning rises with it,
-  82 → 100 Hz. The app starts with a warm wall so it sounds right straight away. Set
-  `initialWallTemp` for a cold start.
+  82 → 100 Hz. The app starts with a warm wall so it sounds right straight away. The solver's
+  `initial_wall_temp` option (`EulerPipeOptions`) sets a cold start.
 - **A real temperature gradient.** The wall runs at 710 K at the flange and 510 K at the
   mouth, and the gas cools with it.
 - **Airflow effects.** 30 m/s of airflow lowers the mean wall temperature by 174 K, and the
@@ -326,8 +326,8 @@ whoosh as the flow builds, are the inlet's flow itself.
 - **The whine.** The blades modulate the air they draw in at the blade-pass frequency, six blades times
   the shaft speed, with its second harmonic and weaker shaft orders, where a real wheel's small
   imbalances put them. The modulation is 0.5% of the flow at full speed, going as the square of the
-  speed, and radiated with the flow, so the whine is as loud as the air the wheel moves. Twin turbos each
-  have a voice, 1.2% apart in speed, so the two beat. Every tone fades out below the Nyquist frequency,
+  speed, and radiated with the flow, so the whine is as loud as the air the wheel moves. Each turbo has a
+  voice, 1.2% faster than the one before, so two or more beat. Every tone fades out below the Nyquist frequency,
   so nothing folds back down at a low sample rate.
 - **The flutter.** Past its surge line the wheel's flow breaks up: it sheds turbulence into the inlet,
   around its first few shaft orders, growing from nothing at the surge line to 6% of its flow with no

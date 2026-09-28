@@ -1,5 +1,5 @@
 /**
- * The dyno sheet: crank power and torque against rpm, drawn live as a dyno run goes. Three charts on one
+ * The dyno sheet: crank power and torque against rpm, drawn live as a dyno run goes. Five charts on one
  * rpm axis: horsepower and pound-feet together, then kilowatts, newton-metres, volumetric efficiency,
  * the fresh charge each cylinder traps as a share of its swept volume at ambient density, and the
  * absolute pressure in the intake manifold, in bar: below 1 where the engine draws a vacuum, above it

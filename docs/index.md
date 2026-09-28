@@ -27,9 +27,9 @@ to come back. No setting is just mapped to a tone.
 - **Every common engine layout**: a single, a parallel twin or V-twin, inline three, four, five and
   six, a 60° V6, [crossplane](glossary.md#crossplane-and-flatplane-cranks) and flatplane V8s, and flat-four and flat-six [boxers](glossary.md#boxer). Each one has its
   real [firing order](glossary.md#firing-order) and crankshaft.
-- **An exhaust you build.** Drag pipes longer. Make them wider or narrower. Draw new pipes from an
-  exhaust port or off the side of another pipe, and join them together. The simulator solves exactly
-  what you draw.
+- **An exhaust you build.** Move, turn and bend pipes. Make them wider or narrower. Draw new pipes
+  from an exhaust port, a junction or the open end of a pipe, and join them together or onto the side
+  of another pipe. The simulator solves exactly what you draw.
 - **Realistic gas flow** in every pipe. It includes heat loss to the pipe walls, friction, and sound
   leaving every open end toward a listener standing outside.
 - **Natural variation.** Each combustion cycle is slightly different, the crank speed wobbles, and

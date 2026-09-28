@@ -268,7 +268,10 @@ describe('switching presets', () => {
     expect(carriedGeometry(graph).pipe![0]!.length).toBeCloseTo(0.61, 12);
   });
 
-  /** The same sequence of calls the panel and `main` make when a preset is picked. */
+  /**
+   * The sequence the panel and `main` follow when a preset is picked (`reseedGraph`), with `compileLayout`
+   * standing in for the `compileExhaust` that calls it.
+   */
   it('crossplane, flatplane, crossplane: the same exhaust both times', async () => {
     const { carriedGeometry } = await import('../src/model/exhaustGraph.js');
     const topology = ['cylinders', 'exhaustLayout', 'crankType', 'firingOffset', 'vAngle'];
