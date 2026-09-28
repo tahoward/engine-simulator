@@ -962,7 +962,7 @@ impl EngineSim {
         let banks = self.cyls.len();
         let mut torque_sum = 0.0;
         let mut dpdt_sum = 0.0;
-        let limiter_cut = self.limiter_cut;
+        let limiter_cut = self.limiter_cut || self.launch.as_ref().is_some_and(|l| l.spark_cut);
         let rpm = self.rpm();
         for b in 0..banks {
             let angle = self.cyls[b].angle;

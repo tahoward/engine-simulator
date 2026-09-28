@@ -30,7 +30,7 @@ fn last(snaps: &[LaunchSnapshot]) -> &LaunchSnapshot {
     snaps.iter().rfind(|s| !s.finished).or(snaps.last()).expect("the run took a snapshot")
 }
 
-/// Moves off, pulls through all six gears, and times 60 mph, the quarter and the half mile.
+/// Moves off, pulls through all six of the S2000's gears, and times 60 mph, the quarter and the half mile.
 #[test]
 fn a_launch_leaves_a_timeslip() {
     let snaps = run("Inline four, Honda F20C", None);
@@ -45,7 +45,7 @@ fn a_launch_leaves_a_timeslip() {
         end.quarter_mile_kmh.unwrap(),
         end.half_mile_kmh.unwrap()
     );
-    // An S2000's figures, give or take: about 5.5 s, 14 s at 160 km/h, and 22 s.
+    // The S2000's own figures, give or take: about 5.5 s, 14 s at 160 km/h, and 22 s.
     assert!((4.0..8.0).contains(&sixty), "0-60 in {sixty} s");
     assert!((12.0..17.0).contains(&quarter), "quarter mile in {quarter} s");
     assert!(half > quarter + 5.0 && half < quarter + 11.0, "half mile in {half} s");
@@ -61,16 +61,16 @@ fn the_clock_starts_as_the_car_moves() {
     assert!(snaps[..revving].iter().all(|s| s.elapsed == 0.0 && s.distance == 0.0));
 }
 
-/// Shorter gearing is quicker off the line and runs out of gears sooner; a gearbox of any length is
-/// pulled through to its last gear.
+/// The gearing sets the road speed of every shift: a final drive 30% shorter goes into second 30% sooner.
+/// A gearbox of any length is pulled through to its last gear.
 #[test]
 fn the_gearing_is_the_users() {
     let preset = common::engine_preset("Inline four, Honda F20C");
     let short = LaunchConfig { final_drive: preset.launch.final_drive * 1.3, ..preset.launch.clone() };
-    let fitted = run("Inline four, Honda F20C", None);
-    let quick = run("Inline four, Honda F20C", Some(short));
-    let (a, b) = (fitted.last().unwrap().zero_to_sixty.unwrap(), quick.last().unwrap().zero_to_sixty.unwrap());
-    assert!(b < a, "0-60 in {b} s on the short final drive, against {a} s");
+    let into_second = |snaps: &[LaunchSnapshot]| snaps.iter().find(|s| s.gear == 2.0).unwrap().speed_kmh;
+    let (a, b) =
+        (into_second(&run("Inline four, Honda F20C", None)), into_second(&run("Inline four, Honda F20C", Some(short))));
+    assert!((b * 1.3 / a - 1.0).abs() < 0.05, "into second at {b} km/h on the short final drive, against {a} km/h");
 
     let three = LaunchConfig { ratios: vec![3.0, 1.8, 1.2], ..preset.launch.clone() };
     let snaps = run("Inline four, Honda F20C", Some(three));
@@ -88,14 +88,40 @@ fn an_empty_gearbox_starts_nothing() {
     assert!(sim.snapshot().launch.is_none());
 }
 
-/// Too much torque for the tyres spins them, and the engine flares off the line rather than bogging.
+/// Far more torque than the tyres can take: spinning them loses grip, so holding them at their peak with
+/// traction control is quicker to 60, and no quicker than their grip allows whatever the engine.
 #[test]
-fn a_heavy_foot_spins_the_tyres() {
+fn traction_control_beats_spinning_the_tyres() {
     let preset = common::engine_preset("V8, Chevrolet LT2");
     let light = LaunchConfig { mass: 900.0, ..preset.launch.clone() };
-    let snaps = run("V8, Chevrolet LT2", Some(light));
-    let end = snaps.last().unwrap();
-    let sixty = end.zero_to_sixty.expect("reaches 60 mph");
-    // Traction-limited: 0.66 g at best, so no quicker than about 4.1 s whatever the engine.
-    assert!(sixty > 3.5, "0-60 in {sixty} s");
+    let sixty = |tc: bool| {
+        let snaps = run("V8, Chevrolet LT2", Some(LaunchConfig { traction_control: tc, ..light.clone() }));
+        snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph")
+    };
+    let (held, spun) = (sixty(true), sixty(false));
+    assert!(held < spun, "0-60 in {held} s with traction control, against {spun} s spinning the tyres");
+    // A grip of 1.3 on 60% of the weight, and more as it moves back: about 1 g, 2.7 s at best.
+    assert!(held > 2.4, "0-60 in {held} s");
+}
+
+/// The engines from real cars launch through those cars: the Skyline's six-speed to all four wheels, and
+/// the Corvettes' eight-speed dual clutch.
+#[test]
+fn real_engines_launch_through_their_own_cars() {
+    let r34 = &common::engine_preset("Inline six, Nissan RB26DETT").launch;
+    assert_eq!(r34.ratios, vec![3.827, 2.36, 1.685, 1.312, 1.0, 0.793]);
+    assert_eq!((r34.final_drive, r34.driven_load), (3.545, 1.0));
+    let z06 = &common::engine_preset("V8, Chevrolet LT6").launch;
+    assert_eq!(z06.ratios.len(), 8);
+    assert!(z06.shift_time < 0.2);
+}
+
+/// All four wheels driven get a car off the line quicker than two.
+#[test]
+fn all_wheel_drive_launches_harder() {
+    let name = "Inline six, Nissan RB26DETT";
+    let awd = run(name, None);
+    let rwd = run(name, Some(LaunchConfig { driven_load: 0.6, ..common::engine_preset(name).launch.clone() }));
+    let (a, r) = (awd.last().unwrap().zero_to_sixty.unwrap(), rwd.last().unwrap().zero_to_sixty.unwrap());
+    assert!(a < r - 0.1, "0-60 in {a} s through all four wheels, against {r} s through the rear");
 }

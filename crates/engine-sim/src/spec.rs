@@ -345,12 +345,12 @@ pub struct LaunchSnapshot {
     pub phase: String,
     pub gear: f64,
     pub speed_kmh: f64,
-    /// Seconds since the car moved off.
+    /// Seconds since the clock started, once the car had rolled a foot.
     pub elapsed: f64,
     /// Distance covered, m.
     pub distance: f64,
     pub finished: bool,
-    /// Seconds from moving off to 60 mph, once the car has reached it.
+    /// Seconds from the clock starting to 60 mph, once the car has reached it.
     pub zero_to_sixty: Option<f64>,
     /// Seconds to the quarter mile and the speed there, km/h, once the car has covered it.
     pub quarter_mile: Option<f64>,
@@ -427,12 +427,23 @@ pub struct LaunchConfig {
     pub final_drive: f64,
     /// Tyre rolling radius, m.
     pub tyre_radius: f64,
+    /// The tyres' friction coefficient at their peak: about 1.1 for a road tyre, 1.35 for a track tyre.
+    pub tyre_grip: f64,
     /// The car's mass, kg.
     pub mass: f64,
+    /// Share of the car's weight on the driven wheels at rest: 1 driving all four. Driving the rear
+    /// wheels, more moves onto them as the car accelerates.
+    pub driven_load: f64,
+    /// Whether traction control keeps the driven wheels from spinning: see `LaunchRun`.
+    pub traction_control: bool,
     /// Engine speed the clutch is slipped at off the line, rev/min.
     pub launch_rpm: f64,
     /// Engine speed each gear is pulled to before the shift, rev/min.
     pub shift_rpm: f64,
+    /// How long each shift takes, from lifting off to full throttle in the next gear, s.
+    pub shift_time: f64,
+    /// Whether the gearbox is a dual clutch, which shifts with no gap in the drive.
+    pub dual_clutch: bool,
 }
 
 pub const PIPE_PRESSURE_TAPS: usize = 128;
