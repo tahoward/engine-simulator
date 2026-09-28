@@ -486,9 +486,9 @@ export class Panel {
       format: (v) => `μ ${v.toFixed(2)}${this.launchGrip !== null ? '' : this.car ? ' (stock)' : ' (auto)'}`,
       onInput: (v) => (this.launchGrip = v),
     }).row.title =
-      `The tyres' friction coefficient at their peak grip. Auto is a road tyre, ${TYRE_GRIP.road}; an ` +
-      `ultra-high-performance tyre is about ${TYRE_GRIP.performance}, and a road-legal track tyre ` +
-      `${TYRE_GRIP.track}. Stock is the real car's.`;
+      `The tyres' friction coefficient at their peak grip, driving. Auto is a road tyre, ${TYRE_GRIP.road}. ` +
+      `Stock is the real car's: ${TYRE_GRIP.corvette.toFixed(2)} for the Corvettes, from the 1.22 g the Z06 ` +
+      'pulls on a skidpad and a little more for grip driving rather than cornering.';
     const dct = toggle(launch, 'Dual-clutch gearbox', this.launchConfig().dualClutch, (v) => (this.launchDualClutch = v));
     dct.title =
       'Shift with no gap in the drive: the next gear\'s clutch takes it as the last one lets go, and the ' +

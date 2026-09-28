@@ -24,14 +24,12 @@ Where the model is simplified, and by how much.
     of milliseconds to move, and is part open on the way.
 - **Some effects that make high-output engines strong are missing.** Direct injection cools the
   charge as the fuel evaporates, and a rich mixture at full throttle adds a few percent of power.
-  Neither is modelled. A 6.2 litre V8 in the proportions of a Chevrolet LT2 comes out at about 640
-  N·m and 495 hp, as the real engine makes 637 N·m and 495 hp. The Honda F20C makes 195-200 N·m and
-  228 hp, against 210 and 240. The LT6, the 8600 rpm flat-plane V8, comes out at 665 hp at 8200 rpm,
-  against 670 at 8400, and at 623 N·m at 6000 against 624 at 6300. Their cams, cam maps, rods, runners
-  and headers are estimates where they are not published.
-- **Cam profile switching is on speed alone.** A real VTEC ECU also checks the load, the oil pressure
-  and the road speed before it engages the high-speed lobes; here it switches on engine speed only,
-  and at once.
+  Neither is modelled. A naturally aspirated engine copied from a real one comes out within about 5%
+  of its published torque and power, but its cams, cam maps, rods, runners and headers are estimates
+  wherever they are not published.
+- **Cam profile switching is on speed alone.** A real engine's control unit also checks the load, the
+  oil pressure and the road speed before it engages the high-speed lobes; here it switches on engine
+  speed only, and at once.
 - **The variable valve timing map is set by hand.** A production map is calibrated on a dyno, point by
   point, for torque, economy and emissions together; this one is four cam positions at two speeds,
   blended in a straight line between them, and moves the cams under load only. What cam timing does
@@ -44,10 +42,9 @@ Where the model is simplified, and by how much.
   turbo's size, not a real turbo's map. There is no knock, so no boost is too much and the spark is not
   retarded on boost, as a real engine's would be. The shaft has no speed limit, so a turbo too small
   for the engine, at its choke, spins as fast as its turbine can drive it, well past the speed a real
-  wheel would survive. The RB26DETT preset's turbos are sized from the N1 turbo's published map and
-  the flow a standard pair is reckoned to give, not from a map of the standard one. On 0.7 bar it makes
-  391 N·m at 4400 rpm, less friction, against the real engine's 368, and 328 PS at 6800, against its
-  rated 280 and the 300-320 real ones make.
+  wheel would survive. Where a real engine's own compressor map is not published, its turbos are sized
+  from a similar turbo's map and the flow the engine is reckoned to need, so a turbocharged engine can
+  come out stronger than the one it copies.
 - **Some of the turbocharger's sounds have chosen levels.** The whine is the blades modulating the
   inlet's flow by a depth chosen for it, not solved from the flow through the blades; the turbine's
   whistle is likewise a chosen pulsation of its flow; a stalled compressor's turbulence has a chosen
@@ -104,15 +101,17 @@ Where the model is simplified, and by how much.
   into the air it draws. A real port injector wets the port walls, and that film takes a few cycles
   to follow a change of throttle. Direct injection, into the cylinder, is not modelled either. There
   is no knock model, so an over-advanced spark just loses power.
-- **The launch car is a point mass on a flat strip.** Its tyres' grip is one friction coefficient
-  for each kind of tyre, with no suspension, tyre heat or surface. The weight moving onto the rear wheels
-  is one fixed share per g, 0.18, the same for every car. Its drag area is fixed at 0.6 m², and its wheels,
-  tyres and half-shafts are one 3 kg·m² body. The gearbox and clutch have no inertia of their own.
-  Traction control is idealised: it knows the tyres' slip exactly, and cuts the spark with no delay
-  beyond the next firing. The performance and track tyres' coefficients, 1.3 and 1.35, are set so the
-  Corvettes come out near their published times: the Stingray at 3.1 s to 60 mph against 2.9 s, and the
-  Z06 at 2.8 s against 2.6 s. Real timeslips also depend on the driver, the surface and the air, so the
-  times compare one engine or gearing with another better than they predict a real car's.
+- **The launch car is a point mass on a flat strip.** Its tyres' grip is one friction coefficient,
+  whatever the speed, with no suspension, tyre heat or surface to change it. Where a real car's grip is
+  known it is from a skidpad, which measures it cornering, raised by a fixed 7% for grip driving in a
+  straight line; the true difference depends on the tyre. The weight moving onto the rear wheels is one
+  fixed share per g, 0.18, the same for every car. Its drag area is fixed at 0.6 m², and its wheels,
+  tyres and half-shafts are one 3 kg·m² body. The gearbox and clutch have no inertia of their own, and
+  the engine's rotating inertia is an estimate where it is not published: through the low gears it
+  weighs as much as a few hundred kilograms more car. Traction control is idealised: it knows the tyres'
+  slip exactly, and cuts the spark with no delay beyond the next firing. Makers' times are often set on
+  prepared surfaces, and real timeslips also depend on the driver and the air, so the times compare one
+  engine or gearing with another better than they predict a real car's.
 
 ## Sources
 

@@ -32,9 +32,9 @@ peak. The car is slowed by rolling resistance and by air drag, with a drag area 
   per kW.
 - **Shift time** is how long each shift takes, from lifting off to full throttle in the next gear. Auto
   is 0.4 s, a quick manual shift.
-- **Tyre grip** is the tyres' friction coefficient at their peak: 1.1 for a road tyre on auto, about 1.3
-  for an ultra-high-performance tyre such as the Pilot Sport 4S, and 1.35 for a road-legal track tyre
-  such as the Cup 2 R.
+- **Tyre grip** is the tyres' friction coefficient at their peak, driving: 1.1 for a road tyre on auto,
+  and 1.31 for the Corvettes. That is the 1.22 g the Z06 pulls on a skidpad on its Cup 2 Rs, raised 7%,
+  because a tyre grips a little harder driving in a straight line than cornering.
 - **Dual-clutch gearbox** shifts with no gap in the drive: the next gear's clutch takes the drive as the
   last one lets it go, and the throttle stays open. Off, each shift lifts off and takes the clutch out.
 - **All-wheel drive** lets the tyres take the car's whole weight, rather than the share on the rear

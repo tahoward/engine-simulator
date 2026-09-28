@@ -100,7 +100,7 @@ fn traction_control_beats_spinning_the_tyres() {
     };
     let (held, spun) = (sixty(true), sixty(false));
     assert!(held < spun, "0-60 in {held} s with traction control, against {spun} s spinning the tyres");
-    // A grip of 1.3 on 60% of the weight, and more as it moves back: about 1 g, 2.7 s at best.
+    // A grip of 1.31 on 60% of the weight, and more as it moves back: about 1 g, 2.7 s at best.
     assert!(held > 2.4, "0-60 in {held} s");
 }
 
