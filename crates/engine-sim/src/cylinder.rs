@@ -156,7 +156,7 @@ const WOSCHNI_C1_EXCHANGE: f64 = 6.18;
 const WOSCHNI_C1_CLOSED: f64 = 2.28;
 const WOSCHNI_C2: f64 = 3.24e-3;
 
-const COMBUSTION_EFFICIENCY: f64 = 0.92;
+const COMBUSTION_EFFICIENCY: f64 = 0.96;
 
 /// Floor on trapped mass, kg.
 const MIN_MASS: f64 = 2e-7;

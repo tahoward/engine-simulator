@@ -13,6 +13,8 @@ use engine_sim::turbo;
 use serde_json::{Value, json};
 
 const RB26: &str = "Inline six, Nissan RB26DETT";
+/// The preset's boost target, bar gauge.
+const TARGET: f64 = 0.7;
 
 fn rb26(over: Value) -> EngineSim {
     let mut cfg = common::engine_preset(RB26).config.clone();
@@ -94,8 +96,8 @@ fn builds_boost_with_the_exhaust_and_the_wastegate_holds_it() {
     let (mid, wg_mid) = at(4000.0);
     let (high, wg_high) = at(6500.0);
     assert!(low < 0.5, "too little exhaust at 1500 rpm for full boost: {low}");
-    assert!((mid - 0.8).abs() < 0.06, "held at the target at 4000 rpm: {mid}");
-    assert!((high - 0.8).abs() < 0.06, "held at the target at 6500 rpm: {high}");
+    assert!((mid - TARGET).abs() < 0.06, "held at the target at 4000 rpm: {mid}");
+    assert!((high - TARGET).abs() < 0.06, "held at the target at 6500 rpm: {high}");
     // Shut below the target, and open once there. How far depends on the pulses the manifold delivers as
     // well as on the flow, and on the drawn exhaust it is furthest open around 5000 rpm.
     assert!(
@@ -135,7 +137,7 @@ fn lags_behind_the_throttle() {
     let mut reached = None;
     for i in 1..=60 {
         sim.render(FS as usize / 20);
-        if boost(&sim) > 0.9 * 0.8 {
+        if boost(&sim) > 0.9 * TARGET {
             reached = Some(i as f64 / 20.0);
             break;
         }

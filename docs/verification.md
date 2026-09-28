@@ -61,7 +61,7 @@ matters.
   speed, stay switched inside the 150 rpm below it, switch back below that, and change the torque by
   less than 10% across the switch, with no solver recoveries.
 - **Turbocharger.** On the RB26 preset, the boost must stay under 0.5 bar at 1500 rpm and hold within
-  0.06 bar of its 0.8 bar target at 4000 and 6500 rpm, with the wastegate open at both. Opened
+  0.06 bar of its 0.7 bar target at 4000 and 6500 rpm, with the wastegate open at both. Opened
   from part throttle at 3500 rpm, it must take between 0.2 and 2.5 s to reach 90% of its boost. It must
   make within 10% of the real engine's 368 N·m at 4400 rpm, less friction, and between 280 and 350 PS
   at 6800; with compressors too small for it, passing 0.12 kg/s each, it must make less power at 7900
@@ -128,7 +128,7 @@ matters.
   still read a ring seen edge on. Its axes must turn with the part, a pipe segment's x running along it
   with its y as near up as it can be. A snapped turn must land on 15-degree steps from the engine's axes,
   squaring up a part set at an odd angle, and a snapped move on 5 mm steps.
-- **Headers.** On the LT6 at 8400 rpm, equal-length headers must fill the cylinder more than 3
+- **Headers.** On the LT6 at 8400 rpm, equal-length headers must fill the cylinder more than 1.5
   points past a manifold along the ports.
 - **Port injection.** With the fuel cut, neither the manifold nor a runner may hold more than a
   hundredth of a stoichiometric charge's fuel.

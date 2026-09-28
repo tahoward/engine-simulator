@@ -1872,13 +1872,14 @@ const NISSAN_RB26: Partial<EngineSpec> = {
   evc: 360,
   ivo: 352,
   ivc: 592,
-  // Two Garrett T28s, one for each three cylinders (`turbos` below), on 0.8 bar through an intercooler.
+  // Two Garrett T28s, one for each three cylinders (`turbos` below), on 0.7 bar through an intercooler,
+  // the low end of the 0.7-0.8 bar stock cars are quoted at.
   // Their size is an estimate: no map of the standard compressor is published. The R33's N1 turbo, a
   // bigger one, flows up to 0.20 kg/s at 0.8 bar on Mitsubishi's map of it, and a standard pair is
   // reckoned good for 20-22 lb/min each at peak power, 0.15-0.17 kg/s. Sized to that, they reach full
   // speed near the rev limit rather than well below it. Each fed by three cylinders' pulses, they hold
   // full boost from 3000 rpm.
-  boostTarget: 0.8e5,
+  boostTarget: 0.7e5,
   turboSize: 0.16,
   intercooler: 0.7,
   // The factory valve recirculates; this is the atmospheric one so many are fitted with instead.
@@ -2041,7 +2042,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'Inline four, Honda F20C',
     description:
-      'The 2.0 litre four in the Honda S2000: 87 x 84 mm, 11:1, four valves a cylinder and a 9000 rpm redline. Even 180\u00b0 firing on a flat crank, 1-3-4-2, into equal-length headers: twice the firing frequency of a twin at the same rpm, and no half order at all. It makes about 185 N\u00b7m from 6000 to 8300 rpm and 210 hp at 8300, against the real engine\u2019s 210 N\u00b7m at 7500 and 240 hp at 8300. Its VTEC switches each valve from a mild cam lobe to a wild one at 5500 rpm. Its valves, cams, runners and exhaust are estimates.',
+      'The 2.0 litre four in the Honda S2000: 87 x 84 mm, 11:1, four valves a cylinder and a 9000 rpm redline. Even 180\u00b0 firing on a flat crank, 1-3-4-2, into equal-length headers: twice the firing frequency of a twin at the same rpm, and no half order at all. It makes 195-200 N\u00b7m from 6000 to 8300 rpm and 228 hp at 8300, against the real engine\u2019s 210 N\u00b7m at 7500 and 240 hp at 8300. Its VTEC switches each valve from a mild cam lobe to a wild one at 5500 rpm. Its valves, cams, runners and exhaust are estimates.',
     engine: {
       cylinders: 4,
       vAngle: 0,
@@ -2067,7 +2068,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       inValveDia: 0.0376,
       // VTEC: a mild lobe for low speed, and at 5500 rpm, where the two make about the same torque and
       // within the 5500-6000 the real engine's ECU switches at, a wild one for the top end. On the high
-      // cam alone it makes 125-140 N·m below 4000; on the low one alone, 140 at 7000.
+      // cam alone it makes 130-150 N·m below 4000; on the low one alone, 155 at 7000.
       maxLift: 0.009,
       evo: 128,
       evc: 372,
@@ -2111,7 +2112,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'Inline six, Nissan RB26DETT',
     description:
-      'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.8 bar, one for each three cylinders, spool from 2000 rpm, on full boost by 3000, and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 387 N\u00b7m at 4400 rpm and 320 PS at 6800, about 315 hp, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
+      'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.7 bar, one for each three cylinders, spool from 2000 rpm, on full boost by 3000, and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 391 N\u00b7m at 4400 rpm and 328 PS at 6800, about 323 hp, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
     engine: NISSAN_RB26,
     pipe: () => fittedExhaust(fullSpec(NISSAN_RB26)).pipe,
     collector: () => fittedExhaust(fullSpec(NISSAN_RB26)).collector,
@@ -2223,7 +2224,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'V8, Chevrolet LT2',
     description:
-      'The 6.2 litre small-block in the mid-engine Corvette: pushrods, two big valves a cylinder, 11.5:1 and a cam that closes the intake late, which only pays off because its long intake runners ram the charge in. Tubular headers into a silencer each side. It makes about 600 N·m and 460 hp here against the real engine’s 637 and 495; see Known Limits for what is missing.',
+      'The 6.2 litre small-block in the mid-engine Corvette: pushrods, two big valves a cylinder, 11.5:1 and a cam that closes the intake late, which only pays off because its long intake runners ram the charge in. Tubular headers into a silencer each side. It makes about 640 N·m and 495 hp here, as the real engine makes 637 and 495.',
     engine: {
       cylinders: 8,
       vAngle: 90,
@@ -2265,7 +2266,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'V8, Chevrolet LT6',
     description:
-      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its cam, short runners and headers are tuned for the top end, where it makes about 630 hp at 8400 rpm against the real engine’s 670. Below that its variable cam timing and long runners, also estimates, give back most of the mid-range: 580 N·m at 6200 against 624 at 6300.',
+      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its cam, short runners and headers are tuned for the top end, where it makes about 665 hp at 8200 rpm against the real engine’s 670 at 8400. Below that its variable cam timing and long runners, also estimates, give back the mid-range: 623 N·m at 6000 against 624 at 6300.',
     engine: {
       cylinders: 8,
       vAngle: 90,
@@ -2295,21 +2296,21 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       evo: 104,
       evc: 397,
       ivo: 327,
-      ivc: 628,
+      ivc: 614,
       // Estimated: a two-stage manifold, as the real one has. The short runners are tuned for 8400 rpm; the
-      // long ones, a centimetre longer, fill it better from 7200 to 8200, by up to 15 N·m, and fall behind
-      // above that. Longer long runners peak higher in the mid-range, 600 N·m at 6300 for 450 mm ones, but
-      // fall away sooner above it: these give the flattest curve.
-      intakeRunnerLength: 0.355,
+      // long ones, two centimetres longer, fill it better from 7200 to 7800, by up to 20 N·m, and fall
+      // behind above that. Longer long runners peak higher in the mid-range, 632 N·m at 6300 for 450 mm
+      // ones, but fall away sooner above it: these give the flattest curve.
+      intakeRunnerLength: 0.365,
       intakeRunnerShortLength: 0.345,
-      intakeSwitchRpm: 8250,
-      // Estimated, like the cams, and tuned on the dyno at full throttle: the intake advanced 30 degrees up
+      intakeSwitchRpm: 7900,
+      // Estimated, like the cams, and tuned on the dyno at full throttle: the intake advanced 25 degrees up
       // to 4550 rpm, easing back to rest by 7750, which gives back the mid-range a cam tuned for 8400 costs
-      // it. The best advance, found point by point, is about 40 degrees at 4000-4500, 30 at 5000-5500, 20
-      // at 6000 and 10 or less from 6500; holding 30 below 4550 rather than 40 costs up to 15 N·m at
-      // 4000-4500 and keeps the dip around 3300 shallower. Retarding the exhaust cam, or advancing it, lost
-      // torque almost everywhere.
-      vvtIntakeLow: 30,
+      // it. The best advance, found point by point, is about 40 degrees at 4000-4500, 20 at 5000-5500, 10
+      // at 6000 and little or none from 6500 and below 3500; holding 25 below 4550 rather than 40 costs up
+      // to 28 N·m at 4000 and keeps the dip around 3300 shallower. Retarding the exhaust cam 10 degrees as
+      // well adds up to 36 N·m at 4000 but costs 15 below 3500; advancing it loses torque at 4000-4500.
+      vvtIntakeLow: 25,
       vvtLowRpm: 4550,
       vvtHighRpm: 7750,
       outputGain: LT6_GAIN,
