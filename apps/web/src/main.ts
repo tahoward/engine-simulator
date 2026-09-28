@@ -29,6 +29,7 @@ import { ductDirections, freezeHeadings, layoutGraph, pipesMeetAt, type ExhaustP
 import { JointMesh } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
 import { engineFile, engineFileName, readConfig, readEngineFile } from './model/engineFile.js';
+import { launchSettingsJson, readLaunchSettings } from './model/launchSettings.js';
 import { detachDuct, loosenChildren, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
 import {
   applyHeader,
@@ -86,7 +87,8 @@ const overlayEl = must<HTMLElement>('#overlay');
 const hudEl = must<HTMLElement>('#hud');
 const toolsEl = must<HTMLElement>('#tools');
 
-const config: EngineConfig = loadConfig();
+const saved = savedState();
+const config: EngineConfig = loadConfig(saved);
 /**
  * The duct graph, seeded from the layout spec and authoritative thereafter.
  *
@@ -614,7 +616,8 @@ const panel = new Panel(panelEl, toolsEl, config, {
   onSampleRate: changeSampleRate,
   onView: applyView,
   onResetView: () => viewer.frameBounds(sceneBounds()),
-}, sampleRate);
+  onLaunchSettings: saveConfig,
+}, sampleRate, readLaunchSettings(saved?.launch));
 
 const lagNotice = new LagNotice(must<HTMLElement>('#stage'), (hz) => {
   panel.setSampleRate(hz);
@@ -923,11 +926,22 @@ function startingConfig(): EngineConfig {
   return cfg;
 }
 
-function loadConfig(): EngineConfig {
+/** What the URL holds, or `null` where it holds nothing that can be read. */
+function savedState(): { launch?: unknown } | null {
   const hash = location.hash.replace(/^#/, '');
-  if (!hash) return startingConfig();
+  if (!hash) return null;
   try {
-    const { config: read, graphDropped } = readConfig(JSON.parse(decodeURIComponent(atob(hash))), startingConfig());
+    return JSON.parse(decodeURIComponent(atob(hash))) as { launch?: unknown };
+  } catch {
+    console.warn('[main] could not read the configuration in the URL; using defaults');
+    return null;
+  }
+}
+
+function loadConfig(saved: unknown): EngineConfig {
+  if (!saved) return startingConfig();
+  try {
+    const { config: read, graphDropped } = readConfig(saved, startingConfig());
     if (graphDropped) console.warn('[main] the exhaust in the URL does not fit this engine; rebuilding it');
     return read;
   } catch {
@@ -998,7 +1012,8 @@ function saveConfig(): void {
 
 function writeConfig(): void {
   saveTimer = 0;
-  const json = JSON.stringify(config);
+  // The launch's car and settings ride along with the engine, so a refresh keeps them too.
+  const json = JSON.stringify({ ...config, launch: launchSettingsJson(panel.launchSettings()) });
   history.replaceState(null, '', `#${btoa(encodeURIComponent(json))}`);
 }
 
