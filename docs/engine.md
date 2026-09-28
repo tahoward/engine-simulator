@@ -76,28 +76,28 @@ path to the plenum, and the manifold switches to it at **Switch to short runners
 flap opens. It switches back 150 rpm lower, so it does not flap back and forth at the switch speed.
 Both sets are solved, on the same grid; the gas in the one being left, measured from the valve, is
 laid onto the other, so the charge in the ports and its flow carry on through the switch. On the LT6,
-with 355 mm runners switching to 345 mm ones at 8250 rpm:
+with 365 mm runners switching to 345 mm ones at 7900 rpm:
 
 ```
                           3000   4500   5500   6300   7800   8400 rpm      full throttle, N·m
-345 mm runners only        412    511    548    574    535    536
-two-stage                  414    516    549    579    550    536
+345 mm runners only        449    544    591    616    580    554
+two-stage                  450    555    597    610    594    554
 ```
 
-Longer long runners peak higher on it, 602 N·m at 6300 for 450 mm ones, but fall away sooner above
-that, to 492 at 7800: 355 mm gives the flattest curve.
+Longer long runners peak higher on it, 632 N·m at 6300 for 450 mm ones, but fall away sooner above
+that, to 520 at 7800: 365 mm gives the flattest curve.
 
 The runners are solved on the finest grid the sample rate allows, 35 mm at 48 kHz, even where the
 cost budget coarsens the exhaust. A runner is only a few hundred millimetres long, and its ends are a
 good part of it, so its ramming depends on resolution far more than the exhaust's sound does: on 70
-mm cells, at the speed they are tuned for, the LT2 fills four points less and the LT6 six.
+mm cells, at the speed they are tuned for, the LT2 fills three points less and the LT6 one.
 
 **Headers scavenge.** With equal-length headers, each cylinder's primary runs all the way to one
 merge per collector, instead of joining a manifold along the ports. The **Equal-length header** tool
 builds them ([Controls](controls.md#equal-length-headers)), and the presets that have them come with them. The wave each exhaust pulse sends
 back from the merge reaches the next cylinder's port as a suction during the overlap, and pulls fresh
 charge through the cylinder after its exhaust. On the LT6, whose cam holds both valves open for 70°,
-410 mm primaries tuned for 8400 rpm fill the cylinder to 105% there, against 101% on a manifold.
+410 mm primaries tuned for 8400 rpm fill the cylinder to 99% there, against 94% on a manifold.
 
 A runner's sound dies away through the viscous and thermal boundary layer at its walls, and through
 the turbulence, the bend into the port and the valve seat. The first is worked out from the runner's
@@ -127,9 +127,9 @@ it 85° after, switching at 5500 rpm:
 
 ```
                           2000   3000   4000   5000   6500   7000   8000   8300 rpm   full throttle, N·m
-high cam only              126    134    141    179    188    187    184    182
-low cam only               176    182    188    185    154    142
-switching at 5500          176    182    188    185    188    187    184    182
+high cam only              133    141    148    190    199    200    198    196
+low cam only               184    191    199    196    166    153
+switching at 5500          184    191    199    196    199    200    198    196
 ```
 
 ## Variable valve timing
@@ -147,16 +147,17 @@ ECU weighs the air by, because the overlap itself raises that pressure at idle. 
 load would advance the cam further and stall an engine with a big cam.
 
 What it buys depends on the cam. On the LT6, whose cam is tuned for 8400 rpm, the intake cam is
-advanced 30° up to 4550 rpm and eased back to rest by 7750. That map was found by running the engine
-at a fixed cam position at each speed: the best advance is about 40° at 4000-4500 rpm, 30° at
-5000-5500, 20° at 6000 and 10° or less from 6500. Holding 30° rather than 40° below 4550 gives up to
-15 N·m at 4000-4500 and keeps the dip around 3300 shallower. Moving the exhaust cam either way lost
-torque almost everywhere.
+advanced 25° up to 4550 rpm and eased back to rest by 7750. That map was found by running the engine
+at a fixed cam position at each speed: the best advance is about 40° at 4000-4500 rpm, 20° at
+5000-5500, 10° at 6000, and little or none from 6500 or below 3500. Holding 25° rather than 40° below
+4550 gives up to 28 N·m at 4000 and keeps the dip around 3300 shallower. Retarding the exhaust cam
+10° as well adds up to 36 N·m at 4000 but costs 15 below 3500; advancing it loses torque at
+4000-4500.
 
 ```
-                          3000   4500   6300   8400 rpm      full throttle, N·m
-cam fixed                  395    420    563    536
-intake map                 414    516    579    536
+                          3000   4000   4500   5500   6300   8400 rpm      full throttle, N·m
+cam fixed                  452    421    484    574    611    554
+intake map                 450    466    555    597    610    554
 ```
 
 On the 2GR, the cam rests late, so its runners ram the charge in at the top end, and the phaser
@@ -165,9 +166,9 @@ away:
 
 ```
                           2000   3000   4000   5200   6400 rpm      full throttle, N·m
-cam fixed early            320    314    330    292    243
-cam fixed late             283    294    330    358    327
-intake 40° at low speed    320    324    345    357    327
+cam fixed early            334    332    349    311    264
+cam fixed late             297    311    349    379    350
+intake 40° at low speed    334    339    365    378    350
 ```
 
 ## The turbocharger
@@ -227,24 +228,24 @@ characteristic and the inertia of the air, as Greitzer's model of it does.
 
 The RB26 preset's exhaust has the real engine's layout: the front three cylinders' pipes feed one
 turbo, the rear three's another, both on the exhaust side of the head, and the two turbos' outlets meet
-behind them. At 0.8 bar, with its naturally aspirated self on the same cams, runners and pipes for
+behind them. At 0.7 bar, with its naturally aspirated self on the same cams, runners and pipes for
 comparison:
 
 ```
                           2000   3000   4000   5000   6000   7500 rpm   full throttle, N·m
-naturally aspirated        227    224    231    255    260    218
-twin turbos, 0.8 bar       291    412    410    427    413    331
-boost, bar                0.28   0.77   0.79   0.79   0.79   0.79
+naturally aspirated        216    211    216    240    243    199
+twin turbos, 0.7 bar       273    381    385    405    390    307
+boost, bar                0.24   0.66   0.68   0.70   0.70   0.69
 ```
 
 Its turbos are sized to what is known of the real engine's T28s (see the preset), and each is fed the
-pulses of three cylinders: full boost from 3000 rpm, and near their full speed at the top, about 140k
-rpm, where the exhaust backs up to 1 bar behind them. Past 6400 rpm the torque falls about as fast as
-the speed rises, so the power, less friction, holds near 315 PS to the limit, fading a little as a
-stock engine's does on the dyno. Compressors too small for it reach their choke instead: with ones
+pulses of three cylinders: full boost from 3000 rpm, and at their full speed at the top, about 128k
+rpm, where the exhaust ahead of them is 0.65 bar above the pressure past them. The power, less
+friction, peaks at 345 PS at 6400 rpm; past that the torque falls about as fast as the speed rises,
+so it holds near 328 PS to the limit, as a stock engine's does on the dyno. Compressors too small for it reach their choke instead: with ones
 passing 0.12 kg/s each, the shafts run half as fast again as their full speed by 6400 rpm, and the
 power falls from 7000 to 7900. At 4400 rpm each pulse arriving at a turbine swings the pressure there
-by about 17 kPa; past it, by 7.
+by about 15 kPa; past it, by 8.
 
 ## The flame
 

@@ -24,11 +24,11 @@ Where the model is simplified, and by how much.
     of milliseconds to move, and is part open on the way.
 - **Some effects that make high-output engines strong are missing.** Direct injection cools the
   charge as the fuel evaporates, and a rich mixture at full throttle adds a few percent of power.
-  Neither is modelled. A 6.2 litre V8 in the proportions of a Chevrolet LT2 comes out at about 600
-  N·m and 460 hp, against the real engine’s 637 N·m and 495 hp. The Honda F20C makes about 185 N·m
-  and 210 hp, against 210 and 240. The LT6, the 8600 rpm flat-plane V8, comes out at 630 hp at 8400
-  rpm, against 670, and at 580 N·m at 6200 against 624 at 6300. Their cams, cam maps, rods, runners and
-  headers are estimates where they are not published.
+  Neither is modelled. A 6.2 litre V8 in the proportions of a Chevrolet LT2 comes out at about 640
+  N·m and 495 hp, as the real engine makes 637 N·m and 495 hp. The Honda F20C makes 195-200 N·m and
+  228 hp, against 210 and 240. The LT6, the 8600 rpm flat-plane V8, comes out at 665 hp at 8200 rpm,
+  against 670 at 8400, and at 623 N·m at 6000 against 624 at 6300. Their cams, cam maps, rods, runners
+  and headers are estimates where they are not published.
 - **Cam profile switching is on speed alone.** A real VTEC ECU also checks the load, the oil pressure
   and the road speed before it engages the high-speed lobes; here it switches on engine speed only,
   and at once.
@@ -45,9 +45,9 @@ Where the model is simplified, and by how much.
   retarded on boost, as a real engine's would be. The shaft has no speed limit, so a turbo too small
   for the engine, at its choke, spins as fast as its turbine can drive it, well past the speed a real
   wheel would survive. The RB26DETT preset's turbos are sized from the N1 turbo's published map and
-  the flow a standard pair is reckoned to give, not from a map of the standard one. It makes 387 N·m
-  at 4400 rpm, less friction, against the real engine's 368, and 320 PS at 6800, against its rated 280
-  and the 300-320 real ones make.
+  the flow a standard pair is reckoned to give, not from a map of the standard one. On 0.7 bar it makes
+  391 N·m at 4400 rpm, less friction, against the real engine's 368, and 328 PS at 6800, against its
+  rated 280 and the 300-320 real ones make.
 - **Some of the turbocharger's sounds have chosen levels.** The whine is the blades modulating the
   inlet's flow by a depth chosen for it, not solved from the flow through the blades; the turbine's
   whistle is likewise a chosen pulsation of its flow; a stalled compressor's turbulence has a chosen

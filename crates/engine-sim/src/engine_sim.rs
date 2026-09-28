@@ -826,9 +826,9 @@ impl EngineSim {
 
     /// Mean crank speed, rev/min.
     /// The torque friction takes off the crank at its present mean speed, N*m: a friction mean
-    /// effective pressure of 0.8 bar plus 120 Pa per rad/s.
+    /// effective pressure of 0.8 bar plus 85 Pa per rad/s.
     pub fn friction_torque(&self) -> f64 {
-        let fmep = 0.8e5 + 120.0 * self.omega_mean;
+        let fmep = 0.8e5 + 85.0 * self.omega_mean;
         (fmep * self.displacement_m3) / (4.0 * PI)
     }
 
