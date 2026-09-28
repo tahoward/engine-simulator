@@ -53,9 +53,9 @@ describe('the Wasm build renders every reference scenario bit for bit', () => {
         sim.setControls(t, l);
       } else if ('engine' in step) sim.setEngine(step.engine as never);
       else if ('graph' in step) sim.setGraph(step.graph as never);
-      else if ('dyno' in step) {
-        if (step.dyno) sim.startDyno(step.dyno as never);
-        else sim.stopDyno();
+      else if ('launch' in step) {
+        if (step.launch) sim.startLaunch(step.launch as never);
+        else sim.stopLaunch();
       } else if ('snapshot' in step) snapshots.push(plain(sim.snapshot()));
     }
     sim.free();

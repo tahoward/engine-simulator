@@ -334,7 +334,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -346,6 +346,7 @@
     "finalDrive": 6.960012519455321,
     "tyreRadius": 0.31,
     "mass": 232.25585048479093,
+    "launchRpm": 3500,
     "shiftRpm": 6850
    },
    "fittedExhaust": {
@@ -503,7 +504,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -515,6 +516,7 @@
     "finalDrive": 5.145996922483082,
     "tyreRadius": 0.31,
     "mass": 371.6093607756655,
+    "launchRpm": 2800,
     "shiftRpm": 5450
    },
    "fittedExhaust": {
@@ -699,7 +701,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -711,6 +713,7 @@
     "finalDrive": 7.133973028977511,
     "tyreRadius": 0.31,
     "mass": 597.229329818034,
+    "launchRpm": 4500,
     "shiftRpm": 8850
    },
    "fittedExhaust": {
@@ -898,7 +901,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -910,6 +913,7 @@
     "finalDrive": 5.720209190219337,
     "tyreRadius": 0.31,
     "mass": 1218.4213460968833,
+    "launchRpm": 4575,
     "shiftRpm": 9000
    },
    "fittedExhaust": {
@@ -1113,7 +1117,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -1125,6 +1129,7 @@
     "finalDrive": 5.693398736143001,
     "tyreRadius": 0.31,
     "mass": 434.0223348269828,
+    "launchRpm": 3250,
     "shiftRpm": 6350
    },
    "fittedExhaust": {
@@ -1328,7 +1333,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -1340,6 +1345,7 @@
     "finalDrive": 4.428788694360042,
     "tyreRadius": 0.31,
     "mass": 1157.5041052518914,
+    "launchRpm": 3500,
     "shiftRpm": 6850
    },
    "fittedExhaust": {
@@ -1984,7 +1990,7 @@
      ]
     }
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -1996,6 +2002,7 @@
     "finalDrive": 4.096255468375534,
     "tyreRadius": 0.31,
     "mass": 1900,
+    "launchRpm": 4100,
     "shiftRpm": 8050
    },
    "fittedExhaust": {
@@ -2749,7 +2756,7 @@
      ]
     }
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -2761,6 +2768,7 @@
     "finalDrive": 3.8076096046971273,
     "tyreRadius": 0.31,
     "mass": 1520.6441930004014,
+    "launchRpm": 3300,
     "shiftRpm": 6450
    },
    "fittedExhaust": {
@@ -2964,7 +2972,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -2976,6 +2984,7 @@
     "finalDrive": 3.2288541528750967,
     "tyreRadius": 0.31,
     "mass": 1900,
+    "launchRpm": 3250,
     "shiftRpm": 6350
    },
    "fittedExhaust": {
@@ -3184,7 +3193,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -3196,6 +3205,7 @@
     "finalDrive": 3.4800062597276606,
     "tyreRadius": 0.31,
     "mass": 1900,
+    "launchRpm": 3500,
     "shiftRpm": 6850
    },
    "fittedExhaust": {
@@ -3403,7 +3413,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -3415,6 +3425,7 @@
     "finalDrive": 3.2767942153640015,
     "tyreRadius": 0.31,
     "mass": 1900,
+    "launchRpm": 3300,
     "shiftRpm": 6450
    },
    "fittedExhaust": {
@@ -3630,7 +3641,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -3642,6 +3653,7 @@
     "finalDrive": 4.292854437182297,
     "tyreRadius": 0.31,
     "mass": 1900,
+    "launchRpm": 4300,
     "shiftRpm": 8450
    },
    "fittedExhaust": {
@@ -3838,7 +3850,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -3850,6 +3862,7 @@
     "finalDrive": 4.597177750288011,
     "tyreRadius": 0.31,
     "mass": 1900,
+    "launchRpm": 4500,
     "shiftRpm": 8850
    },
    "fittedExhaust": {
@@ -4054,7 +4067,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -4066,6 +4079,7 @@
     "finalDrive": 4.221439335206952,
     "tyreRadius": 0.31,
     "mass": 1064.7440530252438,
+    "launchRpm": 3250,
     "shiftRpm": 6350
    },
    "fittedExhaust": {
@@ -4271,7 +4285,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -4283,6 +4297,7 @@
     "finalDrive": 4.02114752730742,
     "tyreRadius": 0.31,
     "mass": 1758.6272977923807,
+    "launchRpm": 3650,
     "shiftRpm": 7150
    },
    "fittedExhaust": {
@@ -4471,7 +4486,7 @@
      }
     ]
    },
-   "dyno": {
+   "launch": {
     "ratios": [
      3.36,
      2.09,
@@ -4483,6 +4498,7 @@
     "finalDrive": 6.296066118753702,
     "tyreRadius": 0.31,
     "mass": 497.691108181695,
+    "launchRpm": 3750,
     "shiftRpm": 7350
    },
    "fittedExhaust": {

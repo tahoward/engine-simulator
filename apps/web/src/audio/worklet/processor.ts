@@ -9,7 +9,7 @@
  * and would put the acoustics at the mercy of garbage collection and rendering hitches.
  */
 
-import type { DynoConfig, EngineConfig, EngineSnapshot, EngineSpec } from '../../model/spec.js';
+import type { LaunchConfig, EngineConfig, EngineSnapshot, EngineSpec } from '../../model/spec.js';
 import type { ExhaustGraph } from '../../model/exhaustGraph.js';
 import { CONTROL_PARAMS } from './controls.js';
 import { Sim } from './sim.js';
@@ -20,7 +20,7 @@ export type ToWorklet =
   | { type: 'graph'; graph: ExhaustGraph | null }
   | { type: 'snapshotRate'; hz: number }
   | { type: 'timeScale'; scale: number }
-  | { type: 'dyno'; config: DynoConfig | null };
+  | { type: 'launch'; config: LaunchConfig | null };
 
 /** Worklet -> main thread. */
 export type FromWorklet =
@@ -61,10 +61,10 @@ class EngineProcessor extends AudioWorkletProcessor {
             // the user edits, with a short ramp hiding the discontinuity.
             this.sim.setGraph(msg.graph);
             break;
-          case 'dyno':
+          case 'launch':
             // `null` ends the run in progress.
-            if (msg.config) this.sim.startDyno(msg.config);
-            else this.sim.stopDyno();
+            if (msg.config) this.sim.startLaunch(msg.config);
+            else this.sim.stopLaunch();
             break;
           case 'snapshotRate':
             this.snapshotInterval = Math.max(1, Math.round(sampleRate / msg.hz));

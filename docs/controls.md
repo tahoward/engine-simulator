@@ -19,6 +19,29 @@
   the limit of the real engine it copies. Above the limit the spark is cut, and it comes back
   200 rpm lower, so the engine bounces off the limit the way a real one does.
 
+## Launch
+
+**Start launch** runs a standing start at full throttle. The engine revs to the **Launch at** speed, and
+the clutch slips to hold it there until the car catches up. Then each gear is pulled to the **Shift at**
+speed. The run works the throttle itself, and it ends at the shift point in top gear, or when the car
+stops gaining speed. Too much torque for the tyres spins them. The car is slowed by rolling resistance
+and by air drag, with a drag area of 0.6 m².
+
+- **Car mass** is the car's weight with the driver in it. Auto sizes the car to the engine, about 9 kg
+  per kW.
+- **Gearbox** starts as a close-ratio six-speed. Type a ratio into any gear to change it. **×** takes a
+  gear out and **Add gear** adds one above the top gear. A gearbox can have from one to eight gears.
+  Next to each gear is the road speed it reaches at the shift point.
+- **Final drive** is geared on auto so that the shift point in top gear comes where the car would run
+  out of power against its drag. Type a value to set it yourself. **Reset gearing** puts back the
+  six-speed and the auto final drive.
+
+Loading an engine preset or importing an engine puts every launch setting back on auto.
+
+The sheet shows a timeslip: 0–60 mph, and the quarter and half mile with the speed at each. Each is timed
+from the moment the car moves. Below that it plots crank power, torque, volumetric efficiency and intake
+pressure against rpm, one colour per gear.
+
 ## Valves
 
 - **Valves per cylinder** chooses a two-valve head (one intake, one exhaust) or a four-valve head

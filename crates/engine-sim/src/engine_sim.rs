@@ -14,7 +14,7 @@
 //! ```
 
 use crate::cylinder::{AdvanceIo, CylState, Cylinder, SpecInstance};
-use crate::drivetrain::{DynoPhase, DynoRun};
+use crate::drivetrain::{LaunchPhase, LaunchRun};
 use crate::dsp::{Delay, Impact, Noise, Resonator, soft_clip, wrap_cycle};
 use crate::euler_pipe::{
     DEFAULT_CFL, DEFAULT_MAX_CELLS, EulerPipeOptions, HeadPort, ValveState, duct_cell_count, duct_grid_length,
@@ -28,8 +28,8 @@ use crate::math::{self, PI, clamp};
 use crate::plenum::IntakePlenum;
 use crate::radiation::FarField;
 use crate::spec::{
-    BankSnapshot, CV_REF, CV_SLOPE, CrankType, DynoConfig, DynoSnapshot, EngineConfig, EngineSnapshot, EngineSpec,
-    ExhaustLayout, FUEL_CUT_RPM, FUEL_CUT_THROTTLE, FUEL_RESUME_RPM, PIPE_PRESSURE_TAPS, PipeSegment,
+    BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout, FUEL_CUT_RPM,
+    FUEL_CUT_THROTTLE, FUEL_RESUME_RPM, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment,
     REV_LIMIT_HYSTERESIS_RPM, RunnerSize, T_REF, TurboSnapshot, ambient_sound_speed, displacement, exhaust_layout_of,
     exhaust_port_diameter, firing_plan, fuel_fraction_at, full_load_torque, gas, intake_runner_of, load_torque_of,
     physical_bank_count,
@@ -49,8 +49,8 @@ pub const CAM_SWITCH_HYSTERESIS: f64 = 150.0;
 /// How far below its switch speed a two-stage intake switches back to its long runners, rev/min.
 const INTAKE_SWITCH_HYSTERESIS: f64 = 150.0;
 
-/// Longest a finished dyno run waits for the engine to wind down to a held speed, s.
-const DYNO_WIND_DOWN: f64 = 6.0;
+/// Longest a finished launch waits for the engine to wind down to a held speed, s.
+const LAUNCH_WIND_DOWN: f64 = 6.0;
 
 /// Crank degrees per cylinder sub-step.
 const MAX_DEG_PER_SUBSTEP: f64 = 0.35;
@@ -216,8 +216,8 @@ pub struct EngineSim {
     omega_display: f64,
     limiter_cut: bool,
     fuel_cut_active: bool,
-    dyno: Option<DynoRun>,
-    dyno_opening: f64,
+    launch: Option<LaunchRun>,
+    launch_opening: f64,
     prev_ex_lift: Vec<f64>,
     prev_in_lift: Vec<f64>,
     prev_angle: Vec<f64>,
@@ -325,8 +325,8 @@ impl EngineSim {
             omega_display: 0.0,
             limiter_cut: false,
             fuel_cut_active: false,
-            dyno: None,
-            dyno_opening: f64::NAN,
+            launch: None,
+            launch_opening: f64::NAN,
             prev_ex_lift: Vec::new(),
             prev_in_lift: Vec::new(),
             prev_angle: Vec::new(),
@@ -437,19 +437,22 @@ impl EngineSim {
         spec.load = load;
         self.load_torque_nm = load_torque_of(spec, self.turbo.is_some());
         self.plenum.set_geometry(spec);
-        self.dyno_opening = f64::NAN;
+        self.launch_opening = f64::NAN;
     }
 
-    /// Start a dyno run through `config`'s gearbox, from the engine's present speed.
-    pub fn start_dyno(&mut self, config: DynoConfig) {
-        self.dyno =
-            Some(DynoRun::new(config, self.omega_mean, full_load_torque(&self.spec.spec, self.turbo.is_some())));
-        self.dyno_opening = f64::NAN;
+    /// Start a launch from standstill through `config`'s gearbox. A gearbox without a gear, or with
+    /// one that is not a positive ratio, starts nothing.
+    pub fn start_launch(&mut self, config: LaunchConfig) {
+        if config.ratios.is_empty() || config.ratios.iter().any(|r| !(*r > 0.0)) || !(config.final_drive > 0.0) {
+            return;
+        }
+        self.launch = Some(LaunchRun::new(config, full_load_torque(&self.spec.spec, self.turbo.is_some())));
+        self.launch_opening = f64::NAN;
     }
 
-    /// End the dyno run.
-    pub fn stop_dyno(&mut self) {
-        if let Some(d) = &mut self.dyno {
+    /// End the launch.
+    pub fn stop_launch(&mut self) {
+        if let Some(d) = &mut self.launch {
             d.finish();
         }
     }
@@ -478,7 +481,7 @@ impl EngineSim {
         self.wg.set_turbulence(self.spec.spec.throat_noise);
         self.plenum.set_geometry(&self.spec.spec);
         self.refresh_turbo();
-        self.dyno_opening = f64::NAN;
+        self.launch_opening = f64::NAN;
         self.make_cylinder_variation(self.spec.spec.cylinders as usize);
         self.tune_structure();
         let spec = &self.spec.spec;
@@ -494,7 +497,7 @@ impl EngineSim {
             || layout_key(spec) != prev_layout
         {
             if layout_key(spec) != prev_layout {
-                self.dyno = None;
+                self.launch = None;
                 self.allocate_per_cylinder();
                 self.cyls = self.build_cylinders();
             }
@@ -629,7 +632,7 @@ impl EngineSim {
     fn update_phasers(&mut self) {
         let spec = &self.spec.spec;
         let dt = 1.0 / self.sample_rate;
-        let throttle = match &self.dyno {
+        let throttle = match &self.launch {
             Some(d) => d.throttle,
             None => spec.throttle,
         };
@@ -839,7 +842,7 @@ impl EngineSim {
 
     fn integrating_crank(&self) -> bool {
         let spec = &self.spec.spec;
-        spec.free_running || spec.rpm >= spec.rev_limit || self.dyno.is_some()
+        spec.free_running || spec.rpm >= spec.rev_limit || self.launch.is_some()
     }
 
     /// Instantaneous crank speed, rev/min, ripple included.
@@ -861,14 +864,14 @@ impl EngineSim {
 
         if self.integrating_crank() {
             let friction = self.friction_torque();
-            let load = if let Some(dyno) = &mut self.dyno {
+            let load = if let Some(launch) = &mut self.launch {
                 let mut fresh = 0.0;
                 for c in &self.cyls {
                     fresh += c.trapped_fresh;
                 }
-                dyno.volumetric_efficiency = fresh / self.cyls.len() as f64 / self.full_charge_kg;
-                dyno.intake_pressure = self.plenum.pressure();
-                dyno.step(dt, self.omega_mean, torque - friction, self.cyls[0].angle)
+                launch.volumetric_efficiency = fresh / self.cyls.len() as f64 / self.full_charge_kg;
+                launch.intake_pressure = self.plenum.pressure();
+                launch.step(dt, self.omega_mean, torque - friction, self.cyls[0].angle)
             } else if self.spec.spec.free_running {
                 self.load_torque_nm
             } else {
@@ -920,23 +923,25 @@ impl EngineSim {
             self.update_cam_profile();
         }
 
-        // --- Dyno run ---
+        // --- Launch ---
         let mut throttle = self.spec.spec.throttle;
-        if let Some((dyno_throttle, cooldown, phase_time)) =
-            self.dyno.as_ref().map(|d| (d.throttle, d.phase == DynoPhase::Cooldown, d.phase_time))
+        if let Some((launch_throttle, cooldown, phase_time)) =
+            self.launch.as_ref().map(|d| (d.throttle, d.phase == LaunchPhase::Cooldown, d.phase_time))
         {
-            throttle = dyno_throttle;
-            if throttle != self.dyno_opening {
+            throttle = launch_throttle;
+            if throttle != self.launch_opening {
                 self.plenum.set_opening(&self.spec.spec, throttle);
-                self.dyno_opening = throttle;
+                self.launch_opening = throttle;
             }
             let spec = &self.spec.spec;
             if cooldown
-                && (spec.free_running || self.omega_mean <= (spec.rpm * 2.0 * PI) / 60.0 || phase_time > DYNO_WIND_DOWN)
+                && (spec.free_running
+                    || self.omega_mean <= (spec.rpm * 2.0 * PI) / 60.0
+                    || phase_time > LAUNCH_WIND_DOWN)
             {
-                self.dyno = None;
+                self.launch = None;
                 self.plenum.set_geometry(&self.spec.spec);
-                self.dyno_opening = f64::NAN;
+                self.launch_opening = f64::NAN;
                 throttle = self.spec.spec.throttle;
             }
         }
@@ -1231,12 +1236,18 @@ impl EngineSim {
             })
             .collect();
         let first = banks[0].clone();
-        let dyno = self.dyno.as_mut().map(|d| DynoSnapshot {
+        let launch = self.launch.as_mut().map(|d| LaunchSnapshot {
             phase: d.phase.as_str().to_string(),
             gear: (d.gear + 1) as f64,
             speed_kmh: d.speed * 3.6,
-            elapsed: d.elapsed,
+            elapsed: d.run_time(),
+            distance: d.distance,
             finished: d.finished,
+            zero_to_sixty: d.sixty,
+            quarter_mile: d.quarter.map(|m| m.time),
+            quarter_mile_kmh: d.quarter.map(|m| m.speed * 3.6),
+            half_mile: d.half.map(|m| m.time),
+            half_mile_kmh: d.half.map(|m| m.speed * 3.6),
             points: d.take_points(),
         });
         let snap = EngineSnapshot {
@@ -1248,7 +1259,7 @@ impl EngineSim {
             exhaust_cam_retard: self.exhaust_shift,
             short_runners: self.on_short_runners,
             high_cam: self.high_cam_spec.is_some() && self.on_high_cam,
-            dyno,
+            launch,
             cyl_pressure: first.cyl_pressure,
             cyl_temp: first.cyl_temp,
             ex_lift: first.ex_lift,

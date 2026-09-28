@@ -1,6 +1,10 @@
 /**
- * The dyno sheet: crank power and torque against rpm, drawn live as a dyno run goes. Five charts on one
- * rpm axis: horsepower and pound-feet together, then kilowatts, newton-metres, volumetric efficiency,
+ * The launch sheet: the timeslip, and crank power and torque against rpm, drawn live as a launch goes.
+ *
+ * The timeslip is three figures, each timed from the moment the car moves off: 0 to 60 mph, and the
+ * quarter and half mile with the speed at each, filled in as the car reaches them.
+ *
+ * The charts are five on one rpm axis: horsepower and pound-feet together, then kilowatts, newton-metres, volumetric efficiency,
  * the fresh charge each cylinder traps as a share of its swept volume at ambient density, and the
  * absolute pressure in the intake manifold, in bar: below 1 where the engine draws a vacuum, above it
  * on boost.
@@ -12,24 +16,24 @@
  * rather than a second scale on one.
  *
  * On the top chart colour says which measure a line is; on the four below it, which gear, in the
- * palette's fixed order. The gears are the same engine, so their traces lie on top of one another where
+ * palette's fixed order, which has eight colours: as many gears as a gearbox here may have. The gears are the same engine, so their traces lie on top of one another where
  * they overlap; each is its own stretch of line, broken at every shift.
  *
- * Each point is one engine cycle's average, as a real dyno reports it. The line is smoothed over a
+ * Each point is one engine cycle's average, as a dyno reports it. The line is smoothed over a
  * few cycles either side, because cycle-to-cycle combustion scatter is a few percent; the tooltip and
  * the peaks read the smoothed values too.
  */
 
-import type { DynoConfig, DynoSnapshot } from '../model/spec.js';
+import type { LaunchConfig, LaunchSnapshot } from '../model/spec.js';
 
 /** Power and torque: the reference categorical palette's first two dark steps. */
 const POWER = '#3987e5';
 const TORQUE = '#d95926';
 /**
- * One colour per gear, first to sixth, for the kilowatt and newton-metre charts: the same palette's
- * first six dark steps, in its fixed order.
+ * One colour per gear, first gear first, for the four charts by gear: the same palette's eight dark steps,
+ * in its fixed order.
  */
-const GEAR_COLOURS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300'];
+const GEAR_COLOURS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300', '#9085e9', '#e66767'];
 const SURFACE = '#1a1e25';
 const INK = '#e6eaf0';
 const INK_DIM = '#8b95a5';
@@ -39,10 +43,11 @@ const AXIS = 'rgba(255,255,255,0.14)';
 /** Cycles either side of a point averaged into the line. */
 const SMOOTH = 3;
 
-/** Watts per mechanical horsepower, newton-metres per pound-foot, and km/h per mph. */
+/** Watts per mechanical horsepower, newton-metres per pound-foot, km/h per mph, and metres per mile. */
 const W_PER_HP = 745.7;
 const NM_PER_LBFT = 1.3558;
 const KMH_PER_MPH = 1.609344;
+const M_PER_MILE = 1609.344;
 
 /** The speed at which horsepower and pound-feet are equal, rpm: `5252 = 33000 / (2 pi)`. */
 const CROSSOVER_RPM = 33000 / (2 * Math.PI);
@@ -89,20 +94,25 @@ interface Pane {
 
 /** The colour a point of `series` is drawn in, on `pane`. */
 function colourOf(pane: Pane, series: Pane['series'][number], q: Smoothed): string {
-  return pane.byGear ? GEAR_COLOURS[(q.gear - 1) % GEAR_COLOURS.length]! : series.colour;
+  return pane.byGear ? GEAR_COLOURS[q.gear - 1]! : series.colour;
 }
 
-const PHASE_TEXT: Record<DynoSnapshot['phase'], string> = {
+const PHASE_TEXT: Record<LaunchSnapshot['phase'], string> = {
+  launch: 'launching',
   pull: 'pulling',
   shiftOut: 'shifting',
   shiftIn: 'shifting',
   cooldown: 'winding down',
 };
 
-export class DynoSheet {
+export class LaunchSheet {
   private readonly card: HTMLElement;
   private readonly status: HTMLElement;
   private readonly peaks: HTMLElement;
+  private readonly title: HTMLElement;
+  private readonly gearLegend: HTMLElement;
+  /** The timeslip's three figures: 0-60 mph, the quarter mile and the half mile. */
+  private readonly slip: { value: HTMLElement; trap: HTMLElement }[];
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly tooltip: HTMLElement;
@@ -110,7 +120,7 @@ export class DynoSheet {
 
   private points: Point[] = [];
   private smoothed: Smoothed[] = [];
-  private config: DynoConfig | null = null;
+  private config: LaunchConfig | null = null;
   private minRpm = 0;
   private dirty = true;
   private hoverX: number | null = null;
@@ -125,31 +135,39 @@ export class DynoSheet {
   private height = 0;
 
   constructor(parent: HTMLElement) {
-    this.card = el('div', 'dyno-card hidden', parent);
-    const head = el('div', 'dyno-head', this.card);
-    el('strong', '', head).textContent = 'Dyno run · 6-speed';
-    const close = el('button', 'dyno-close', head) as HTMLButtonElement;
+    this.card = el('div', 'launch-card hidden', parent);
+    const head = el('div', 'launch-head', this.card);
+    this.title = el('strong', '', head);
+    const close = el('button', 'launch-close', head) as HTMLButtonElement;
     close.textContent = '×';
-    close.title = 'Hide the dyno sheet';
+    close.title = 'Hide the launch sheet';
     close.addEventListener('click', () => this.card.classList.add('hidden'));
 
-    this.status = el('div', 'dyno-status', this.card);
-    this.peaks = el('div', 'dyno-peaks', this.card);
+    this.status = el('div', 'launch-status', this.card);
+    const slip = el('div', 'launch-slip', this.card);
+    this.slip = ['0–60 mph', '¼ mile', '½ mile'].map((label) => {
+      const cell = el('div', 'launch-slip-cell', slip);
+      el('div', 'launch-slip-label', cell).textContent = label;
+      const value = el('div', 'launch-slip-value', cell);
+      const trap = el('div', 'launch-slip-trap', cell);
+      return { value, trap };
+    });
+    this.peaks = el('div', 'launch-peaks', this.card);
 
-    const plot = el('div', 'dyno-plot', this.card);
+    const plot = el('div', 'launch-plot', this.card);
     this.canvas = el('canvas', '', plot) as HTMLCanvasElement;
     this.canvas.setAttribute('role', 'img');
     this.canvas.setAttribute(
       'aria-label',
       'Crank horsepower and pound-feet of torque against engine speed on one axis, with kilowatts, newton-metres, volumetric efficiency and intake manifold pressure below',
     );
-    this.tooltip = el('div', 'dyno-tooltip hidden', plot);
+    this.tooltip = el('div', 'launch-tooltip hidden', plot);
     const ctx = this.canvas.getContext('2d');
-    if (!ctx) throw new Error('DynoSheet: 2D canvas context unavailable');
+    if (!ctx) throw new Error('LaunchSheet: 2D canvas context unavailable');
     this.ctx = ctx;
 
     // Two legends: the measures for the top chart, the gears for the four below it.
-    const legend = el('div', 'dyno-legend', this.card);
+    const legend = el('div', 'launch-legend', this.card);
     for (const [colour, label] of [
       [POWER, 'Power, hp'],
       [TORQUE, 'Torque, lb·ft'],
@@ -159,16 +177,10 @@ export class DynoSheet {
       swatch.style.background = colour;
       item.append(label);
     }
-    const gears = el('div', 'dyno-legend', this.card);
-    el('span', 'dyno-legend-title', gears).textContent = 'kW, N·m, VE and intake by gear:';
-    GEAR_COLOURS.forEach((colour, i) => {
-      const item = el('span', '', gears);
-      const swatch = el('i', '', item);
-      swatch.style.background = colour;
-      item.append(ordinal(i + 1));
-    });
+    // Filled in for each run's gearbox.
+    this.gearLegend = el('div', 'launch-legend', this.card);
 
-    const details = el('details', 'dyno-table', this.card);
+    const details = el('details', 'launch-table', this.card);
     el('summary', '', details).textContent = 'Per gear';
     const tbl = el('table', '', details) as HTMLTableElement;
     const thead = el('thead', '', tbl);
@@ -190,33 +202,43 @@ export class DynoSheet {
     new ResizeObserver(() => this.resize()).observe(this.canvas);
   }
 
-  /** Clear the sheet and show it, for a run about to start through `config` from `rpm`. */
-  begin(config: DynoConfig, rpm: number): void {
+  /** Clear the sheet and show it, for a run about to start through `config`. */
+  begin(config: LaunchConfig): void {
     this.config = config;
-    this.minRpm = Math.max(Math.floor(rpm / 1000) * 1000, 0);
+    this.minRpm = Math.max(Math.floor(config.launchRpm / 1000) * 1000, 0);
+    this.title.textContent = `Launch · ${config.ratios.length}-speed`;
+    this.gearLegend.replaceChildren();
+    el('span', 'launch-legend-title', this.gearLegend).textContent = 'kW, N·m, VE and intake by gear:';
+    for (let g = 1; g <= config.ratios.length; g++) {
+      const item = el('span', '', this.gearLegend);
+      const swatch = el('i', '', item);
+      swatch.style.background = GEAR_COLOURS[g - 1]!;
+      item.append(ordinal(g));
+    }
+    this.showSlip(null, null, null, null, null);
     this.points = [];
     this.smoothed = [];
     this.running = true;
     this.seen = false;
     this.card.classList.remove('hidden');
-    this.status.textContent = 'Starting in 1st…';
+    this.status.textContent = 'Revving to launch…';
     this.peaks.textContent = '';
     this.table.replaceChildren();
     this.resize();
     this.dirty = true;
   }
 
-  /** Take a snapshot's dyno state: `null` once the run is over. */
-  onSnapshot(dyno: DynoSnapshot | null): void {
+  /** Take a snapshot's launch state: `null` once the run is over. */
+  onSnapshot(launch: LaunchSnapshot | null): void {
     if (!this.running) return;
-    if (!dyno) {
+    if (!launch) {
       if (!this.seen) return;
       this.running = false;
       this.status.textContent = this.points.length > 0 ? 'Run complete' : 'Run stopped';
       return;
     }
     this.seen = true;
-    const p = dyno.points;
+    const p = launch.points;
     for (let i = 0; i + 5 < p.length; i += 6) {
       this.points.push({
         rpm: p[i]!,
@@ -232,10 +254,37 @@ export class DynoSheet {
       this.summarise();
       this.dirty = true;
     }
-    const state = dyno.finished ? 'winding down' : PHASE_TEXT[dyno.phase];
+    const state = launch.finished ? 'winding down' : PHASE_TEXT[launch.phase];
     this.status.textContent =
-      `${ordinal(dyno.gear)} gear · ${Math.round(dyno.speedKmh / KMH_PER_MPH)} mph · ` +
-      `${dyno.elapsed.toFixed(1)} s · ${state}`;
+      `${ordinal(launch.gear)} gear · ${Math.round(launch.speedKmh / KMH_PER_MPH)} mph · ` +
+      `${(launch.distance / M_PER_MILE).toFixed(2)} mi · ${launch.elapsed.toFixed(1)} s · ${state}`;
+    this.showSlip(
+      launch.zeroToSixty,
+      launch.quarterMile,
+      launch.quarterMileKmh,
+      launch.halfMile,
+      launch.halfMileKmh,
+    );
+  }
+
+  /** The timeslip: each time, s, and trap speed, km/h, or `null` for a mark not yet reached. */
+  private showSlip(
+    sixty: number | null,
+    quarter: number | null,
+    quarterKmh: number | null,
+    half: number | null,
+    halfKmh: number | null,
+  ): void {
+    const marks: [number | null, number | null][] = [
+      [sixty, null],
+      [quarter, quarterKmh],
+      [half, halfKmh],
+    ];
+    marks.forEach(([time, kmh], i) => {
+      const cell = this.slip[i]!;
+      cell.value.textContent = time === null ? '—' : `${time.toFixed(2)} s`;
+      cell.trap.textContent = kmh === null ? '' : `@ ${Math.round(kmh / KMH_PER_MPH)} mph`;
+    });
   }
 
   /** Redraw if anything changed. Call once per animation frame. */
@@ -335,6 +384,8 @@ export class DynoSheet {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'top';
     const step = niceStep((x1 - x0) / 6);
+    // A tick that would run into the unit is left unlabelled; its gridline still shows.
+    const unitLeft = w - right - ctx.measureText('rpm').width - 6;
     for (let r = Math.ceil(x0 / step) * step; r <= x1; r += step) {
       const x = Math.round(xs(r)) + 0.5;
       ctx.strokeStyle = GRID;
@@ -345,7 +396,8 @@ export class DynoSheet {
         ctx.lineTo(x, tops[k]! + heights[k]!);
         ctx.stroke();
       });
-      ctx.fillText(formatNumber(r), x, axisY + 5);
+      const label = formatNumber(r);
+      if (x + ctx.measureText(label).width / 2 < unitLeft) ctx.fillText(label, x, axisY + 5);
     }
     ctx.textAlign = 'right';
     ctx.fillText('rpm', w - right, axisY + 5);
@@ -468,7 +520,7 @@ export class DynoSheet {
     }
     const rpm = x0 + ((hx - left) / (this.width - left - right)) * (x1 - x0);
     const rows: Smoothed[] = [];
-    for (let g = 1; g <= 6; g++) {
+    for (let g = 1; g <= (this.config?.ratios.length ?? 0); g++) {
       const at = interpolate(this.smoothed, g, rpm);
       if (at) rows.push(at);
     }
@@ -491,9 +543,9 @@ export class DynoSheet {
     }
 
     this.tooltip.replaceChildren();
-    el('div', 'dyno-tip-head', this.tooltip).textContent = `${formatNumber(Math.round(rpm))} rpm`;
+    el('div', 'launch-tip-head', this.tooltip).textContent = `${formatNumber(Math.round(rpm))} rpm`;
     for (const q of rows) {
-      el('div', 'dyno-tip-row', this.tooltip).textContent =
+      el('div', 'launch-tip-row', this.tooltip).textContent =
         `${ordinal(q.gear)}  ${Math.round(q.hp)} hp · ${Math.round(q.lbft)} lb·ft · ` +
         `${Math.round(q.kw)} kW · ${Math.round(q.nm)} N·m · VE ${Math.round(q.ve)}% · ` +
         `${q.map.toFixed(2)} bar · ${Math.round(q.mph)} mph`;
@@ -515,7 +567,7 @@ export class DynoSheet {
       `${Math.round(tk.lbft)} lb·ft (${Math.round(tk.nm)} N·m) @ ${formatNumber(Math.round(tk.rpm))} rpm`;
 
     this.table.replaceChildren();
-    for (let g = 1; g <= 6; g++) {
+    for (let g = 1; g <= (this.config?.ratios.length ?? 0); g++) {
       const inGear = pts.filter((q) => q.gear === g);
       if (inGear.length === 0) continue;
       const tr = el('tr', '', this.table);

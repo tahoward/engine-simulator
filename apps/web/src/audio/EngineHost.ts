@@ -4,7 +4,7 @@
  */
 
 import type { ExhaustGraph } from '../model/exhaustGraph.js';
-import type { DynoConfig, EngineSnapshot, EngineSpec } from '../model/spec.js';
+import type { LaunchConfig, EngineSnapshot, EngineSpec } from '../model/spec.js';
 
 export type SnapshotListener = (snapshot: EngineSnapshot) => void;
 /** Called with `true` when the audio stops keeping up with real time, and `false` when it recovers. */
@@ -27,8 +27,8 @@ export interface EngineHost {
   setEngine(partial: Partial<EngineSpec>): void;
   /** Replace the exhaust graph; `null` compiles one from the layout. */
   setGraph(graph: ExhaustGraph | null): void;
-  /** Start a dyno run through `config`, or with `null` end the one in progress. */
-  dyno(config: DynoConfig | null): void;
+  /** Start a launch through `config`, or with `null` end the one in progress. */
+  launch(config: LaunchConfig | null): void;
   /**
    * Run the simulation at `scale` of real time: 1 is real time, 0.01 a hundred times slower, with the
    * sound slowed and pitched down to match. Safe to call before the audio has started.

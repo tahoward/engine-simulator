@@ -82,7 +82,7 @@ crates/engine-sim/src/          the simulation
   engine_sim.rs                 the per-sample simulation: crank, valves, flows, radiation
   cylinder.rs  valve.rs         thermodynamics, cam lift, compressible orifice flow
   plenum.rs  intake.rs          the finite intake plenum, and the runners from it to each valve
-  drivetrain.rs                 the dyno run: clutch, six-speed gearbox and car on the rollers
+  drivetrain.rs                 the launch: clutch, gearbox, driven wheels and tyres, and the car on the strip
   euler_pipe.rs                 one duct: MUSCL-Hancock + HLLC, walls, thermal, radiation
   exhaust_system.rs             the exhaust graph: every duct and the junctions between them
   exhaust_graph.rs              compiling a layout into a graph, validating one, walking one

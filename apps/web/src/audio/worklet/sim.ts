@@ -10,7 +10,7 @@
  */
 
 import type { ExhaustGraph } from '../../model/exhaustGraph.js';
-import type { DynoConfig, EngineConfig, EngineSnapshot, EngineSpec } from '../../model/spec.js';
+import type { LaunchConfig, EngineConfig, EngineSnapshot, EngineSpec } from '../../model/spec.js';
 import { SIM_WASM_BASE64 } from './simWasm.js';
 
 interface Exports {
@@ -20,8 +20,8 @@ interface Exports {
   sim_free(h: number): void;
   sim_set_engine(h: number, ptr: number, len: number): number;
   sim_set_graph(h: number, ptr: number, len: number): number;
-  sim_start_dyno(h: number, ptr: number, len: number): number;
-  sim_stop_dyno(h: number): void;
+  sim_start_launch(h: number, ptr: number, len: number): number;
+  sim_stop_launch(h: number): void;
   sim_set_controls(h: number, throttle: number, load: number): void;
   sim_set_time_scale(h: number, scale: number): void;
   sim_render(h: number, n: number): number;
@@ -122,10 +122,10 @@ function fromUtf8(bytes: Uint8Array): string {
 }
 
 /** The snapshot as the Wasm module writes it, before its sample arrays become typed arrays. */
-type RawSnapshot = Omit<EngineSnapshot, 'pipePressure' | 'ductPressure' | 'dyno'> & {
+type RawSnapshot = Omit<EngineSnapshot, 'pipePressure' | 'ductPressure' | 'launch'> & {
   pipePressure: number[];
   ductPressure: number[];
-  dyno: (Omit<NonNullable<EngineSnapshot['dyno']>, 'points'> & { points: number[] }) | null;
+  launch: (Omit<NonNullable<EngineSnapshot['launch']>, 'points'> & { points: number[] }) | null;
 };
 
 export class Sim {
@@ -170,13 +170,13 @@ export class Sim {
     this.check(this.ex.sim_set_graph(this.handle, ptr, len), 'setGraph');
   }
 
-  startDyno(config: DynoConfig): void {
+  startLaunch(config: LaunchConfig): void {
     const [ptr, len] = this.write(JSON.stringify(config));
-    this.check(this.ex.sim_start_dyno(this.handle, ptr, len), 'startDyno');
+    this.check(this.ex.sim_start_launch(this.handle, ptr, len), 'startLaunch');
   }
 
-  stopDyno(): void {
-    this.ex.sim_stop_dyno(this.handle);
+  stopLaunch(): void {
+    this.ex.sim_stop_launch(this.handle);
   }
 
   /** The operating point alone. Allocates nothing. */
@@ -217,7 +217,7 @@ export class Sim {
       ...raw,
       pipePressure: Float32Array.from(raw.pipePressure),
       ductPressure: Float32Array.from(raw.ductPressure),
-      dyno: raw.dyno && { ...raw.dyno, points: Float32Array.from(raw.dyno.points) },
+      launch: raw.launch && { ...raw.launch, points: Float32Array.from(raw.launch.points) },
     };
   }
 
