@@ -65,7 +65,9 @@ matters.
   from part throttle at 3500 rpm, it must take between 0.2 and 2.5 s to reach 90% of its boost. It must
   make within 10% of the real engine's 368 N·m at 4400 rpm, less friction, and between 280 and 350 PS
   at 6800. The 3S-GTE, four cylinders on one turbo, on its 0.5 bar must make within 10% of the North
-  American engine's rated 271 N·m at 3200 rpm and 200 hp at 6000; with compressors too small for it, passing 0.12 kg/s each, it must make less power at 7900
+  American engine's rated 271 N·m at 3200 rpm and 200 hp at 6000, and the EA855 EVO, five on one
+  turbo, on its 1.35 bar within 10% of the real engine's rated 480 N·m at 4500 rpm and 400 PS at 5850
+  and 7000; with compressors too small for it, passing 0.12 kg/s each, it must make less power at 7900
   than at 7000, where they are at their choke. With
   the throttle shut on boost, an atmospheric blow-off valve must open and let the boost go without the
   compressor flow ever reversing; with none, the compressor must surge at between 5 and 60 cycles a
@@ -193,7 +195,8 @@ matters.
   has far more torque than its tyres can take: traction control must get it to 60 quicker than spinning
   them, and no quicker than 2.4 s, what their grip allows. The engines from real cars must launch through
   those cars' gearboxes, and the Skyline through all four wheels must be quicker to 60 than through the
-  rear.
+  rear. The RS 3 must run 0–60 mph in 3.1 to 4.1 s, around the 3.6 s road tests time it at; it runs
+  3.5 s and the quarter mile in 11.7 s at 120 mph.
 
 ## The reference renders
 
