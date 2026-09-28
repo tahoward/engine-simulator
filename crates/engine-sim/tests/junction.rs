@@ -266,7 +266,9 @@ mod bank_angle_reaches_the_firing_plan {
     #[test]
     fn at_90_degrees_still_fires_evenly_every_90() {
         for crank in ["crossplane", "flatplane"] {
-            assert_eq!(firing_plan(&v8(crank, 90.0)).offsets, EVEN, "{crank}");
+            let mut offsets = firing_plan(&v8(crank, 90.0)).offsets;
+            offsets.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            assert_eq!(offsets, EVEN, "{crank}");
         }
     }
 

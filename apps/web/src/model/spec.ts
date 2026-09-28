@@ -1282,9 +1282,14 @@ export interface FiringPlan {
  * which is exactly the relationship `crankPins` inverts to draw the mechanism. At `vAngle = 90`
  * both cranks fire evenly every 90 degrees, as a 90-degree V8 does.
  *
- * Read off real engines: crossplane is the Ford 302 order with cylinders 1-4 on
- * the left bank, giving pins at 0/90/180/270 — the four-plane crank. Flatplane puts every throw
- * in one plane, so its pins are only ever 0 or 180.
+ * Both are indexed by throw from the front, the two cylinders of a throw side by side, first bank
+ * then second. Read off real engines: crossplane is the Ford 302 order 1-5-4-2-6-3-7-8, cylinders
+ * 1-4 on the first bank, giving pins at 0/270/90/180 along the crank — the four-plane crank, its end
+ * throws half a turn apart so the secondary couple cancels. Flatplane puts every throw in one plane,
+ * so its pins are only ever 0 or 180, and in the order an inline four's are, 0/180/180/0 along the
+ * crank, which is what cancels its primary couple. Each bank then fires 1-3-4-2 by throw, as an
+ * inline four does, and each second-bank cylinder fires 90 degrees after its pin partner: the
+ * Ferrari order 1-5-3-7-4-8-2-6.
  */
 interface V8Crank {
   pins: number[];
@@ -1293,14 +1298,14 @@ interface V8Crank {
 }
 
 const V8_CROSSPLANE: V8Crank = {
-  pins: [0, 0, 180, 270, 270, 90, 90, 180],
-  revs: [0, 0, 0, 0, 0, 1, 1, 1],
-  banks: [0, 1, 0, 0, 1, 0, 1, 1],
+  pins: [0, 0, 270, 270, 90, 90, 180, 180],
+  revs: [0, 0, 0, 0, 1, 1, 0, 1],
+  banks: [0, 1, 0, 1, 0, 1, 0, 1],
 };
 
 const V8_FLATPLANE: V8Crank = {
-  pins: [0, 0, 180, 180, 0, 0, 180, 180],
-  revs: [0, 0, 0, 0, 1, 1, 1, 1],
+  pins: [0, 0, 180, 180, 180, 180, 0, 0],
+  revs: [0, 0, 1, 1, 0, 0, 1, 1],
   banks: [0, 1, 0, 1, 0, 1, 0, 1],
 };
 

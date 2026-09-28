@@ -37,11 +37,10 @@ import {
 /**
  * The engine's real exhaust ports.
  *
- * `EngineMesh` is used rather than reproduced. Synthesised ports are easy to get wrong: taking the bank
- * as `i % 2` is not how the cylinders are arranged, since a crossplane V8's banks follow the firing order
- * `[0,1,0,0,1,0,1,1]`, so cylinders 6 and 7 share a collector while `i % 2` would put them on opposite
- * sides of the vee. The layout would then be asked to drag two runners across the engine to meet, and
- * blamed for it. Constructing the real thing needs no canvas.
+ * `EngineMesh` is used rather than reproduced. Synthesised ports are easy to get wrong: where each
+ * cylinder sits, and on which side of the vee, comes from the crank the firing plan implies, and a port
+ * guessed from its index alone can land on the wrong bank. The layout would then be asked to drag two
+ * runners across the engine to meet, and blamed for it. Constructing the real thing needs no canvas.
  */
 function makePorts(spec: EngineSpec): ExhaustPort[] {
   const mesh = new EngineMesh(spec);
