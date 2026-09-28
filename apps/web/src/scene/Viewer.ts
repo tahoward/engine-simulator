@@ -19,12 +19,6 @@ export class Viewer {
   readonly renderer: THREE.WebGLRenderer;
   readonly controls: OrbitControls;
 
-  /**
-   * Section plane for the cutaway. Materials that opt in get clipped so the
-   * mechanism inside the block is visible; the pipe and moving parts do not.
-   */
-  readonly clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001);
-
   private readonly hooks: FrameHook[] = [];
   private running = false;
   private disposed = false;
@@ -36,7 +30,6 @@ export class Viewer {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
-    this.renderer.localClippingEnabled = true;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     container.appendChild(this.renderer.domElement);
@@ -103,12 +96,6 @@ export class Viewer {
   /** Register a per-frame callback. */
   onFrame(hook: FrameHook): void {
     this.hooks.push(hook);
-  }
-
-  setCutaway(enabled: boolean): void {
-    // Pushing the plane far away is cheaper than walking every material to toggle
-    // its clippingPlanes array, and avoids shader recompiles.
-    this.clipPlane.constant = enabled ? 0.001 : 100;
   }
 
   start(): void {

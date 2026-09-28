@@ -44,7 +44,7 @@ import {
  * blamed for it. Constructing the real thing needs no canvas.
  */
 function makePorts(spec: EngineSpec): ExhaustPort[] {
-  const mesh = new EngineMesh(spec, new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001));
+  const mesh = new EngineMesh(spec);
   return Array.from({ length: mesh.bankCount }, (_, i) => mesh.exhaustPort(i));
 }
 

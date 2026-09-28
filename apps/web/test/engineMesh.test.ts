@@ -53,7 +53,6 @@ function build(over: Partial<EngineSpec>, seconds = 1): { sim: Sim; spec: Engine
 const V8 = { cylinders: 8 as const, vAngle: 90, exhaustLayout: 'perBank' as const };
 
 describe('the drawn mechanism', () => {
-  const clip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001);
 
   /**
    * Pose the mesh as the app does.
@@ -96,7 +95,7 @@ describe('the drawn mechanism', () => {
       { ...V8, crankType: 'flatplane' as const },
     ]) {
       const s = spec(over);
-      const mesh = new EngineMesh(s, clip);
+      const mesh = new EngineMesh(s);
       for (let a = 0; a < 720; a += 11) {
         poseAll(mesh, s, a);
         for (let i = 0; i < s.cylinders; i++) {
@@ -118,7 +117,7 @@ describe('the drawn mechanism', () => {
       { cylinders: 4 as const, vAngle: 180, crankType: 'boxer' as const },
     ]) {
       const s = spec(over);
-      const mesh = new EngineMesh(s, clip);
+      const mesh = new EngineMesh(s);
       mesh.group.updateMatrixWorld(true);
       const webs: THREE.Mesh[] = [];
       mesh.group.traverse((o) => {
@@ -168,7 +167,7 @@ describe('the drawn mechanism', () => {
       { cylinders: 6 as const, vAngle: 180, crankType: 'boxer' as const },
     ]) {
       const s = spec(over);
-      const mesh = new EngineMesh(s, clip);
+      const mesh = new EngineMesh(s);
       mesh.group.updateMatrixWorld(true);
       const named = (name: string) => {
         const found: THREE.Mesh[] = [];
@@ -210,7 +209,7 @@ describe('the drawn mechanism', () => {
 
   it('joins a flat engine’s opposed pins with one web, round both pins and the shaft', () => {
     const s = spec({ cylinders: 4 as const, vAngle: 180, crankType: 'boxer' as const });
-    const mesh = new EngineMesh(s, clip);
+    const mesh = new EngineMesh(s);
     mesh.group.updateMatrixWorld(true);
     const links: THREE.Mesh[] = [];
     mesh.group.traverse((o) => {
@@ -237,7 +236,7 @@ describe('the drawn mechanism', () => {
       { cylinders: 4 as const, vAngle: 0 },
     ]) {
       const s = spec(over);
-      const mesh = new EngineMesh(s, clip);
+      const mesh = new EngineMesh(s);
       poseAll(mesh, s, 37);
       mesh.group.updateMatrixWorld(true);
       const rods: THREE.Box3[] = [];
@@ -259,7 +258,7 @@ describe('the drawn mechanism', () => {
 
   it('puts each piston where the physics says it is', () => {
     const s = spec({ ...V8, crankType: 'crossplane' });
-    const mesh = new EngineMesh(s, clip);
+    const mesh = new EngineMesh(s);
     const plan = firingPlan(s);
     poseAll(mesh, s, 137);
     for (let i = 0; i < 8; i++) {
@@ -279,7 +278,7 @@ describe('the drawn mechanism', () => {
       { ...V8, crankType: 'crossplane' as const },
     ]) {
       const { sim, spec: s } = build(over, 1);
-      const mesh = new EngineMesh(s, clip);
+      const mesh = new EngineMesh(s);
       for (let k = 0; k < 40; k++) {
         sim.render(137);
         const snap = sim.snapshot();
@@ -293,7 +292,7 @@ describe('the drawn mechanism', () => {
 
   it('staggers the cylinders sharing a crankpin by a rod width, one bank a little ahead of the other', () => {
     const s = spec({ ...V8, crankType: 'crossplane' });
-    const mesh = new EngineMesh(s, clip);
+    const mesh = new EngineMesh(s);
     const pins = crankPins(s);
     const spacing = mesh.pose(pins[1]!.cylinders[0]!).z - mesh.pose(pins[0]!.cylinders[0]!).z;
     pins.forEach((pin, i) => {
@@ -310,7 +309,7 @@ describe('the drawn mechanism', () => {
 
   it('opens two banks and puts one cylinder per bank on each pin', () => {
     const s = spec({ ...V8, crankType: 'crossplane' });
-    const mesh = new EngineMesh(s, clip);
+    const mesh = new EngineMesh(s);
     const rots = new Set([...Array(8).keys()].map((i) => mesh.pose(i).bankRotation.toFixed(6)));
     expect(rots.size).toBe(2);
     for (const pin of crankPins(s)) {
@@ -321,7 +320,7 @@ describe('the drawn mechanism', () => {
 
   it('gives every cylinder its own exhaust port', () => {
     const s = spec({ ...V8 });
-    const mesh = new EngineMesh(s, clip);
+    const mesh = new EngineMesh(s);
     const seen = new Set<string>();
     for (let i = 0; i < 8; i++) {
       const p = mesh.exhaustPort(i);
@@ -343,7 +342,7 @@ describe('the drawn mechanism', () => {
     ['a V-twin', { cylinders: 2, vAngle: 45 }],
   ] as Array<[string, Partial<EngineSpec>]>)('puts the exhaust on the outside of each bank of %s', (_n, engine) => {
     const s = spec(engine);
-    const mesh = new EngineMesh(s, clip);
+    const mesh = new EngineMesh(s);
     const plan = firingPlan(s);
     for (let i = 0; i < mesh.bankCount; i++) {
       const port = mesh.exhaustPort(i);
@@ -359,7 +358,7 @@ describe('the drawn mechanism', () => {
     ['a V8', { ...V8 }],
     ['a boxer four', { cylinders: 4, vAngle: 180, crankType: 'boxer' }],
   ] as Array<[string, Partial<EngineSpec>]>)('marks every exhaust port of %s', (_n, engine) => {
-    const mesh = new EngineMesh(spec(engine), clip);
+    const mesh = new EngineMesh(spec(engine));
     mesh.group.updateMatrixWorld(true);
     const flanges: THREE.Object3D[] = [];
     mesh.group.traverse((o) => {
@@ -388,7 +387,7 @@ describe('the drawn mechanism', () => {
     ['a V8', { ...V8 }],
     ['a four-valve four', { cylinders: 4, vAngle: 0, exValveCount: 2, inValveCount: 2 }],
   ] as Array<[string, Partial<EngineSpec>]>)('opens every valve of %s along its stem', (_n, engine) => {
-    const mesh = new EngineMesh(spec(engine), clip) as unknown as {
+    const mesh = new EngineMesh(spec(engine)) as unknown as {
       cyls: Array<{ exValves: THREE.Group[]; inValves: THREE.Group[]; exhaustSide: number }>;
       poseValve: (g: THREE.Group, sign: number, lift: number) => void;
     };
@@ -414,12 +413,12 @@ describe('the drawn mechanism', () => {
   });
 
   it('keeps an inline engine on one side', () => {
-    const mesh = new EngineMesh(spec({ cylinders: 4, vAngle: 0 }), clip);
+    const mesh = new EngineMesh(spec({ cylinders: 4, vAngle: 0 }));
     for (let i = 0; i < mesh.bankCount; i++) expect(mesh.exhaustPort(i).direction.x).toBeGreaterThan(0);
   });
 
   it('rebuilds when the cylinder count changes', () => {
-    const mesh = new EngineMesh(spec({ cylinders: 1 }), clip);
+    const mesh = new EngineMesh(spec({ cylinders: 1 }));
     expect(mesh.bankCount).toBe(1);
     mesh.setSpec(spec({ ...V8 }));
     expect(mesh.bankCount).toBe(8);
@@ -430,10 +429,9 @@ describe('the drawn mechanism', () => {
 
 describe('every preset', () => {
   it('draws for every preset without stretching a rod', () => {
-    const clip = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0.001);
-    for (const preset of ENGINE_PRESETS) {
+      for (const preset of ENGINE_PRESETS) {
       const s = spec(preset.engine);
-      const mesh = new EngineMesh(s, clip);
+      const mesh = new EngineMesh(s);
       const plan = firingPlan(s);
       for (let a = 0; a < 720; a += 37) {
         mesh.update(

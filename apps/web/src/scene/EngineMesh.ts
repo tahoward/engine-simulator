@@ -1,5 +1,5 @@
 /**
- * The animated cutaway engine, for every cylinder count the spec allows: one cylinder up to a V8.
+ * The animated engine, for every cylinder count the spec allows: one cylinder up to a V8.
  *
  * Every moving part is positioned from the *same* functions the physics uses
  * (`pistonPosition`, `valveLift`), driven by each cylinder's own crank angle from the snapshot.
@@ -15,9 +15,6 @@
  * sit in the same plane and are driven by the same throw — which is what they do. That also
  * means the drawn crank shows the real arrangement: pins at 90-degree intervals for a crossplane
  * V8, all in one plane for a flatplane, a single shared pin for a V-twin.
- *
- * The cutaway sections each cylinder at *its own* Z so all of them are open to view, not just
- * the frontmost.
  */
 
 import * as THREE from 'three';
@@ -74,8 +71,6 @@ interface CylinderMesh {
   z: number;
   /** Angle of this cylinder's crankpin round the shaft, radians. */
   pinAngle: number;
-  /** Section plane for this cylinder, at its own Z. */
-  clip: THREE.Plane;
 }
 
 export class EngineMesh {
@@ -95,10 +90,7 @@ export class EngineMesh {
   /** Centre-to-centre cylinder spacing along the crank, m. */
   private spacing = 0;
 
-  constructor(
-    spec: EngineSpec,
-    private readonly clipPlane: THREE.Plane,
-  ) {
+  constructor(spec: EngineSpec) {
     this.spec = { ...spec };
     this.group.add(this.crank, this.bearings, this.shell);
     this.rebuild();
@@ -276,9 +268,6 @@ export class EngineMesh {
     group.rotation.z = rotation;
     this.group.add(group);
 
-    // Its own section plane, at its own Z, so every cylinder is open to view.
-    const clip = new THREE.Plane(this.clipPlane.normal.clone(), this.clipPlane.constant);
-
     // --- piston ---
     const piston = new THREE.Group();
     const r = (s.bore / 2) * 0.985;
@@ -314,8 +303,7 @@ export class EngineMesh {
     const inValves = this.buildValves(s.inValveDia, s.inValveCount, -exhaustSide, false);
     group.add(...exValves, ...inValves);
 
-    // --- block, in this cylinder's frame ---
-    this.buildCastings(group, clip);
+    // --- exhaust port, in this cylinder's frame ---
     group.add(this.buildPort(exhaustSide));
 
     // --- rod: world space, from the pin to this cylinder's piston ---
@@ -356,7 +344,6 @@ export class EngineMesh {
       rotation,
       z,
       pinAngle: (pinAngleDeg * Math.PI) / 180,
-      clip,
     };
   }
 
@@ -405,43 +392,6 @@ export class EngineMesh {
     group.position.set(sign * s.bore * 0.24, this.deckY, z);
     group.userData.z = z;
     return group;
-  }
-
-  /** Liner and fins for one cylinder, in that cylinder's rotated frame. */
-  private buildCastings(parent: THREE.Group, clip: THREE.Plane): void {
-    const s = this.spec;
-    const r = s.bore / 2;
-    const linerTop = this.deckY;
-    const linerBottom = s.stroke / 2 + s.rodLength - s.stroke - this.crownOffset * 0.2;
-    const linerHeight = linerTop - linerBottom;
-
-    // DoubleSide plus the section plane gives a proper cutaway rather than a hole you can
-    // see straight through.
-    const linerMat = new THREE.MeshStandardMaterial({
-      ...CAST,
-      side: THREE.DoubleSide,
-      clippingPlanes: [clip],
-      clipShadows: true,
-    });
-    const liner = new THREE.Mesh(
-      new THREE.CylinderGeometry(r * 1.13, r * 1.13, linerHeight, 40, 1, true),
-      linerMat,
-    );
-    liner.position.y = linerBottom + linerHeight / 2;
-    liner.castShadow = true;
-    liner.receiveShadow = true;
-    parent.add(liner);
-
-    const finMat = new THREE.MeshStandardMaterial({ ...CAST, clippingPlanes: [clip] });
-    const finCount = 7;
-    for (let i = 0; i < finCount; i++) {
-      const t = (i + 0.6) / (finCount + 0.4);
-      const fin = new THREE.Mesh(new THREE.CylinderGeometry(r * 1.5, r * 1.5, 0.005, 36), finMat);
-      fin.position.y = linerBottom + t * linerHeight;
-      fin.castShadow = true;
-      parent.add(fin);
-    }
-
   }
 
   /**
@@ -530,15 +480,10 @@ export class EngineMesh {
     // The crank follows cylinder 0, whose axis is +Y and whose TDC is at angle 0.
     const th0 = ((banks[0]?.crankAngle ?? 0) * Math.PI) / 180;
     this.crank.rotation.z = -th0;
-    // Follow the shared cutaway toggle: off, the Viewer pushes its plane out to 100.
-    const sectioned = this.clipPlane.constant < 50;
 
     for (let i = 0; i < this.cyls.length; i++) {
       const mesh = this.cyls[i]!;
       const snap = banks[Math.min(i, banks.length - 1)]!;
-
-      mesh.clip.normal.copy(this.clipPlane.normal);
-      mesh.clip.constant = sectioned ? this.clipPlane.constant + mesh.z : this.clipPlane.constant;
 
       const pinY = pistonPosition(s, snap.crankAngle);
       mesh.piston.position.set(0, pinY, 0);
