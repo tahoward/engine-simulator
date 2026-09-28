@@ -120,6 +120,8 @@ export interface PanelCallbacks {
 export interface ViewOptions {
   pressure: boolean;
   handles: boolean;
+  /** Share of real time the simulation runs at: 1 is real time, less is slow motion. */
+  speed: number;
 }
 
 interface SegmentRow {
@@ -144,6 +146,17 @@ function bodyLabel(seg: PipeSegment): string {
 }
 
 const MM = 1000;
+
+/**
+ * What the Speed menu offers. A pressure wave crosses a metre of pipe in about 2 ms, so it is a blur at
+ * real time, a few frames at a hundredth, and a couple of seconds at a thousandth.
+ */
+const SPEEDS: Array<[number, string]> = [
+  [1, 'Real time'],
+  [0.1, '1/10 · slow motion'],
+  [0.01, '1/100 · pressure waves'],
+  [0.001, '1/1000 · single pulses'],
+];
 
 /**
  * What the Sample rate menu offers, with the exhaust's band limit at each: the solver's finest cell is
@@ -277,6 +290,7 @@ export class Panel {
   private readonly view: ViewOptions = {
     pressure: true,
     handles: true,
+    speed: 1,
   };
 
   constructor(
@@ -1437,6 +1451,18 @@ export class Panel {
       this.view.handles = on;
       this.cb.onView(this.view);
     });
+    const speedRow = el('div', 'row', viewSec);
+    el('label', '', speedRow).textContent = 'Speed';
+    const speedSel = el('select', '', speedRow) as HTMLSelectElement;
+    for (const [scale, label] of SPEEDS) speedSel.appendChild(option(String(scale), label));
+    speedSel.value = String(this.view.speed);
+    speedSel.addEventListener('change', () => {
+      this.view.speed = Number(speedSel.value);
+      this.cb.onView(this.view);
+    });
+    speedRow.title =
+      'Slow the simulation down to watch the pressure waves travel the pipes. The sound slows and ' +
+      'drops in pitch with it; the rpm shown is still the engine\'s own.';
     const fit = el('button', '', viewSec) as HTMLButtonElement;
     fit.textContent = 'Frame the exhaust';
     fit.addEventListener('click', () => this.cb.onResetView());

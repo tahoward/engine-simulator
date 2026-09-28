@@ -137,6 +137,15 @@ pub unsafe extern "C" fn sim_set_controls(h: *mut Handle, throttle: f64, load: f
     unsafe { &mut *h }.sim.set_controls(throttle, load);
 }
 
+/// Run at `scale` of real time: 1 is real time, less is slow motion.
+///
+/// # Safety
+/// `h` from `sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sim_set_time_scale(h: *mut Handle, scale: f64) {
+    unsafe { &mut *h }.sim.set_time_scale(scale);
+}
+
 /// Render `n` samples; returns where they are.
 ///
 /// # Safety

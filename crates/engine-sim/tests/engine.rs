@@ -325,3 +325,30 @@ fn more_throttle_speeds_it_up() {
     let high = settle(json!({ "throttle": 1.0, "load": 0.37 }));
     assert!(high > low * 1.05, "low {low}, high {high}");
 }
+
+// --- slow motion ---
+
+/// In slow motion the simulation takes the same steps, only fewer per output sample, and the sound
+/// it plays is those steps drawn out, never a jump.
+#[test]
+fn slow_motion_takes_the_same_steps_drawn_out() {
+    let mut real = run(json!({}), 1);
+    let mut slow = run(json!({}), 1);
+    let last = *real.render(64).last().unwrap();
+    slow.render(64);
+
+    slow.set_time_scale(0.01);
+    let drawn = slow.render(48_000);
+    real.render(480);
+    assert_eq!(slow.snapshot().crank_angle, real.snapshot().crank_angle);
+
+    // It picks up from the last sample real time played, and moves on by no more than a step at a time.
+    assert_eq!(drawn[0], last);
+    let largest = drawn.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+    assert!(largest < 0.05, "a step of {largest}");
+
+    slow.set_time_scale(1.0);
+    slow.render(64);
+    real.render(64);
+    assert_eq!(slow.snapshot().crank_angle, real.snapshot().crank_angle);
+}

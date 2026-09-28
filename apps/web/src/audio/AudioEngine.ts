@@ -41,6 +41,7 @@ export class AudioEngine implements EngineHost {
   private config: EngineConfig;
   private starting: Promise<void> | null = null;
   private masterGain = 1;
+  private timeScale = 1;
 
   /**
    * @param rate Audio sample rate, Hz. The solver takes one step per sample, so this also sets the
@@ -152,6 +153,7 @@ export class AudioEngine implements EngineHost {
 
     this.node = node;
     this.master = master;
+    if (this.timeScale !== 1) this.post({ type: 'timeScale', scale: this.timeScale });
     this.analyser = analyser;
 
     await ctx.resume();
@@ -271,6 +273,11 @@ export class AudioEngine implements EngineHost {
   /** Start a dyno run through `config`, or with `null` end the one in progress. */
   dyno(config: DynoConfig | null): void {
     this.post({ type: 'dyno', config });
+  }
+
+  setTimeScale(scale: number): void {
+    this.timeScale = scale;
+    this.post({ type: 'timeScale', scale });
   }
 
   private post(msg: ToWorklet): void {

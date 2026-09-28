@@ -28,6 +28,7 @@ type Command =
   | { type: 'graph'; graph: ExhaustGraph | null }
   | { type: 'dyno'; config: DynoConfig | null }
   | { type: 'snapshotRate'; hz: number }
+  | { type: 'timeScale'; scale: number }
   | { type: 'controls'; throttle: number; load: number }
   | { type: 'suspend' }
   | { type: 'resume' };
@@ -51,6 +52,7 @@ export class NativeEngine implements EngineHost {
   private readonly lagListeners = new Set<LagListener>();
   private info: StreamInfo | null = null;
   private playing = false;
+  private timeScale = 1;
   private opening: Promise<void> | null = null;
   private readonly decoder = new TextDecoder();
 
@@ -148,6 +150,11 @@ export class NativeEngine implements EngineHost {
     void this.send({ type: 'dyno', config });
   }
 
+  setTimeScale(scale: number): void {
+    this.timeScale = scale;
+    void this.send({ type: 'timeScale', scale });
+  }
+
   readWaveform(out: Float32Array<ArrayBuffer>): boolean {
     if (!this.hasWaveform) return false;
     const from = Math.max(0, FFT_SIZE - out.length);
@@ -194,6 +201,8 @@ export class NativeEngine implements EngineHost {
     });
     this.smoothed.fill(0);
     this.hasWaveform = false;
+    // A new simulation starts in real time.
+    if (this.timeScale !== 1) await invoke('audio_command', { command: { type: 'timeScale', scale: this.timeScale } });
   }
 
   private receive(buffer: ArrayBuffer): void {

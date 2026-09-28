@@ -19,6 +19,7 @@ export type ToWorklet =
   | { type: 'engine'; engine: Partial<EngineSpec> }
   | { type: 'graph'; graph: ExhaustGraph | null }
   | { type: 'snapshotRate'; hz: number }
+  | { type: 'timeScale'; scale: number }
   | { type: 'dyno'; config: DynoConfig | null };
 
 /** Worklet -> main thread. */
@@ -67,6 +68,9 @@ class EngineProcessor extends AudioWorkletProcessor {
             break;
           case 'snapshotRate':
             this.snapshotInterval = Math.max(1, Math.round(sampleRate / msg.hz));
+            break;
+          case 'timeScale':
+            this.sim.setTimeScale(msg.scale);
             break;
         }
       } catch (err) {
