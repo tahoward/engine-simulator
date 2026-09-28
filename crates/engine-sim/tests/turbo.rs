@@ -2,7 +2,8 @@
 //! throttle, what the blow-off valve does when the throttle shuts and what happens without one, and
 //! the whine of the compressor; and the turbine running on its map.
 //!
-//! The Nissan RB26DETT preset is the turbocharged engine throughout.
+//! The Nissan RB26DETT preset is the turbocharged engine throughout, but for the Toyota 3S-GTE's own
+//! torque and power: a four on one turbo.
 
 mod common;
 
@@ -176,6 +177,32 @@ fn makes_about_the_real_engines_torque_and_power() {
     let t6800 = torque_at(6800.0, 3.0, json!({}));
     let ps = t6800 * 6800.0 * 2.0 * std::f64::consts::PI / 60.0 / 735.5;
     assert!(ps > 280.0 && ps < 350.0, "{ps} PS at 6800 rpm");
+}
+
+/// The 3S-GTE, one turbo on four cylinders, on its 0.5 bar makes about the North American engine's
+/// rated 271 N*m at 3200 rpm and 200 hp at 6000.
+#[test]
+fn a_four_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
+    let torque = |rpm: f64| {
+        let mut cfg = common::engine_preset("Inline four, Toyota 3S-GTE").config.clone();
+        cfg.engine = common::with(
+            &cfg.engine,
+            json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm }),
+        );
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(3 * FS as usize);
+        let n = FS as usize / 2;
+        let mut t = 0.0;
+        for _ in 0..n {
+            sim.render(1);
+            t += sim.snapshot().torque - sim.friction_torque();
+        }
+        t / n as f64
+    };
+    let t3200 = torque(3200.0);
+    assert!((t3200 - 271.0).abs() < 0.1 * 271.0, "{t3200} N*m at 3200 rpm");
+    let hp = torque(6000.0) * 6000.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    assert!((hp - 200.0).abs() < 0.1 * 200.0, "{hp} hp at 6000 rpm");
 }
 
 /// Turbos too small for the engine run out of air at the top end: at their choke, spun faster, they

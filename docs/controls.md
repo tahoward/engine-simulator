@@ -57,6 +57,7 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 | Preset | Car | Gearbox | Tyres |
 |---|---|---|---|
 | Honda F20C | Honda S2000 (AP1), 1349 kg | six-speed manual | road |
+| Toyota 3S-GTE | Toyota MR2 GT-S (SW20, 1992–93), 1325 kg | Toyota E153 five-speed manual | Yokohama A022 |
 | Nissan RB26DETT | Nissan Skyline GT-R V-Spec (R34), 1635 kg, all-wheel drive | Getrag six-speed manual | road |
 | Toyota 2GR | Lotus Evora (2012), 1457 kg | Toyota six-speed manual, close ratios | road |
 | Chevrolet LT2 | Chevrolet Corvette Stingray Z51 (C8), 1729 kg | Tremec eight-speed dual clutch | Pilot Sport 4S |

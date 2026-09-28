@@ -64,7 +64,8 @@ matters.
   0.06 bar of its 0.7 bar target at 4000 and 6500 rpm, with the wastegate open at both. Opened
   from part throttle at 3500 rpm, it must take between 0.2 and 2.5 s to reach 90% of its boost. It must
   make within 10% of the real engine's 368 N·m at 4400 rpm, less friction, and between 280 and 350 PS
-  at 6800; with compressors too small for it, passing 0.12 kg/s each, it must make less power at 7900
+  at 6800. The 3S-GTE, four cylinders on one turbo, on its 0.5 bar must make within 10% of the North
+  American engine's rated 271 N·m at 3200 rpm and 200 hp at 6000; with compressors too small for it, passing 0.12 kg/s each, it must make less power at 7900
   than at 7000, where they are at their choke. With
   the throttle shut on boost, an atmospheric blow-off valve must open and let the boost go without the
   compressor flow ever reversing; with none, the compressor must surge at between 5 and 60 cycles a

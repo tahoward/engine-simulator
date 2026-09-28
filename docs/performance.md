@@ -26,6 +26,7 @@ Single, megaphone                      26            5.2%     6.1%
 Parallel twin, 360°                    47           11.5%    13.3%
 Inline three                           97           18.2%    21.1%
 Inline four, Honda F20C               112           21.9%    25.4%
+Inline four, Toyota 3S-GTE            111           27.2%    30.1%
 Boxer four                            111           22.7%    26.0%
 Inline five                           125           26.6%    30.4%
 Inline six, Nissan RB26DETT           101           34.2%    38.3%

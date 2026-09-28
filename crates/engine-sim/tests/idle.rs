@@ -36,11 +36,12 @@ fn settles_near_the_idle_speed(name: &str) {
 }
 
 /// Every preset has an idle test below.
-const PRESETS: [&str; 13] = [
+const PRESETS: [&str; 14] = [
     "Single, megaphone",
     "45° V-twin, 2-into-1",
     "90° V-twin, 2-into-2",
     "Inline four, Honda F20C",
+    "Inline four, Toyota 3S-GTE",
     "Inline three",
     "Inline five",
     "Inline six, Nissan RB26DETT",
@@ -76,15 +77,16 @@ idle_tests! {
     presets_idle_45_v_twin_2_into_1 => 1,
     presets_idle_90_v_twin_2_into_2 => 2,
     presets_idle_inline_four_honda_f20c => 3,
-    presets_idle_inline_three => 4,
-    presets_idle_inline_five => 5,
-    presets_idle_inline_six_nissan_rb26dett => 6,
-    presets_idle_v6_toyota_2gr => 7,
-    presets_idle_v8_chevrolet_lt2 => 8,
-    presets_idle_v8_chevrolet_lt6 => 9,
-    presets_idle_boxer_four => 10,
-    presets_idle_boxer_six => 11,
-    presets_idle_parallel_twin_360 => 12,
+    presets_idle_inline_four_toyota_3s_gte => 4,
+    presets_idle_inline_three => 5,
+    presets_idle_inline_five => 6,
+    presets_idle_inline_six_nissan_rb26dett => 7,
+    presets_idle_v6_toyota_2gr => 8,
+    presets_idle_v8_chevrolet_lt2 => 9,
+    presets_idle_v8_chevrolet_lt6 => 10,
+    presets_idle_boxer_four => 11,
+    presets_idle_boxer_six => 12,
+    presets_idle_parallel_twin_360 => 13,
 }
 
 // --- closed throttle must not run away ---
