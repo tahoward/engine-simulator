@@ -87,6 +87,8 @@ export interface PanelCallbacks {
   onImportEngine: (text: string) => void;
   /** The bend tool was switched on or off. */
   onBendTool: (on: boolean) => void;
+  /** Switch the bend tool on, with its rings on segment `index` of this pipe. */
+  onBendSegment: (ductId: string, index: number) => void;
   /** The equal-length header tool was switched on or off. */
   onHeaderTool: (on: boolean) => void;
   /** The header's primaries are to be `length` m each. */
@@ -176,8 +178,8 @@ function engineTypeOf(eng: EngineSpec): string {
 }
 
 /** What draw mode says before a route has started. */
-const START_HINT = 'Pick a port, a junction, or a pipe to continue or branch from';
-const ROUTE_HINT = 'Click to add a bend, or a junction, pipe or turbo inlet to join it';
+const START_HINT = 'Pick a port, a junction, or the open end of a pipe to continue';
+const ROUTE_HINT = 'Click to add a corner, or a junction, pipe or turbo inlet to join it';
 const BEND_HINT = 'Click a straight to bend, or a bend to bend again';
 const PLACE_HINT = 'Click to put it down, or on an open pipe end to attach it';
 
@@ -612,8 +614,9 @@ export class Panel {
       bar,
       TOOL_ICONS.draw,
       'Draw a pipe',
-      'Start from an exhaust port, a junction, the open end of a pipe (to continue it) or the side of a ' +
-        'pipe (to branch off it), then click to add corners. Click a junction, a pipe or a pipe end to join ' +
+      'Start from an exhaust port, a junction or the open end of a pipe (to continue it), then click to ' +
+        'add corners. A pipe cannot start from the side of another, only join it there. Out of a port it runs straight on ' +
+        'first, and from an open end straight on all the way, until it joins something. Click a junction, a pipe or a pipe end to join ' +
         'it. Each straight locks to the engine: across (red), up (green), along the crank (blue), or 45 ' +
         'degrees between two of them. Alt rounds the turn off the pipe instead, Shift draws freely. A ' +
         'double-click or Enter finishes in open air; Escape abandons the pipe; right-click finishes it and ' +
@@ -1729,6 +1732,19 @@ export class Panel {
     this.syncStats();
     menu.row = this.buildRow(menu.el, duct.segments, seg, index);
     if (isLocked) lockRow(menu.row);
+    // A pipe's own straight or bend, as the bend tool takes them: not a can, nor the bend fitted into what it joins.
+    if (!isLocked && seg.kind !== 'chamber') {
+      const bend = el('button', '', menu.el) as HTMLButtonElement;
+      bend.textContent = seg.curve ? 'Bend it again' : 'Bend this pipe';
+      bend.title =
+        'The bend tool, on this segment: drag the ring of the plane to bend in, and the straight curves into ' +
+        'one arc, keeping its length. Right-click or Esc when done.';
+      bend.addEventListener('click', () => {
+        this.closeMenu();
+        this.setBendToolState(true);
+        this.cb.onBendSegment(duct.id, index);
+      });
+    }
     if (joined) {
       const total = duct.segments.reduce((a, s) => a + s.length, 0);
       numberField(menu.el, 'Pipe length', total * MM, 30, 5000, 1, 'mm', (v) =>

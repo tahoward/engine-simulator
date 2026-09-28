@@ -371,6 +371,11 @@ export class PipeMesh {
     return this.layout;
   }
 
+  /** Tint the tube `colour`, or with `null` show it as it is: a ghost in the colour of the way it runs. */
+  setTint(colour: THREE.Color | null): void {
+    this.material.color.copy(colour ?? new THREE.Color(0xffffff));
+  }
+
   setPressureVisible(on: boolean): void {
     this.showPressure = on;
     if (!on) this.paintMetal();
