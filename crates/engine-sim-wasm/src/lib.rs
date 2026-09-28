@@ -14,7 +14,7 @@
 //! `sim_error`.
 
 use engine_sim::exhaust_graph::ExhaustGraph;
-use engine_sim::{DynoConfig, EngineConfig, EngineSim};
+use engine_sim::{EngineConfig, EngineSim, LaunchConfig};
 
 pub struct Handle {
     sim: EngineSim,
@@ -98,25 +98,25 @@ pub unsafe extern "C" fn sim_set_graph(h: *mut Handle, ptr: *mut u8, len: usize)
     h.result(r)
 }
 
-/// Start a dyno run through a `DynoConfig`'s gearbox.
+/// Start a launch from standstill through a `LaunchConfig`'s gearbox.
 ///
 /// # Safety
 /// `h` from `sim_new`; `ptr` and `len` from `alloc`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn sim_start_dyno(h: *mut Handle, ptr: *mut u8, len: usize) -> i32 {
+pub unsafe extern "C" fn sim_start_launch(h: *mut Handle, ptr: *mut u8, len: usize) -> i32 {
     let h = unsafe { &mut *h };
     let bytes = unsafe { take(ptr, len) };
-    let r = parse::<DynoConfig>(&bytes).map(|c| h.sim.start_dyno(c));
+    let r = parse::<LaunchConfig>(&bytes).map(|c| h.sim.start_launch(c));
     h.result(r)
 }
 
-/// End the dyno run.
+/// End the launch.
 ///
 /// # Safety
 /// `h` from `sim_new`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn sim_stop_dyno(h: *mut Handle) {
-    unsafe { &mut *h }.sim.stop_dyno();
+pub unsafe extern "C" fn sim_stop_launch(h: *mut Handle) {
+    unsafe { &mut *h }.sim.stop_launch();
 }
 
 /// The operating point: throttle and load, 0..1.

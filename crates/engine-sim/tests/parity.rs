@@ -2,7 +2,7 @@
 //! snapshot, and every compiled graph.
 //!
 //! `tests/fixtures/scenarios.json` holds a few dozen scenarios, each a config and a list of steps
-//! (render, change the controls, edit the engine, swap the exhaust, run the dyno, take a snapshot),
+//! (render, change the controls, edit the engine, swap the exhaust, run a launch, take a snapshot),
 //! with the audio as a hash per block, its first samples raw, and every snapshot. Any change to what
 //! the simulation computes, down to the last bit of one sample, fails here, so a change that is meant
 //! to be a pure refactor is proven to be one. The web app's `test/wasm.test.ts` replays the same file
@@ -13,7 +13,7 @@
 
 use engine_sim::euler_pipe::EulerPipeOptions;
 use engine_sim::exhaust_graph::{ExhaustGraph, compile_exhaust};
-use engine_sim::{DynoConfig, EngineConfig, EngineSim};
+use engine_sim::{EngineConfig, EngineSim, LaunchConfig};
 use serde::Deserialize;
 use serde_json::Value;
 
@@ -123,11 +123,11 @@ fn render(s: &Scenario) -> (Vec<f32>, Vec<Value>) {
         } else if let Some(g) = obj.get("graph") {
             let graph: Option<ExhaustGraph> = serde_json::from_value(g.clone()).unwrap();
             sim.set_graph(graph);
-        } else if let Some(d) = obj.get("dyno") {
-            let config: Option<DynoConfig> = serde_json::from_value(d.clone()).unwrap();
+        } else if let Some(d) = obj.get("launch") {
+            let config: Option<LaunchConfig> = serde_json::from_value(d.clone()).unwrap();
             match config {
-                Some(c) => sim.start_dyno(c),
-                None => sim.stop_dyno(),
+                Some(c) => sim.start_launch(c),
+                None => sim.stop_launch(),
             }
         } else if obj.contains_key("snapshot") {
             snapshots.push(serde_json::to_value(sim.snapshot()).unwrap());

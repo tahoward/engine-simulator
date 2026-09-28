@@ -30,14 +30,18 @@ import {
   exhaustLayoutOf,
   firingOffsetDeg,
   firingPlan,
-  fitDyno,
+  fitLaunch,
   fullLoadTorque,
+  LAUNCH_RATIOS,
+  LAUNCH_RPM_MARGIN,
+  MAX_GEARS,
+  MIN_GEARS,
   intakeRunnerOf,
   runnerTunedRpm,
   isBoxer,
   presetEngine,
   type BlowOff,
-  type DynoConfig,
+  type LaunchConfig,
   type EngineConfig,
   type EngineSnapshot,
   type EngineSpec,
@@ -113,8 +117,8 @@ export interface PanelCallbacks {
   onSampleRate: (hz: number) => void;
   onView: (view: ViewOptions) => void;
   onResetView: () => void;
-  /** Start a dyno run through `config`, or with `null` stop the one in progress. */
-  onDyno: (config: DynoConfig | null) => void;
+  /** Start a launch through `config`, or with `null` stop the one in progress. */
+  onLaunch: (config: LaunchConfig | null) => void;
 }
 
 export interface ViewOptions {
@@ -265,11 +269,21 @@ export class Panel {
   private offsetWrapEl!: HTMLElement;
   private readonly resyncers: Resync[] = [];
   private readonly rpmEl: HTMLElement;
-  private readonly dynoBtn: HTMLButtonElement;
-  /** The dyno run's shift point and car mass where the user has set them; `null` fits them to the engine. */
-  private dynoShift: number | null = null;
-  private dynoMass: number | null = null;
-  private dynoRunning = false;
+  private readonly launchBtn: HTMLButtonElement;
+  /**
+   * The launch's settings where the user has set them; `null` fits them to the engine. The gear ratios'
+   * `null` is the stock six-speed, and the final drive's is geared for it, or for the gears set.
+   */
+  private launchShift: number | null = null;
+  private launchMass: number | null = null;
+  private launchRpm: number | null = null;
+  private launchRatios: number[] | null = null;
+  private launchFinal: number | null = null;
+  private launchRunning = false;
+  /** Rebuilds the gearbox list from the settings above. */
+  private renderGearbox: () => void = () => {};
+  /** Rewrites the gearbox's figures, which follow the engine and the other settings, in place. */
+  private refreshGearbox: () => void = () => {};
   /** Where the phasers have the cams, updated from each snapshot. */
   private camReadout!: HTMLElement;
   private lobeReadout!: HTMLElement;
@@ -381,51 +395,62 @@ export class Panel {
       onInput: (v) => this.cb.onEngine({ flywheelInertia: v }),
     });
 
-    // ---- Dyno ------------------------------------------------------------
-    const dyno = section(root, 'Dyno run', false);
-    this.dynoBtn = el('button', 'primary', dyno) as HTMLButtonElement;
-    this.dynoBtn.textContent = 'Start dyno run';
-    this.dynoBtn.title =
-      'Full throttle through a six-speed on an inertia chassis dyno, from the present speed, ' +
-      'shifting near the rev limiter. The run drives the throttle; the sheet plots crank power ' +
-      'and torque against rpm.';
-    this.dynoBtn.addEventListener('click', () => {
-      if (this.dynoRunning) {
-        this.cb.onDyno(null);
+    // ---- Launch ----------------------------------------------------------
+    const launch = section(root, 'Launch', false);
+    this.launchBtn = el('button', 'primary', launch) as HTMLButtonElement;
+    this.launchBtn.textContent = 'Start launch';
+    this.launchBtn.title =
+      'A standing start at full throttle: the clutch slipped at the launch speed, then every gear ' +
+      'pulled to the shift point. The run drives the throttle; the sheet times 0–60 mph, the quarter ' +
+      'and the half mile, and plots crank power and torque against rpm.';
+    this.launchBtn.addEventListener('click', () => {
+      if (this.launchRunning) {
+        this.cb.onLaunch(null);
         return;
       }
-      const eng = this.config.engine;
-      const fit = fitDyno(eng, isTurbocharged(this.config.graph));
-      this.cb.onDyno({
-        ...fit,
-        shiftRpm: Math.min(this.dynoShift ?? fit.shiftRpm, eng.revLimit - 50),
-        mass: this.dynoMass ?? fit.mass,
-      });
+      this.cb.onLaunch(this.launchConfig());
     });
-    this.slider(dyno, {
+    this.slider(launch, {
+      label: 'Launch at',
+      min: 1000,
+      max: 12000,
+      step: 50,
+      value: this.launchConfig().launchRpm,
+      sync: () => this.launchRpm ?? this.launchConfig().launchRpm,
+      format: (v) => `${Math.round(v)} rpm${this.launchRpm === null ? ' (auto)' : ''}`,
+      onInput: (v) => (this.launchRpm = v),
+    }).row.title =
+      'Engine speed the clutch is slipped at off the line, until the car has caught up with it. Auto is ' +
+      `half the rev limiter. It stays at least ${LAUNCH_RPM_MARGIN} rpm under the shift point.`;
+    this.slider(launch, {
       label: 'Shift at',
       min: 1500,
       max: 12000,
       step: 50,
-      value: fitDyno(spec, isTurbocharged(this.config.graph)).shiftRpm,
-      sync: () => this.dynoShift ?? fitDyno(this.config.engine, isTurbocharged(this.config.graph)).shiftRpm,
-      format: (v) => `${Math.round(v)} rpm${this.dynoShift === null ? ' (auto)' : ''}`,
-      onInput: (v) => (this.dynoShift = v),
+      value: this.launchConfig().shiftRpm,
+      sync: () => this.launchShift ?? this.launchConfig().shiftRpm,
+      format: (v) => `${Math.round(v)} rpm${this.launchShift === null ? ' (auto)' : ''}`,
+      onInput: (v) => {
+        this.launchShift = v;
+        this.refreshGearbox();
+      },
     }).row.title =
       'Engine speed each gear is pulled to before the next goes in. Auto is just under the rev ' +
       'limiter. A setting past the limiter shifts just under it.';
-    this.slider(dyno, {
+    this.slider(launch, {
       label: 'Car mass',
       min: 100,
       max: 2500,
       step: 10,
-      value: fitDyno(spec, isTurbocharged(this.config.graph)).mass,
-      sync: () => this.dynoMass ?? fitDyno(this.config.engine, isTurbocharged(this.config.graph)).mass,
-      format: (v) => `${Math.round(v)} kg${this.dynoMass === null ? ' (auto)' : ''}`,
-      onInput: (v) => (this.dynoMass = v),
+      value: this.launchConfig().mass,
+      sync: () => this.launchMass ?? this.launchConfig().mass,
+      format: (v) => `${Math.round(v)} kg${this.launchMass === null ? ' (auto)' : ''}`,
+      onInput: (v) => (this.launchMass = v),
     }).row.title =
-      "What the engine accelerates on the rollers, the dyno's own inertia included. Auto sizes a " +
-      'car to the engine, about 9 kg per kW. Lighter makes a quicker run.';
+      'What the engine accelerates, driver included. Auto sizes a car to the engine, about 9 kg per kW. ' +
+      'Lighter is quicker, until the tyres can take no more.';
+    this.buildGearbox(launch);
+    this.resyncers.push(() => this.renderGearbox());
 
     // ---- Engine preset ---------------------------------------------------
     // Whole-engine presets, because a V-twin is a layout as well as a pipe.
@@ -451,8 +476,7 @@ export class Panel {
        * collector is always replaced — emptied if the preset has none — so no preset inherits one.
        */
       // A different engine gets a car fitted to it.
-      this.dynoShift = null;
-      this.dynoMass = null;
+      this.resetLaunch();
       this.cb.onEngine(presetEngine(preset, this.config.engine));
       this.config.pipe.length = 0;
       this.config.pipe.push(...preset.pipe());
@@ -484,8 +508,7 @@ export class Panel {
       if (!file) return;
       void file.text().then((text) => {
         this.selected = null;
-        this.dynoShift = null;
-        this.dynoMass = null;
+        this.resetLaunch();
         this.cb.onImportEngine(text);
         this.cb.onResetView();
       });
@@ -1469,6 +1492,128 @@ export class Panel {
     this.rebuildPipeList();
   }
 
+  /** The car and gearbox a launch runs through: the user's settings, and a fit to the engine for the rest. */
+  private launchConfig(): LaunchConfig {
+    const eng = this.config.engine;
+    const fit = fitLaunch(eng, isTurbocharged(this.config.graph), this.launchRatios ?? LAUNCH_RATIOS);
+    const shiftRpm = Math.min(this.launchShift ?? fit.shiftRpm, eng.revLimit - 50);
+    return {
+      ...fit,
+      finalDrive: this.launchFinal ?? fit.finalDrive,
+      mass: this.launchMass ?? fit.mass,
+      shiftRpm,
+      launchRpm: Math.max(Math.min(this.launchRpm ?? fit.launchRpm, shiftRpm - LAUNCH_RPM_MARGIN), 1000),
+    };
+  }
+
+  /** Every launch setting back to its fit to the engine: a different engine gets a car fitted to it. */
+  private resetLaunch(): void {
+    this.launchShift = null;
+    this.launchMass = null;
+    this.launchRpm = null;
+    this.launchRatios = null;
+    this.launchFinal = null;
+  }
+
+  /**
+   * The gearbox: a ratio for each gear, which can be added and taken away, and the final drive. Each gear
+   * shows the road speed it reaches at the shift point, so the gaps between them can be judged.
+   */
+  private buildGearbox(parent: HTMLElement): void {
+    el('div', 'subhead', parent).textContent = 'Gearbox';
+    const list = el('div', 'subgroup', parent);
+    const finalField = el('div', 'field', parent);
+    let finalInput: HTMLInputElement | null = null;
+    const finalLabel = (): string => `Final drive${this.launchFinal === null ? ' (auto)' : ''}`;
+    const buttons = el('div', 'row buttons', parent);
+    const addBtn = el('button', '', buttons) as HTMLButtonElement;
+    addBtn.textContent = 'Add gear';
+    addBtn.title = `Add a gear above the top one, a step taller. At most ${MAX_GEARS}.`;
+    const resetBtn = el('button', '', buttons) as HTMLButtonElement;
+    resetBtn.textContent = 'Reset gearing';
+    resetBtn.title = 'Back to the stock close-ratio six-speed, with the final drive fitted to the engine.';
+    let speeds: HTMLElement[] = [];
+
+    const ratios = (): number[] => [...(this.launchRatios ?? LAUNCH_RATIOS)];
+    const setRatios = (next: number[]): void => {
+      this.launchRatios = next;
+      this.renderGearbox();
+    };
+
+    this.refreshGearbox = () => {
+      const cfg = this.launchConfig();
+      const shiftOmega = (cfg.shiftRpm * 2 * Math.PI) / 60;
+      cfg.ratios.forEach((r, i) => {
+        const mph = ((shiftOmega * cfg.tyreRadius) / (r * cfg.finalDrive)) * 2.2369363;
+        if (speeds[i]) speeds[i]!.textContent = `${Math.round(mph)} mph`;
+      });
+      if (finalInput && this.launchFinal === null) finalInput.value = cfg.finalDrive.toFixed(2);
+      const label = finalField.querySelector('label');
+      if (label) label.textContent = finalLabel();
+    };
+
+    this.renderGearbox = () => {
+      list.replaceChildren();
+      speeds = [];
+      const current = ratios();
+      current.forEach((ratio, i) => {
+        const row = el('div', 'gear-row', list);
+        el('span', 'gear-name', row).textContent = ordinal(i + 1);
+        const wrap = el('div', 'number-wrap', row);
+        const input = el('input', '', wrap) as HTMLInputElement;
+        input.type = 'number';
+        input.min = '0.3';
+        input.max = '6';
+        input.step = '0.01';
+        input.value = ratio.toFixed(2);
+        input.title = `${ordinal(i + 1)} gear's ratio: engine turns per gearbox output turn.`;
+        el('span', 'unit', wrap).textContent = ':1';
+        // Applied on `change`, as `numberInto` does, so a half-typed ratio is not committed.
+        input.addEventListener('change', () => {
+          const v = Number(input.value);
+          if (input.value.trim() === '' || !Number.isFinite(v)) return;
+          const clamped = Math.max(0.3, Math.min(6, v));
+          input.value = clamped.toFixed(2);
+          const next = ratios();
+          next[i] = clamped;
+          this.launchRatios = next;
+          this.refreshGearbox();
+        });
+        speeds.push(el('span', 'gear-speed', row));
+        const remove = el('button', 'tool', row) as HTMLButtonElement;
+        remove.textContent = '×';
+        remove.title = `Take out ${ordinal(i + 1)} gear`;
+        remove.disabled = current.length <= MIN_GEARS;
+        remove.addEventListener('click', () => setRatios(ratios().filter((_, k) => k !== i)));
+      });
+      addBtn.disabled = current.length >= MAX_GEARS;
+
+      finalField.replaceChildren();
+      finalInput = numberInto(finalField, finalLabel(), this.launchConfig().finalDrive, 1, 10, 0.01, ':1', (v) => {
+        this.launchFinal = v;
+        this.refreshGearbox();
+      }, 2);
+      finalField.title =
+        'Turns of the gearbox output per turn of the wheels. Auto gears the top gear so the shift point ' +
+        'comes where the car would run out of power against its drag. Higher is quicker off the line, lower ' +
+        'is faster at the top.';
+      this.refreshGearbox();
+    };
+
+    addBtn.addEventListener('click', () => {
+      const current = ratios();
+      if (current.length >= MAX_GEARS) return;
+      const top = current[current.length - 1]!;
+      setRatios([...current, Math.max(top * 0.82, 0.3)]);
+    });
+    resetBtn.addEventListener('click', () => {
+      this.launchRatios = null;
+      this.launchFinal = null;
+      this.renderGearbox();
+    });
+    this.renderGearbox();
+  }
+
   /** `slider`, kept in step with the config when it has a `sync`. */
   private slider(parent: HTMLElement, o: SliderOpts): ReturnType<typeof slider> {
     const s = slider(parent, o);
@@ -2378,11 +2523,11 @@ export class Panel {
       this.turboText = turbo;
       this.turboReadout.textContent = turbo;
     }
-    const running = s.dyno !== null;
-    if (running !== this.dynoRunning) {
-      this.dynoRunning = running;
-      this.dynoBtn.textContent = running ? 'Stop dyno run' : 'Start dyno run';
-      this.dynoBtn.classList.toggle('running', running);
+    const running = s.launch !== null;
+    if (running !== this.launchRunning) {
+      this.launchRunning = running;
+      this.launchBtn.textContent = running ? 'Stop launch' : 'Start launch';
+      this.launchBtn.classList.toggle('running', running);
     }
     this.rpmEl.textContent =
       `${Math.round(s.rpm)} rpm${s.limiter ? ' · limiter' : ''}${s.fuelCut ? ' · fuel cut' : ''}`;
@@ -2543,6 +2688,8 @@ function numberInto(
   step: number,
   unit: string,
   onChange: (v: number) => void,
+  /** Decimal places the field shows. */
+  dp = 1,
 ): HTMLInputElement {
   el('label', '', field).textContent = label;
   const wrap = el('div', 'number-wrap', field);
@@ -2551,7 +2698,7 @@ function numberInto(
   input.min = String(min);
   input.max = String(max);
   input.step = String(step);
-  input.value = round(value, 1);
+  input.value = round(value, dp);
   el('span', 'unit', wrap).textContent = unit;
 
   /**
@@ -2566,7 +2713,7 @@ function numberInto(
     const v = Number(input.value);
     if (input.value.trim() === '' || !Number.isFinite(v)) return;
     const clamped = Math.max(min, Math.min(max, v));
-    if (clamped !== v) input.value = round(clamped, 1);
+    if (clamped !== v) input.value = round(clamped, dp);
     onChange(clamped);
   };
   input.addEventListener('change', commit);
@@ -2598,6 +2745,10 @@ function trim(v: number): string {
   if (Math.abs(v) >= 100) return v.toFixed(0);
   if (Math.abs(v) >= 10) return v.toFixed(1);
   return v.toFixed(2);
+}
+
+function ordinal(n: number): string {
+  return `${n}${n === 1 ? 'st' : n === 2 ? 'nd' : n === 3 ? 'rd' : 'th'}`;
 }
 
 function round(v: number, dp: number): string {

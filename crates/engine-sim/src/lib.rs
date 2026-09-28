@@ -29,4 +29,4 @@ pub mod turbo;
 pub mod valve;
 
 pub use engine_sim::EngineSim;
-pub use spec::{DynoConfig, EngineConfig, EngineSnapshot, EngineSpec, PipeSegment};
+pub use spec::{EngineConfig, EngineSnapshot, EngineSpec, LaunchConfig, PipeSegment};

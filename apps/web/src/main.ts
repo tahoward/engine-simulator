@@ -76,7 +76,7 @@ import {
 import { Viewer } from './scene/Viewer.js';
 import { Panel, SAMPLE_RATES, type ViewOptions } from './ui/Panel.js';
 import { Scope } from './ui/Scope.js';
-import { DynoSheet } from './ui/DynoSheet.js';
+import { LaunchSheet } from './ui/LaunchSheet.js';
 import { LagNotice } from './ui/LagNotice.js';
 
 const viewportEl = must<HTMLElement>('#viewport');
@@ -594,9 +594,9 @@ const panel = new Panel(panelEl, toolsEl, config, {
       overlayEl.classList.toggle('hidden', running);
     });
   },
-  onDyno: (dynoConfig) => {
-    if (!dynoConfig) {
-      audio.dyno(null);
+  onLaunch: (launchConfig) => {
+    if (!launchConfig) {
+      audio.launch(null);
       return;
     }
     // A run needs the engine running; starting it is what the button asks for.
@@ -607,8 +607,8 @@ const panel = new Panel(panelEl, toolsEl, config, {
           overlayEl.classList.add('hidden');
         });
     void ready.then(() => {
-      dynoSheet.begin(dynoConfig, latest?.rpm ?? config.engine.rpm);
-      audio.dyno(dynoConfig);
+      launchSheet.begin(launchConfig);
+      audio.launch(launchConfig);
     });
   },
   onSampleRate: changeSampleRate,
@@ -632,7 +632,7 @@ function changeSampleRate(hz: number): void {
 }
 
 const scope = new Scope(scopeEl, audio);
-const dynoSheet = new DynoSheet(must<HTMLElement>('#stage'));
+const launchSheet = new LaunchSheet(must<HTMLElement>('#stage'));
 
 // ---------------------------------------------------------------------------
 // Geometry sync
@@ -856,7 +856,7 @@ audio.onSnapshot((s) => {
     at += n;
   });
   scope.onSnapshot(s);
-  dynoSheet.onSnapshot(s.dyno);
+  launchSheet.onSnapshot(s.launch);
   panel.updateReadouts(s);
   hudEl.textContent =
     `${Math.round(s.rpm)} rpm · ${(s.cylPressure / 1e5).toFixed(1)} bar · ` +
@@ -883,7 +883,7 @@ viewer.onFrame((dt) => {
     );
   }
   scope.draw();
-  dynoSheet.draw();
+  launchSheet.draw();
 });
 
 /** Wraps to (-360, 360]. */

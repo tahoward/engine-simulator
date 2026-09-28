@@ -6,7 +6,7 @@
  */
 
 import { solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
-import type { DynoConfig, EngineConfig, EngineSpec } from '../model/spec.js';
+import type { LaunchConfig, EngineConfig, EngineSpec } from '../model/spec.js';
 import { CONTROL_PARAMS } from './worklet/controls.js';
 import type { FromWorklet, ToWorklet } from './worklet/processor.js';
 
@@ -260,9 +260,9 @@ export class AudioEngine implements EngineHost {
     this.post({ type: 'graph', graph: solved });
   }
 
-  /** Start a dyno run through `config`, or with `null` end the one in progress. */
-  dyno(config: DynoConfig | null): void {
-    this.post({ type: 'dyno', config });
+  /** Start a launch through `config`, or with `null` end the one in progress. */
+  launch(config: LaunchConfig | null): void {
+    this.post({ type: 'launch', config });
   }
 
   setTimeScale(scale: number): void {

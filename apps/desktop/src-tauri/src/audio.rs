@@ -28,7 +28,7 @@ use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use engine_sim::exhaust_graph::ExhaustGraph;
-use engine_sim::{DynoConfig, EngineConfig, EngineSim};
+use engine_sim::{EngineConfig, EngineSim, LaunchConfig};
 use serde::{Deserialize, Serialize};
 
 /// Samples the render thread produces at a time.
@@ -54,8 +54,8 @@ pub enum Command {
     Graph {
         graph: Option<ExhaustGraph>,
     },
-    Dyno {
-        config: Option<DynoConfig>,
+    Launch {
+        config: Option<LaunchConfig>,
     },
     SnapshotRate {
         hz: f64,
@@ -400,9 +400,9 @@ fn apply(sim: &mut EngineSim, command: Command, snapshot_interval: &mut usize, s
             }
         }
         Command::Graph { graph } => sim.set_graph(graph),
-        Command::Dyno { config } => match config {
-            Some(c) => sim.start_dyno(c),
-            None => sim.stop_dyno(),
+        Command::Launch { config } => match config {
+            Some(c) => sim.start_launch(c),
+            None => sim.stop_launch(),
         },
         Command::SnapshotRate { hz } => *snapshot_interval = ((fs / hz).round() as usize).max(1),
         Command::TimeScale { scale } => sim.set_time_scale(scale),

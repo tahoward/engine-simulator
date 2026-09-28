@@ -14,7 +14,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 
 import { solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
-import type { DynoConfig, EngineConfig, EngineSnapshot, EngineSpec } from '../model/spec.js';
+import type { LaunchConfig, EngineConfig, EngineSnapshot, EngineSpec } from '../model/spec.js';
 import type { EngineHost, LagListener, SnapshotListener } from './EngineHost.js';
 import { CONTROL_PARAMS } from './worklet/controls.js';
 
@@ -26,7 +26,7 @@ const SMOOTHING = 0.6;
 type Command =
   | { type: 'engine'; engine: Partial<EngineSpec> }
   | { type: 'graph'; graph: ExhaustGraph | null }
-  | { type: 'dyno'; config: DynoConfig | null }
+  | { type: 'launch'; config: LaunchConfig | null }
   | { type: 'snapshotRate'; hz: number }
   | { type: 'timeScale'; scale: number }
   | { type: 'controls'; throttle: number; load: number }
@@ -40,10 +40,10 @@ interface StreamInfo {
 }
 
 /** The snapshot as the simulation serialises it, before its sample arrays become typed arrays. */
-type RawSnapshot = Omit<EngineSnapshot, 'pipePressure' | 'ductPressure' | 'dyno'> & {
+type RawSnapshot = Omit<EngineSnapshot, 'pipePressure' | 'ductPressure' | 'launch'> & {
   pipePressure: number[];
   ductPressure: number[];
-  dyno: (Omit<NonNullable<EngineSnapshot['dyno']>, 'points'> & { points: number[] }) | null;
+  launch: (Omit<NonNullable<EngineSnapshot['launch']>, 'points'> & { points: number[] }) | null;
 };
 
 export class NativeEngine implements EngineHost {
@@ -146,8 +146,8 @@ export class NativeEngine implements EngineHost {
     void this.send({ type: 'graph', graph: solved });
   }
 
-  dyno(config: DynoConfig | null): void {
-    void this.send({ type: 'dyno', config });
+  launch(config: LaunchConfig | null): void {
+    void this.send({ type: 'launch', config });
   }
 
   setTimeScale(scale: number): void {
@@ -220,7 +220,7 @@ export class NativeEngine implements EngineHost {
       ...raw,
       pipePressure: Float32Array.from(raw.pipePressure),
       ductPressure: Float32Array.from(raw.ductPressure),
-      dyno: raw.dyno && { ...raw.dyno, points: Float32Array.from(raw.dyno.points) },
+      launch: raw.launch && { ...raw.launch, points: Float32Array.from(raw.launch.points) },
     };
     const waveAt = 8 + jsonLength + ((4 - (jsonLength % 4)) % 4);
     const samples = (buffer.byteLength - waveAt) / 4;

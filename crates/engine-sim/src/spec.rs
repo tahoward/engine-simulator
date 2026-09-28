@@ -338,16 +338,27 @@ pub struct BankSnapshot {
     pub in_lift: f64,
 }
 
-/// A dyno run's state, sent with each snapshot while it runs.
+/// A launch's state, sent with each snapshot while it runs.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DynoSnapshot {
+pub struct LaunchSnapshot {
     pub phase: String,
     pub gear: f64,
     pub speed_kmh: f64,
+    /// Seconds since the car moved off.
     pub elapsed: f64,
+    /// Distance covered, m.
+    pub distance: f64,
     pub finished: bool,
-    /// Engine cycles recorded since the last snapshot, `DYNO_POINT_STRIDE` values each.
+    /// Seconds from moving off to 60 mph, once the car has reached it.
+    pub zero_to_sixty: Option<f64>,
+    /// Seconds to the quarter mile and the speed there, km/h, once the car has covered it.
+    pub quarter_mile: Option<f64>,
+    pub quarter_mile_kmh: Option<f64>,
+    /// The same at the half mile.
+    pub half_mile: Option<f64>,
+    pub half_mile_kmh: Option<f64>,
+    /// Engine cycles recorded since the last snapshot, `LAUNCH_POINT_STRIDE` values each.
     pub points: Vec<f32>,
 }
 
@@ -382,7 +393,7 @@ pub struct EngineSnapshot {
     pub pipe_cells: f64,
     pub substeps: f64,
     pub wall_temp: f64,
-    pub dyno: Option<DynoSnapshot>,
+    pub launch: Option<LaunchSnapshot>,
     /// The turbocharger's state, on a turbocharged engine only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turbo: Option<TurboSnapshot>,
@@ -407,17 +418,19 @@ pub struct TurboSnapshot {
     pub surging: bool,
 }
 
-/// The car and gearbox a dyno run drives through. See `DynoRun`.
+/// The car and gearbox a launch drives through. See `LaunchRun`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct DynoConfig {
-    /// Gearbox ratios, first to sixth.
+pub struct LaunchConfig {
+    /// Gearbox ratios, first gear first.
     pub ratios: Vec<f64>,
     pub final_drive: f64,
     /// Tyre rolling radius, m.
     pub tyre_radius: f64,
-    /// Mass the engine accelerates, kg.
+    /// The car's mass, kg.
     pub mass: f64,
+    /// Engine speed the clutch is slipped at off the line, rev/min.
+    pub launch_rpm: f64,
     /// Engine speed each gear is pulled to before the shift, rev/min.
     pub shift_rpm: f64,
 }

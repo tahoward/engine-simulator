@@ -3,7 +3,7 @@
 //! Each test file is its own crate and uses only some of these.
 #![allow(dead_code)]
 
-use engine_sim::spec::{DynoConfig, EngineConfig, EngineSpec, PipeSegment};
+use engine_sim::spec::{EngineConfig, EngineSpec, LaunchConfig, PipeSegment};
 use serde::Deserialize;
 use std::sync::OnceLock;
 
@@ -27,8 +27,8 @@ pub struct EnginePreset {
     pub engine: serde_json::Value,
     /// The whole config the app loads for it.
     pub config: EngineConfig,
-    /// The car and gearing `fitDyno` sizes for it.
-    pub dyno: DynoConfig,
+    /// The car and gearing `fitLaunch` sizes for it.
+    pub launch: LaunchConfig,
     pub fitted_exhaust: FittedExhaust,
 }
 
