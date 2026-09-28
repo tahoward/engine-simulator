@@ -35,7 +35,17 @@ const CP_AIR: f64 = GAMMA_AIR * gas::R / (GAMMA_AIR - 1.0);
 
 /// Isentropic efficiencies of the compressor and the turbine, at best.
 const ETA_COMPRESSOR: f64 = 0.72;
-const ETA_TURBINE: f64 = 0.68;
+const ETA_TURBINE: f64 = 0.78;
+
+/// The turbine's map: its efficiency against its blade speed ratio `x = U / C0`, the wheel's tip
+/// speed over the spouting velocity `C0 = sqrt(2 dh_s)` of the isentropic drop across it. A radial
+/// inflow turbine does best near `x = 0.7`, and its efficiency falls away either side as
+/// `ETA_TURBINE (2 r - r^2)`, `r = x / 0.7`: to nothing on a stalled wheel, which still takes torque
+/// from the gas, and below nothing on a wheel spinning faster than the gas drives it, which then
+/// churns the gas and brakes the shaft.
+const TURBINE_BEST_BSR: f64 = 0.7;
+/// Turbine wheel tip diameter as a fraction of the compressor wheel's.
+const TURBINE_WHEEL_RATIO: f64 = 0.9;
 
 /// The compressor's efficiency island: best at `ETA_BEST_FLOW` of the choke flow on its speed line,
 /// falling as the square of the distance from there, to `ETA_FLOOR` of its best at the choke. Near
@@ -81,7 +91,7 @@ const FRICTION_SHARE: f64 = 0.02;
 
 /// Turbine power, wastegate shut, at the design exhaust flow, as a multiple of what the compressor
 /// takes to make the boost target there: the headroom the wastegate bypasses. Sizes the nozzle, to a
-/// pressure ratio of 2 at 0.7 bar and near 6 at 2 bar.
+/// pressure ratio near 2 at 0.7 bar and 7.5 at 2 bar.
 const TURBINE_POWER_HEADROOM: f64 = 1.76;
 /// Most of the isentropic enthalpy drop the nozzle is sized to take, as a share of the gas's: a
 /// pressure ratio near 16.
@@ -162,8 +172,9 @@ struct Sizing {
     choke_flow: f64,
     /// Peak pressure rise at full speed, Pa.
     peak_rise: f64,
-    /// Full shaft speed, rad/s.
+    /// Full shaft speed, rad/s, and the turbine wheel's tip radius, m.
     full_speed: f64,
+    turbine_radius: f64,
     /// All the rotors together, kg*m^2.
     inertia: f64,
     friction: f64,
@@ -217,10 +228,14 @@ fn sizing(spec: &EngineSpec, turbos: usize) -> Sizing {
     let pr_target = (gas::P_AMB + boost_target) / gas::P_AMB;
     let compressor_work =
         CP_AIR * gas::T_AMB * (math::pow(pr_target, (GAMMA_AIR - 1.0) / GAMMA_AIR) - 1.0) / eta_design;
-    let drop = math::min(
-        (TURBINE_POWER_HEADROOM * compressor_work) / (exhaust_share * CP_EXH * TURBINE_DESIGN_T * ETA_TURBINE),
-        TURBINE_MAX_DROP,
-    );
+    // The turbine's wheel, at the speed the shaft makes the boost target at, does that work where its
+    // map has it: `turbine_work` inverted for the spouting velocity.
+    let turbine_radius = TURBINE_WHEEL_RATIO * wheel / 2.0;
+    let tip_design = (full_speed * turbine_radius) / math::sqrt(PRESSURE_HEADROOM);
+    let work_needed = (TURBINE_POWER_HEADROOM * compressor_work) / exhaust_share;
+    let b = TURBINE_BEST_BSR;
+    let c0 = ((work_needed / ETA_TURBINE + (tip_design * tip_design) / (2.0 * b * b)) * b) / tip_design;
+    let drop = math::min((c0 * c0) / (2.0 * CP_EXH * TURBINE_DESIGN_T), TURBINE_MAX_DROP);
     let turbine_pr = math::pow(1.0 - drop, -GAMMA_EXH / (GAMMA_EXH - 1.0));
     let turbine_k =
         (exhaust_flow * math::sqrt(TURBINE_DESIGN_T)) / (gas::P_AMB * math::sqrt(turbine_pr * turbine_pr - 1.0));
@@ -233,6 +248,7 @@ fn sizing(spec: &EngineSpec, turbos: usize) -> Sizing {
         choke_flow,
         peak_rise,
         full_speed,
+        turbine_radius,
         inertia,
         friction,
         turbine_k,
@@ -248,11 +264,29 @@ fn sizing(spec: &EngineSpec, turbos: usize) -> Sizing {
     }
 }
 
-/// What drives the turbine this sample: the power it takes from the exhaust, W, and the pressures at
-/// its inlet and outlet, Pa.
+/// Work the turbine takes from each kg of gas through it, J/kg, with its wheel's tip at `tip_speed`
+/// (m/s) and `isentropic` the isentropic enthalpy drop across it, J/kg: the drop at the efficiency
+/// its map gives, written so it holds at no drop too.
+pub fn turbine_work(tip_speed: f64, isentropic: f64) -> f64 {
+    let c0 = math::sqrt(2.0 * math::max(isentropic, 0.0));
+    let b = TURBINE_BEST_BSR;
+    ETA_TURBINE * ((tip_speed * c0) / b - (tip_speed * tip_speed) / (2.0 * b * b))
+}
+
+/// Isentropic efficiency of the turbine at blade speed ratio `x`, from its map.
+pub fn turbine_efficiency(x: f64) -> f64 {
+    let r = x / TURBINE_BEST_BSR;
+    ETA_TURBINE * (2.0 * r - r * r)
+}
+
+/// What drives the turbine this sample: the power it takes from the exhaust and the power of the
+/// isentropic drop across it, W, the flow through it, kg/s, and the pressures at its inlet and outlet,
+/// Pa.
 #[derive(Clone, Copy, Debug)]
 pub struct TurbineDrive {
     pub power: f64,
+    pub isentropic_power: f64,
+    pub flow: f64,
     pub inlet: f64,
     pub outlet: f64,
 }
@@ -332,6 +366,9 @@ pub struct Turbo {
     blow_off: f64,
     blow_off_flow: f64,
     back_pressure: f64,
+    /// Where the turbine ran on its map last sample: its efficiency and blade speed ratio.
+    turbine_efficiency: f64,
+    blade_speed_ratio: f64,
     /// Seconds since the compressor flow last ran backwards.
     since_reverse: f64,
 
@@ -372,6 +409,8 @@ impl Turbo {
             blow_off: 0.0,
             blow_off_flow: 0.0,
             back_pressure: gas::P_AMB,
+            turbine_efficiency: 0.0,
+            blade_speed_ratio: 0.0,
             since_reverse: f64::INFINITY,
             noise: Noise::new(0x7ab0_c3d1 as f64),
             whine_phase: [[0.0; 5]; 2],
@@ -456,6 +495,18 @@ impl Turbo {
         self.back_pressure
     }
 
+    /// The turbine's isentropic efficiency last sample, averaged over the flow through it: below
+    /// nothing when it was braking the shaft.
+    pub fn turbine_efficiency(&self) -> f64 {
+        self.turbine_efficiency
+    }
+
+    /// The turbine's blade speed ratio last sample, its tip speed over the spouting velocity of the
+    /// mean isentropic drop across it: 0.7 is where its map is best.
+    pub fn blade_speed_ratio(&self) -> f64 {
+        self.blade_speed_ratio
+    }
+
     /// Isentropic efficiency of the compressor at flow `m` (kg/s) at its present speed.
     fn compressor_efficiency(&self, m: f64) -> f64 {
         let s = math::max(self.omega / self.size.full_speed, MIN_SPEED_FRACTION);
@@ -483,8 +534,8 @@ impl Turbo {
         math::max(mg, -loss)
     }
 
-    /// The turbine as it sits in the exhaust this sample: its flow constants, its efficiency and the
-    /// pulsation of its blades. Call once a sample.
+    /// The turbine as it sits in the exhaust this sample: its flow constants, its wheel's tip speed and
+    /// the pulsation of its blades. Call once a sample.
     pub fn turbine_setting(&mut self) -> TurbineSetting {
         let size = self.size;
         let s = self.omega / size.full_speed;
@@ -501,7 +552,7 @@ impl Turbo {
         TurbineSetting {
             k_turbine: size.turbine_k,
             k_wastegate: size.wastegate_k * self.wastegate,
-            efficiency: ETA_TURBINE,
+            tip_speed: self.omega * size.turbine_radius,
             pulsation: 1.0 + TURBINE_PULSATION * size.noise * s * s * pulse,
             bypass_noise: size.noise,
         }
@@ -512,6 +563,14 @@ impl Turbo {
     pub fn step(&mut self, dt: f64, turbine: TurbineDrive, throttle_flow: f64, plenum_p: f64) -> TurboOut {
         let size = self.size;
         self.back_pressure = turbine.inlet;
+        if turbine.flow > 1e-9 && turbine.isentropic_power > 1e-6 {
+            self.turbine_efficiency = turbine.power / turbine.isentropic_power;
+            let c0 = math::sqrt((2.0 * turbine.isentropic_power) / turbine.flow);
+            self.blade_speed_ratio = (self.omega * size.turbine_radius) / c0;
+        } else {
+            self.turbine_efficiency = 0.0;
+            self.blade_speed_ratio = 0.0;
+        }
 
         // --- Wastegate: opens on boost over its spring ---
         let boost = self.boost();

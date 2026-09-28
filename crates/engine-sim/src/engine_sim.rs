@@ -1107,7 +1107,13 @@ impl EngineSim {
         let mut turbo_pa = 0.0;
         if let Some(turbo) = &mut self.turbo {
             let r = &self.wg.result;
-            let drive = TurbineDrive { power: r.turbine_power, inlet: r.turbine_inlet, outlet: r.turbine_outlet };
+            let drive = TurbineDrive {
+                power: r.turbine_power,
+                isentropic_power: r.turbine_isentropic_power,
+                flow: r.turbine_flow,
+                inlet: r.turbine_inlet,
+                outlet: r.turbine_outlet,
+            };
             let out = turbo.step(dt, drive, throttle_flow, self.plenum.pressure());
             self.charge_p = out.charge_p;
             self.charge_t = out.charge_t;

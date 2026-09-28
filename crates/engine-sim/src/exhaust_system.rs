@@ -14,6 +14,7 @@ use crate::exhaust_graph::{
 };
 use crate::math::{self, PI, clamp};
 use crate::spec::gas;
+use crate::turbo;
 
 /// Turbulence intensity of the merge, as a fraction of the mixing mass flow.
 const MERGE_TURBULENCE: f64 = 0.14;
@@ -37,8 +38,8 @@ pub struct TurbineSetting {
     /// Flow constants of the turbines and of the wastegates as open as they are now, kg*sqrt(K)/(s*Pa).
     pub k_turbine: f64,
     pub k_wastegate: f64,
-    /// Isentropic efficiency of the turbine.
-    pub efficiency: f64,
+    /// Speed of the turbine wheel's tip, m/s: with the drop across it, where it runs on its map.
+    pub tip_speed: f64,
     /// Factor on the turbine's flow this sample: its blades' pulsation, 1 on average.
     pub pulsation: f64,
     /// Scale on the wastegate jet's turbulence.
@@ -75,9 +76,11 @@ pub struct ExhaustResult {
     /// Mass flow through each cylinder's exhaust valve, kg/s, positive out of the cylinder.
     pub valve_mass_flows: Vec<f64>,
     pub substeps: usize,
-    /// With a turbine: the power the turbines take from the exhaust, W, the flow through them and
-    /// through the wastegates, kg/s, and the mean pressure at their inlets and outlets, Pa.
+    /// With a turbine: the power the turbines take from the exhaust and the power of the isentropic
+    /// drop across them, W, the flow through them and through the wastegates, kg/s, and the mean
+    /// pressure at their inlets and outlets, Pa.
     pub turbine_power: f64,
+    pub turbine_isentropic_power: f64,
     pub turbine_flow: f64,
     pub bypass_flow: f64,
     pub turbine_inlet: f64,
@@ -403,6 +406,7 @@ impl ExhaustSystem {
         if self.turbine.is_some() {
             let r = &mut self.result;
             r.turbine_power = 0.0;
+            r.turbine_isentropic_power = 0.0;
             r.turbine_flow = 0.0;
             r.bypass_flow = 0.0;
             r.turbine_inlet = 0.0;
@@ -464,6 +468,7 @@ impl ExhaustSystem {
             let at = per / math::max(self.turbine_count() as f64, 1.0);
             let r = &mut self.result;
             r.turbine_power *= per;
+            r.turbine_isentropic_power *= per;
             r.turbine_flow *= per;
             r.bypass_flow *= per;
             r.turbine_inlet *= at;
@@ -714,12 +719,13 @@ impl ExhaustSystem {
         let pu = gas::P_AMB + g_up;
         let pd = math::max(gas::P_AMB + g_down, 1e-3);
         let turbine_share = if k > 0.0 { k_t / k } else { 0.0 };
-        let (power, t_leaving) = if m > 0.0 && pu > pd {
-            let drop = setting.efficiency * (1.0 - math::pow(pd / pu, (gas::GAMMA_EXH - 1.0) / gas::GAMMA_EXH));
-            let power = turbine_share * m * CP_EXH * t_up * drop;
-            (power, t_up * (1.0 - turbine_share * drop))
+        let (power, isentropic_power, t_leaving) = if m > 0.0 && pu > pd {
+            let isentropic = CP_EXH * t_up * (1.0 - math::pow(pd / pu, (gas::GAMMA_EXH - 1.0) / gas::GAMMA_EXH));
+            let work = turbo::turbine_work(setting.tip_speed, isentropic);
+            let m_t = turbine_share * m;
+            (m_t * work, m_t * isentropic, math::max(t_up - (turbine_share * work) / CP_EXH, 200.0))
         } else {
-            (0.0, t_up)
+            (0.0, 0.0, t_up)
         };
 
         let mut signed = 0.0;
@@ -745,6 +751,7 @@ impl ExhaustSystem {
 
         let r = &mut self.result;
         r.turbine_power += power;
+        r.turbine_isentropic_power += isentropic_power;
         r.turbine_flow += m * turbine_share;
         r.bypass_flow += m * (1.0 - turbine_share);
         r.turbine_inlet += pu;

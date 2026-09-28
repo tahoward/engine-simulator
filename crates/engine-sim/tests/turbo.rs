@@ -1,6 +1,6 @@
 //! The turbocharger: boost built by the exhaust and held by the wastegate, the lag behind the
 //! throttle, what the blow-off valve does when the throttle shuts and what happens without one, and
-//! the whine of the compressor.
+//! the whine of the compressor; and the turbine running on its map.
 //!
 //! The Nissan RB26DETT preset is the turbocharged engine throughout.
 
@@ -9,6 +9,7 @@ mod common;
 use common::FS;
 use engine_sim::EngineSim;
 use engine_sim::exhaust_graph::{DuctSink, DuctSource, TurboMount, compile_exhaust};
+use engine_sim::turbo;
 use serde_json::{Value, json};
 
 const RB26: &str = "Inline six, Nissan RB26DETT";
@@ -241,6 +242,39 @@ fn the_turbine_takes_the_edge_off_the_pulses() {
     };
     let (su, sd) = (swing(&up), swing(&down));
     assert!(sd < 0.7 * su, "pulses {sd} Pa past the turbine against {su} Pa arriving");
+}
+
+/// The turbine's map: at its best blade speed ratio it takes its peak efficiency's share of the
+/// isentropic drop, a stalled wheel takes none, and a wheel spinning twice as fast as that brakes.
+#[test]
+fn the_turbine_map_peaks_at_its_best_blade_speed_ratio() {
+    let isentropic: f64 = 150e3;
+    let c0 = (2.0 * isentropic).sqrt();
+    let eta = |x: f64| turbo::turbine_work(x * c0, isentropic) / isentropic;
+    assert!((eta(0.7) - turbo::turbine_efficiency(0.7)).abs() < 1e-12);
+    assert!(eta(0.7) > eta(0.5) && eta(0.7) > eta(0.9), "best at 0.7");
+    assert!(eta(0.0).abs() < 1e-12, "a stalled wheel does no work");
+    assert!(eta(1.4).abs() < 1e-9 && eta(1.6) < 0.0, "a wheel outrunning the gas brakes");
+    assert!(turbo::turbine_work(300.0, 0.0) < 0.0, "and churns gas with no drop across it");
+}
+
+/// On boost, fed pulses, the turbine runs below its best blade speed ratio, near its best
+/// efficiency. Shut the throttle and the wheel outruns what is left of the exhaust, and brakes.
+#[test]
+fn the_turbine_runs_on_its_map() {
+    let mut sim = rb26(json!({ "throttle": 1, "rpm": 4400 }));
+    sim.render(3 * FS as usize);
+    let t = sim.turbo().unwrap();
+    let (eta, bsr) = (t.turbine_efficiency(), t.blade_speed_ratio());
+    assert!(bsr > 0.35 && bsr < 0.7, "blade speed ratio on boost: {bsr}");
+    assert!(eta > 0.6 && eta < 0.78, "efficiency on boost: {eta}");
+    sim.set_controls(0.0, 0.0);
+    let mut worst = f64::INFINITY;
+    for _ in 0..FS as usize / 2 {
+        sim.render(1);
+        worst = worst.min(sim.turbo().unwrap().turbine_efficiency());
+    }
+    assert!(worst < 0.0, "braking once the throttle shuts: {worst}");
 }
 
 /// A single, its one pipe drawn into a turbo: a turbine with one pipe in and one out.
