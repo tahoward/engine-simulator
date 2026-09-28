@@ -16,10 +16,12 @@ import {
   compileLayout,
   copyToSiblingRunners,
   ductLabel,
+  endsAt,
+  nodeOrder,
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../src/model/exhaustGraph.js';
-import { ENGINE_PRESETS, defaultConfig, makeSegment, type EngineSpec } from '../src/model/spec.js';
+import { ENGINE_PRESETS, defaultConfig, makeSegment, segmentDiameter, type EngineSpec } from '../src/model/spec.js';
 
 const FS = 48000;
 const specOf = (partial: Partial<EngineSpec>): EngineSpec =>
@@ -210,6 +212,35 @@ describe('compileLayout builds manifolds', () => {
     for (const d of graph.ducts.filter((x) => x.from.kind === 'valve')) {
       if (d.segments.length === 2) expect(d.segments[0]!.length).toBeCloseTo(0.1, 9);
       else expect(d.segments[0]!.length).toBeCloseTo(0.12, 9);
+    }
+  });
+});
+
+describe('a manifold meets what it carries on into', () => {
+  /**
+   * Along a manifold the gas carries on through each junction into the next length, the downpipe and the
+   * collector: each starts at the bore the one before it ends at and widens from there, with no step.
+   */
+  it.each([
+    ['an inline four', { cylinders: 4, exhaustLayout: 'merged', vAngle: 0 }],
+    ['an inline six', { cylinders: 6, exhaustLayout: 'merged', vAngle: 0 }],
+    ['a V8 per bank', { cylinders: 8, vAngle: 90, crankType: 'crossplane', exhaustLayout: 'perBank' }],
+    ['a V6 merged', { cylinders: 6, vAngle: 60, exhaustLayout: 'merged' }],
+  ] as Array<[string, Partial<EngineSpec>]>)('on %s', (_, partial) => {
+    // A collector wider than the manifold, as a V6's is after its downpipes.
+    const collector = [makeSegment({ length: 0.65, dIn: 0.0612, dOut: 0.0612 })];
+    const graph = compileLayout(specOf(partial), [makeSegment({ length: 0.05, dIn: 0.0384, dOut: 0.0384 })], collector);
+    const carriedOn = graph.ducts.filter((d) => d.role === 'manifold' || d.role === 'downpipe' || d.role === 'collector');
+    for (const node of nodeOrder(graph)) {
+      const ends = endsAt(graph, node);
+      for (const out of ends.filter((e) => e.end === 'inlet' && carriedOn.includes(e.duct))) {
+        const into = out.duct.continues
+          ? ends.find((e) => e.end === 'outlet' && e.duct.id === out.duct.continues)
+          : ends.find((e) => e.end === 'outlet' && e.duct.role === 'downpipe');
+        if (!into) continue;
+        const arriving = segmentDiameter(into.duct.segments.at(-1)!, 1);
+        expect(segmentDiameter(out.duct.segments[0]!, 0), `${into.duct.id} into ${out.duct.id}`).toBeCloseTo(arriving, 9);
+      }
     }
   });
 });

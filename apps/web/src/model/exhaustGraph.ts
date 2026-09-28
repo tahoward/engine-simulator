@@ -396,12 +396,15 @@ export function compileLayout(
   // Wider as it gathers more cylinders, for roughly constant gas speed: the rule `fittedExhaust` sizes a
   // collector by, up to the collector's own bore.
   const gathering = (n: number) => Math.min(Math.max(runnerDia * Math.sqrt(n) * 0.92, runnerDia), collectorDia);
-  /** The collector, opening no narrower than the manifold it carries on from. */
+  /**
+   * The collector, opening at the bore of the manifold it carries on from, so the two meet without a step:
+   * its first length tapers from there to its own bore, and is no narrower than the manifold.
+   */
   const collectorAfter = (manifoldDia: number): PipeSegment[] => {
     const segs = copy(collector);
     const first = segs[0];
-    if (first && first.kind !== 'chamber' && first.dIn < manifoldDia) {
-      segs[0] = makeSegment({ ...first, dIn: manifoldDia, ...(first.kind === 'pipe' ? { dOut: manifoldDia } : {}) });
+    if (first && first.kind !== 'chamber') {
+      segs[0] = makeSegment({ ...first, dIn: manifoldDia, ...(first.kind === 'pipe' ? { dOut: Math.max(first.dOut, manifoldDia) } : {}) });
     }
     return segs;
   };
@@ -477,9 +480,11 @@ export function compileLayout(
       let carrying = `runner${order[0]}`;
       for (let k = 1; k < order.length - 1; k++) {
         const id = `link${tag}-${k}`;
+        // Widening from the bore it carries on from to the bore for the cylinders it has gathered, so the
+        // manifold has no step where each port joins it.
         tail.push({
           id,
-          segments: [makeSegment({ kind: 'pipe', length: gapAfter(k), dIn: diaAfter(k), dOut: diaAfter(k) })],
+          segments: [makeSegment({ kind: 'pipe', length: gapAfter(k), dIn: diaAfter(k - 1), dOut: diaAfter(k) })],
           from: { kind: 'node', node: nodeAt(k) },
           to: { kind: 'node', node: nodeAt(k + 1) },
           continues: carrying,
@@ -574,7 +579,8 @@ export function compileLayout(
       downpipeDia = Math.max(downpipeDia, dia);
       tail.push({
         id: `down${g}-b${bank}`,
-        segments: [makeSegment({ kind: 'pipe', length, dIn: dia, dOut: dia })],
+        // From the bore of the manifold it carries on, widening for the bank's last cylinder too.
+        segments: [makeSegment({ kind: 'pipe', length, dIn: gathering(bankMembers.length - 1), dOut: dia })],
         from: { kind: 'node', node: bankNode },
         to: { kind: 'node', node: `merge${g}` },
         // The manifold carries on into it, so its junction is laid out on the manifold rather than
