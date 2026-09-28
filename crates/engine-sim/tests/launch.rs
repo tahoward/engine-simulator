@@ -105,7 +105,8 @@ fn traction_control_beats_spinning_the_tyres() {
 }
 
 /// The engines from real cars launch through those cars: the Skyline's six-speed to all four wheels, the
-/// Corvettes' eight-speed dual clutch, and the MR2's five-speed.
+/// Corvettes' eight-speed dual clutch, the MR2's five-speed, and the RS 3's seven-speed dual clutch to all
+/// four wheels.
 #[test]
 fn real_engines_launch_through_their_own_cars() {
     let r34 = &common::engine_preset("Inline six, Nissan RB26DETT").launch;
@@ -117,6 +118,19 @@ fn real_engines_launch_through_their_own_cars() {
     let mr2 = &common::engine_preset("Inline four, Toyota 3S-GTE").launch;
     assert_eq!(mr2.ratios, vec![3.23, 1.913, 1.258, 0.918, 0.731]);
     assert_eq!(mr2.final_drive, 4.285);
+    let rs3 = &common::engine_preset("Inline five, Audi EA855 EVO").launch;
+    assert_eq!(rs3.ratios.len(), 7);
+    assert_eq!((rs3.final_drive, rs3.driven_load), (4.059, 1.0));
+    assert!(rs3.dual_clutch);
+}
+
+/// The RS 3 gets to 60 mph in about the 3.6 s road tests time it at: 400 PS through all four wheels.
+#[test]
+fn the_rs3_launches_about_as_quick_as_the_real_car() {
+    let snaps = run("Inline five, Audi EA855 EVO", None);
+    let end = snaps.last().unwrap();
+    let sixty = end.zero_to_sixty.expect("reaches 60 mph");
+    assert!((3.1..4.1).contains(&sixty), "0-60 in {sixty} s");
 }
 
 /// All four wheels driven get a car off the line quicker than two.

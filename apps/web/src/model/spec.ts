@@ -1943,28 +1943,6 @@ const THREE_CYL: Partial<EngineSpec> = {
   outputGain: 2.21,
 };
 
-const FIVE_CYL: Partial<EngineSpec> = {
-  cylinders: 5,
-  vAngle: 0,
-  exhaustLayout: 'merged',
-  exhaustHeaders: true,
-  headerRun: 'lengthways',
-  ...idling(0.075),
-  // The Audi 2.5 TFSI's.
-  revLimit: 7000,
-  flywheelInertia: 0.3,
-  pipeCellSize: 0.035,
-  // A 2.5 litre five.
-  bore: 0.0825,
-  stroke: 0.0928,
-  rodLength: 0.144,
-  compressionRatio: 10,
-  ...fourValveHead(0.0825),
-  maxLift: 0.0095,
-  // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.02,
-};
-
 const NISSAN_RB26: Partial<EngineSpec> = {
   cylinders: 6,
   vAngle: 0,
@@ -2134,6 +2112,42 @@ const TOYOTA_3SGTE: Partial<EngineSpec> = {
   outputGain: 1.63,
 };
 
+/**
+ * The 2.5 litre EA855 EVO of the 8V Audi RS 3, 2017-2020: 82.5 x 92.8 mm, 10.0:1, and one turbo on
+ * 1.35 bar through an air-to-air intercooler, rated at 400 PS from 5850 to 7000 rpm and 480 N*m from
+ * 1700 to 5850.
+ */
+const AUDI_EA855_EVO: Partial<EngineSpec> = {
+  cylinders: 5,
+  vAngle: 0,
+  exhaustLayout: 'merged',
+  ...idling(0.076),
+  // Its fuel cut, a little past the 7000 rpm redline.
+  revLimit: 7200,
+  flywheelInertia: 0.3,
+  pipeCellSize: 0.035,
+  bore: 0.0825,
+  stroke: 0.0928,
+  rodLength: 0.144,
+  compressionRatio: 10,
+  ...fourValveHead(0.0825),
+  // Estimated, like its timing: 236 degrees on the exhaust and 242 on the intake, with little overlap, as
+  // a turbo engine's are. The later intake close holds its power to the limiter.
+  maxLift: 0.0105,
+  evo: 126,
+  evc: 362,
+  ivo: 358,
+  ivc: 600,
+  // Its turbo on 1.35 bar, its compressor passing 0.32 kg/s at full speed.
+  boostTarget: 1.35e5,
+  turboSize: 0.32,
+  intercooler: 0.7,
+  // The factory valve recirculates.
+  blowOff: 'recirculating',
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 1.24,
+};
+
 /** The LT2 preset's idle throttle and output gain. See `idling`. */
 const LT2_IDLE_THROTTLE = 0.075;
 const LT2_GAIN = 2.1;
@@ -2297,12 +2311,27 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     collector: () => fittedExhaust(fullSpec(THREE_CYL)).collector,
   },
   {
-    name: 'Inline five',
+    name: 'Inline five, Audi EA855 EVO',
+    car: {
+      // Audi's figures for the 8V RS 3 Sportback's seven-speed S tronic: a 4.059 final drive for first,
+      // fourth and fifth and 3.450 for second, third, sixth and seventh, which is folded into those
+      // ratios. 235/35R19 tyres, 1510 kg, through quattro to all four wheels.
+      name: 'Audi RS 3 Sportback (8V, 2017-2020)',
+      ratios: [3.56, 2.53 * (3.45 / 4.059), 1.68 * (3.45 / 4.059), 1.02, 0.79, 0.76 * (3.45 / 4.059), 0.63 * (3.45 / 4.059)],
+      finalDrive: 4.059,
+      tyreRadius: 0.323,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 1510 + DRIVER_MASS,
+      drivenLoad: DRIVEN_LOAD.awd,
+      shiftTime: 0.1,
+      dualClutch: true,
+    },
     description:
-      'Every 144\u00b0 on a 72\u00b0 crank, 1-2-4-5-3 \u2014 the Audi and Volvo five. Two and a half firings per revolution, which is what gives it a warble no even-numbered engine has.',
-    engine: FIVE_CYL,
-    pipe: () => fittedExhaust(fullSpec(FIVE_CYL)).pipe,
-    collector: () => fittedExhaust(fullSpec(FIVE_CYL)).collector,
+      'The 2.5 litre turbocharged five in the 8V Audi RS 3 and the TT RS: 82.5 x 92.8 mm, 10:1, four valves a cylinder and a 7000 rpm redline. It fires every 144\u00b0 on a 72\u00b0 crank, 1-2-4-5-3, all five into one turbo on 1.35 bar through an intercooler: the warble of the Audi five, and a whistle over it as the turbo spools. It makes about 500 N\u00b7m from 3500 to 4500 rpm and 403 PS at 5850, holding 387 to 7000, against the real engine\u2019s rated 480 N\u00b7m from 1700 to 5850 and 400 PS from 5850 to 7000. Its cams and exhaust are estimates.',
+    engine: AUDI_EA855_EVO,
+    pipe: () => fittedExhaust(fullSpec(AUDI_EA855_EVO)).pipe,
+    collector: () => fittedExhaust(fullSpec(AUDI_EA855_EVO)).collector,
+    turbos: 1,
   },
   {
     name: 'Inline six, Nissan RB26DETT',

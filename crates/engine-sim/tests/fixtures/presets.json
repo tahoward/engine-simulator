@@ -1594,17 +1594,15 @@
    }
   },
   {
-   "name": "Inline five",
+   "name": "Inline five, Audi EA855 EVO",
    "engine": {
     "cylinders": 5,
     "vAngle": 0,
     "exhaustLayout": "merged",
-    "exhaustHeaders": true,
-    "headerRun": "lengthways",
     "rpm": 800,
     "load": 0,
-    "throttle": 0.075,
-    "revLimit": 7000,
+    "throttle": 0.076,
+    "revLimit": 7200,
     "flywheelInertia": 0.3,
     "pipeCellSize": 0.035,
     "bore": 0.0825,
@@ -1615,8 +1613,16 @@
     "exValveCount": 2,
     "inValveDia": 0.033,
     "inValveCount": 2,
-    "maxLift": 0.0095,
-    "outputGain": 1.02
+    "maxLift": 0.0105,
+    "evo": 126,
+    "evc": 362,
+    "ivo": 358,
+    "ivc": 600,
+    "boostTarget": 135000,
+    "turboSize": 0.32,
+    "intercooler": 0.7,
+    "blowOff": "recirculating",
+    "outputGain": 1.24
    },
    "config": {
     "engine": {
@@ -1625,8 +1631,8 @@
      "firingOffset": null,
      "crankType": "shared",
      "exhaustLayout": "merged",
-     "exhaustHeaders": true,
-     "headerRun": "lengthways",
+     "exhaustHeaders": false,
+     "headerRun": "outward",
      "bore": 0.0825,
      "stroke": 0.0928,
      "rodLength": 0.144,
@@ -1636,11 +1642,11 @@
      "portLength": 0.055,
      "inValveDia": 0.033,
      "inValveCount": 2,
-     "maxLift": 0.0095,
-     "evo": 128,
-     "evc": 378,
-     "ivo": 342,
-     "ivc": 576,
+     "maxLift": 0.0105,
+     "evo": 126,
+     "evc": 362,
+     "ivo": 358,
+     "ivc": 600,
      "camSwitchRpm": 0,
      "highEvo": 128,
      "highEvc": 378,
@@ -1661,20 +1667,20 @@
      "fuelCut": true,
      "combustionVariability": 1,
      "recipMass": 0.55,
-     "throttle": 0.075,
+     "throttle": 0.076,
      "throttleDia": 0,
      "plenumVolume": 0,
      "intakeRunnerLength": 0,
      "intakeRunnerDia": 0,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
-     "boostTarget": 70000,
-     "turboSize": 0,
+     "boostTarget": 135000,
+     "turboSize": 0.32,
      "intercooler": 0.7,
-     "blowOff": "atmospheric",
+     "blowOff": "recirculating",
      "turboNoise": 1,
      "rpm": 800,
-     "revLimit": 7000,
+     "revLimit": 7200,
      "freeRunning": false,
      "flywheelInertia": 0.3,
      "load": 0,
@@ -1688,7 +1694,7 @@
      "mouthSpacing": 0.4,
      "cylinderSpread": 1,
      "groundReflection": 0.7,
-     "outputGain": 1.02,
+     "outputGain": 1.24,
      "mechNoise": 0.45,
      "throatNoise": 0.5
     },
@@ -1740,27 +1746,209 @@
       "yaw": 0,
       "pitch": 0
      }
-    ]
+    ],
+    "graph": {
+     "ducts": [
+      {
+       "id": "runner0",
+       "segments": [
+        {
+         "id": "seg86",
+         "kind": "pipe",
+         "length": 0.45,
+         "dIn": 0.03371838686088052,
+         "dOut": 0.03371838686088052,
+         "yaw": 0,
+         "pitch": 0
+        }
+       ],
+       "from": {
+        "kind": "valve",
+        "cylinder": 0
+       },
+       "to": {
+        "kind": "node",
+        "node": "turbo-b0"
+       },
+       "role": "runner"
+      },
+      {
+       "id": "runner1",
+       "segments": [
+        {
+         "id": "seg86",
+         "kind": "pipe",
+         "length": 0.45,
+         "dIn": 0.03371838686088052,
+         "dOut": 0.03371838686088052,
+         "yaw": 0,
+         "pitch": 0
+        }
+       ],
+       "from": {
+        "kind": "valve",
+        "cylinder": 1
+       },
+       "to": {
+        "kind": "node",
+        "node": "turbo-b0"
+       },
+       "role": "runner"
+      },
+      {
+       "id": "runner2",
+       "segments": [
+        {
+         "id": "seg86",
+         "kind": "pipe",
+         "length": 0.45,
+         "dIn": 0.03371838686088052,
+         "dOut": 0.03371838686088052,
+         "yaw": 0,
+         "pitch": 0
+        }
+       ],
+       "from": {
+        "kind": "valve",
+        "cylinder": 2
+       },
+       "to": {
+        "kind": "node",
+        "node": "turbo-b0"
+       },
+       "role": "runner"
+      },
+      {
+       "id": "runner3",
+       "segments": [
+        {
+         "id": "seg86",
+         "kind": "pipe",
+         "length": 0.45,
+         "dIn": 0.03371838686088052,
+         "dOut": 0.03371838686088052,
+         "yaw": 0,
+         "pitch": 0
+        }
+       ],
+       "from": {
+        "kind": "valve",
+        "cylinder": 3
+       },
+       "to": {
+        "kind": "node",
+        "node": "turbo-b0"
+       },
+       "role": "runner"
+      },
+      {
+       "id": "runner4",
+       "segments": [
+        {
+         "id": "seg86",
+         "kind": "pipe",
+         "length": 0.45,
+         "dIn": 0.03371838686088052,
+         "dOut": 0.03371838686088052,
+         "yaw": 0,
+         "pitch": 0
+        }
+       ],
+       "from": {
+        "kind": "valve",
+        "cylinder": 4
+       },
+       "to": {
+        "kind": "node",
+        "node": "turbo-b0"
+       },
+       "role": "runner"
+      },
+      {
+       "id": "collector0",
+       "segments": [
+        {
+         "id": "seg92",
+         "kind": "cone",
+         "length": 0.16,
+         "dIn": 0.04214798357610065,
+         "dOut": 0.06936487670355944,
+         "yaw": 0,
+         "pitch": 0
+        },
+        {
+         "id": "seg93",
+         "kind": "pipe",
+         "length": 0.6500000000000004,
+         "dIn": 0.06936487670355944,
+         "dOut": 0.06936487670355944,
+         "yaw": 0,
+         "pitch": 0
+        },
+        {
+         "id": "seg94",
+         "kind": "chamber",
+         "length": 0.6,
+         "dIn": 0.06936487670355944,
+         "dOut": 0.1734121917588986,
+         "yaw": 0,
+         "pitch": 0
+        },
+        {
+         "id": "seg95",
+         "kind": "pipe",
+         "length": 0.5,
+         "dIn": 0.06936487670355944,
+         "dOut": 0.06936487670355944,
+         "yaw": 0,
+         "pitch": 0
+        }
+       ],
+       "from": {
+        "kind": "node",
+        "node": "turbo-b0"
+       },
+       "to": {
+        "kind": "mouth"
+       },
+       "role": "collector"
+      }
+     ],
+     "turbos": [
+      {
+       "id": "turbo1",
+       "node": "turbo-b0",
+       "position": null,
+       "rotation": [
+        0,
+        0,
+        0,
+        1
+       ]
+      }
+     ]
+    }
    },
    "launch": {
     "ratios": [
-     3.36,
-     2.09,
-     1.47,
-     1.1,
-     0.87,
-     0.71
+     3.56,
+     2.1504065040650406,
+     1.4279379157427938,
+     1.02,
+     0.79,
+     0.6459719142645972,
+     0.5354767184035477
     ],
-    "finalDrive": 4.428788694360042,
-    "tyreRadius": 0.31,
+    "finalDrive": 4.059,
+    "tyreRadius": 0.323,
     "tyreGrip": 1.1,
-    "mass": 1157.5041052518914,
-    "drivenLoad": 0.5,
+    "mass": 1585,
+    "drivenLoad": 1,
     "tractionControl": true,
-    "launchRpm": 3500,
-    "shiftRpm": 6850,
-    "shiftTime": 0.4,
-    "dualClutch": false
+    "launchRpm": 3600,
+    "shiftRpm": 7050,
+    "shiftTime": 0.1,
+    "dualClutch": true
    },
    "fittedExhaust": {
     "pipe": [

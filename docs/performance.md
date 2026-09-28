@@ -28,7 +28,7 @@ Inline three                           97           18.2%    21.1%
 Inline four, Honda F20C               112           21.9%    25.4%
 Inline four, Toyota 3S-GTE            111           27.2%    30.1%
 Boxer four                            111           22.7%    26.0%
-Inline five                           125           26.6%    30.4%
+Inline five, Audi EA855 EVO           125           31.9%    35.4%
 Inline six, Nissan RB26DETT           101           34.2%    38.3%
 Boxer six                             194           35.8%    40.8%
 V6, Toyota 2GR                        144           42.3%    47.0%
