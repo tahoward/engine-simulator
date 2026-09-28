@@ -1,7 +1,9 @@
 /**
  * The dyno sheet: crank power and torque against rpm, drawn live as a dyno run goes. Three charts on one
- * rpm axis: horsepower and pound-feet together, then kilowatts, newton-metres, and volumetric efficiency,
- * the fresh charge each cylinder traps as a share of its swept volume at ambient density.
+ * rpm axis: horsepower and pound-feet together, then kilowatts, newton-metres, volumetric efficiency,
+ * the fresh charge each cylinder traps as a share of its swept volume at ambient density, and the
+ * absolute pressure in the intake manifold, in bar: below 1 where the engine draws a vacuum, above it
+ * on boost.
  *
  * Horsepower and pound-feet share one chart, and not by convention alone. Horsepower is pound-feet times
  * rpm over 5252, so in these two units the curves share a scale and cross at 5252 rpm whatever the engine,
@@ -9,7 +11,7 @@
  * crossing is marked. Kilowatts and newton-metres have no such relation, so each has a chart of its own
  * rather than a second scale on one.
  *
- * On the top chart colour says which measure a line is; on the three below it, which gear, in the
+ * On the top chart colour says which measure a line is; on the four below it, which gear, in the
  * palette's fixed order. The gears are the same engine, so their traces lie on top of one another where
  * they overlap; each is its own stretch of line, broken at every shift.
  *
@@ -53,6 +55,8 @@ interface Point {
   gear: number;
   /** Volumetric efficiency, a fraction. */
   ve: number;
+  /** Intake manifold pressure, bar absolute. */
+  map: number;
 }
 
 interface Smoothed {
@@ -63,6 +67,8 @@ interface Smoothed {
   nm: number;
   /** Volumetric efficiency, %. */
   ve: number;
+  /** Intake manifold pressure, bar absolute. */
+  map: number;
   mph: number;
   gear: number;
 }
@@ -71,6 +77,10 @@ interface Smoothed {
 interface Pane {
   title: string;
   series: { colour: string; value: (q: Smoothed) => number; unit: string }[];
+  /** The least top its scale may have, so a flat line is not blown up to fill it. */
+  floor: number;
+  /** Decimal places its scale and peak are read to. */
+  digits: number;
   /** Whether to mark where its two lines cross. */
   crossing: boolean;
   /** Whether each gear's stretch of line takes that gear's colour, rather than its series'. */
@@ -131,14 +141,14 @@ export class DynoSheet {
     this.canvas.setAttribute('role', 'img');
     this.canvas.setAttribute(
       'aria-label',
-      'Crank horsepower and pound-feet of torque against engine speed on one axis, with kilowatts, newton-metres and volumetric efficiency below',
+      'Crank horsepower and pound-feet of torque against engine speed on one axis, with kilowatts, newton-metres, volumetric efficiency and intake manifold pressure below',
     );
     this.tooltip = el('div', 'dyno-tooltip hidden', plot);
     const ctx = this.canvas.getContext('2d');
     if (!ctx) throw new Error('DynoSheet: 2D canvas context unavailable');
     this.ctx = ctx;
 
-    // Two legends: the measures for the top chart, the gears for the two below it.
+    // Two legends: the measures for the top chart, the gears for the four below it.
     const legend = el('div', 'dyno-legend', this.card);
     for (const [colour, label] of [
       [POWER, 'Power, hp'],
@@ -150,7 +160,7 @@ export class DynoSheet {
       item.append(label);
     }
     const gears = el('div', 'dyno-legend', this.card);
-    el('span', 'dyno-legend-title', gears).textContent = 'kW, N·m and VE by gear:';
+    el('span', 'dyno-legend-title', gears).textContent = 'kW, N·m, VE and intake by gear:';
     GEAR_COLOURS.forEach((colour, i) => {
       const item = el('span', '', gears);
       const swatch = el('i', '', item);
@@ -163,7 +173,7 @@ export class DynoSheet {
     const tbl = el('table', '', details) as HTMLTableElement;
     const thead = el('thead', '', tbl);
     const hr = el('tr', '', thead);
-    for (const h of ['Gear', 'mph', 'Peak hp', 'Peak lb·ft', 'Peak kW', 'Peak N·m', 'Peak VE']) {
+    for (const h of ['Gear', 'mph', 'Peak hp', 'Peak lb·ft', 'Peak kW', 'Peak N·m', 'Peak VE', 'Peak bar']) {
       el('th', '', hr).textContent = h;
     }
     this.table = el('tbody', '', tbl) as HTMLTableSectionElement;
@@ -207,8 +217,15 @@ export class DynoSheet {
     }
     this.seen = true;
     const p = dyno.points;
-    for (let i = 0; i + 4 < p.length; i += 5) {
-      this.points.push({ rpm: p[i]!, torque: p[i + 1]!, kmh: p[i + 2]!, gear: p[i + 3]!, ve: p[i + 4]! });
+    for (let i = 0; i + 5 < p.length; i += 6) {
+      this.points.push({
+        rpm: p[i]!,
+        torque: p[i + 1]!,
+        kmh: p[i + 2]!,
+        gear: p[i + 3]!,
+        ve: p[i + 4]!,
+        map: p[i + 5]!,
+      });
     }
     if (p.length > 0) {
       this.smoothed = smooth(this.points);
@@ -237,7 +254,7 @@ export class DynoSheet {
     const gap = 16;
     const axisBand = 22;
     // The combined chart gets the most room: it is the one whose crossing is the point.
-    const shares = [0.34, 0.22, 0.22, 0.22];
+    const shares = [0.3, 0.175, 0.175, 0.175, 0.175];
     const usable = h - top - axisBand - (shares.length - 1) * gap;
     const heights = shares.map((f) => usable * f);
     const tops: number[] = [];
@@ -258,30 +275,46 @@ export class DynoSheet {
           { colour: POWER, value: (q) => q.hp, unit: 'hp' },
           { colour: TORQUE, value: (q) => q.lbft, unit: 'lb·ft' },
         ],
+        floor: 10,
+        digits: 0,
         crossing: true,
         byGear: false,
       },
       {
         title: 'Power, kW',
         series: [{ colour: POWER, value: (q) => q.kw, unit: 'kW' }],
+        floor: 10,
+        digits: 0,
         crossing: false,
         byGear: true,
       },
       {
         title: 'Torque, N·m',
         series: [{ colour: TORQUE, value: (q) => q.nm, unit: 'N·m' }],
+        floor: 10,
+        digits: 0,
         crossing: false,
         byGear: true,
       },
       {
         title: 'Volumetric efficiency, %',
         series: [{ colour: POWER, value: (q) => q.ve, unit: '%' }],
+        floor: 10,
+        digits: 0,
+        crossing: false,
+        byGear: true,
+      },
+      {
+        title: 'Intake manifold pressure, bar abs',
+        series: [{ colour: POWER, value: (q) => q.map, unit: 'bar' }],
+        floor: 1.5,
+        digits: 1,
         crossing: false,
         byGear: true,
       },
     ];
     const maxes = panes.map((pane) =>
-      niceMax(Math.max(10, ...pts.flatMap((q) => pane.series.map((m) => m.value(q)))) * 1.08),
+      niceMax(Math.max(pane.floor, ...pts.flatMap((q) => pane.series.map((m) => m.value(q)))) * 1.08),
     );
     const scales = panes.map((_, k) => {
       const max = maxes[k]!;
@@ -347,7 +380,7 @@ export class DynoSheet {
       ctx.lineTo(w - right, y);
       ctx.stroke();
       ctx.fillStyle = INK_DIM;
-      ctx.fillText(formatNumber(v), left - 6, y);
+      ctx.fillText(formatNumber(v, pane.digits), left - 6, y);
     }
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
@@ -393,7 +426,7 @@ export class DynoSheet {
       const px = xs(peak.rpm);
       const py = ys(m.value(peak));
       this.marker(px, py, colourOf(pane, m, peak));
-      const value = Math.round(m.value(peak));
+      const value = pane.digits === 0 ? Math.round(m.value(peak)) : m.value(peak).toFixed(2);
       const label = `${value}${m.unit === '%' ? '%' : ` ${m.unit}`} @ ${formatNumber(Math.round(peak.rpm))}`;
       ctx.fillStyle = INK;
       ctx.textBaseline = 'bottom';
@@ -462,7 +495,8 @@ export class DynoSheet {
     for (const q of rows) {
       el('div', 'dyno-tip-row', this.tooltip).textContent =
         `${ordinal(q.gear)}  ${Math.round(q.hp)} hp · ${Math.round(q.lbft)} lb·ft · ` +
-        `${Math.round(q.kw)} kW · ${Math.round(q.nm)} N·m · VE ${Math.round(q.ve)}% · ${Math.round(q.mph)} mph`;
+        `${Math.round(q.kw)} kW · ${Math.round(q.nm)} N·m · VE ${Math.round(q.ve)}% · ` +
+        `${q.map.toFixed(2)} bar · ${Math.round(q.mph)} mph`;
     }
     this.tooltip.classList.remove('hidden');
     const tw = this.tooltip.offsetWidth;
@@ -493,6 +527,7 @@ export class DynoSheet {
       el('td', '', tr).textContent = String(Math.round(Math.max(...inGear.map((q) => q.kw))));
       el('td', '', tr).textContent = String(Math.round(Math.max(...inGear.map((q) => q.nm))));
       el('td', '', tr).textContent = `${Math.round(Math.max(...inGear.map((q) => q.ve)))}%`;
+      el('td', '', tr).textContent = Math.max(...inGear.map((q) => q.map)).toFixed(2);
     }
   }
 
@@ -519,17 +554,20 @@ function smooth(points: Point[]): Smoothed[] {
     let torque = 0;
     let rpm = 0;
     let ve = 0;
+    let map = 0;
     let n = 0;
     for (let j = Math.max(i - SMOOTH, 0); j <= Math.min(i + SMOOTH, points.length - 1); j++) {
       if (points[j]!.gear !== p.gear) continue;
       torque += points[j]!.torque;
       rpm += points[j]!.rpm;
       ve += points[j]!.ve;
+      map += points[j]!.map;
       n++;
     }
     torque /= n;
     rpm /= n;
     ve /= n;
+    map /= n;
     const watts = (torque * rpm * 2 * Math.PI) / 60;
     return {
       rpm,
@@ -538,6 +576,7 @@ function smooth(points: Point[]): Smoothed[] {
       kw: watts / 1000,
       nm: torque,
       ve: ve * 100,
+      map,
       mph: p.kmh / KMH_PER_MPH,
       gear: p.gear,
     };
@@ -580,6 +619,7 @@ function interpolate(points: Smoothed[], gear: number, rpm: number): Smoothed | 
         kw: mix(prev.kw, q.kw),
         nm: mix(prev.nm, q.nm),
         ve: mix(prev.ve, q.ve),
+        map: mix(prev.map, q.map),
         mph: mix(prev.mph, q.mph),
       };
     }
@@ -599,8 +639,8 @@ function niceMax(v: number): number {
   return niceStep(v / 15) * 15;
 }
 
-function formatNumber(v: number): string {
-  return v.toLocaleString('en-US', { maximumFractionDigits: 0 });
+function formatNumber(v: number, digits = 0): string {
+  return v.toLocaleString('en-US', { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 function ordinal(n: number): string {

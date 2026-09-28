@@ -681,8 +681,9 @@ export interface DynoSnapshot {
   /** Whether the last pull is over, or the run was stopped. The engine may still be winding down. */
   finished: boolean;
   /**
-   * The engine cycles recorded since the last snapshot, five values each: rpm, crank torque (N*m),
-   * road speed (km/h), gear (1-6) and volumetric efficiency (a fraction).
+   * The engine cycles recorded since the last snapshot, six values each: rpm, crank torque (N*m),
+   * road speed (km/h), gear (1-6), volumetric efficiency (a fraction) and intake manifold pressure
+   * (bar, absolute).
    */
   points: Float32Array;
 }
