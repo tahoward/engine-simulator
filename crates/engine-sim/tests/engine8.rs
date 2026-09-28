@@ -217,8 +217,9 @@ fn an_inline_four_fires_1_3_4_2_evenly_every_180_degrees_on_one_bank() {
 #[test]
 fn both_v8_cranks_fire_every_90_degrees_overall_they_are_indistinguishable() {
     for crank_type in ["crossplane", "flatplane"] {
-        let plan = firing_plan(&spec(v8(json!({ "crankType": crank_type }))));
-        assert_eq!(plan.offsets, vec![0.0, 90.0, 180.0, 270.0, 360.0, 450.0, 540.0, 630.0], "{crank_type}");
+        let mut offsets = firing_plan(&spec(v8(json!({ "crankType": crank_type })))).offsets;
+        offsets.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        assert_eq!(offsets, vec![0.0, 90.0, 180.0, 270.0, 360.0, 450.0, 540.0, 630.0], "{crank_type}");
     }
 }
 
@@ -268,9 +269,9 @@ fn every_cylinder_fires_exactly_once_per_cycle_at_a_distinct_angle() {
 fn recovers_a_crossplane_crank_from_the_crossplane_firing_plan() {
     let pins = crank_pins(&spec(v8(json!({ "crankType": "crossplane" }))));
     assert_eq!(pins.len(), 4);
-    let mut angles: Vec<f64> = pins.iter().map(|p| p.angle_deg).collect();
-    angles.sort_by(|a, b| a.partial_cmp(b).unwrap());
-    assert_eq!(angles, vec![0.0, 90.0, 180.0, 270.0]);
+    // Along the crank, with the end throws half a turn apart, so the secondary couple cancels.
+    let angles: Vec<f64> = pins.iter().map(|p| p.angle_deg).collect();
+    assert_eq!(angles, vec![0.0, 270.0, 90.0, 180.0]);
     for p in &pins {
         assert_eq!(p.cylinders.len(), 2);
     }
@@ -281,9 +282,9 @@ fn recovers_a_crossplane_crank_from_the_crossplane_firing_plan() {
 fn and_a_flatplane_crank_from_the_flatplane_one() {
     let pins = crank_pins(&spec(v8(json!({ "crankType": "flatplane" }))));
     assert_eq!(pins.len(), 4);
-    // All in one plane: only 0 and 180.
-    let angles: BTreeSet<u64> = pins.iter().map(|p| p.angle_deg.to_bits()).collect();
-    assert_eq!(angles, BTreeSet::from([0.0f64.to_bits(), 180.0f64.to_bits()]));
+    // All in one plane, and in an inline four's order along the crank, so the primary couple cancels.
+    let angles: Vec<f64> = pins.iter().map(|p| p.angle_deg).collect();
+    assert_eq!(angles, vec![0.0, 180.0, 180.0, 0.0]);
     for p in &pins {
         assert_eq!(p.cylinders.len(), 2);
     }
