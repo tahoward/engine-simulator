@@ -110,6 +110,9 @@ interface HandleData {
 /** The attachment dot's colours: on a port, pipe or turbo, and on a junction. */
 const ATTACH_MARKER = 0xffd166;
 const JUNCTION_MARKER = 0xc792ff;
+/** The attachment dot's radius, m, at the least, and against the bore it sits on: wider, so it shows round the pipe. */
+const MARKER_RADIUS = 0.016;
+const MARKER_OVER_BORE = 0.7;
 
 
 /** Size of the selected segment's triad, m. */
@@ -455,7 +458,7 @@ export class PipeEditor {
 
 
     this.marker = new THREE.Mesh(
-      new THREE.SphereGeometry(0.016, 16, 12),
+      new THREE.SphereGeometry(1, 16, 12),
       new THREE.MeshBasicMaterial({ color: ATTACH_MARKER, transparent: true, opacity: 0.85 }),
     );
     this.marker.visible = false;
@@ -1052,11 +1055,19 @@ export class PipeEditor {
     this.cb.onDrawing?.(false);
   }
 
-  /** The attachment dot: violet on a junction, so it reads apart from a pipe end or port's yellow. */
-  private colourMarker(target: SnapTarget): void {
+  /**
+   * The attachment dot: violet on a junction, so it reads apart from a pipe end or port's yellow, and wider
+   * than the pipe it is on, so the pipe does not swallow it.
+   */
+  private styleMarker(target: SnapTarget): void {
     (this.marker.material as THREE.MeshBasicMaterial).color.setHex(
       target.kind === 'node' ? JUNCTION_MARKER : ATTACH_MARKER,
     );
+    const bore =
+      target.kind === 'port'
+        ? this.portDiameter
+        : (this.connectionAnchor(target, this.route?.ductId ?? '')?.dia ?? 0);
+    this.marker.scale.setScalar(Math.max(MARKER_RADIUS, bore * MARKER_OVER_BORE));
   }
 
   private hidePreview(): void {
@@ -2148,7 +2159,7 @@ export class PipeEditor {
       this.marker.visible = startable;
       if (startable) {
         this.marker.position.copy(target!.point);
-        this.colourMarker(target!);
+        this.styleMarker(target!);
       }
       this.drawGhost.group.visible = false;
       return;
@@ -2192,7 +2203,7 @@ export class PipeEditor {
     // Marked only when it would *connect*, so the highlight means something.
     this.marker.visible = target.kind !== 'free';
     this.marker.position.copy(point);
-    this.colourMarker(target);
+    this.styleMarker(target);
     this.snapped = target;
   }
 
