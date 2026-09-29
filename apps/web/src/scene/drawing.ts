@@ -16,14 +16,17 @@ import * as THREE from 'three';
 
 import { arcHandle, makeSegment, segmentDiameter, type PipeSegment } from '../model/spec.js';
 import {
+  attachToLooseStart,
   disconnectEnd,
   drawnSegments,
   endsAt,
+  joinDuctEnd,
   junctionAt,
   newDuctId,
   nodeOrder,
   releaseBend,
   removeDuct,
+  splitDuctAt,
   turboAt,
   type DuctDirections,
   type ExhaustDuct,
@@ -884,6 +887,65 @@ export function collectSnapTargets(
   }
 
   return targets;
+}
+
+/**
+ * Whether ending the route `ductId` on `target` would close a loop with no way out: leave the pipes it
+ * joins with no open end anywhere, so the gas in them has nowhere to go. An open end is a pipe ending in
+ * air, a loose pipe's start, or a junction or turbo nothing leaves yet, whose pipes end in air there
+ * (`solverGraph`). A loop that still has one somewhere is allowed.
+ *
+ * Tried on a copy of the graph, joined as the route would join it, so what counts as joined is exactly what
+ * connecting does.
+ */
+export function closesLoop(graph: ExhaustGraph, ductId: string, target: SnapTarget): boolean {
+  if (target.kind === 'port' || target.kind === 'turboOutlet' || target.kind === 'free') return false;
+  const g = structuredClone(graph);
+  const duct = g.ducts.find((d) => d.id === ductId);
+  if (!duct) return false;
+  let node: string | null = null;
+  switch (target.kind) {
+    case 'turboInlet':
+      node = g.turbos?.find((t) => t.id === target.turbo)?.node ?? null;
+      break;
+    case 'node':
+      node = target.node;
+      break;
+    case 'looseStart':
+      node = attachToLooseStart(g, ductId, target.duct, [1, 0, 0]);
+      break;
+    case 'ductSurface':
+      node = splitDuctAt(g, target.duct, target.x);
+      break;
+    case 'ductEnd': {
+      // A loose pipe's far end turns it round to carry on from the route, which joins it as its start does.
+      const other = g.ducts.find((d) => d.id === target.duct);
+      node = other?.from.kind === 'free' ? attachToLooseStart(g, ductId, other.id, [1, 0, 0]) : joinDuctEnd(g, target.duct);
+      break;
+    }
+    default:
+      return false;
+  }
+  if (!node) return false;
+  duct.to = { kind: 'node', node };
+
+  const leaving = new Set(g.ducts.flatMap((d) => (d.from.kind === 'node' ? [d.from.node] : [])));
+  const seen = new Set<string>([duct.id]);
+  const frontier = [duct];
+  while (frontier.length > 0) {
+    const d = frontier.pop()!;
+    if (d.to.kind === 'mouth' || d.from.kind === 'free') return false;
+    for (const end of [d.from, d.to]) {
+      if (end.kind !== 'node') continue;
+      if (!leaving.has(end.node)) return false;
+      for (const e of endsAt(g, end.node)) {
+        if (seen.has(e.duct.id)) continue;
+        seen.add(e.duct.id);
+        frontier.push(e.duct);
+      }
+    }
+  }
+  return true;
 }
 
 /**
