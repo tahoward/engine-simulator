@@ -132,3 +132,63 @@ fn closed_throttle_and_a_mid_throttle_hold_is_stable_too() {
         println!("  {:<34} {}  (throttle 0.3, 25 Nm)", p.name, marks);
     }
 }
+
+/// Redrawing the exhaust while the engine idles leaves the idle as it was: the intake runners keep their
+/// gas, so the cylinders do not get a few full charges from runners refilled at the atmosphere's pressure.
+/// Against the same engine left alone, over the second after, run free.
+#[test]
+fn redrawing_the_exhaust_does_not_rev_the_idle() {
+    for name in ["Inline four, Honda F20C", "V8, Chevrolet LT2", "Inline six, Nissan RB26DETT"] {
+        let mut cfg = common::engine_preset(name).config.clone();
+        cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true }));
+        let top = |sim: &mut EngineSim| {
+            let mut hi = 0.0f64;
+            for _ in 0..100 {
+                sim.render(FS as usize / 100);
+                hi = hi.max(sim.rpm());
+            }
+            hi
+        };
+        let mut left = EngineSim::new(FS, &cfg);
+        let mut redrawn = EngineSim::new(FS, &cfg);
+        left.render(FS as usize * 3);
+        redrawn.render(FS as usize * 3);
+        // A tailpipe 5 mm longer, drawn or compiled.
+        match cfg.graph.clone() {
+            Some(mut graph) => {
+                let mouth = graph.ducts.iter_mut().find(|d| d.vents()).unwrap();
+                mouth.segments.last_mut().unwrap().length += 0.005;
+                redrawn.set_graph(Some(graph));
+            }
+            None => {
+                let mut pipe = cfg.pipe.clone();
+                pipe.last_mut().unwrap().length += 0.005;
+                redrawn.set_pipe(&pipe, None);
+            }
+        }
+        let (alone, after) = (top(&mut left), top(&mut redrawn));
+        assert!(after < alone + 30.0, "{name}: up to {after} rpm redrawn, {alone} left alone");
+    }
+}
+
+/// An edit the solver would build the same, as placing a loose pipe is, whose only trace in the graph is
+/// the other pipes' headings frozen where they lie, leaves the exhaust running as it was: its gas, and so
+/// the idle, untouched.
+#[test]
+fn an_edit_that_only_moves_the_drawing_leaves_the_exhaust_running() {
+    let mut cfg = common::engine_preset("Inline six, Nissan RB26DETT").config.clone();
+    cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true }));
+    let mut sim = EngineSim::new(FS, &cfg);
+    sim.render(FS as usize * 2);
+    let mut graph = cfg.graph.clone().unwrap();
+    for d in graph.ducts.iter_mut() {
+        d.heading_yaw = Some(d.heading_yaw.unwrap_or(0.0) + 0.1);
+        d.heading_frame = Some("world".into());
+    }
+    for t in graph.turbos.iter_mut() {
+        t.position = Some([0.1, 0.2, 0.3]);
+    }
+    let pressure = sim.pipe_solver().primary(0).pressure_at(2);
+    sim.set_graph(Some(graph));
+    assert_eq!(sim.pipe_solver().primary(0).pressure_at(2), pressure);
+}

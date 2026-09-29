@@ -128,6 +128,11 @@ matters.
 - **Loose pipes.** A loose pipe must be where it was put down, in a graph the app accepts, without the
   solver being given it, and must survive a link. Drawn into, it must stay where it was, be fed and given
   to the solver, and the pipe drawn into it must meet its start in a fitted bend.
+- **Editing the exhaust while it runs.** Idling free, the F20C, the LT2 and the RB26, their tailpipe made
+  5 mm longer, must rev no more than 30 rpm higher over the next second than the same engine left alone:
+  the intake keeps its gas when only the exhaust is rebuilt. An edit the solver would build the same, the
+  pipes' headings and a turbo's place changed as placing a loose pipe changes them, must leave the gas in
+  the pipes as it was.
 - **Turning a loose pipe round.** Drawn into at its far end, a loose pipe must lie exactly where it did,
   corner for corner, running the other way, with the same lengths and each bore swapped end for end; and
   attached there it must meet the pipe drawn into it with no pipe added.
