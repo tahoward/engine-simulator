@@ -993,10 +993,12 @@ export function collectSnapTargets(
       targets.push({ kind: 'ductEnd', point: end.clone(), duct: duct.id });
     }
     // Where one of its segments meets the next: a place to join it, or draw from, as on its side, the pipe
-    // split there into a junction. Not at a bend fitted to what it joins, which is fitted, not drawn.
+    // split there into a junction. Up to where the bend it is fitted to what it joins with begins, but not
+    // within that bend, which is fitted, not drawn.
     const drawn = duct.segments.length - fittedCount(duct);
+    const last = duct.fitted ? drawn : drawn - 1;
     let x = 0;
-    for (let i = 0; i < drawn - 1; i++) {
+    for (let i = 0; i < last; i++) {
       x += duct.segments[i]!.length;
       targets.push({
         kind: 'ductSurface',

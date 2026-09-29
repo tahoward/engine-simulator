@@ -1533,13 +1533,32 @@ describe('where one segment of a pipe meets the next', () => {
     expect(rest.segments[0]!.length).toBeCloseTo(0.2, 12);
   });
 
-  it('is not offered at a bend fitted to what the pipe joins', () => {
+  it('is offered where a bend fitted to what the pipe joins begins, and splits the pipe there, the bend its own', () => {
     const graph: ExhaustGraph = { ducts: [] };
-    placeLoosePipe(graph, [0, 0.3, 0], 0.042, 0.3);
+    const id = placeLoosePipe(graph, [0, 0.3, 0], 0.042, 0.3);
     const pipe = graph.ducts[0]!;
     pipe.segments.push(makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042 }));
     pipe.fitted = true;
-    expect(collectSnapTargets(graph, layoutGraph(ports(), graph), ports()).some((t) => t.kind === 'ductSurface')).toBe(false);
+    const at = collectSnapTargets(graph, layoutGraph(ports(), graph), ports()).filter((t) => t.kind === 'ductSurface');
+    expect(at).toHaveLength(1);
+    const node = splitDuctAt(graph, id, (at[0] as { x: number }).x)!;
+    // The straight before it is a pipe of its own now, and the bend its own, carrying it on and still fitted.
+    expect(pipe.fitted).toBeUndefined();
+    const bend = graph.ducts.find((d) => d.continues === id)!;
+    expect(bend.from).toEqual({ kind: 'node', node });
+    expect(bend.fitted).toBe(true);
+    expect(bend.segments).toHaveLength(1);
+  });
+
+  it('is not offered within a bend fitted to what the pipe joins, swing and all', () => {
+    const graph: ExhaustGraph = { ducts: [] };
+    placeLoosePipe(graph, [0, 0.3, 0], 0.042, 0.3);
+    const pipe = graph.ducts[0]!;
+    pipe.segments.push(makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 }), makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042 }));
+    pipe.fitted = true;
+    pipe.swing = true;
+    // Only where the swing begins, after the straight: not between the swing and the bend.
+    expect(collectSnapTargets(graph, layoutGraph(ports(), graph), ports()).filter((t) => t.kind === 'ductSurface')).toHaveLength(1);
   });
 });
 
