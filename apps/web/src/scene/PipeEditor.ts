@@ -65,6 +65,7 @@ import {
   bendWhole,
   bendAnchor,
   squareArrival,
+  sideArrival,
   closesLoop,
   collectSnapTargets,
   flipLoosePipe,
@@ -1466,7 +1467,11 @@ export class PipeEditor {
       case 'ductSurface': {
         const other = ctx.graph.ducts.find((d) => d.id === target.duct);
         if (!target.dir || !other) return null;
-        const dir = square && tip ? squareArrival(target.point, target.dir, tip.point, tip.dir) : target.dir.clone();
+        const dir = !tip
+          ? target.dir.clone()
+          : square
+            ? squareArrival(target.point, target.dir, tip.point, tip.dir)
+            : sideArrival(target.point, target.dir, tip.point, tip.dir);
         return { point: target.point.clone(), dir, dia: diameterAt(other.segments, target.x) };
       }
       case 'ductEnd': {

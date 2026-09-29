@@ -464,7 +464,8 @@ export interface BendAnchor {
  * end, or on its side, is where that pipe is, and the pipe joining it arrives along the pipe the gas carries
  * on through, merging into it rather than meeting it at a corner. Turn that pipe where it leaves, and the
  * bend follows it. A junction placed where its pipes' ends average out has no place apart from them, so
- * `null`, as for the pipe that is itself carried on. A pipe drawn in square (`ExhaustDuct.square`) arrives
+ * `null`, as for the pipe that is itself carried on. Into a pipe's side it merges from whichever end of it the
+ * pipe as drawn comes down (`sideArrival`). A pipe drawn in square (`ExhaustDuct.square`) arrives
  * across the pipe instead. Either way it ends at the bore of the pipe it joins, and follows it when that
  * changes.
  */
@@ -482,13 +483,35 @@ export function bendAnchor(
   const along = junctionAnchor(graph, placement, node, ductId);
   const self = graph.ducts.find((d) => d.id === ductId);
   const place = placement.ducts.get(ductId);
-  if (!along || !self?.square || !place) return along;
-  // Square into the pipe's side: across it, from where the pipe as drawn ends, at the pipe's bore there.
+  if (!along || !self || !place) return along;
   const drawn = drawnSegments(self);
   const swept = layoutPipe(drawn, place.origin, place.heading);
   const from = drawn.length > 0 ? swept.joints.at(-1)! : place.origin;
   const fromDir = drawn.length > 0 ? swept.jointDirections.at(-1)! : place.heading;
-  return { ...along, dir: squareArrival(along.point, along.dir, from, fromDir) };
+  // Square into the pipe's side: across it, from where the pipe as drawn ends, at the pipe's bore there.
+  if (self.square) return { ...along, dir: squareArrival(along.point, along.dir, from, fromDir) };
+  // Into a pipe's side, along it the way the pipe as drawn comes from. Not into a junction that was moved,
+  // which every pipe arrives at along the pipe leaving it.
+  if (junctionAt(graph, node)) return along;
+  return { ...along, dir: sideArrival(along.point, along.dir, from, fromDir) };
+}
+
+/**
+ * The way a pipe from `from`, heading `fromDir` there, merges into the side of a pipe running along `axis`
+ * through `point`: along the pipe, towards the far side from `from`, so it curves in from whichever end of
+ * the pipe it comes down. From level with `point`, the way `fromDir` leans along it; failing that, along `axis`.
+ */
+export function sideArrival(
+  point: THREE.Vector3,
+  axis: THREE.Vector3,
+  from: THREE.Vector3,
+  fromDir: THREE.Vector3,
+): THREE.Vector3 {
+  const a = axis.clone().normalize();
+  const EPS = 1e-6;
+  const ahead = point.clone().sub(from).dot(a);
+  if (Math.abs(ahead) > EPS) return ahead > 0 ? a : a.negate();
+  return fromDir.dot(a) < -EPS ? a.negate() : a;
 }
 
 /**
