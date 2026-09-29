@@ -73,6 +73,7 @@ import {
   hasBeenEdited,
   placeLoosePipe,
   removeDuct,
+  reversedDucts,
   siblingRunners,
   type DuctDirections,
   type ExhaustGraph,
@@ -875,12 +876,15 @@ audio.onSnapshot((s) => {
   // Each duct shows its own cells, all on one scale so their colours compare. A duct the solver has
   // that is not drawn, a turbo's exit, is passed over.
   const scale = pipeScale.track(s.ductPressure);
+  // A pipe the solver has turned round has its cells from its far end, so they are read back.
   const ducts = config.graph!.ducts;
+  const reversed = reversedDucts(config.graph!);
   let at = 0;
   s.ductIds.forEach((id, k) => {
     const n = s.ductCells[k]!;
     const i = ducts.findIndex((d) => d.id === id);
-    if (i >= 0) pipeMeshes[i]?.update(s.ductPressure.subarray(at, at + n), scale);
+    const cells = s.ductPressure.subarray(at, at + n);
+    if (i >= 0) pipeMeshes[i]?.update(reversed.has(id) ? cells.slice().reverse() : cells, scale);
     at += n;
   });
   scope.onSnapshot(s);

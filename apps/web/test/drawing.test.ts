@@ -43,6 +43,8 @@ import {
   newDuctId,
   newNodeId,
   placeLoosePipe,
+  reversedDucts,
+  solverGraph,
   splitDuctAt,
   splitSegments,
   validateGraph,
@@ -906,6 +908,60 @@ describe('detaching a pipe from a placed pipe', () => {
     const after = layoutGraph(ports(), graph).ducts.get(loose)!;
     expect(after.origin.distanceTo(before.origin)).toBeLessThan(1e-9);
     expect(after.heading.angleTo(before.heading)).toBeLessThan(1e-9);
+  });
+});
+
+/**
+ * A pipe drawn into the side of a placed pipe, open at both ends, makes a T: the gas arriving at the junction
+ * goes out of both ends, though the half before it was drawn running into it.
+ */
+describe('a T into a placed pipe', () => {
+  const spec = defaultConfig().engine;
+  const tee = () => {
+    const graph = compileLayout(spec, [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.042 })], []);
+    const loose = placeLoosePipe(graph, [0.2, -0.3, 0.4], 0.042, 0.6);
+    graph.ducts.find((d) => d.id === loose)!.segments[0]!.dOut = 0.05;
+    const node = splitDuctAt(graph, loose, 0.2)!;
+    graph.ducts.find((d) => d.from.kind === 'valve')!.to = { kind: 'node', node };
+    return { graph, loose, node };
+  };
+
+  it('gives the solver the half before the junction turned round, out to its open end', () => {
+    const { graph, loose, node } = tee();
+    expect(reversedDucts(graph)).toEqual(new Set([loose]));
+    const solved = solverGraph(graph);
+    expect(validateGraph(solved, spec.cylinders)).toEqual([]);
+    const back = solved.ducts.find((d) => d.id === loose)!;
+    expect(back.from).toEqual({ kind: 'node', node });
+    expect(back.to).toEqual({ kind: 'mouth' });
+    // Its taper the other way round: it widened towards the junction, so it narrows away from it.
+    const drawn = graph.ducts.find((d) => d.id === loose)!.segments[0]!;
+    expect(back.segments[0]!.dIn).toBeCloseTo(segmentDiameter(drawn, 1), 12);
+    expect(back.segments.at(-1)!.dOut).toBeCloseTo(drawn.dIn, 12);
+    expect(solved.ducts.filter((d) => d.to.kind === 'mouth')).toHaveLength(2);
+  });
+
+  it('carries the gas out of both ends, heard through the Wasm build', async () => {
+    const { Sim } = await import('../src/audio/worklet/sim.js');
+    const { graph, loose } = tee();
+    const cfg = defaultConfig();
+    cfg.engine = { ...spec, throttle: 1, rpm: 4000, freeRunning: false };
+    cfg.graph = solverGraph(graph);
+    const sim = new Sim(48000, cfg);
+    sim.render(48000);
+    const s = sim.snapshot();
+    const swing = (id: string) => {
+      let at = 0;
+      for (let k = 0; k < s.ductIds.length; k++) {
+        const n = s.ductCells[k]!;
+        if (s.ductIds[k] === id) return Math.max(...s.ductPressure.subarray(at, at + n).map(Math.abs));
+        at += n;
+      }
+      return -1;
+    };
+    const other = graph.ducts.find((d) => d.id !== loose && d.from.kind === 'node')!.id;
+    expect(swing(loose)).toBeGreaterThan(0);
+    expect(swing(other)).toBeGreaterThan(0);
   });
 });
 
