@@ -452,6 +452,7 @@ impl Cylinder {
     fn update_combustion_latches(&mut self, si: &SpecInstance) {
         let spec = &si.spec;
         let next_angle = self.next_angle;
+        let mut ivc_passed = false;
         if si.id != self.event_spec
             || self.intake_cam_offset != self.event_intake_offset
             || self.exhaust_cam_offset != self.event_exhaust_offset
@@ -461,14 +462,18 @@ impl Cylinder {
             self.event_exhaust_offset = self.exhaust_cam_offset;
             let evo = spec.evo + self.exhaust_cam_offset;
             let ivc = spec.ivc + self.intake_cam_offset;
+            let was_ahead = cycle_delta(self.angle, self.ivc_at) < 0.0;
             self.evo_at = wrap_cycle(evo);
             self.ivc_at = wrap_cycle(ivc);
+            // A phaser advancing the intake cam can move its closing back past the crank between two
+            // steps, so the crank never sweeps over it: the valve has closed all the same.
+            ivc_passed = self.exchanging && was_ahead && cycle_delta(self.angle, self.ivc_at) >= 0.0;
             self.exchanging = window_phase(self.angle, evo, ivc) >= 0.0;
         }
         if crossed(self.angle, next_angle, self.evo_at) {
             self.exchanging = true;
         }
-        if crossed(self.angle, next_angle, self.ivc_at) {
+        if ivc_passed || crossed(self.angle, next_angle, self.ivc_at) {
             self.exchanging = false;
             self.ref_pressure = self.step_pressure;
             self.motored_pressure = self.step_pressure;

@@ -88,3 +88,41 @@ fn a_pull_needs_a_sweep_rate() {
     sim.render(FS as usize / 10);
     assert!(sim.snapshot().launch.is_none());
 }
+
+/// Every cylinder traps a charge every cycle through the LT6's cam phaser sweeping back to rest, from
+/// 4550 to 7750 rpm, though the phaser moves the intake closing back and forth as it goes.
+#[test]
+fn every_cycle_traps_a_charge_as_the_phaser_moves() {
+    let preset = common::engine_preset("V8, Chevrolet LT6");
+    let config = LaunchConfig {
+        dyno: true,
+        ratios: vec![1.0],
+        final_drive: 1.0,
+        launch_rpm: 4500.0,
+        shift_rpm: 7800.0,
+        sweep_rate: 500.0,
+        ..preset.launch.clone()
+    };
+    let mut sim = EngineSim::new(FS, &preset.config);
+    sim.render(FS as usize / 2);
+    sim.start_launch(config);
+    let n = sim.cylinders().len();
+    let mut prev: Vec<f64> = sim.cylinders().iter().map(|c| c.angle).collect();
+    let (mut cycles, mut untrapped) = (0, 0);
+    // The charge is trapped by 660 degrees at the latest, before any spark: until it is, `burned` is
+    // still the last cycle's.
+    while sim.snapshot().launch.is_some_and(|l| !l.finished) {
+        sim.render(1);
+        for (b, cyl) in sim.cylinders().iter().enumerate().take(n) {
+            if prev[b] < 660.0 && cyl.angle >= 660.0 && sim.rpm() > 4000.0 {
+                cycles += 1;
+                if cyl.burned != 0.0 {
+                    untrapped += 1;
+                }
+            }
+            prev[b] = cyl.angle;
+        }
+    }
+    assert!(cycles > 1000, "{cycles} cycles");
+    assert_eq!(untrapped, 0, "{untrapped} of {cycles} cycles trapped no charge");
+}
