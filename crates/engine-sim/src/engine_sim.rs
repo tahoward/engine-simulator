@@ -486,22 +486,26 @@ impl EngineSim {
         self.tune_structure();
         let spec = &self.spec.spec;
         let runner = intake_runner_of(spec);
-        if runner.length != prev_runner.length
+        let intake_changed = runner.length != prev_runner.length
             || runner.diameter != prev_runner.diameter
             || spec.intake_runner_short_length != prev_short_runner
-            || spec.port_gas_temp != prev_temp
+            || spec.pipe_cell_size != prev_cell_size
+            || layout_key(spec) != prev_layout;
+        let exhaust_changed = spec.port_gas_temp != prev_temp
             || spec.port_length != prev_port_length
             || exhaust_port_diameter(spec) != prev_port_dia
-            || spec.pipe_cell_size != prev_cell_size
-            || spec.pipe_wall_thickness != prev_wall_thickness
-            || layout_key(spec) != prev_layout
-        {
+            || spec.pipe_wall_thickness != prev_wall_thickness;
+        if intake_changed || exhaust_changed {
             if layout_key(spec) != prev_layout {
                 self.launch = None;
                 self.allocate_per_cylinder();
                 self.cyls = self.build_cylinders();
             }
-            self.rebuild_pipe();
+            if intake_changed {
+                self.rebuild_pipe();
+            } else {
+                self.rebuild_exhaust();
+            }
         } else if !same_offsets(&firing_plan(spec).offsets, &prev_phase) {
             // Re-phase in place, keeping the gas state.
             let plan = firing_plan(spec);
@@ -521,19 +525,21 @@ impl EngineSim {
         Ok(())
     }
 
-    /// Replace the whole duct graph, for an exhaust that was drawn rather than chosen. One that differs
-    /// only in the turbos' own settings resizes them where they are, keeping the gas in the pipes.
+    /// Replace the whole duct graph, for an exhaust that was drawn rather than chosen. One the solver
+    /// would build the same, differing only in where things are drawn or in the turbos' own settings,
+    /// keeps the gas in the pipes, the turbos resized where they are.
     pub fn set_graph(&mut self, graph: Option<ExhaustGraph>) {
-        let settings_only = match (&self.graph, &graph) {
-            (Some(old), Some(new)) => without_turbo_settings(old) == without_turbo_settings(new),
+        let same = match (&self.graph, &graph) {
+            (Some(old), Some(new)) => solver_view(old) == solver_view(new),
+            (None, None) => true,
             _ => false,
         };
         self.graph = graph;
-        if settings_only {
-            self.wg.update_turbo_settings(self.graph.as_ref().unwrap());
+        if !same {
+            self.rebuild_exhaust();
+        } else if let Some(g) = &self.graph {
+            self.wg.update_turbo_settings(g);
             self.refresh_turbo();
-        } else {
-            self.rebuild_pipe();
         }
     }
 
@@ -542,12 +548,19 @@ impl EngineSim {
         if let Some(c) = collector {
             self.collector_pipe = c.to_vec();
         }
-        self.rebuild_pipe();
+        self.rebuild_exhaust();
     }
 
+    /// Rebuild the exhaust and the intake runners, for a change to both.
     fn rebuild_pipe(&mut self) {
-        self.wg = self.build_exhaust();
         self.build_intake();
+        self.rebuild_exhaust();
+    }
+
+    /// Rebuild the exhaust alone, for a change to it: the intake runners keep their gas, as the plenum does.
+    /// Refilled at the atmosphere's pressure, they would hand a throttled engine a few full charges.
+    fn rebuild_exhaust(&mut self) {
+        self.wg = self.build_exhaust();
         self.last_valve_mdot.fill(0.0);
         self.refresh_far_fields();
         for f in self.far_fields.iter_mut() {
@@ -1450,10 +1463,22 @@ fn build_exhaust_for(
     sys
 }
 
-/// `graph` without any turbo's own settings.
-fn without_turbo_settings(graph: &ExhaustGraph) -> ExhaustGraph {
+/// `graph` as far as building the solver goes: without where its pipes and turbos are drawn and which
+/// way they point, which only the scene reads, nor the turbos' own settings, which resize them in place.
+fn solver_view(graph: &ExhaustGraph) -> ExhaustGraph {
     let mut g = graph.clone();
+    for d in g.ducts.iter_mut() {
+        d.heading_yaw = None;
+        d.heading_pitch = None;
+        d.heading_frame = None;
+        for s in d.segments.iter_mut() {
+            s.yaw = 0.0;
+            s.pitch = 0.0;
+        }
+    }
     for t in g.turbos.iter_mut() {
+        t.position = None;
+        t.rotation = None;
         t.settings = None;
     }
     g
