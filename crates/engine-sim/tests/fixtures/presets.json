@@ -352,7 +352,9 @@
     "launchRpm": 3500,
     "shiftRpm": 6850,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -527,7 +529,9 @@
     "launchRpm": 2800,
     "shiftRpm": 5450,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -729,7 +733,9 @@
     "launchRpm": 4500,
     "shiftRpm": 8850,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -934,7 +940,9 @@
     "launchRpm": 4575,
     "shiftRpm": 9000,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -1318,7 +1326,9 @@
     "launchRpm": 3600,
     "shiftRpm": 7050,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -1539,7 +1549,9 @@
     "launchRpm": 3250,
     "shiftRpm": 6350,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -1948,7 +1960,9 @@
     "launchRpm": 3600,
     "shiftRpm": 7050,
     "shiftTime": 0.1,
-    "dualClutch": true
+    "dualClutch": true,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -2610,7 +2624,9 @@
     "launchRpm": 4100,
     "shiftRpm": 8050,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -3381,7 +3397,9 @@
     "launchRpm": 3300,
     "shiftRpm": 6450,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -3608,7 +3626,9 @@
     "launchRpm": 3300,
     "shiftRpm": 6450,
     "shiftTime": 0.1,
-    "dualClutch": true
+    "dualClutch": true,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -3843,7 +3863,9 @@
     "launchRpm": 4300,
     "shiftRpm": 8450,
     "shiftTime": 0.1,
-    "dualClutch": true
+    "dualClutch": true,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -4065,7 +4087,9 @@
     "launchRpm": 3250,
     "shiftRpm": 6350,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -4288,7 +4312,9 @@
     "launchRpm": 3650,
     "shiftRpm": 7150,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [
@@ -4494,7 +4520,9 @@
     "launchRpm": 3750,
     "shiftRpm": 7350,
     "shiftTime": 0.4,
-    "dualClutch": false
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
    },
    "fittedExhaust": {
     "pipe": [

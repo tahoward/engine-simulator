@@ -21,6 +21,16 @@
 //! What the run measures is crank torque averaged over each complete engine cycle, as a dyno reports
 //! it, and the time to 60 mph, the quarter mile and the half mile, as a timeslip does: from the moment
 //! the car has rolled a foot, where a drag strip's clock starts and where American road tests start theirs.
+//!
+//! A dyno pull runs the same engine on an engine dyno instead: the crank drives the dyno's absorber
+//! directly, through one gear at 1:1, with no car, tyres or clutch. The absorber is a brake, an eddy
+//! current or water brake, under a speed controller. At full throttle it first holds the engine at the
+//! launch speed, then lets it up at the sweep rate to the shift point, braking with whatever torque
+//! holds it to that ramp: so its resistance rises and falls with what the engine makes. It only brakes,
+//! never drives, and its speed controller is a proportional-integral one, as a dyno's is, sized to the
+//! engine's full-load torque. Because the sweep is slow and steady, little of the engine's torque goes
+//! into spinning up its own inertia, and the torque measured is the crank's, averaged over each cycle as
+//! for a launch.
 
 use crate::math::{self, PI};
 use crate::spec::LaunchConfig;
@@ -28,6 +38,8 @@ use crate::spec::LaunchConfig;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LaunchPhase {
     Launch,
+    /// A dyno pull holding the engine at the launch speed before the sweep.
+    Hold,
     Pull,
     ShiftOut,
     ShiftIn,
@@ -38,6 +50,7 @@ impl LaunchPhase {
     pub fn as_str(self) -> &'static str {
         match self {
             LaunchPhase::Launch => "launch",
+            LaunchPhase::Hold => "hold",
             LaunchPhase::Pull => "pull",
             LaunchPhase::ShiftOut => "shiftOut",
             LaunchPhase::ShiftIn => "shiftIn",
@@ -97,6 +110,17 @@ const G: f64 = 9.81;
 const MAX_RUN: f64 = 150.0;
 const STALL_TIME: f64 = 4.0;
 
+/// A dyno pull: how close to the launch speed the absorber must hold the engine, rev/min, and for how
+/// long, s, before the sweep starts; and how far the engine may fall behind the sweep before the pull
+/// gives up, rev/min.
+const DYNO_HOLD_BAND: f64 = 100.0;
+const DYNO_HOLD: f64 = 1.0;
+const DYNO_LAG: f64 = 1000.0;
+/// The absorber's speed controller: the speed error, rad/s, at which its proportional part alone takes
+/// the engine's full-load torque, and its integral time, s.
+const DYNO_SPEED_BAND: f64 = 20.0;
+const DYNO_INTEGRAL_TIME: f64 = 0.3;
+
 /// How far the car rolls before the clock starts, m: a foot.
 const ROLLOUT: f64 = 0.3048;
 /// 60 mph, m/s, and a quarter and a half mile, m.
@@ -154,14 +178,22 @@ pub struct LaunchRun {
     cycle_valid: bool,
     best_speed: f64,
     best_speed_at: f64,
+    /// A dyno pull's target speed, rad/s, and its absorber's integral torque, N*m.
+    dyno_target: f64,
+    dyno_integral: f64,
+    /// The absorber's proportional gain, N*m per rad/s.
+    dyno_gain: f64,
 }
 
 impl LaunchRun {
-    /// A car at rest, in first. `full_load_torque` sizes the clutch.
+    /// A car at rest, in first, or an engine on the dyno. `full_load_torque` sizes the clutch, and the
+    /// dyno's absorber.
     pub fn new(config: LaunchConfig, full_load_torque: f64) -> LaunchRun {
+        let dyno = config.dyno;
         LaunchRun {
+            dyno_target: (config.launch_rpm * 2.0 * PI) / 60.0,
             config,
-            phase: LaunchPhase::Launch,
+            phase: if dyno { LaunchPhase::Hold } else { LaunchPhase::Launch },
             gear: 0,
             speed: 0.0,
             wheel_speed: 0.0,
@@ -190,6 +222,8 @@ impl LaunchRun {
             cycle_valid: false,
             best_speed: 0.0,
             best_speed_at: 0.0,
+            dyno_integral: 0.0,
+            dyno_gain: full_load_torque / DYNO_SPEED_BAND,
         }
     }
 
@@ -211,6 +245,9 @@ impl LaunchRun {
     pub fn step(&mut self, dt: f64, omega: f64, crank_torque: f64, angle: f64) -> f64 {
         self.elapsed += dt;
         self.phase_time += dt;
+        if self.config.dyno {
+            return self.dyno_step(dt, omega, crank_torque, angle);
+        }
         self.sequence(omega);
 
         let ratio = self.overall(self.gear);
@@ -255,6 +292,49 @@ impl LaunchRun {
         self.time_marks();
         self.record(dt, omega, crank_torque, angle);
         clutch_sum / SUBSTEPS as f64
+    }
+
+    /// A step of a dyno pull. Returns the torque the absorber takes off the crank, N*m.
+    fn dyno_step(&mut self, dt: f64, omega: f64, crank_torque: f64, angle: f64) -> f64 {
+        let rpm = (omega * 60.0) / (2.0 * PI);
+        let target_rpm = (self.dyno_target * 60.0) / (2.0 * PI);
+        match self.phase {
+            LaunchPhase::Hold => {
+                self.throttle = 1.0;
+                // The hold counts only while the engine is at the launch speed.
+                if (rpm - target_rpm).abs() > DYNO_HOLD_BAND {
+                    self.phase_time = 0.0;
+                }
+                if self.phase_time >= DYNO_HOLD {
+                    self.enter(LaunchPhase::Pull);
+                    self.moved_at = Some(self.elapsed);
+                } else if self.elapsed > LAUNCH_TIMEOUT {
+                    self.finish();
+                }
+            }
+            LaunchPhase::Pull => {
+                self.throttle = 1.0;
+                self.dyno_target += ((self.config.sweep_rate * 2.0 * PI) / 60.0) * dt;
+                if rpm >= self.config.shift_rpm || target_rpm - rpm > DYNO_LAG || self.elapsed > MAX_RUN {
+                    self.finish();
+                }
+            }
+            _ => {}
+        }
+
+        let absorbed = if self.finished {
+            0.0
+        } else {
+            // A brake under a speed controller: it takes whatever torque holds the engine to the target,
+            // and gives none back.
+            let error = omega - self.dyno_target;
+            let max = self.capacity;
+            self.dyno_integral =
+                math::min(math::max(self.dyno_integral + (self.dyno_gain * error * dt) / DYNO_INTEGRAL_TIME, 0.0), max);
+            math::min(math::max(self.dyno_gain * error + self.dyno_integral, 0.0), max)
+        };
+        self.record(dt, omega, crank_torque, angle);
+        absorbed
     }
 
     /// End the run: throttle shut, clutch out. The results so far stand.
@@ -342,6 +422,8 @@ impl LaunchRun {
                 self.throttle = 0.0;
                 self.clutch = 0.0;
             }
+            // Only a dyno pull holds, and `dyno_step` sequences it.
+            LaunchPhase::Hold => {}
         }
     }
 
@@ -354,7 +436,7 @@ impl LaunchRun {
             LaunchPhase::Launch => (omega * 60.0) / (2.0 * PI) > self.config.launch_rpm + LAUNCH_WINDOW,
             LaunchPhase::ShiftIn => capped && omega - (self.wheel_speed * ratio) / self.config.tyre_radius > TC_SYNC,
             LaunchPhase::Pull => self.wheel_speed - self.speed > TC_SLIP * (TYRE_SLIP + TYRE_SLIP_RATIO * self.speed),
-            LaunchPhase::ShiftOut | LaunchPhase::Cooldown => false,
+            LaunchPhase::Hold | LaunchPhase::ShiftOut | LaunchPhase::Cooldown => false,
         }
     }
 

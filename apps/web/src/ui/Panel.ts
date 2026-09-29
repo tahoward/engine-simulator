@@ -31,12 +31,15 @@ import {
   exhaustLayoutOf,
   firingOffsetDeg,
   firingPlan,
+  fitDyno,
   fitLaunch,
   fullLoadTorque,
   DRIVEN_LOAD,
   DRIVER_MASS,
   MANUAL_SHIFT_TIME,
   TYRE_GRIP,
+  DYNO_FROM_RPM,
+  DYNO_SWEEP_RATE,
   LAUNCH_RATIOS,
   LAUNCH_RPM_MARGIN,
   MAX_GEARS,
@@ -287,6 +290,9 @@ export class Panel {
   private readonly resyncers: Resync[] = [];
   private readonly rpmEl: HTMLElement;
   private readonly launchBtn: HTMLButtonElement;
+  private readonly dynoBtn: HTMLButtonElement;
+  /** Which of the two runs was last started: the one whose button stops it while it goes. */
+  private runKind: 'launch' | 'dyno' = 'launch';
   /**
    * The launch's car and settings. A `null` setting fits it to the engine; the gear ratios' `null` is the
    * car's, or the stock six-speed, and the final drive's and mass's are the car's, or fitted.
@@ -421,6 +427,7 @@ export class Panel {
         this.cb.onLaunch(null);
         return;
       }
+      this.runKind = 'launch';
       this.cb.onLaunch(this.launchConfig());
     });
     this.slider(launch, {
@@ -509,6 +516,59 @@ export class Panel {
     this.resyncers.push(() => (checkbox(tc).checked = this.launch.tractionControl));
     this.buildGearbox(launch);
     this.resyncers.push(() => this.renderGearbox());
+
+    // ---- Dyno ------------------------------------------------------------
+    const dyno = section(root, 'Dyno', true);
+    this.dynoBtn = el('button', 'primary', dyno) as HTMLButtonElement;
+    this.dynoBtn.textContent = 'Start dyno pull';
+    this.dynoBtn.title =
+      'One pull at full throttle on an engine dyno, the crank driving its absorber at 1:1: held at the ' +
+      'start speed, then swept up at the sweep rate to the end. The absorber brakes with whatever torque ' +
+      'holds the engine to the sweep. The sheet plots crank power and torque against rpm.';
+    this.dynoBtn.addEventListener('click', () => {
+      if (this.launchRunning) {
+        this.cb.onLaunch(null);
+        return;
+      }
+      this.runKind = 'dyno';
+      this.cb.onLaunch(this.dynoConfig());
+    });
+    this.slider(dyno, {
+      label: 'Pull from',
+      min: 1000,
+      max: 12000,
+      step: 50,
+      value: this.dynoConfig().launchRpm,
+      sync: () => this.launch.dynoFrom ?? this.dynoConfig().launchRpm,
+      format: (v) => `${Math.round(v)} rpm${this.launch.dynoFrom === null ? ' (auto)' : ''}`,
+      onInput: (v) => this.setLaunch('dynoFrom', v),
+    }).row.title =
+      `Engine speed the pull starts from, held for a second before the sweep. Auto is a quarter of the rev ` +
+      `limiter, and at least ${DYNO_FROM_RPM} rpm. It stays at least ${LAUNCH_RPM_MARGIN} rpm under the end.`;
+    this.slider(dyno, {
+      label: 'Pull to',
+      min: 1500,
+      max: 12000,
+      step: 50,
+      value: this.dynoConfig().shiftRpm,
+      sync: () => this.launch.dynoTo ?? this.dynoConfig().shiftRpm,
+      format: (v) => `${Math.round(v)} rpm${this.launch.dynoTo === null ? ' (auto)' : ''}`,
+      onInput: (v) => this.setLaunch('dynoTo', v),
+    }).row.title =
+      'Engine speed the pull ends at. Auto is just under the rev limiter. A setting past the limiter ' +
+      'ends just under it.';
+    this.slider(dyno, {
+      label: 'Sweep rate',
+      min: 100,
+      max: 2000,
+      step: 50,
+      value: this.dynoConfig().sweepRate,
+      sync: () => this.dynoConfig().sweepRate,
+      format: (v) => `${Math.round(v)} rpm/s${this.launch.sweepRate === null ? ' (auto)' : ''}`,
+      onInput: (v) => this.setLaunch('sweepRate', v),
+    }).row.title =
+      `How fast the absorber lets the engine speed up. Auto is ${DYNO_SWEEP_RATE} rpm/s, an engine dyno's ` +
+      'steady sweep. Faster gives a turbo less time to spool at each speed, so it reads less boost low down.';
 
     // ---- Engine preset ---------------------------------------------------
     // Whole-engine presets, because a V-twin is a layout as well as a pipe.
@@ -1530,6 +1590,11 @@ export class Panel {
       shiftRpm,
       launchRpm: Math.max(Math.min(this.launch.launchRpm ?? fit.launchRpm, shiftRpm - LAUNCH_RPM_MARGIN), 1000),
     };
+  }
+
+  /** A dyno pull through the user's settings, the rest fitted to the engine. */
+  private dynoConfig(): LaunchConfig {
+    return fitDyno(this.config.engine, this.launch.dynoFrom, this.launch.dynoTo, this.launch.sweepRate);
   }
 
   /** Whether a launch drives all four wheels: the user's choice, or the real car's. */
@@ -2669,8 +2734,14 @@ export class Panel {
     const running = s.launch !== null;
     if (running !== this.launchRunning) {
       this.launchRunning = running;
-      this.launchBtn.textContent = running ? 'Stop launch' : 'Start launch';
-      this.launchBtn.classList.toggle('running', running);
+      const launching = running && this.runKind === 'launch';
+      const pulling = running && this.runKind === 'dyno';
+      this.launchBtn.textContent = launching ? 'Stop launch' : 'Start launch';
+      this.launchBtn.classList.toggle('running', launching);
+      this.launchBtn.disabled = pulling;
+      this.dynoBtn.textContent = pulling ? 'Stop dyno pull' : 'Start dyno pull';
+      this.dynoBtn.classList.toggle('running', pulling);
+      this.dynoBtn.disabled = launching;
     }
     this.rpmEl.textContent =
       `${Math.round(s.rpm)} rpm${s.limiter ? ' · limiter' : ''}${s.fuelCut ? ' · fuel cut' : ''}`;

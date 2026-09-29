@@ -1,5 +1,5 @@
 /**
- * The Launch section's settings, as a shared link carries them alongside the engine: the car the loaded
+ * The Launch and Dyno sections' settings, as a shared link carries them alongside the engine: the car the loaded
  * preset's engine comes from, and every setting the user has changed from it.
  *
  * The car is carried by name and looked up among the presets' cars as it is read, so a link to a real
@@ -23,6 +23,10 @@ export interface LaunchSettings {
   tractionControl: boolean;
   ratios: number[] | null;
   finalDrive: number | null;
+  /** A dyno pull's start and end speeds, rev/min, and its sweep rate, rev/min per s. */
+  dynoFrom: number | null;
+  dynoTo: number | null;
+  sweepRate: number | null;
 }
 
 /** Every setting on auto, with no car. */
@@ -39,6 +43,9 @@ export function autoLaunchSettings(car: Car | null = null): LaunchSettings {
     tractionControl: true,
     ratios: null,
     finalDrive: null,
+    dynoFrom: null,
+    dynoTo: null,
+    sweepRate: null,
   };
 }
 
@@ -69,5 +76,8 @@ export function readLaunchSettings(raw: unknown): LaunchSettings {
       ? (ratios as number[])
       : null;
   out.finalDrive = number(r.finalDrive);
+  out.dynoFrom = number(r.dynoFrom);
+  out.dynoTo = number(r.dynoTo);
+  out.sweepRate = number(r.sweepRate);
   return out;
 }

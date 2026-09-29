@@ -457,6 +457,17 @@ pub struct LaunchConfig {
     pub shift_time: f64,
     /// Whether the gearbox is a dual clutch, which shifts with no gap in the drive.
     pub dual_clutch: bool,
+    /// A dyno pull rather than a launch: the crank drives a dyno's absorber through one gear at 1:1, from
+    /// `launch_rpm` to `shift_rpm`, and the car, tyres and gearbox are not used. See `LaunchRun`.
+    #[serde(default)]
+    pub dyno: bool,
+    /// How fast a dyno pull sweeps the engine up, rev/min per s.
+    #[serde(default = "default_sweep_rate")]
+    pub sweep_rate: f64,
+}
+
+fn default_sweep_rate() -> f64 {
+    500.0
 }
 
 pub const PIPE_PRESSURE_TAPS: usize = 128;
