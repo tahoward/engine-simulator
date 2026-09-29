@@ -25,6 +25,7 @@ import {
   quatMultiply,
   quatNormalise,
   seatTurbo,
+  UPRIGHT,
   type TurboSize,
 } from '../model/turbo.js';
 import type { Quat } from '../model/exhaustGraph.js';
@@ -581,7 +582,7 @@ export class PipeEditor {
       this.ghost.group.visible = false;
       return;
     }
-    this.ghostAt = { position: [point.x, point.y, point.z], rotation: [...IDENTITY] };
+    this.ghostAt = { position: [point.x, point.y, point.z], rotation: [...UPRIGHT] };
     this.showGhost();
   }
 

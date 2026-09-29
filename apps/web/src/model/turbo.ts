@@ -60,6 +60,12 @@ export interface TurboPorts {
  */
 export const IDENTITY: Quat = [0, 0, 0, 1];
 
+/**
+ * How a turbo put down on its own is turned: its shaft along the crank, the compressor forwards (the
+ * world's -z), and its inlet flange facing up, taking gas arriving downwards.
+ */
+export const UPRIGHT: Quat = [0.5, 0.5, -0.5, 0.5];
+
 /** `v` turned by `q`. */
 export function quatRotate(v: Vec3, q: Quat): Vec3 {
   const [x, y, z, w] = q;

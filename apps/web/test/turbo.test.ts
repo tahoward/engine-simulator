@@ -35,10 +35,12 @@ import {
   placeTurbo,
   quatFromAxisAngle,
   quatMultiply,
+  quatRotate,
   fittedBend,
   lockedFrom,
   removeTurbo,
   turboPortsOf,
+  UPRIGHT,
 } from '../src/model/turbo.js';
 import { bendAnchor, collectSnapTargets, fitCurve } from '../src/scene/drawing.js';
 import { bendRadius, curveInWorld, layoutPipe } from '../src/scene/PipeMesh.js';
@@ -863,3 +865,13 @@ describe('a compiled manifold', () => {
 
 });
 
+
+describe('a turbo put down on its own', () => {
+  it('lies along the crank with its inlet facing up', () => {
+    const near = (v: number[], w: number[]) => v.forEach((x, i) => expect(x).toBeCloseTo(w[i]!, 9));
+    // The shaft, compressor forwards.
+    near(quatRotate([1, 0, 0], UPRIGHT), [0, 0, -1]);
+    // Gas arrives at the inlet downwards, so the flange faces up.
+    near(quatRotate([0, 0, 1], UPRIGHT), [0, -1, 0]);
+  });
+});
