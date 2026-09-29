@@ -65,6 +65,7 @@ import {
   bendWhole,
   bendAnchor,
   squareArrival,
+  closesLoop,
   collectSnapTargets,
   flipLoosePipe,
   diameterAt,
@@ -1194,9 +1195,12 @@ export class PipeEditor {
     const rect = this.dom.getBoundingClientRect();
     const viewport = { width: rect.width, height: rect.height };
 
+    // Nothing a route ending there would leave with no way out to the air.
+    const route = this.route;
+    const trapped = (t: SnapTarget): boolean => !!route && closesLoop(ctx.graph, route.ductId, t);
     const point = nearestSnap(
       collectSnapTargets(ctx.graph, ctx.placement, ctx.ports).filter(
-        (t) => !(this.route && t.kind === 'ductEnd' && t.duct === this.route.ductId),
+        (t) => !(route && t.kind === 'ductEnd' && t.duct === route.ductId) && !trapped(t),
       ),
       this.pointer,
       this.camera,
@@ -1233,13 +1237,15 @@ export class PipeEditor {
       const station = layout
         ? layout.stations.reduce((best, s) => (Math.abs(s.x - st.x) < Math.abs(best.x - st.x) ? s : best))
         : null;
-      return {
+      const surface: SnapTarget = {
         kind: 'ductSurface',
         point: (station?.position ?? hit.point).clone(),
         duct: duct.id,
         x: st.x,
         ...(station ? { dir: station.direction.clone() } : {}),
       };
+      if (trapped(surface)) continue;
+      return surface;
     }
 
     const free = this.freePoint(tip);

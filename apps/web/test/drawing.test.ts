@@ -15,6 +15,7 @@ import * as THREE from 'three';
 
 import {
   MIN_DRAW_LENGTH,
+  closesLoop,
   collectSnapTargets,
   continuingDiameter,
   detachDuct,
@@ -1174,5 +1175,58 @@ describe('bending a bend again', () => {
     const flat = bendWhole(makeSegment({ ...bend, curve: undefined }), start, turnAxis, 0, 0.06).segment;
     expect(flat.curve).toBeUndefined();
     expect(flat.length).toBeCloseTo(bend.length, 9);
+  });
+});
+
+describe('closesLoop', () => {
+  const pipe = (length = 0.3) => makeSegment({ kind: 'pipe', length, dIn: 0.042, dOut: 0.042 });
+  const at = (x: number, y = 0, z = 0) => new THREE.Vector3(x, y, z);
+
+  /** Two runners merging at `j`, and `tail` drawn from their junction, still ending in air. */
+  function collector(): ExhaustGraph {
+    return {
+      ducts: [
+        { id: 'a', segments: [pipe()], from: { kind: 'valve', cylinder: 0 }, to: { kind: 'node', node: 'j' } },
+        { id: 'b', segments: [pipe()], from: { kind: 'valve', cylinder: 1 }, to: { kind: 'node', node: 'j' } },
+        { id: 'tail', segments: [pipe()], from: { kind: 'node', node: 'j' }, to: { kind: 'mouth' } },
+      ],
+    };
+  }
+
+  it('refuses a pipe drawn from a junction back into its own junction', () => {
+    expect(closesLoop(collector(), 'tail', { kind: 'node', point: at(0), node: 'j' })).toBe(true);
+  });
+
+  it('refuses a pipe drawn from a junction back into the side of a runner feeding it', () => {
+    const target = { kind: 'ductSurface' as const, point: at(0), duct: 'a', x: 0.15 };
+    expect(closesLoop(collector(), 'tail', target)).toBe(true);
+  });
+
+  it('allows a loop where another pipe still reaches the air', () => {
+    const graph = collector();
+    graph.ducts.push({ id: 'drawn', segments: [pipe()], from: { kind: 'node', node: 'j' }, to: { kind: 'mouth' } });
+    const target = { kind: 'ductSurface' as const, point: at(0), duct: 'a', x: 0.15 };
+    expect(closesLoop(graph, 'drawn', target)).toBe(false);
+  });
+
+  it('allows merging into a pipe that vents to air, which leaves the junction open', () => {
+    const graph = collector();
+    graph.ducts.push({ id: 'c', segments: [pipe()], from: { kind: 'valve', cylinder: 2 }, to: { kind: 'mouth' } });
+    expect(closesLoop(graph, 'c', { kind: 'ductEnd', point: at(0), duct: 'tail' })).toBe(false);
+    expect(closesLoop(graph, 'c', { kind: 'ductSurface', point: at(0), duct: 'tail', x: 0.15 })).toBe(false);
+  });
+
+  it("refuses a loose pipe carried on into its own start", () => {
+    const graph: ExhaustGraph = { ducts: [] };
+    const loose = placeLoosePipe(graph, [0, 0, 0], 0.042, 0.3);
+    const target = { kind: 'looseStart' as const, point: at(0), dir: at(0, 0, 1), dia: 0.042, duct: loose };
+    expect(closesLoop(graph, loose, target)).toBe(true);
+  });
+
+  it('does not change the graph it is asked about', () => {
+    const graph = collector();
+    const before = JSON.stringify(graph);
+    closesLoop(graph, 'tail', { kind: 'ductSurface', point: at(0), duct: 'a', x: 0.15 });
+    expect(JSON.stringify(graph)).toBe(before);
   });
 });
