@@ -39,6 +39,7 @@ import {
   attachToLooseStart,
   compileLayout,
   disconnectEnd,
+  graphFromJson,
   joinDuctEnd,
   newDuctId,
   newNodeId,
@@ -51,6 +52,7 @@ import {
   type ExhaustGraph,
 } from '../src/model/exhaustGraph.js';
 import { EngineMesh } from '../src/scene/EngineMesh.js';
+import { refitBends } from '../src/scene/turboPlacement.js';
 import { defaultConfig, makeSegment, segmentDiameter, type EngineSpec, type PipeSegment } from '../src/model/spec.js';
 
 /** Where a single fitted segment actually finishes, swept the way the renderer sweeps it. */
@@ -962,6 +964,81 @@ describe('a T into a placed pipe', () => {
     const other = graph.ducts.find((d) => d.id !== loose && d.from.kind === 'node')!.id;
     expect(swing(loose)).toBeGreaterThan(0);
     expect(swing(other)).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * A pipe drawn into the side of another with Shift held meets it square, at 90 degrees, rather than curving
+ * round into its flow; and stays square as its bend is fitted again. Either way it ends at the bore of the
+ * pipe it joins, and follows it when that changes.
+ */
+describe('a square T', () => {
+  const spec = defaultConfig().engine;
+  const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
+
+  /** The runner drawn into the side of a loose pipe of a wider bore, square or not, its bend fitted. */
+  function joined(square: boolean) {
+    const graph = compileLayout(spec, [makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042 })], []);
+    const loose = placeLoosePipe(graph, [0.3, -0.35, 0.3], 0.06, 0.6);
+    const node = splitDuctAt(graph, loose, 0.3)!;
+    const runner = graph.ducts.find((d) => d.from.kind === 'valve')!;
+    runner.to = { kind: 'node', node };
+    runner.segments.push(makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 }));
+    runner.fitted = true;
+    if (square) runner.square = true;
+    refitBends(graph, ports(), spec);
+    const placement = layoutGraph(ports(), graph);
+    const place = placement.ducts.get(runner.id)!;
+    const swept = layoutPipe(runner.segments, place.origin, place.heading);
+    const main = placement.ducts.get(loose)!;
+    const mainSwept = layoutPipe(graph.ducts.find((d) => d.id === loose)!.segments, main.origin, main.heading);
+    return {
+      graph,
+      loose,
+      runner,
+      end: swept.joints.at(-1)!,
+      arrives: swept.jointDirections.at(-1)!,
+      at: mainSwept.joints.at(-1)!,
+      axis: mainSwept.jointDirections.at(-1)!,
+    };
+  }
+
+  it('arrives straight across the pipe, at its bore', () => {
+    const { runner, end, arrives, at, axis } = joined(true);
+    expect(end.distanceTo(at)).toBeLessThan(1e-6);
+    expect(Math.abs(arrives.dot(axis))).toBeLessThan(1e-6);
+    expect(segmentDiameter(runner.segments.at(-1)!, 1)).toBeCloseTo(0.06, 12);
+  });
+
+  it('follows the pipe it joins to a new bore, and stays square', () => {
+    const { graph, loose, runner } = joined(true);
+    for (const d of graph.ducts) {
+      if (d.from.kind === 'valve') continue;
+      for (const seg of d.segments) {
+        seg.dIn = 0.07;
+        seg.dOut = 0.07;
+      }
+    }
+    refitBends(graph, ports(), spec);
+    expect(segmentDiameter(runner.segments.at(-1)!, 1)).toBeCloseTo(0.07, 12);
+    const placement = layoutGraph(ports(), graph);
+    const place = placement.ducts.get(runner.id)!;
+    const arrives = layoutPipe(runner.segments, place.origin, place.heading).jointDirections.at(-1)!;
+    const main = placement.ducts.get(loose)!;
+    const axis = layoutPipe(graph.ducts.find((d) => d.id === loose)!.segments, main.origin, main.heading).jointDirections.at(-1)!;
+    expect(Math.abs(arrives.dot(axis))).toBeLessThan(1e-6);
+  });
+
+  it('otherwise curves round into its flow, at its bore', () => {
+    const { runner, arrives, axis } = joined(false);
+    expect(arrives.dot(axis)).toBeGreaterThan(1 - 1e-6);
+    expect(segmentDiameter(runner.segments.at(-1)!, 1)).toBeCloseTo(0.06, 12);
+  });
+
+  it('keeps it in a link', () => {
+    const { runner } = joined(true);
+    const graph = { ducts: [runner] };
+    expect(graphFromJson(JSON.parse(JSON.stringify(graph)))!.ducts[0]!.square).toBe(true);
   });
 });
 

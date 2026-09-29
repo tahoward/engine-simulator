@@ -98,6 +98,7 @@ function bankTurbo(
     d.headingPitch = 0;
     delete d.fitted;
     delete d.swing;
+    delete d.square;
   }
 }
 

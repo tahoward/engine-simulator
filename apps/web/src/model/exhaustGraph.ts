@@ -103,6 +103,12 @@ export interface ExhaustDuct {
    * goes with the bend when the pipe comes off what it joins.
    */
   swing?: true;
+  /**
+   * Whether its fitted bend meets the side of the pipe it joins square, at 90 degrees, rather than merging
+   * into its flow: drawn into the pipe's side with Shift held. Like any fitted bend, it ends at the bore of
+   * the pipe it joins.
+   */
+  square?: true;
 }
 
 /** How near two bores have to be to count as matched where pipes meet, m. */
@@ -280,6 +286,7 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
       ...(typeof d.role === 'string' && ROLES.has(d.role) ? { role: d.role as ExhaustDuct['role'] } : {}),
       ...(d.fitted === true ? { fitted: true as const } : {}),
       ...(d.fitted === true && d.swing === true ? { swing: true as const } : {}),
+      ...(d.fitted === true && d.square === true ? { square: true as const } : {}),
     })),
   };
 }
@@ -1227,6 +1234,8 @@ function fuse(graph: ExhaustGraph, into: ExhaustDuct, out: ExhaustDuct, dirs?: D
   else delete into.fitted;
   if (out.swing) into.swing = true;
   else delete into.swing;
+  if (out.square) into.square = true;
+  else delete into.square;
   // Anything that carried straight on from `out` now carries on from `into`, which it has become.
   for (const d of graph.ducts) if (d.continues === out.id) d.continues = into.id;
   graph.ducts = graph.ducts.filter((d) => d !== out);
@@ -1256,6 +1265,7 @@ export function releaseBend(duct: ExhaustDuct): void {
   duct.segments = drawnSegments(duct);
   delete duct.fitted;
   delete duct.swing;
+  delete duct.square;
 }
 
 function touchedNodes(duct: ExhaustDuct): string[] {

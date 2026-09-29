@@ -64,6 +64,7 @@ import {
   MIN_DRAW_LENGTH,
   bendWhole,
   bendAnchor,
+  squareArrival,
   collectSnapTargets,
   flipLoosePipe,
   diameterAt,
@@ -259,6 +260,11 @@ const OPENING_UNPICKED = 0x9aa3ad;
  * takes the point as clicked.
  */
 type DrawSnap = 'engine' | 'turn' | 'free';
+
+/** Whether a route ending on `target` meets it square: a pipe's side, with Shift held. */
+function squareInto(target: SnapTarget, snap: DrawSnap): boolean {
+  return target.kind === 'ductSurface' && snap === 'free';
+}
 
 function drawSnapOf(e: { shiftKey: boolean; altKey: boolean }): DrawSnap {
   if (e.shiftKey) return 'free';
@@ -1138,12 +1144,21 @@ export class PipeEditor {
 
   private onKeyUp = (e: KeyboardEvent): void => {
     if (e.key === 'Control') this.holdEngineFrame(false);
+    this.resnapDraw(e);
   };
+
+  /** Show at once what Shift or Alt, pressed or let go while drawing, does to the next segment. */
+  private resnapDraw(e: KeyboardEvent): void {
+    if (!this.drawMode || !this.route || (e.key !== 'Shift' && e.key !== 'Alt')) return;
+    this.lastSnap = drawSnapOf(e);
+    this.updateDrawPreview(this.lastSnap);
+  }
 
   private onBlur = (): void => this.holdEngineFrame(false);
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === 'Control') this.holdEngineFrame(true);
+    this.resnapDraw(e);
     const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement;
     if (this.header && !typing && e.key === 'Enter') {
       this.applyHeader();
@@ -1334,9 +1349,10 @@ export class PipeEditor {
     /**
      * Joining something ends the route in one smooth bend, fitted to arrive along what it joins: square
      * into a turbo's flange, beside another pipe's end, into the flow along a pipe's side, or along a
-     * junction's axis. See `bendAnchor`.
+     * junction's axis. See `bendAnchor`. Into a pipe's side with Shift held, square across it instead.
      */
-    const anchor = this.connectionAnchor(target, duct.id);
+    const square = squareInto(target, snap);
+    const anchor = this.connectionAnchor(target, duct.id, tip, square);
     if (anchor) {
       if (anchor.point.distanceTo(tip.point) < MIN_DRAW_LENGTH) return;
       if (duct.segments.length === 0) {
@@ -1347,6 +1363,8 @@ export class PipeEditor {
       // Tapering from the bore it leaves at to the bore of what it joins, so it matches at both.
       duct.segments.push(fitCurve(tip.point, tip.dir, anchor.point, anchor.dir, { dIn: dia, dOut: anchor.dia }));
       duct.fitted = true;
+      if (square) duct.square = true;
+      else delete duct.square;
       const node = this.connect(target);
       if (node) {
         this.finishRoute({ kind: 'node', node });
@@ -1354,6 +1372,7 @@ export class PipeEditor {
       }
       duct.segments.pop();
       delete duct.fitted;
+      delete duct.square;
     }
 
     const straightOut = target.kind === 'free' ? this.straightRun(duct, tip, point) : null;
@@ -1423,9 +1442,15 @@ export class PipeEditor {
 
   /**
    * Where a route ending on `target` bends in to, and the way it arrives, or `null` where it has nothing
-   * fixed to arrive along and ends in a corner, as a free point does.
+   * fixed to arrive along and ends in a corner, as a free point does. `square`, into a pipe's side across
+   * it from the route's `tip`, rather than along its flow.
    */
-  private connectionAnchor(target: SnapTarget, ductId: string): BendAnchor | null {
+  private connectionAnchor(
+    target: SnapTarget,
+    ductId: string,
+    tip?: { point: THREE.Vector3; dir: THREE.Vector3 },
+    square = false,
+  ): BendAnchor | null {
     const ctx = this.context;
     if (!ctx) return null;
     switch (target.kind) {
@@ -1435,7 +1460,8 @@ export class PipeEditor {
       case 'ductSurface': {
         const other = ctx.graph.ducts.find((d) => d.id === target.duct);
         if (!target.dir || !other) return null;
-        return { point: target.point.clone(), dir: target.dir.clone(), dia: diameterAt(other.segments, target.x) };
+        const dir = square && tip ? squareArrival(target.point, target.dir, tip.point, tip.dir) : target.dir.clone();
+        return { point: target.point.clone(), dir, dia: diameterAt(other.segments, target.x) };
       }
       case 'ductEnd': {
         const other = ctx.graph.ducts.find((d) => d.id === target.duct);
@@ -2164,7 +2190,7 @@ export class PipeEditor {
     }
 
     // Joining something, the bend the pipe will take to arrive along it, tapering to its bore; else a straight.
-    const anchor = this.connectionAnchor(target, this.route.ductId);
+    const anchor = this.connectionAnchor(target, this.route.ductId, tip, squareInto(target, snap));
     const dia = this.routeDiameter(duct);
     const reach = point.distanceTo(tip.point);
     if (anchor) {
