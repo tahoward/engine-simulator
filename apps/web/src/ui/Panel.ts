@@ -21,8 +21,9 @@ import {
   turboAt,
   type ExhaustDuct,
   type ExhaustGraph,
+  type TurboSettings,
 } from '../model/exhaustGraph.js';
-import { connectedTurbos, lockedFrom, isTurbocharged } from '../model/turbo.js';
+import { lockedFrom, isTurbocharged, turboSettingsOf, turbosSynced } from '../model/turbo.js';
 import { bendShape } from '../model/geometry.js';
 import {
   ENGINE_PRESETS,
@@ -81,6 +82,10 @@ export interface PanelCallbacks {
   onPlacePipeMode: (on: boolean) => void;
   /** Take this turbo out of the exhaust. */
   onRemoveTurbo: (id: string) => void;
+  /** Give this turbo its own settings, or with `null` put it back on the engine's. */
+  onTurboSettings: (id: string, settings: TurboSettings | null) => void;
+  /** Keep the turbos in sync, all on the engine's settings, or let each have its own. */
+  onTurbosSynced: (synced: boolean) => void;
   /** Draw mode was switched on or off. */
   onDrawMode: (on: boolean) => void;
   /** Start drawing a new pipe out of this junction. */
@@ -247,9 +252,13 @@ export class Panel {
   private placePipeHint!: HTMLElement;
   private placeBtn!: HTMLButtonElement;
   private placeHint!: HTMLElement;
-  private turboCountEl!: HTMLElement;
-  private turboWrap!: HTMLElement;
-  private turboEl!: HTMLElement;
+  /** The turbo tool's own menu, and in it whether the turbos are kept in sync. */
+  private turboTool!: HTMLElement;
+  private turboOptions!: HTMLElement;
+  private turboSyncRow!: HTMLElement;
+  /** The turbo selected in the view, whose menu a right-click opens, and that menu's live readout. */
+  private turboId: string | null = null;
+  private turboMenuReadout: Record<TurboReading, HTMLElement> | null = null;
   private drawHint!: HTMLElement;
   /** Whether a route is in progress, so the hint can show where it is aimed. */
   private drawingRoute = false;
@@ -295,8 +304,6 @@ export class Panel {
   /** Whether a two-stage intake was on its short runners at the last readout. */
   private shortRunnersNow = false;
   private camText = '';
-  private turboReadout!: HTMLElement;
-  private turboText = '';
   /** Rewrites the intake section's tuning readout if anything it shows has changed. */
   private refreshIntake: () => void = () => {};
   private readonly readoutEl: HTMLElement;
@@ -766,16 +773,43 @@ export class Panel {
     this.headerApplyBtn = el('button', 'primary', this.headerGroup) as HTMLButtonElement;
     this.headerApplyBtn.textContent = 'Apply';
 
+    this.turboTool = el('div', 'tool-split', bar);
     this.placeBtn = toolButton(
-      bar,
+      this.turboTool,
       TOOL_ICONS.turbo,
       'Place a turbo',
       'Put a turbo down in the view, then draw pipes into its inlet: the open flange on the side of its ' +
         'turbine. Put it on the open end of a pipe to attach that pipe as it goes down. Until you draw a ' +
         'pipe from its outlet flange, it exhausts straight to the air there. Click a turbo for its triad: ' +
         'drag an arrow to move it along that axis, a square to move it in that plane, a ring to turn it; ' +
-        'shift snaps to 5 mm and 15 degrees. Its pipes follow. Delete takes it out.',
+        'shift snaps to 5 mm and 15 degrees. Its pipes follow. Right-click a turbo to set it up; Delete ' +
+        'takes it out. The small arrow, or a right-click here, opens the turbos’ menu.',
     );
+    /**
+     * The turbos' menu, off the tool's button: whether they are kept in sync. In sync, they all run on the
+     * engine's settings, so setting any one sets them all; out of it, each has its own.
+     */
+    const caret = el('button', 'tool-caret', this.turboTool) as HTMLButtonElement;
+    caret.setAttribute('aria-label', 'Turbo options');
+    caret.title = 'Turbo options';
+    this.turboOptions = el('div', 'tool-menu hidden', this.turboTool);
+    el('div', 'tool-name', this.turboOptions).textContent = 'Turbos';
+    this.turboSyncRow = toggle(this.turboOptions, 'Keep turbos in sync', true, (on) => this.cb.onTurbosSynced(on));
+    el('div', 'hint', this.turboOptions).textContent =
+      'On, every turbo runs on the same settings, and setting one sets them all. Off, each keeps its own: ' +
+      'right-click a turbo to set it. Syncing again puts them all on the first turbo’s.';
+    const openOptions = (open: boolean) => {
+      this.turboOptions.classList.toggle('hidden', !open);
+      this.turboTool.classList.toggle('open', open);
+      if (open) document.addEventListener('pointerdown', this.onTurboOptionsOutside, true);
+      else document.removeEventListener('pointerdown', this.onTurboOptionsOutside, true);
+    };
+    this.openTurboOptions = openOptions;
+    caret.addEventListener('click', () => openOptions(this.turboOptions.classList.contains('hidden')));
+    this.placeBtn.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      openOptions(true);
+    });
     this.placeGroup = el('div', 'tool-group', this.toolOptions);
     el('div', 'tool-name', this.placeGroup).textContent = 'Place a turbo';
     this.placeHint = el('div', 'hint', this.placeGroup);
@@ -1200,88 +1234,6 @@ export class Panel {
       '25 m/s through it. Smaller chokes the top end; larger makes the throttle touchier at small ' +
       'openings.';
 
-    // ---- Turbocharger ----------------------------------------------------
-    /**
-     * Turbos are placed in the view, with the toolbar's tool, and piped up like the rest of the exhaust; what
-     * is here is how many there are, the one selected, and the settings every turbo shares.
-     */
-    const turbo = section(root, 'Turbocharger', true);
-    this.turboCountEl = el('div', 'readout', turbo);
-    this.turboReadout = el('div', 'readout', turbo);
-    /** The turbo selected in the view. */
-    this.turboEl = el('div', 'joint hidden', turbo);
-    const turboWrap = el('div', '', turbo);
-    this.turboWrap = turboWrap;
-    this.resyncers.push(() => this.syncTurbos());
-    this.syncTurbos();
-    this.slider(turboWrap, {
-      label: 'Boost',
-      min: 0.1,
-      max: 2,
-      step: 0.05,
-      value: spec.boostTarget / 1e5,
-      sync: () => this.config.engine.boostTarget / 1e5,
-      format: (v) => `${v.toFixed(2)} bar`,
-      onInput: (v) => this.cb.onEngine({ boostTarget: v * 1e5 }),
-    }).row.title =
-      'What the wastegate holds: as the boost reaches it, it opens a bypass around the turbine so the ' +
-      'turbine takes less of the exhaust. There is no knock here, so nothing stops you asking for more ' +
-      'than the engine would survive.';
-    this.slider(turboWrap, {
-      label: 'Turbo size',
-      min: 0,
-      max: 0.5,
-      step: 0.005,
-      value: spec.turboSize,
-      sync: () => this.config.engine.turboSize,
-      format: (v) => (v > 0 ? `${v.toFixed(3)} kg/s` : 'auto'),
-      onInput: (v) => this.cb.onEngine({ turboSize: v }),
-    }).row.title =
-      'Each compressor’s airflow at full speed. Small spools early and runs out of breath at the ' +
-      'top, nearing its choke with the exhaust backed up behind the turbine; big lags and holds its ' +
-      'boost to the limiter. At 0 it is sized for the engine’s airflow near its rev limit.';
-    this.slider(turboWrap, {
-      label: 'Intercooler',
-      min: 0,
-      max: 1,
-      step: 0.01,
-      value: spec.intercooler,
-      sync: () => this.config.engine.intercooler,
-      format: (v) => (v > 0 ? `${Math.round(v * 100)}%` : 'none'),
-      onInput: (v) => this.cb.onEngine({ intercooler: v }),
-    }).row.title =
-      'How much of the heat of compression it takes back out of the charge. Hot air is thin, so ' +
-      'without one the same boost makes less torque.';
-    const bovRow = el('div', 'row', turboWrap);
-    el('label', '', bovRow).textContent = 'Blow-off valve';
-    const bovSel = el('select', '', bovRow) as HTMLSelectElement;
-    const bovNames: Record<BlowOff, string> = {
-      atmospheric: 'Atmospheric',
-      recirculating: 'Recirculating',
-      none: 'None (surges)',
-    };
-    for (const b of BLOW_OFFS) bovSel.appendChild(option(b, bovNames[b]));
-    bovSel.value = spec.blowOff;
-    this.resyncers.push(() => (bovSel.value = this.config.engine.blowOff));
-    bovSel.addEventListener('change', () => this.cb.onEngine({ blowOff: bovSel.value as BlowOff }));
-    bovRow.title =
-      'When the throttle shuts on boost, the air between the compressor and the throttle has nowhere ' +
-      'to go. An atmospheric valve vents it to the air, with the hiss; a recirculating one back into ' +
-      'the compressor inlet, quietly. With none, the air pushes back through the compressor, which ' +
-      'stalls and recovers over and over: the flutter.';
-    this.slider(turboWrap, {
-      label: 'Turbo sound',
-      min: 0,
-      max: 2,
-      step: 0.01,
-      value: spec.turboNoise,
-      sync: () => this.config.engine.turboNoise,
-      format: (v) => `${Math.round(v * 100)}%`,
-      onInput: (v) => this.cb.onEngine({ turboNoise: v }),
-    }).row.title =
-      'The turbo’s own sounds: the compressor’s whine, the blow-off valve, the flutter of a ' +
-      'surge and the wastegate’s rattle. 100% is realistic.';
-
     // ---- Combustion ------------------------------------------------------
     const comb = section(root, 'Combustion', true);
     this.slider(comb, {
@@ -1513,6 +1465,19 @@ export class Panel {
       format: (v) => `${Math.round(v * 100)}%`,
       onInput: (v) => this.cb.onEngine({ throatNoise: v }),
     });
+
+    this.slider(mix, {
+      label: 'Turbo sound',
+      min: 0,
+      max: 2,
+      step: 0.01,
+      value: spec.turboNoise,
+      sync: () => this.config.engine.turboNoise,
+      format: (v) => `${Math.round(v * 100)}%`,
+      onInput: (v) => this.cb.onEngine({ turboNoise: v }),
+    }).row.title =
+      'The turbos’ own sounds: the compressors’ whine, the blow-off valves, the flutter of a ' +
+      'surge and the wastegates’ rattle. 100% is realistic.';
 
     // ---- View ------------------------------------------------------------
     const viewSec = section(root, 'View', true);
@@ -1854,7 +1819,7 @@ export class Panel {
    */
   openMenu(x: number, y: number): void {
     this.closeMenu();
-    if (this.selected === null && this.jointNode === null) return;
+    if (this.selected === null && this.jointNode === null && this.turboId === null) return;
     const menu = el('div', 'seg-menu', document.body);
     this.segMenu = { el: menu, row: null, key: '', stats: null };
     this.renderMenu();
@@ -1882,10 +1847,11 @@ export class Panel {
     if (e.key === 'Escape') this.closeMenu();
   };
 
-  /** Show the selected junction or segment in the menu, or close it with neither selected. */
+  /** Show the selected turbo, junction or segment in the menu, or close it with none selected. */
   private renderMenu(): void {
     if (!this.segMenu) return;
-    if (this.jointNode !== null) this.renderJointMenu(this.jointNode);
+    if (this.turboId !== null) this.renderTurboMenu(this.turboId);
+    else if (this.jointNode !== null) this.renderJointMenu(this.jointNode);
     else this.renderSegmentMenu();
   }
 
@@ -2442,41 +2408,117 @@ export class Panel {
     this.syncTools();
   }
 
-  /** How many turbos there are, and the settings shown only when there is one. */
+  /** Show whether the turbos are in sync, and the selected turbo's menu as the graph now has it. */
   syncTurbos(): void {
     const graph = this.config.graph;
-    const all = graph?.turbos ?? [];
-    const fed = graph ? connectedTurbos(graph).length : 0;
-    this.turboCountEl.textContent =
-      all.length === 0
-        ? 'No turbo: place one in the view'
-        : `${all.length === 1 ? 'One turbo' : `${all.length} turbos`}` +
-          (fed < all.length ? `, ${all.length - fed} with nothing attached` : '') +
-          (all.length > 1 ? ', sharing these settings' : '');
-    this.turboWrap.classList.toggle('hidden', all.length === 0);
+    checkbox(this.turboSyncRow).checked = !graph || turbosSynced(graph);
+    if (this.turboId !== null) this.renderMenu();
   }
 
-  /** Describe the turbo selected in the view, or none. */
+  private openTurboOptions: (open: boolean) => void = () => {};
+
+  private onTurboOptionsOutside = (e: PointerEvent): void => {
+    if (!this.turboTool.contains(e.target as Node)) this.openTurboOptions(false);
+  };
+
+  /** Select the turbo selected in the view, or none: a right-click opens its menu. */
   showTurbo(id: string | null): void {
+    this.turboId = id;
+    this.renderMenu();
+  }
+
+  /**
+   * A turbo's menu: how it is running, what feeds it, and its settings. In sync, they are every turbo's, the
+   * engine's; out of it, its own.
+   */
+  private renderTurboMenu(id: string): void {
+    const menu = this.segMenu!;
     const graph = this.config.graph;
     const turbos = graph?.turbos ?? [];
     const index = turbos.findIndex((t) => t.id === id);
-    this.turboEl.replaceChildren();
-    this.turboEl.classList.toggle('hidden', !graph || index < 0);
-    if (!graph || index < 0) return;
+    if (!graph || index < 0) {
+      this.closeMenu();
+      return;
+    }
     const mount = turbos[index]!;
+    const synced = turbosSynced(graph);
     const ends = endsAt(graph, mount.node);
-    el('div', 'joint-title', this.turboEl).textContent = `Turbo ${index + 1}`;
+    const key = ['turbo', id, synced, turbos.length, ...ends.map((e) => `${e.duct.id}:${e.end}`)].join('|');
+    if (key === menu.key) return;
+    menu.key = key;
+    menu.row = null;
+    menu.stats = null;
+    menu.el.replaceChildren();
+    this.menuHead(`Turbo ${index + 1}`);
+    // One row for each reading, always there and right-aligned, so the menu holds still as they change.
+    const readings = el('div', 'readout turbo-readings', menu.el);
+    const row = (label: string) => {
+      el('span', '', readings).textContent = label;
+      const value = el('span', 'turbo-reading', readings);
+      value.textContent = '—';
+      return value;
+    };
+    this.turboMenuReadout = {
+      boost: row('Boost'),
+      shaft: row('Shaft'),
+      exhaust: row('Exhaust at its inlet'),
+      wastegate: row('Wastegate'),
+      blowOff: row('Blow-off valve'),
+    };
+    const info = el('div', 'joint', menu.el);
     const list = (label: string, ducts: ExhaustDuct[]) => {
-      const row = el('div', 'joint-row', this.turboEl);
+      const row = el('div', 'joint-row', info);
       el('span', 'joint-label', row).textContent = label;
       el('span', '', row).textContent = ducts.length > 0 ? ducts.map((d) => ductLabel(graph, d)).join(', ') : 'nothing yet';
     };
     list('Fed by', ends.filter((e) => e.end === 'outlet').map((e) => e.duct));
     list('Outlet', ends.filter((e) => e.end === 'inlet').map((e) => e.duct));
-    const btn = el('button', '', el('div', 'row', this.turboEl)) as HTMLButtonElement;
+    if (synced && turbos.length > 1) {
+      el('div', 'hint', menu.el).textContent =
+        'In sync: these are every turbo’s settings. Turn sync off in the turbo tool’s menu to set each on its own.';
+    }
+
+    const current = () => turboSettingsOf(this.config.graph?.turbos?.find((t) => t.id === id), this.config.engine);
+    const set = (patch: Partial<TurboSettings>) =>
+      synced ? this.cb.onEngine(patch) : this.cb.onTurboSettings(id, { ...current(), ...patch });
+    const now = current();
+    slider(menu.el, { ...BOOST_SLIDER, value: now.boostTarget / 1e5, onInput: (v) => set({ boostTarget: v * 1e5 }) }).row.title =
+      BOOST_TITLE;
+    slider(menu.el, { ...SIZE_SLIDER, value: now.turboSize, onInput: (v) => set({ turboSize: v }) }).row.title = SIZE_TITLE;
+    slider(menu.el, {
+      label: 'Intercooler',
+      min: 0,
+      max: 1,
+      step: 0.01,
+      value: now.intercooler,
+      format: (v) => (v > 0 ? `${Math.round(v * 100)}%` : 'none'),
+      onInput: (v) => set({ intercooler: v }),
+    }).row.title =
+      'How much of the heat of compression it takes back out of the air the compressor delivers. Hot air ' +
+      'is thin, so without one the same boost makes less torque.';
+    const bovRow = el('div', 'row', menu.el);
+    el('label', '', bovRow).textContent = 'Blow-off valve';
+    const bovSel = el('select', '', bovRow) as HTMLSelectElement;
+    const bovNames: Record<BlowOff, string> = {
+      atmospheric: 'Atmospheric',
+      recirculating: 'Recirculating',
+      none: 'None (surges)',
+    };
+    for (const b of BLOW_OFFS) bovSel.appendChild(option(b, bovNames[b]));
+    bovSel.value = now.blowOff;
+    bovSel.addEventListener('change', () => set({ blowOff: bovSel.value as BlowOff }));
+    bovRow.title =
+      'When the throttle shuts on boost, the air between the compressor and the throttle has nowhere ' +
+      'to go. An atmospheric valve vents it to the air, with the hiss; a recirculating one back into ' +
+      'the compressor inlet, quietly. With none, the air pushes back through the compressor, which ' +
+      'stalls and recovers over and over: the flutter.';
+
+    const btn = el('button', '', menu.el) as HTMLButtonElement;
     btn.textContent = 'Take this turbo out';
-    btn.addEventListener('click', () => this.cb.onRemoveTurbo(mount.id));
+    btn.addEventListener('click', () => {
+      this.closeMenu();
+      this.cb.onRemoveTurbo(mount.id);
+    });
   }
 
   private setDrawMode(on: boolean): void {
@@ -2603,16 +2645,26 @@ export class Panel {
       this.camText = cams;
       this.camReadout.textContent = cams;
     }
-    const t = s.turbo;
-    const turbo = t
-      ? `${t.boost >= 0 ? 'Boost' : 'Vacuum'} ${(Math.abs(t.boost) / 1e5).toFixed(2)} bar · ` +
-        `turbo ${formatRpm(t.shaftRpm)} rpm · exhaust ${(t.turbineInlet / 1e5).toFixed(2)} bar` +
-        (t.wastegate > 0.02 ? ` · wastegate ${Math.round(t.wastegate * 100)}%` : '') +
-        (t.surging ? ' · surging' : t.blowOff > 0.05 && t.boost > 0.05e5 ? ' · blowing off' : '')
-      : 'Naturally aspirated';
-    if (turbo !== this.turboText) {
-      this.turboText = turbo;
-      this.turboReadout.textContent = turbo;
+    // The open turbo menu's: the boost they all make, and this turbo's own speed and valves.
+    const readout = this.turboMenuReadout;
+    if (readout?.boost.isConnected) {
+      const t = s.turbo;
+      const u = t?.turbos.find((x) => x.id === this.turboId);
+      // Gauge pressures always signed, so a vacuum takes no more room than boost.
+      const bar = (pa: number) => `${pa < 0 ? '\u2212' : '+'}${(Math.abs(pa) / 1e5).toFixed(2)} bar`;
+      const values: Record<TurboReading, string> =
+        t && u
+          ? {
+              boost: bar(t.boost),
+              shaft: `${formatRpm(u.shaftRpm)} rpm`,
+              exhaust: bar(t.turbineInlet),
+              wastegate: u.wastegate > 0.02 ? `${Math.round(u.wastegate * 100)}% open` : 'shut',
+              blowOff: t.surging ? 'surging' : u.blowOff > 0.05 && t.boost > 0.05e5 ? 'venting' : 'shut',
+            }
+          : { boost: '—', shaft: '—', exhaust: '—', wastegate: '—', blowOff: '—' };
+      for (const k of Object.keys(values) as TurboReading[]) {
+        if (readout[k].textContent !== values[k]) readout[k].textContent = values[k];
+      }
     }
     const running = s.launch !== null;
     if (running !== this.launchRunning) {
@@ -2696,6 +2748,27 @@ function section(root: HTMLElement, title: string, collapsed: boolean): HTMLElem
 
 /** Re-reads one control from the config; collected so a preset can refresh them all. */
 type Resync = () => void;
+
+/** What a turbo's menu reads out while the engine runs. */
+type TurboReading = 'boost' | 'shaft' | 'exhaust' | 'wastegate' | 'blowOff';
+
+/** The boost and turbo size sliders' ranges, for the engine's and a turbo's own. */
+const BOOST_SLIDER = { label: 'Boost', min: 0.1, max: 2, step: 0.05, format: (v: number) => `${v.toFixed(2)} bar` };
+const SIZE_SLIDER = {
+  label: 'Turbo size',
+  min: 0,
+  max: 0.5,
+  step: 0.005,
+  format: (v: number) => (v > 0 ? `${v.toFixed(3)} kg/s` : 'auto'),
+};
+const BOOST_TITLE =
+  'What the wastegate holds: as the boost reaches it, it opens a bypass around the turbine so the ' +
+  'turbine takes less of the exhaust. There is no knock here, so nothing stops you asking for more ' +
+  'than the engine would survive.';
+const SIZE_TITLE =
+  'Each compressor’s airflow at full speed. Small spools early and runs out of breath at the ' +
+  'top, nearing its choke with the exhaust backed up behind the turbine; big lags and holds its ' +
+  'boost to the limiter. At 0 it is sized for the engine’s airflow near its rev limit.';
 
 interface SliderOpts {
   label: string;

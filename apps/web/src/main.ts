@@ -53,8 +53,11 @@ import {
 import {
   lockedFrom,
   graphTurboSize,
+  engineTurboSettings,
   newTurbo,
   placeTurbo,
+  setTurbosSynced,
+  turbosSynced,
   removeTurbo,
   turboPortsOf,
 } from './model/turbo.js';
@@ -288,6 +291,8 @@ const editor = new PipeEditor(
       freeze();
       const graph = config.graph!;
       const mount = newTurbo(graph, position, rotation);
+      // Out of sync, a new turbo starts from the engine's settings, as its own.
+      if (!turbosSynced(graph)) mount.settings = engineTurboSettings(config.engine);
       placeTurbo(graph, mount, attach);
       afterTurboEdit(true);
       selectTurbo(mount.id);
@@ -582,6 +587,26 @@ const panel = new Panel(panelEl, toolsEl, config, {
     }
     selectTurbo(null);
     afterTurboEdit(true);
+  },
+  onTurbosSynced: (synced) => {
+    const patch = setTurbosSynced(config.graph!, config.engine, synced);
+    if (patch) {
+      Object.assign(config.engine, patch);
+      audio.setEngine(patch);
+    }
+    audio.setGraph(config.graph!);
+    panel.syncTurbos();
+    saveConfig();
+  },
+  onTurboSettings: (id, settings) => {
+    const mount = config.graph!.turbos?.find((t) => t.id === id);
+    if (!mount) return;
+    if (settings) mount.settings = settings;
+    else delete mount.settings;
+    // Only the turbo is resized: the solver keeps the gas in the pipes.
+    audio.setGraph(config.graph!);
+    panel.syncTurbos();
+    saveConfig();
   },
   onReseed: (turbos, graph) => {
     reseedGraph(true, turbos, graph);

@@ -9,7 +9,8 @@ mod common;
 
 use common::FS;
 use engine_sim::EngineSim;
-use engine_sim::exhaust_graph::{DuctSink, DuctSource, TurboMount, compile_exhaust};
+use engine_sim::exhaust_graph::{DuctSink, DuctSource, TurboMount, TurboSettings, compile_exhaust};
+use engine_sim::spec::BlowOff;
 use engine_sim::turbo;
 use serde_json::{Value, json};
 
@@ -179,8 +180,9 @@ fn makes_about_the_real_engines_torque_and_power() {
     assert!(ps > 280.0 && ps < 350.0, "{ps} PS at 6800 rpm");
 }
 
-/// The 3S-GTE, one turbo on four cylinders, on its 0.5 bar makes about the North American engine's
-/// rated 271 N*m at 3200 rpm and 200 hp at 6000.
+/// The 3S-GTE, one turbo on four cylinders, on its 0.7 bar makes about the Japanese engine's rated
+/// 304 N*m once on boost and 225 PS at 6000 rpm. The real one has its peak torque at 3200, where this
+/// turbo is still spooling.
 #[test]
 fn a_four_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
     let torque = |rpm: f64| {
@@ -199,10 +201,10 @@ fn a_four_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
         }
         t / n as f64
     };
-    let t3200 = torque(3200.0);
-    assert!((t3200 - 271.0).abs() < 0.1 * 271.0, "{t3200} N*m at 3200 rpm");
-    let hp = torque(6000.0) * 6000.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
-    assert!((hp - 200.0).abs() < 0.1 * 200.0, "{hp} hp at 6000 rpm");
+    let t5000 = torque(5000.0);
+    assert!((t5000 - 304.0).abs() < 0.1 * 304.0, "{t5000} N*m at 5000 rpm");
+    let ps = torque(6000.0) * 6000.0 * 2.0 * std::f64::consts::PI / 60.0 / 735.5;
+    assert!((ps - 225.0).abs() < 0.1 * 225.0, "{ps} PS at 6000 rpm");
 }
 
 /// The EA855 EVO, one turbo on five cylinders, on its 1.35 bar makes about the real engine's rated
@@ -299,9 +301,11 @@ fn the_turbine_passes_the_exhaust_between_two_pressures() {
         sim.render(1);
         let r = &sim.pipe_solver().result;
         valves += r.valve_mass_flows.iter().sum::<f64>();
-        through += r.turbine_flow + r.bypass_flow;
-        inlet += r.turbine_inlet;
-        outlet += r.turbine_outlet;
+        for t in &r.turbines {
+            through += t.flow + t.bypass_flow;
+            inlet += t.inlet / r.turbines.len() as f64;
+            outlet += t.outlet / r.turbines.len() as f64;
+        }
     }
     assert!(
         (through - valves).abs() < 0.03 * valves,
@@ -326,8 +330,8 @@ fn the_turbine_takes_the_edge_off_the_pulses() {
     for _ in 0..n {
         sim.render(1);
         let r = &sim.pipe_solver().result;
-        up.push(r.turbine_inlet);
-        down.push(r.turbine_outlet);
+        up.push(r.turbines[0].inlet);
+        down.push(r.turbines[0].outlet);
     }
     let swing = |v: &[f64]| {
         let mean = v.iter().sum::<f64>() / v.len() as f64;
@@ -387,7 +391,7 @@ fn single_into_a_turbo(connected: bool) -> EngineSim {
         out.segments.truncate(1);
         graph.ducts.push(out);
     }
-    graph.turbos.push(TurboMount { id: "turbo1".into(), node: "t".into(), position: None, rotation: None });
+    graph.turbos.push(TurboMount { id: "turbo1".into(), node: "t".into(), position: None, rotation: None, settings: None });
     cfg.graph = Some(graph);
     EngineSim::new(FS, &cfg)
 }
@@ -425,7 +429,7 @@ fn rb26_six_turbos() -> engine_sim::exhaust_graph::ExhaustGraph {
         out.id = format!("turbo-out{n}");
         out.from = DuctSource::Node { node: node.clone() };
         graph.ducts.push(out);
-        graph.turbos.push(TurboMount { id: format!("turbo{n}"), node, position: None, rotation: None });
+        graph.turbos.push(TurboMount { id: format!("turbo{n}"), node, position: None, rotation: None, settings: None });
     }
     graph
 }
@@ -452,4 +456,101 @@ fn takes_any_number_of_turbos() {
     assert_eq!(sim.pipe_solver().turbine_count(), 2);
     sim.render(2 * FS as usize);
     assert!(boost(&sim) > 0.5, "boost {}", boost(&sim));
+}
+
+/// The RB26's own exhaust, its second turbo set on its own.
+fn rb26_with_second_turbo(boost_target: f64, turbo_size: f64) -> engine_sim::exhaust_graph::ExhaustGraph {
+    rb26_with_second_turbo_as(|s| TurboSettings { boost_target: boost_target * 1e5, turbo_size, ..s })
+}
+
+/// The RB26's own exhaust, its second turbo set on its own: the engine's settings, as `set` changes them.
+fn rb26_with_second_turbo_as(set: impl Fn(TurboSettings) -> TurboSettings) -> engine_sim::exhaust_graph::ExhaustGraph {
+    let cfg = &common::engine_preset(RB26).config;
+    let mut graph = cfg.graph.clone().unwrap();
+    graph.turbos[1].settings = Some(set(graph.turbos[1].settings_for(&cfg.engine)));
+    graph
+}
+
+/// The RB26 on full throttle at 5000 rpm with `graph`, settled: each turbo's mean shaft speed and
+/// wastegate opening over a second, and how much of it a compressor was surging.
+fn run_turbos(graph: Option<engine_sim::exhaust_graph::ExhaustGraph>) -> (Vec<f64>, Vec<f64>, f64) {
+    let mut sim = rb26(json!({ "throttle": 1, "rpm": 5000 }));
+    if graph.is_some() {
+        sim.set_graph(graph);
+    }
+    sim.render(3 * FS as usize);
+    let n = FS as usize;
+    let (mut rpm, mut wastegate, mut surging) = (vec![0.0; 2], vec![0.0; 2], 0.0);
+    for _ in 0..n {
+        sim.render(1);
+        let t = sim.snapshot().turbo.unwrap();
+        for (i, u) in t.turbos.iter().enumerate() {
+            rpm[i] += u.shaft_rpm / n as f64;
+            wastegate[i] += u.wastegate / n as f64;
+        }
+        if t.surging {
+            surging += 1.0 / n as f64;
+        }
+    }
+    (rpm, wastegate, surging)
+}
+
+/// Left on the engine's settings, the two turbos turn as one.
+#[test]
+fn turbos_on_the_engines_settings_turn_as_one() {
+    let (rpm, wastegate, surging) = run_turbos(None);
+    assert_eq!(rpm[0], rpm[1]);
+    assert_eq!(wastegate[0], wastegate[1]);
+    assert_eq!(surging, 0.0);
+}
+
+/// A bigger turbo set on its own, on the same boost, turns slower than the other, both holding the
+/// boost without surging.
+#[test]
+fn a_bigger_turbo_on_its_own_turns_slower() {
+    let (rpm, wastegate, surging) = run_turbos(Some(rb26_with_second_turbo(TARGET, 0.22)));
+    assert!(rpm[1] < 0.9 * rpm[0], "{} rpm against {} rpm", rpm[1], rpm[0]);
+    assert!((wastegate[0] - wastegate[1]).abs() < 0.05, "wastegates {wastegate:?}");
+    assert_eq!(surging, 0.0);
+}
+
+/// A turbo set to a higher boost than the other holds its wastegate shut while the other's opens.
+#[test]
+fn a_turbo_on_a_higher_boost_keeps_its_wastegate_shut() {
+    let (_, wastegate, _) = run_turbos(Some(rb26_with_second_turbo(TARGET + 0.1, 0.16)));
+    assert!(wastegate[0] > wastegate[1] + 0.2, "wastegates {wastegate:?}");
+}
+
+/// Setting a turbo on its own resizes it where it is: the gas in the pipes is left as it was, and so is
+/// the turbos' spin.
+#[test]
+fn setting_a_turbo_keeps_the_exhaust_running() {
+    let mut sim = rb26(json!({ "throttle": 1, "rpm": 5000 }));
+    sim.render(2 * FS as usize);
+    let pressure = sim.pipe_solver().primary(0).pressure_at(2);
+    let spin = sim.turbo().unwrap().shaft_rpm_of(1);
+    sim.set_graph(Some(rb26_with_second_turbo(1.0, 0.2)));
+    assert_eq!(sim.pipe_solver().primary(0).pressure_at(2), pressure);
+    assert_eq!(sim.turbo().unwrap().shaft_rpm_of(1), spin);
+    assert_eq!(sim.pipe_solver().turbine_mounts()[1].settings.unwrap().boost_target, 1.0e5);
+}
+
+/// Each turbo has its own blow-off valve: with the second's taken off, lifting off on boost opens the
+/// first's while the second's stays shut.
+#[test]
+fn each_turbo_has_its_own_blow_off_valve() {
+    let mut sim = rb26(json!({ "throttle": 1, "rpm": 4000, "blowOff": "atmospheric" }));
+    sim.set_graph(Some(rb26_with_second_turbo_as(|s| TurboSettings { blow_off: BlowOff::None, ..s })));
+    sim.render(3 * FS as usize);
+    sim.set_controls(0.0, 0.0);
+    let mut opened = [0.0f64; 2];
+    for _ in 0..FS as usize / 10 {
+        sim.render(1);
+        let t = sim.snapshot().turbo.unwrap();
+        for (i, u) in t.turbos.iter().enumerate() {
+            opened[i] = opened[i].max(u.blow_off);
+        }
+    }
+    assert!(opened[0] > 0.9, "the first's valve opens: {}", opened[0]);
+    assert_eq!(opened[1], 0.0, "the second has none");
 }

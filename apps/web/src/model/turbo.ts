@@ -17,6 +17,7 @@ import {
   type ExhaustGraph,
   type Quat,
   type TurboMount,
+  type TurboSettings,
   endsAt,
   junctionRemoval,
   nodeOrder,
@@ -193,6 +194,37 @@ export function connectedTurbos(graph: ExhaustGraph): TurboMount[] {
 /** Whether the engine is turbocharged: some turbo has pipes feeding it. */
 export function isTurbocharged(graph: ExhaustGraph | undefined): boolean {
   return graph ? connectedTurbos(graph).length > 0 : false;
+}
+
+/** The engine's turbo settings: every turbo's while they are in sync. */
+export function engineTurboSettings(spec: EngineSpec): TurboSettings {
+  return { boostTarget: spec.boostTarget, turboSize: spec.turboSize, intercooler: spec.intercooler, blowOff: spec.blowOff };
+}
+
+/** The settings `mount` runs on: its own, or the engine's. */
+export function turboSettingsOf(mount: TurboMount | undefined, spec: EngineSpec): TurboSettings {
+  return mount?.settings ? { ...mount.settings } : engineTurboSettings(spec);
+}
+
+/** Whether the turbos are kept in sync: none has settings of its own, so all run on the engine's. */
+export function turbosSynced(graph: ExhaustGraph): boolean {
+  return !(graph.turbos ?? []).some((t) => t.settings);
+}
+
+/**
+ * Keep the turbos in sync, or let each be set on its own. Out of sync, each is given the engine's settings
+ * as its own, to change from there. Back in sync, they all go onto the first turbo's, which are returned for
+ * the engine to take; `null` when nothing changes.
+ */
+export function setTurbosSynced(graph: ExhaustGraph, spec: EngineSpec, synced: boolean): Partial<EngineSpec> | null {
+  const turbos = graph.turbos ?? [];
+  if (synced) {
+    const first = turbos.find((t) => t.settings)?.settings;
+    for (const t of turbos) delete t.settings;
+    return first ? { ...first } : null;
+  }
+  for (const t of turbos) t.settings ??= engineTurboSettings(spec);
+  return null;
 }
 
 /** The size every turbo in `graph` is drawn at: they share the engine's airflow between them. */

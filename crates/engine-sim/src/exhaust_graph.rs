@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::geometry::{Vec3, distance, exhaust_port_of, sweep_end, turn_between_dirs};
 use crate::math;
 use crate::spec::{
-    EngineSpec, ExhaustLayout, PipeSegment, SegmentKind, SegmentPartial, collector_groups, copy_segment, crank_pins,
+    BlowOff, EngineSpec, ExhaustLayout, PipeSegment, SegmentKind, SegmentPartial, collector_groups, copy_segment, crank_pins,
     cylinder_spacing, exhaust_layout_of, make_segment, physical_bank, segment_diameter,
 };
 
@@ -120,6 +120,34 @@ pub struct TurboMount {
     /// How it is turned, as a unit quaternion `[x, y, z, w]`.
     #[serde(default)]
     pub rotation: Option<[f64; 4]>,
+    /// Its own settings, or `None` for the engine's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<TurboSettings>,
+}
+
+/// What one turbo can be set to on its own, where the others differ: its wastegate's boost target,
+/// gauge, Pa; its size, the compressor's flow at full speed, kg/s, 0 or less sizing it for the engine;
+/// its intercooler's effectiveness, 0..1; and its blow-off valve. They are `EngineSpec`'s fields of the
+/// same names.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurboSettings {
+    pub boost_target: f64,
+    pub turbo_size: f64,
+    pub intercooler: f64,
+    pub blow_off: BlowOff,
+}
+
+impl TurboMount {
+    /// Its settings: its own, or the engine's.
+    pub fn settings_for(&self, spec: &EngineSpec) -> TurboSettings {
+        self.settings.unwrap_or(TurboSettings {
+            boost_target: spec.boost_target,
+            turbo_size: spec.turbo_size,
+            intercooler: spec.intercooler,
+            blow_off: spec.blow_off,
+        })
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

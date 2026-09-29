@@ -417,7 +417,8 @@ export interface EngineSpec {
   // The turbos themselves are placed in the exhaust, as `ExhaustGraph.turbos`, and pipes attached to them.
   // Nothing is taken from a map: each turbine is driven by the exhaust the cylinders push out, so the boost
   // builds with the exhaust flow, and lags behind the throttle while the shaft spins up. These settings are
-  // every turbo's. See `crates/engine-sim/src/turbo.rs`.
+  // every turbo's, but for the boost and size of one given its own (`TurboMount.settings`). See
+  // `crates/engine-sim/src/turbo.rs`.
   /**
    * Boost the wastegate holds, gauge, Pa. It opens a bypass around the turbine as the boost reaches
    * this, so the turbine takes less of the exhaust.
@@ -672,13 +673,23 @@ export interface TurboSnapshot {
   manifold: number;
   /** Pressure at the turbine inlet, gauge, Pa: what the exhaust works against. */
   turbineInlet: number;
-  /** Each turbo's shaft speed, rev/min. */
+  /** The turbos' mean shaft speed, rev/min. */
   shaftRpm: number;
-  /** Wastegate and blow-off valve openings, 0..1. */
+  /** The wastegates' and the blow-off valves' mean openings, 0..1. */
   wastegate: number;
   blowOff: number;
-  /** Whether the compressor is surging. */
+  /** Whether a compressor is surging. */
   surging: boolean;
+  /** Each turbo's own, in the order of the exhaust's turbines. */
+  turbos: TurboUnitSnapshot[];
+}
+
+/** One turbo's state, sent with each snapshot: its shaft speed, rev/min, and its wastegate's and blow-off valve's openings, 0..1. */
+export interface TurboUnitSnapshot {
+  id: string;
+  shaftRpm: number;
+  wastegate: number;
+  blowOff: number;
 }
 
 /** A launch's state, sent with each snapshot while it runs. */

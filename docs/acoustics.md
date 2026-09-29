@@ -305,7 +305,7 @@ time. Batching the gas transfer as well would put a regular energy kick into the
 
 A turbocharger changes the exhaust note and adds sounds of its own (see
 [The turbocharger](engine.md#the-turbocharger)). Where it can be, each comes from a simulated flow;
-**Turbo sound** sets the level of all of them.
+**Turbo sound**, in the Listener section, sets the level of all of them.
 
 **In the exhaust.** The turbine is in the gas dynamics, so what it does to the note is solved, not
 filtered. Each pulse arriving at it is partly reflected, back up the manifold, and partly spent turning

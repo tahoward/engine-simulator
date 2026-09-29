@@ -190,8 +190,13 @@ gas dynamics; the rest is lumped, one state each, and stepped every audio sample
   Its power is the isentropic expansion across it at 68% efficiency, and the gas leaves it cooler by
   the work it did. The cylinders push out against its inlet pressure, which costs pumping work and
   leaves more spent gas in the cylinder.
-- **Two or more turbos** share one lumped shaft and the settings, with the airflow split evenly between
-  them; each turbine is solved on its own, on the pulses of the cylinders feeding it.
+- **Two or more turbos** blow into one charge air, each through its own intercooler, each with its own
+  blow-off valve on it. Turbos on the same settings share one lumped shaft, with the airflow split evenly
+  between them; one set differently ([Controls](controls.md#turbocharger)) has a shaft, compressor duct,
+  wastegate, intercooler and blow-off valve of its own, turned by its own turbine. Each turbine is solved on its own, on the pulses of the cylinders
+  feeding it. Each wastegate opens on the one boost, so a turbo on a higher target keeps its gate shut
+  while the other's opens, and the other, slowing, can be pushed into a surge by the charge air it can
+  no longer hold.
 - **The wastegate** opens a bypass around the turbine as the boost reaches its target, over a few
   hundredths of a bar, so the turbine takes less of the exhaust. It is a spring and diaphragm with a
   40 ms lag, not a controller, so the boost settles near the target rather than exactly on it.
@@ -206,9 +211,10 @@ gas dynamics; the rest is lumped, one state each, and stepped every audio sample
   more pressure at low flow, but passes little more air.
 - **The shaft** is accelerated by the turbine's power less the compressor's and its bearings'. Its
   inertia grows as the wheel's diameter to the fifth, which is why a big turbo lags.
-- **The intercooler** takes a share of the compressor's heating back out of the charge.
+- **The intercooler** takes a share of the compressor's heating back out of the air it delivers.
 - **The blow-off valve** opens on the pressure across a shut throttle and vents the charge air, to
-  the atmosphere or back to the compressor inlet.
+  the atmosphere or back to the compressor inlet. Each turbo's is as big as its compressor's inducer, so
+  with one turbo's taken off, the others' vent less of the charge, and more slowly.
 
 Left on auto, the turbo is sized from the engine's airflow at 80% of its rev limit on full boost.
 Whatever its size, its turbine's nozzle is sized for the boost target: narrow enough that at that

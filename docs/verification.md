@@ -64,8 +64,8 @@ matters.
   0.06 bar of its 0.7 bar target at 4000 and 6500 rpm, with the wastegate open at both. Opened
   from part throttle at 3500 rpm, it must take between 0.2 and 2.5 s to reach 90% of its boost. It must
   make within 10% of the real engine's 368 N·m at 4400 rpm, less friction, and between 280 and 350 PS
-  at 6800. The 3S-GTE, four cylinders on one turbo, on its 0.5 bar must make within 10% of the North
-  American engine's rated 271 N·m at 3200 rpm and 200 hp at 6000, and the EA855 EVO, five on one
+  at 6800. The 3S-GTE, four cylinders on one turbo, on its 0.7 bar must make within 10% of the Japanese
+  engine's rated 304 N·m at 5000 rpm, once on boost, and 225 PS at 6000, and the EA855 EVO, five on one
   turbo, on its 1.35 bar within 10% of the real engine's rated 480 N·m at 4500 rpm and 400 PS at 5850
   and 7000; with compressors too small for it, passing 0.12 kg/s each, it must make less power at 7900
   than at 7000, where they are at their choke. With
@@ -78,12 +78,18 @@ matters.
   of what arrives; and there must be no solver recoveries. A single with its pipe drawn into a turbo must
   make boost, and a turbo with nothing attached must do nothing.
   The strongest tone of what the compressor radiates must be within 3% of its blade-pass frequency.
+  On the six, left on the engine's settings, the two turbos must turn at one speed with one wastegate
+  opening, without surging; its second given a bigger compressor, 0.22 kg/s, on the same boost, it must
+  turn more than 10% slower than the first, their wastegates within 5% of each other, without surging;
+  given 0.1 bar more boost, its wastegate must be at least 20% less open than the first's; with its
+  blow-off valve taken off, lifting off on boost must open the first's past 90% and leave it shut. Giving a
+  turbo its own settings must leave the gas in the pipes and the turbos' speed as they were.
 - **Placing turbos.** A turbo put down on an open pipe end must attach it and add nothing at its outlet,
   in a graph the solver accepts, the solver alone given a vent to the air at its outlet flange; the pipe
   must meet its inlet flange and a pipe drawn from its outlet start at its outlet flange, with no junction
   fitting drawn; its inlet must be offered to draw to, its outlet to draw from until a pipe is drawn from
   it, and its node not as a junction; tidying must leave its pipes as they are; taking it out must leave the
-  pipe open again; moved, the pipe must follow it and still meet its inlet; and it must survive a link.
+  pipe open again; moved, the pipe must follow it and still meet its inlet; and it must survive a link, with its own settings if it has them.
   Heard through the Wasm build it must make boost, with a pipe drawn from its outlet or
   without. The RB26, its exhaust compiled, must have one turbo with every cylinder through it. Turned a
   quarter turn about an axis, a turbo's outlet must turn by that, with its pipe still meeting its inlet.

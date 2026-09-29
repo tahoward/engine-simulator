@@ -17,6 +17,8 @@
 
 import { type Vec3, distance, exhaustPortOf, sweepEnd, turnBetweenDirs, turnDir } from './geometry.js';
 import {
+  BLOW_OFFS,
+  type BlowOff,
   type EngineSpec,
   type PipeSegment,
   collectorGroups,
@@ -156,6 +158,20 @@ export interface TurboMount {
   node: string;
   position: Vec3 | null;
   rotation: Quat;
+  /** Its own settings, or none to follow the engine's, as every turbo does while they are in sync. */
+  settings?: TurboSettings;
+}
+
+/**
+ * What one turbo can be set to on its own, the `EngineSpec` fields of the same names: its wastegate's boost
+ * target, gauge, Pa; its size, its compressor's flow at full speed, kg/s, 0 or less sizing it for the engine;
+ * its intercooler's effectiveness, 0..1; and its blow-off valve.
+ */
+export interface TurboSettings {
+  boostTarget: number;
+  turboSize: number;
+  intercooler: number;
+  blowOff: BlowOff;
 }
 
 /** A rotation as a unit quaternion, `[x, y, z, w]`. */
@@ -221,7 +237,23 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
         const norm = r.length === 4 && r.every(finite) ? Math.hypot(...r) : 0;
         const rotation: Quat =
           norm > 1e-9 ? [r[0] / norm, r[1] / norm, r[2] / norm, r[3] / norm] : [0, 0, 0, 1];
-        return [{ id: t.id, node: t.node, position, rotation }];
+        const own = t.settings as Record<string, unknown> | undefined;
+        const settings =
+          own &&
+          finite(own.boostTarget) &&
+          finite(own.turboSize) &&
+          finite(own.intercooler) &&
+          BLOW_OFFS.includes(own.blowOff as BlowOff)
+            ? {
+                settings: {
+                  boostTarget: own.boostTarget,
+                  turboSize: own.turboSize,
+                  intercooler: own.intercooler,
+                  blowOff: own.blowOff as BlowOff,
+                },
+              }
+            : {};
+        return [{ id: t.id, node: t.node, position, rotation, ...settings }];
       })
     : [];
   const junctions = (raw as { junctions?: unknown }).junctions;
