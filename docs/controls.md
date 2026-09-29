@@ -286,7 +286,7 @@ Click **Draw a pipe** to switch to draw mode.
    feed it, or a loose pipe's start to attach it. Joining something, the pipe finishes in one smooth bend that arrives along what it joins:
    square into a turbo's flange, beside another pipe at its open end, and into the flow along a pipe's
    side, so the two merge rather than meet at a corner. Into another pipe, it arrives along the pipe the
-   gas carries on through, so pivoting that pipe where it leaves the junction turns the bend with it. Drawn into the side of a pipe open at both ends, such as a loose one, it makes a T: the gas goes out of both ends. The preview shows the bend it will take. Joined
+   gas carries on through, so pivoting that pipe where it leaves the junction turns the bend with it. Drawn into the side of a pipe open at both ends, such as a loose one, it makes a T: the gas goes out of both ends. Hold <kbd>Shift</kbd> as you click a pipe's side to meet it square instead, at 90 degrees, rather than curving round into its flow. Either way its end matches the bore of the pipe it joins, and follows it when that pipe's bore is changed; the preview shows it as soon as Shift is down, and the bend stays square whenever it is fitted again. The preview shows the bend it will take. Joined
    at both ends, the bend is not edited: it is greyed out in its menu, and follows whenever the
    pipe before it or what it joins moves. A junction placed only where its pipes' ends average out has no
    place of its own to arrive at, and a pipe drawn to one ends in a corner. To leave the end open,

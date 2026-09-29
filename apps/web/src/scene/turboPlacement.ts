@@ -133,6 +133,7 @@ export function fitBend(duct: ExhaustDuct, origin: THREE.Vector3, heading: THREE
     duct.segments = drawn;
     delete duct.fitted;
     delete duct.swing;
+    delete duct.square;
     return;
   }
   const last = drawn.at(-1);

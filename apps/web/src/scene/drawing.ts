@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { arcHandle, makeSegment, segmentDiameter, type PipeSegment } from '../model/spec.js';
 import {
   disconnectEnd,
+  drawnSegments,
   endsAt,
   junctionAt,
   newDuctId,
@@ -273,12 +274,14 @@ export function splitDuct(graph: ExhaustGraph, ductId: string, index: number, pl
     headingFrame: 'world',
     ...(duct.fitted ? { fitted: true as const } : {}),
     ...(duct.swing ? { swing: true as const } : {}),
+    ...(duct.square ? { square: true as const } : {}),
   };
   for (const d of graph.ducts) if (d.continues === duct.id) d.continues = rest.id;
   duct.segments = duct.segments.slice(0, index);
   duct.to = { kind: 'mouth' };
   delete duct.fitted;
   delete duct.swing;
+  delete duct.square;
   graph.ducts.push(rest);
   return rest.id;
 }
@@ -458,7 +461,9 @@ export interface BendAnchor {
  * end, or on its side, is where that pipe is, and the pipe joining it arrives along the pipe the gas carries
  * on through, merging into it rather than meeting it at a corner. Turn that pipe where it leaves, and the
  * bend follows it. A junction placed where its pipes' ends average out has no place apart from them, so
- * `null`, as for the pipe that is itself carried on.
+ * `null`, as for the pipe that is itself carried on. A pipe drawn in square (`ExhaustDuct.square`) arrives
+ * across the pipe instead. Either way it ends at the bore of the pipe it joins, and follows it when that
+ * changes.
  */
 export function bendAnchor(
   graph: ExhaustGraph,
@@ -471,6 +476,45 @@ export function bendAnchor(
     const { point, dir, dia } = turbo.inlet;
     return { point: new THREE.Vector3(...point), dir: new THREE.Vector3(...dir), dia };
   }
+  const along = junctionAnchor(graph, placement, node, ductId);
+  const self = graph.ducts.find((d) => d.id === ductId);
+  const place = placement.ducts.get(ductId);
+  if (!along || !self?.square || !place) return along;
+  // Square into the pipe's side: across it, from where the pipe as drawn ends, at the pipe's bore there.
+  const drawn = drawnSegments(self);
+  const swept = layoutPipe(drawn, place.origin, place.heading);
+  const from = drawn.length > 0 ? swept.joints.at(-1)! : place.origin;
+  const fromDir = drawn.length > 0 ? swept.jointDirections.at(-1)! : place.heading;
+  return { ...along, dir: squareArrival(along.point, along.dir, from, fromDir) };
+}
+
+/**
+ * The way a pipe from `from`, heading `fromDir` there, arrives square into the side of a pipe running along
+ * `axis` through `point`: straight across it, from the side `from` is on. From on the pipe's line, across
+ * it the way `fromDir` leans; failing that, any way across.
+ */
+export function squareArrival(
+  point: THREE.Vector3,
+  axis: THREE.Vector3,
+  from: THREE.Vector3,
+  fromDir: THREE.Vector3,
+): THREE.Vector3 {
+  const a = axis.clone().normalize();
+  const across = (v: THREE.Vector3) => v.clone().addScaledVector(a, -v.dot(a));
+  for (const v of [across(point.clone().sub(from)), across(fromDir)]) {
+    if (v.length() > 1e-6) return v.normalize();
+  }
+  const any = Math.abs(a.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+  return across(any).normalize();
+}
+
+/** `bendAnchor` for a junction, arriving along what it carries on through. */
+function junctionAnchor(
+  graph: ExhaustGraph,
+  placement: ExhaustPlacement,
+  node: string,
+  ductId: string,
+): BendAnchor | null {
   const ends = endsAt(graph, node);
   // A junction that has been moved is where it was put, every pipe into it arriving along the first
   // leaving it.
