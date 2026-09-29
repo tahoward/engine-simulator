@@ -16,9 +16,13 @@ import * as THREE from 'three';
 import {
   MIN_DRAW_LENGTH,
   closesLoop,
+  flipLoosePipe,
+  flipLooseRun,
   holdOpening,
   sideArrival,
   sideLeaving,
+  SIDE_LEAVING,
+  rollSide,
   swingPipe,
   pipeShape,
   arcTo,
@@ -1048,6 +1052,25 @@ describe('a square T', () => {
     const graph = { ducts: [runner] };
     expect(graphFromJson(JSON.parse(JSON.stringify(graph)))!.ducts[0]!.square).toBe(true);
   });
+
+  it('drawn in from a side, comes in at a lateral from it, and from wherever that side is rolled to', async () => {
+    const { pipesMeetAt } = await import('../src/scene/exhaustLayout.js');
+    const { graph, runner, axis } = joined(false);
+    for (const roll of [0.3, 0.3 + Math.PI / 2, -2]) {
+      runner.arriveRoll = roll;
+      refitBends(graph, ports(), spec);
+      const placement = layoutGraph(ports(), graph);
+      const node = (runner.to as { node: string }).node;
+      expect(pipesMeetAt(graph, placement, node)).toBe(true);
+      const place = placement.ducts.get(runner.id)!;
+      const arrives = layoutPipe(runner.segments, place.origin, place.heading).jointDirections.at(-1)!;
+      expect(Math.abs(arrives.dot(axis))).toBeCloseTo(Math.cos(SIDE_LEAVING), 6);
+      // In from the side the roll is round the pipe: heading away from it.
+      const across = arrives.clone().addScaledVector(axis, -arrives.dot(axis)).normalize();
+      expect(across.angleTo(rollSide(axis, roll).negate())).toBeLessThan(1e-6);
+    }
+    expect(graphFromJson(JSON.parse(JSON.stringify({ ducts: [runner] })))!.ducts[0]!.arriveRoll).toBe(-2);
+  });
 });
 
 /** A bend drawn as a tube bender makes one: a turn, round a radius. */
@@ -1305,12 +1328,16 @@ describe('drawing out of the side of a pipe', () => {
   const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
   const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
 
-  it('sets off along the pipe whichever way along it the point lies', () => {
+  it('sets off at a lateral off the pipe, along it whichever way the point lies, out of its side', () => {
     const axis = new THREE.Vector3(0, 0, 1);
     const tip = new THREE.Vector3(0, 0, 0);
-    expect(sideLeaving(axis, tip, new THREE.Vector3(0.2, 0, 0.3)).z).toBe(1);
-    expect(sideLeaving(axis, tip, new THREE.Vector3(0.2, 0, -0.3)).z).toBe(-1);
-    expect(sideLeaving(axis, tip, new THREE.Vector3(0.2, 0, 0)).z).toBe(1);
+    const c = Math.cos(SIDE_LEAVING);
+    const s = Math.sin(SIDE_LEAVING);
+    const near = (v: THREE.Vector3, x: number, y: number, z: number) => expect(v.distanceTo(new THREE.Vector3(x, y, z))).toBeLessThan(1e-9);
+    near(sideLeaving(axis, tip, new THREE.Vector3(0.2, 0, 0.3)), s, 0, c);
+    near(sideLeaving(axis, tip, new THREE.Vector3(0, -0.2, -0.3)), 0, -s, -c);
+    near(sideLeaving(axis, tip, new THREE.Vector3(0.2, 0, 0)), s, 0, c);
+    near(sideLeaving(axis, tip, new THREE.Vector3(0, 0, 0.3)), 0, 0, 1);
   });
 
   it('bends in one arc from along the pipe to the point', () => {
@@ -1479,5 +1506,194 @@ describe('pivoting a pipe where it leaves a junction fixed in place', () => {
     const r = placement.ducts.get('runner0')!;
     const arriving = layoutPipe(runner.segments, r.origin, r.heading).jointDirections.at(-1)!;
     expect(arriving.angleTo(leaving)).toBeLessThan(1e-6);
+  });
+});
+
+describe('rolling a pipe with a can in it', () => {
+  it('turns the can round with it, its pipes off its middle and all', () => {
+    const can = makeSegment({ kind: 'chamber', length: 0.3, dIn: 0.05, dOut: 0.2, section: 'oval', height: 0.1, offsetOut: 0.05 });
+    const duct: ExhaustGraph['ducts'][number] = {
+      id: 'tail',
+      segments: [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.05 }), can],
+      from: { kind: 'free', position: [0, 0, 0] },
+      to: { kind: 'mouth' },
+      headingYaw: 0,
+      headingPitch: 0,
+      headingFrame: 'world',
+    };
+    const origin = new THREE.Vector3();
+    const heading = new THREE.Vector3(1, 0, 0);
+    const before = layoutPipe(duct.segments, origin, heading);
+    const angle = 0.9;
+    swingPipe(duct, heading, pipeShape(duct.segments, heading), heading, angle);
+    expect(duct.segments[1]!.roll).toBeCloseTo(angle, 9);
+    const after = layoutPipe(duct.segments, origin, heading);
+    const turn = (v: THREE.Vector3) => v.clone().applyAxisAngle(heading, angle);
+    const last = (l: typeof before) => l.stations.at(-1)!;
+    expect(last(after).across.angleTo(turn(last(before).across))).toBeLessThan(1e-9);
+    expect(after.joints.at(-1)!.distanceTo(turn(before.joints.at(-1)!))).toBeLessThan(1e-9);
+  });
+
+  it('keeps its roll through a saved link', () => {
+    const can = makeSegment({ kind: 'chamber', length: 0.3, dIn: 0.05, dOut: 0.2, roll: 0.4 });
+    expect(makeSegment(JSON.parse(JSON.stringify(can))).roll).toBe(0.4);
+  });
+});
+
+describe('rolling a pipe with a branch drawn out of its side', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
+  const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
+
+  it("turns the way the branch leaves it round, the branch's bend fitted again to what it joins", async () => {
+    const { pipesMeetAt } = await import('../src/scene/exhaustLayout.js');
+    const graph: ExhaustGraph = { ducts: [] };
+    const a = placeLoosePipe(graph, [0, 0.3, 0], 0.042, 0.6);
+    const b = placeLoosePipe(graph, [0.4, 0.3, 0.3], 0.042, 0.6);
+    const node = splitDuctAt(graph, a, 0.3)!;
+    const axis = new THREE.Vector3(0, 0, 1);
+    const at = new THREE.Vector3(0, 0.3, 0.3);
+    const leave = sideLeaving(axis, at, new THREE.Vector3(0.4, 0.3, 0.3));
+    const turn = headingOffsetTo(new THREE.Vector3(1, 0, 0), leave);
+    graph.ducts.push({ id: 'branch', segments: [], from: { kind: 'node', node }, to: { kind: 'mouth' }, headingYaw: turn.yaw, headingPitch: turn.pitch, headingFrame: 'world' });
+    const branch = graph.ducts.at(-1)!;
+    const joined = attachToLooseStart(graph, 'branch', b, [0, 0, 1])!;
+    branch.fitted = true;
+    branch.segments = [makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 })];
+    refitBends(graph, ports(), spec);
+    expect(pipesMeetAt(graph, layoutGraph(ports(), graph), joined)).toBe(true);
+
+    // Rolled a quarter turn, as the ring carries a branch round: the way it sets off turns about the pipe.
+    const rolled = leave.clone().applyAxisAngle(axis, Math.PI / 2);
+    const h = headingOffsetTo(new THREE.Vector3(1, 0, 0), rolled);
+    branch.headingYaw = h.yaw;
+    branch.headingPitch = h.pitch;
+    refitBends(graph, ports(), spec);
+    const placement = layoutGraph(ports(), graph);
+    expect(pipesMeetAt(graph, placement, joined)).toBe(true);
+    const p = placement.ducts.get('branch')!;
+    expect(layoutPipe(branch.segments, p.origin, p.heading).stations[0]!.direction.angleTo(rolled)).toBeLessThan(1e-6);
+  });
+});
+
+
+describe('where one segment of a pipe meets the next', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
+  const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
+
+  it('is offered to draw from or join, and splits the pipe there into a junction', () => {
+    const graph: ExhaustGraph = { ducts: [] };
+    const id = placeLoosePipe(graph, [0, 0.3, 0], 0.042, 0.3);
+    const pipe = graph.ducts[0]!;
+    pipe.segments.push(makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042 }));
+    const placement = layoutGraph(ports(), graph);
+    const place = placement.ducts.get(id)!;
+    const at = layoutPipe(pipe.segments, place.origin, place.heading).joints[0]!;
+    const joints = collectSnapTargets(graph, placement, ports()).filter((t) => t.kind === 'ductSurface');
+    expect(joints).toHaveLength(1);
+    const joint = joints[0]!;
+    expect(joint.kind === 'ductSurface' && joint.x).toBeCloseTo(0.3, 12);
+    expect(joint.point.distanceTo(at)).toBeLessThan(1e-9);
+
+    const node = splitDuctAt(graph, id, (joint as { x: number }).x)!;
+    expect(pipe.segments).toHaveLength(1);
+    expect(pipe.to).toEqual({ kind: 'node', node });
+    const rest = graph.ducts.find((d) => d.continues === id)!;
+    expect(rest.segments).toHaveLength(1);
+    expect(rest.segments[0]!.length).toBeCloseTo(0.2, 12);
+  });
+
+  it('is not offered at a bend fitted to what the pipe joins', () => {
+    const graph: ExhaustGraph = { ducts: [] };
+    placeLoosePipe(graph, [0, 0.3, 0], 0.042, 0.3);
+    const pipe = graph.ducts[0]!;
+    pipe.segments.push(makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042 }));
+    pipe.fitted = true;
+    expect(collectSnapTargets(graph, layoutGraph(ports(), graph), ports()).some((t) => t.kind === 'ductSurface')).toBe(false);
+  });
+});
+
+describe('deleting the far half of a pipe a branch was drawn out of', () => {
+  it('carries the branch straight on from what is left, its bend joining it cleanly', async () => {
+    const { removeDuct } = await import('../src/model/exhaustGraph.js');
+    const graph: ExhaustGraph = { ducts: [] };
+    const a = placeLoosePipe(graph, [0, 0.3, 0], 0.042, 0.6);
+    const node = splitDuctAt(graph, a, 0.3)!;
+    const arc = makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.042, yaw: 0.5, curve: { end: [0.2, 0, 0.15], dir: [0, 0, 1] } });
+    graph.ducts.push({ id: 'branch', segments: [arc, makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042 })], from: { kind: 'node', node }, to: { kind: 'mouth' } });
+    const far = graph.ducts.find((d) => d.continues === a)!;
+    expect(removeDuct(graph, far.id)).toBe(true);
+    const pipe = graph.ducts.find((d) => d.id === a)!;
+    expect(graph.ducts.some((d) => d.id === 'branch')).toBe(false);
+    expect(pipe.segments).toHaveLength(3);
+    // The bend sets off the way the pipe it is now part of was going: no corner where they meet.
+    expect(pipe.segments[1]!.curve).toBeDefined();
+    expect(pipe.segments[1]!.yaw).toBe(0);
+    expect(pipe.segments[1]!.pitch).toBe(0);
+  });
+});
+
+describe('drawing from the start of a loose pipe open at both ends', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
+  const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
+
+  it('turns it round where it lies, to carry on from that end, pointing back out of it', () => {
+    const graph: ExhaustGraph = { ducts: [] };
+    const id = placeLoosePipe(graph, [0.1, 0.3, -0.2], 0.042, 0.3);
+    const pipe = graph.ducts[0]!;
+    pipe.segments.push(makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042, yaw: 0.6 }));
+    const place = layoutGraph(ports(), graph).ducts.get(id)!;
+    const before = layoutPipe(pipe.segments, place.origin, place.heading);
+    const start = place.origin.clone();
+    const out = before.stations[0]!.direction.clone().negate();
+
+    flipLoosePipe(pipe, place);
+    const flipped = layoutGraph(ports(), graph).ducts.get(id)!;
+    const tip = routeTip(pipe.segments, flipped);
+    expect(tip.point.distanceTo(start)).toBeLessThan(1e-9);
+    expect(tip.dir.angleTo(out)).toBeLessThan(1e-9);
+    // The same pipe, where it was: it now starts where it used to end.
+    expect(flipped.origin.distanceTo(before.joints.at(-1)!)).toBeLessThan(1e-9);
+  });
+});
+
+describe('drawing from the start of a loose pipe with a tee in the middle', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
+  const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
+
+  it('turns the whole pipe round, tee and all, its start its open end, still joined where it was', async () => {
+    const { pipesMeetAt } = await import('../src/scene/exhaustLayout.js');
+    const graph: ExhaustGraph = {
+      ducts: [{ id: 'runner0', segments: [makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042 })], from: { kind: 'valve', cylinder: 0 }, to: { kind: 'mouth' } }],
+    };
+    const id = placeLoosePipe(graph, [0.3, -0.2, -0.1], 0.042, 0.6);
+    const node = splitDuctAt(graph, id, 0.25)!;
+    const runner = graph.ducts[0]!;
+    runner.to = { kind: 'node', node };
+    runner.segments.push(makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 }));
+    runner.fitted = true;
+    refitBends(graph, ports(), spec);
+    const placement = layoutGraph(ports(), graph);
+    const start = placement.ducts.get(id)!.origin.clone();
+    const out = placement.ducts.get(id)!.heading.clone().negate();
+    const ends = (g: ExhaustGraph) => {
+      const p = layoutGraph(ports(), g);
+      return g.ducts.filter((d) => d.id !== 'runner0').flatMap((d) => {
+        const at = p.ducts.get(d.id)!;
+        return [at.origin, layoutPipe(d.segments, at.origin, at.heading).joints.at(-1)!].map((v) => v.toArray().map((x) => x.toFixed(6)).join());
+      }).sort();
+    };
+    const before = ends(graph);
+
+    expect(flipLooseRun(graph, id, placement)).toBe(id);
+    refitBends(graph, ports(), spec);
+    expect(validateGraph(graph, 1)).toEqual([]);
+    expect(ends(graph)).toEqual(before);
+    const after = layoutGraph(ports(), graph);
+    expect(pipesMeetAt(graph, after, node)).toBe(true);
+    const pipe = graph.ducts.find((d) => d.id === id)!;
+    expect(pipe.to).toEqual({ kind: 'mouth' });
+    const tip = routeTip(pipe.segments, after.ducts.get(id)!);
+    expect(tip.point.distanceTo(start)).toBeLessThan(1e-9);
+    expect(tip.dir.angleTo(out)).toBeLessThan(1e-9);
   });
 });

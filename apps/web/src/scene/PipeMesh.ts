@@ -91,7 +91,7 @@ export function layoutPipe(
       direction: dir.clone(),
       radius: section.section === 'round' ? segmentDiameter(seg, u) / 2 : Math.max(section.width, section.height) / 2,
       section,
-      across: acrossAxis(dir),
+      across: widthAxis(seg, dir),
       segment: si,
     };
   };
@@ -133,7 +133,7 @@ export function layoutPipe(
     // An offset pipe enters the can off its centreline, so the body sits to one side of the pipe
     // coming in, and the pipe going out leaves from wherever its own offset puts it.
     const [offIn, offOut] = chamberOffsets(seg);
-    const across = acrossAxis(dir);
+    const across = widthAxis(seg, dir);
     const lateral = (u: number) =>
       u < CHAMBER_THROAT ? 0 : u <= 1 - CHAMBER_THROAT ? -offIn : offOut - offIn;
 
@@ -261,7 +261,13 @@ export function bendRadius(
   return least;
 }
 
-/** Horizontal and square to `dir`: the axis a chamber's width lies along. */
+/** The axis `seg`'s width lies along, running along `dir`: level and square to it, turned by a can's roll. */
+export function widthAxis(seg: PipeSegment, dir: THREE.Vector3): THREE.Vector3 {
+  const across = acrossAxis(dir);
+  return seg.kind === 'chamber' && seg.roll ? across.applyAxisAngle(dir.clone().normalize(), seg.roll) : across;
+}
+
+/** Horizontal and square to `dir`: the axis a chamber's width lies along, unrolled. */
 export function acrossAxis(dir: THREE.Vector3): THREE.Vector3 {
   const a = new THREE.Vector3(0, 1, 0).cross(dir);
   if (a.lengthSq() < 1e-8) return new THREE.Vector3(1, 0, 0).projectOnPlane(dir).normalize();

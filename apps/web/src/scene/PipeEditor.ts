@@ -70,10 +70,16 @@ import {
   squareArrival,
   sideArrival,
   sideLeaving,
+  sideRoll,
+  lateralArrival,
+  rollOf,
+  rollSide,
   arcTo,
   closesLoop,
   collectSnapTargets,
   flipLoosePipe,
+  flipLooseRun,
+  looseRun,
   diameterAt,
   type BendAnchor,
   swingPipe,
@@ -159,8 +165,16 @@ interface TriadDrag {
   /** The first segment that swings: 0 for the whole pipe, or a bend further along and what follows it. */
   from?: number;
   shape0?: PipeShape;
-  /** The pipes carrying on from its far end that swing round with it (`carriedOn`), each as `base` and `shape0` are. */
-  carried?: { id: string; base: THREE.Vector3; shape0: PipeShape }[];
+  /**
+   * The pipes carrying on from its far end that swing round with it (`carriedOn`), each as `base` and
+   * `shape0` are, and the way it set off: all a pipe that is nothing but a fitted bend has to turn.
+   */
+  carried?: { id: string; base: THREE.Vector3; shape0: PipeShape; heading0: THREE.Vector3 }[];
+  /**
+   * The bends coming into the side of what it swings, which come in from a side of it that swings round with
+   * it: each as the pipe there ran, and the side, in the world, when the drag began (`arrivalsOn`).
+   */
+  arrivals?: { id: string; axis0: THREE.Vector3; out0: THREE.Vector3 }[];
   /** What a pipe's arrows move: the junction it starts from, and the way it points, or a loose pipe. */
   startNode?: string;
   startAxis?: Vec3;
@@ -1126,9 +1140,10 @@ export class PipeEditor {
 
   /**
    * Where the selected pipe's triad goes: where the pipe starts, which it turns about, or where the
-   * selected bend starts, and `from` that bend, which the rest of the pipe turns about.
+   * selected bend starts, and `from` that bend, which the rest of the pipe turns about. `root`, for the far
+   * half of a pipe a tee split, the pipe it carries on from, which its ring rolls, and this half with it.
    */
-  private pipeTriadAt: { start: THREE.Vector3; from: number } | null = null;
+  private pipeTriadAt: { start: THREE.Vector3; from: number; root?: string } | null = null;
 
   private onContextMenu = (e: MouseEvent): void => {
     e.preventDefault();
@@ -1213,7 +1228,7 @@ export class PipeEditor {
     const trapped = (t: SnapTarget): boolean => !!route && closesLoop(ctx.graph, route.ductId, t);
     const point = nearestSnap(
       collectSnapTargets(ctx.graph, ctx.placement, ctx.ports).filter(
-        (t) => !(route && t.kind === 'ductEnd' && t.duct === route.ductId) && !trapped(t),
+        (t) => !(route && (t.kind === 'ductEnd' || t.kind === 'ductSurface') && t.duct === route.ductId) && !trapped(t),
       ),
       this.pointer,
       this.camera,
@@ -1267,17 +1282,15 @@ export class PipeEditor {
   }
 
   /**
-   * Whether a route can start from this target: not a turbo's inlet nor a loose pipe's start, which a route
-   * may only end on, and the side of a pipe only where it has a way along it to set off by.
+   * Whether a route can start from this target: not a turbo's inlet, which a route may only end on, the side
+   * of a pipe only where it has a way along it to set off by, and a loose pipe's start only where it runs
+   * to open air at its other end, through any tees on it, so it can be turned round to carry on from there.
    */
-  private static startable(target: SnapTarget | null): boolean {
-    return (
-      !!target &&
-      target.kind !== 'free' &&
-      target.kind !== 'turboInlet' &&
-      target.kind !== 'looseStart' &&
-      (target.kind !== 'ductSurface' || !!target.dir)
-    );
+  private startable(target: SnapTarget | null): boolean {
+    if (!target || target.kind === 'free' || target.kind === 'turboInlet') return false;
+    if (target.kind === 'ductSurface') return !!target.dir;
+    if (target.kind === 'looseStart') return !!this.context && looseRun(this.context.graph, target.duct) !== null;
+    return true;
   }
 
   /**
@@ -1300,6 +1313,23 @@ export class PipeEditor {
       if (!duct || !place) return;
       this.route = { ductId: duct.id, place, snapshot, base: duct.segments.length };
       this.cb.onDrawing?.(true);
+      return;
+    }
+    if (target.kind === 'looseStart') {
+      // From the start of a loose pipe running to open air, through any tees on it: turned round where it
+      // lies, so that start is its open end, it carries on from there as from any open end.
+      const duct = ctx.graph.ducts.find((d) => d.id === target.duct);
+      const place = ctx.placement.ducts.get(target.duct);
+      if (!duct || !place) return;
+      const run = looseRun(ctx.graph, duct.id);
+      if (!run) return;
+      // Where it starts once turned round: where the pipe after it joined it, or where it ended.
+      const end = layoutPipe(duct.segments, place.origin, place.heading).joints.at(-1)!.clone();
+      if (!flipLooseRun(ctx.graph, duct.id, ctx.placement)) return;
+      const flipped = { origin: end, heading: turnHeadingWorld(duct) };
+      this.route = { ductId: duct.id, place: flipped, snapshot, base: duct.segments.length };
+      this.cb.onDrawing?.(true);
+      this.cb.onChange(true, duct.id);
       return;
     }
 
@@ -1400,6 +1430,10 @@ export class PipeEditor {
       duct.fitted = true;
       if (square) duct.square = true;
       else delete duct.square;
+      // Into a pipe's side, the side it comes in from, kept so rolling that pipe carries it round.
+      const side = target.kind === 'ductSurface' && !square && target.dir ? sideRoll(target.dir, target.point, tip.point) : null;
+      if (side !== null) duct.arriveRoll = side;
+      else delete duct.arriveRoll;
       const node = this.connect(target);
       if (node) {
         this.finishRoute({ kind: 'node', node });
@@ -1408,6 +1442,7 @@ export class PipeEditor {
       duct.segments.pop();
       delete duct.fitted;
       delete duct.square;
+      delete duct.arriveRoll;
     }
 
     const straightOut = target.kind === 'free' ? this.straightRun(duct, tip, point) : null;
@@ -1520,7 +1555,7 @@ export class PipeEditor {
           ? target.dir.clone()
           : square
             ? squareArrival(target.point, target.dir, tip.point, tip.dir)
-            : sideArrival(target.point, target.dir, tip.point, tip.dir);
+            : lateralArrival(target.point, target.dir, tip.point, tip.dir);
         return { point: target.point.clone(), dir, dia: diameterAt(other.segments, target.x) };
       }
       case 'ductEnd': {
@@ -1708,6 +1743,18 @@ export class PipeEditor {
       this.pipeTriad.hideRing(0, false);
       this.pipeTriad.hideRing(1, true);
       this.pipeTriad.hideRing(2, true);
+    } else if (sel !== null && editable > 0 && duct && this.rollRoot(duct) !== duct) {
+      // The far half of a straight pipe a tee split: its ring rolls the whole pipe, from where it starts.
+      const root = this.rollRoot(duct);
+      this.pipeTriadAt = { start: this.origin.clone(), from: 0, root: root.id };
+      this.pipeTriad.setMoveOrigin(this.origin);
+      this.pipeTriad.setRotateOrigin(this.origin);
+      this.pipeTriad.setOrientation(frameAlong(layout.stations[0]!.direction));
+      this.pipeTriad.setRingsOwn(true);
+      this.pipeTriad.showMoves(false);
+      this.pipeTriad.hideRing(0, false);
+      this.pipeTriad.hideRing(1, true);
+      this.pipeTriad.hideRing(2, true);
     } else if (sel !== null && editable > 0 && duct) {
       const opening = layout.stations[0]!.direction.clone().normalize();
       const shape = pipeShape(this.pipe.slice(0, editable), this.heading);
@@ -1717,7 +1764,8 @@ export class PipeEditor {
         const place = this.context?.placement.ducts.get(c.id);
         if (!place) continue;
         const own = pipeShape(drawnSegments(c), place.heading);
-        dirs.push(...own.starts, ...own.ends);
+        // The way it sets off counts too: a branch leaving at an angle swings round, bend and all.
+        dirs.push(place.heading.clone().normalize(), ...own.starts, ...own.ends);
       }
       const across = (axis: THREE.Vector3) => dirs.some((d) => d.clone().cross(axis).lengthSq() > 1e-8);
       /**
@@ -1728,9 +1776,15 @@ export class PipeEditor {
       // Free to pivot where it starts, it is held to no face: it turns every way, as a loose pipe does.
       const faceDir = this.pivotsAtStart(duct) ? null : (this.faceAxis(duct)?.normalize() ?? null);
       const face = faceDir ? (!across(opening) && across(faceDir) ? faceDir : opening) : null;
-      const turns = !endHeld && (face ? across(face) : true);
+      // Held to a face, its one ring is there where turning about the face's axis does something: swings a
+      // bend round, or rolls a can that is not round or whose pipes sit off its middle. Free, all three.
+      const cans = [duct, ...carried].some((d) =>
+        d.segments.some((sg) => sg.kind === 'chamber' && ((sg.section ?? 'round') !== 'round' || !!sg.offsetIn || !!sg.offsetOut)),
+      );
+      const turns = !endHeld && (face ? across(face) || cans : true);
+      const swings = !endHeld && !face;
       const movable = duct.from.kind === 'free' || (duct.from.kind === 'node' && !this.heldAtStart(duct));
-      if (turns || movable) {
+      if (turns || swings || movable) {
         this.pipeTriadAt = { start: this.origin.clone(), from: 0 };
         this.pipeTriad.setMoveOrigin(this.origin);
         this.pipeTriad.setRotateOrigin(this.origin);
@@ -1739,8 +1793,8 @@ export class PipeEditor {
         this.pipeTriad.showMoves(movable);
         // Held to a face, only the ring round its axis; loose, all three; held at its far end, none.
         this.pipeTriad.hideRing(0, !turns);
-        this.pipeTriad.hideRing(1, !!face || endHeld);
-        this.pipeTriad.hideRing(2, !!face || endHeld);
+        this.pipeTriad.hideRing(1, !swings);
+        this.pipeTriad.hideRing(2, !swings);
       }
     }
 
@@ -1973,20 +2027,34 @@ export class PipeEditor {
       drag.frame0 = frameAlong(this.header.axis);
     } else if (on === 'pipe') {
       const ctx = this.context;
-      const duct = ctx?.graph.ducts.find((d) => d.segments === this.pipe);
-      const drawn = Math.min(this.lockedFrom ?? this.pipe.length, this.pipe.length);
-      if (!ctx || !duct || drawn === 0) return;
+      const edited = ctx?.graph.ducts.find((d) => d.segments === this.pipe);
+      // Rolling the far half of a split pipe rolls the pipe it carries on from, and so the whole of it.
+      const rootId = this.pipeTriadAt?.root;
+      const duct = rootId ? ctx?.graph.ducts.find((d) => d.id === rootId) : edited;
+      const place = duct ? ctx?.placement.ducts.get(duct.id) : undefined;
+      const segments = duct ? (rootId ? drawnSegments(duct) : this.pipe) : [];
+      const drawn = rootId ? segments.length : Math.min(this.lockedFrom ?? this.pipe.length, this.pipe.length);
+      if (!ctx || !duct || !place || drawn === 0) return;
       drag.ductId = duct.id;
       drag.drawn = drawn;
       drag.from = this.pipeTriadAt?.from ?? 0;
-      drag.shape0 = pipeShape(this.pipe.slice(0, drawn), this.heading);
+      drag.shape0 = pipeShape(segments.slice(0, drawn), rootId ? place.heading : this.heading);
       drag.base = this.headingBase(duct);
       drag.carried = this.carriedOn(duct).flatMap((c) => {
         const place = ctx.placement.ducts.get(c.id);
-        // A pipe that is nothing but a fitted bend is fitted again from wherever it now starts.
-        if (!place || drawnSegments(c).length === 0) return [];
-        return [{ id: c.id, base: this.headingBase(c), shape0: pipeShape(drawnSegments(c), place.heading) }];
+        if (!place) return [];
+        const base = this.headingBase(c);
+        let heading0 = place.heading.clone();
+        // A branch that is nothing but a bend, leaving straight along what it is turned about, has no side
+        // for the turn to carry round: it is given the one its bend goes off to, leaving at a lateral.
+        const bare = drawnSegments(c).length === 0 && c.segments.length > 0;
+        if (handle.kind === 'ring' && bare && heading0.clone().cross(axis).lengthSq() < 1e-8) {
+          const end = layoutPipe(c.segments, place.origin, place.heading).joints.at(-1)!;
+          heading0 = sideLeaving(heading0, place.origin, end);
+        }
+        return [{ id: c.id, base, shape0: pipeShape(drawnSegments(c), heading0), heading0 }];
       });
+      drag.arrivals = this.arrivalsOn([duct, ...this.carriedOn(duct)]);
       if (duct.from.kind === 'free') {
         drag.loose = [...duct.from.position];
       } else if (duct.from.kind === 'node') {
@@ -2117,6 +2185,83 @@ export class PipeEditor {
   }
 
   /**
+   * The bends coming into the side of `run`, a pipe and what carries on from it, at the tees along it: each
+   * with the way the pipe runs there and the side of it it comes in from, in the world. That side is its
+   * `arriveRoll` where it has one, and otherwise the side its bend comes in from as it lies, or failing that,
+   * where the pipe as drawn up to it ends.
+   */
+  private arrivalsOn(run: ExhaustDuct[]): { id: string; axis0: THREE.Vector3; out0: THREE.Vector3 }[] {
+    const ctx = this.context;
+    if (!ctx) return [];
+    const inRun = new Set(run.map((d) => d.id));
+    const found: { id: string; axis0: THREE.Vector3; out0: THREE.Vector3 }[] = [];
+    for (const d of run) {
+      if (d.to.kind !== 'node') continue;
+      const node = d.to.node;
+      // Not into a turbo, nor a junction moved into place with a pipe leaving it, which bends arrive at along
+      // that pipe. A fixed one nothing leaves yet is an opening at this pipe's end, which rolls with it.
+      if (turboAt(ctx.graph, node)) continue;
+      if (junctionAt(ctx.graph, node) && endsAt(ctx.graph, node).some((e) => e.end === 'inlet')) continue;
+      const place = ctx.placement.ducts.get(d.id);
+      if (!place || d.segments.length === 0) continue;
+      const axis = layoutPipe(d.segments, place.origin, place.heading).jointDirections.at(-1)!.clone().normalize();
+      for (const e of endsAt(ctx.graph, node)) {
+        const feed = e.duct;
+        if (e.end !== 'outlet' || inRun.has(feed.id) || !feed.fitted || feed.square) continue;
+        const at = ctx.placement.ducts.get(feed.id);
+        if (!at) continue;
+        let out: THREE.Vector3 | null = feed.arriveRoll !== undefined ? rollSide(axis, feed.arriveRoll) : null;
+        if (!out) {
+          const swept = layoutPipe(feed.segments, at.origin, at.heading);
+          const arriving = swept.jointDirections.at(-1)!;
+          const across = arriving.clone().addScaledVector(axis, -arriving.dot(axis)).negate();
+          if (across.lengthSq() > 1e-10) out = across.normalize();
+          else {
+            const drawn = drawnSegments(feed);
+            const from = drawn.length > 0 ? layoutPipe(drawn, at.origin, at.heading).joints.at(-1)! : at.origin;
+            const roll = sideRoll(axis, swept.joints.at(-1)!, from);
+            if (roll !== null) out = rollSide(axis, roll);
+          }
+        }
+        if (out) found.push({ id: feed.id, axis0: axis, out0: out });
+      }
+    }
+    return found;
+  }
+
+  /**
+   * The pipe a roll of `duct` turns: itself, or where it is the far half of a straight pipe a tee split, the
+   * pipe it carries on from, back to where that one starts. Only through junctions that follow the pipe, not
+   * a turbo nor one fixed in place, and only where the whole run is one straight line, so rolling it from
+   * here is rolling it from where it starts.
+   */
+  private rollRoot(duct: ExhaustDuct): ExhaustDuct {
+    const ctx = this.context;
+    if (!ctx) return duct;
+    const place = ctx.placement.ducts.get(duct.id);
+    if (!place) return duct;
+    const axis = layoutPipe(duct.segments, place.origin, place.heading).stations[0]?.direction;
+    if (!axis) return duct;
+    const straight = (d: ExhaustDuct): boolean => {
+      const at = ctx.placement.ducts.get(d.id);
+      if (!at || d.fitted) return false;
+      const shape = pipeShape(d.segments, at.heading);
+      return [...shape.starts, ...shape.ends].every((v) => v.clone().cross(axis).lengthSq() < 1e-8);
+    };
+    let root = duct;
+    const seen = new Set([duct.id]);
+    while (root.from.kind === 'node' && root.continues) {
+      const node = root.from.node;
+      if (junctionAt(ctx.graph, node) || turboAt(ctx.graph, node)) break;
+      const before = ctx.graph.ducts.find((d) => d.id === root.continues);
+      if (!before || seen.has(before.id) || before.to.kind !== 'node' || before.to.node !== node || !straight(before)) break;
+      seen.add(before.id);
+      root = before;
+    }
+    return root;
+  }
+
+  /**
    * Whether a pipe can pivot where it starts, every way: out of a junction that was fixed in place, as the
    * only pipe leaving it, where every pipe into it is bent in to meet it. Those bends arrive along the pipe
    * leaving (`bendAnchor`), so turned, it takes the junction's axis with it and they follow it round.
@@ -2238,10 +2383,25 @@ export class PipeEditor {
       const set = drag.shape0.starts[0]!.clone().applyAxisAngle(drag.axis, turn);
       pinned.axis = [set.x, set.y, set.z];
     }
+    // Bends into its side come in from the side it has turned round to, and are fitted again from there.
+    for (const a of drag.arrivals ?? []) {
+      const on = this.context!.graph.ducts.find((d) => d.id === a.id);
+      if (!on) continue;
+      const turned = (v: THREE.Vector3) => v.clone().applyAxisAngle(drag.axis, turn!);
+      on.arriveRoll = rollOf(turned(a.axis0), turned(a.out0));
+    }
     // What carries on from its end swings round with it, as one piece.
     for (const c of drag.carried ?? []) {
       const on = this.context!.graph.ducts.find((d) => d.id === c.id);
-      if (on) swingPipe(on, c.base, c.shape0, drag.axis, turn);
+      if (!on) continue;
+      if (c.shape0.starts.length > 0) {
+        swingPipe(on, c.base, c.shape0, drag.axis, turn);
+      } else {
+        // Nothing but a fitted bend: it sets off the way it now turns to, and is fitted again from there.
+        const h = turnBetween(c.base, c.heading0.clone().applyAxisAngle(drag.axis, turn));
+        on.headingYaw = h.yaw;
+        on.headingPitch = h.pitch;
+      }
     }
     drag.moved = true;
     this.commitFrame(drag, () => this.cb.onChange(false, duct.id), () => this.cb.onChange(true, duct.id));
@@ -2297,7 +2457,7 @@ export class PipeEditor {
 
     if (!this.route) {
       const target = this.resolveSnap(this.origin);
-      if (target && PipeEditor.startable(target)) this.beginRoute(target);
+      if (target && this.startable(target)) this.beginRoute(target);
       return;
     }
     if (e.detail >= 2) {
@@ -2321,7 +2481,7 @@ export class PipeEditor {
     if (!this.route) {
       // Before a route starts, only the places one *could* start from are worth marking.
       const target = this.resolveSnap(this.origin);
-      const startable = PipeEditor.startable(target);
+      const startable = this.startable(target);
       this.marker.visible = startable;
       if (startable) {
         this.marker.position.copy(target!.point);

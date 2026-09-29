@@ -109,6 +109,12 @@ export interface ExhaustDuct {
    * the pipe it joins.
    */
   square?: true;
+  /**
+   * Which side of the pipe it joins its fitted bend comes into it from, where that is the side of a pipe: a
+   * roll round the pipe from level (`acrossAxis`), radians. Kept, so the pipe rolled carries it round, and
+   * the bend is fitted again to come in from there. Absent, it comes in from the side it was drawn from.
+   */
+  arriveRoll?: number;
 }
 
 /** How near two bores have to be to count as matched where pipes meet, m. */
@@ -287,6 +293,7 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
       ...(d.fitted === true ? { fitted: true as const } : {}),
       ...(d.fitted === true && d.swing === true ? { swing: true as const } : {}),
       ...(d.fitted === true && d.square === true ? { square: true as const } : {}),
+      ...(d.fitted === true && finite(d.arriveRoll) ? { arriveRoll: d.arriveRoll } : {}),
     })),
   };
 }
@@ -854,7 +861,8 @@ function mirrorPipe(
     const start = turnDir(dir, sg.yaw, sg.pitch);
     const mStart = flip(start);
     const corner = turnBetweenDirs(mirrored, mStart);
-    const seg = makeSegment({ ...sg, yaw: corner.yaw, pitch: corner.pitch });
+    // A can rolled one way is rolled the other in the mirror.
+    const seg = makeSegment({ ...sg, yaw: corner.yaw, pitch: corner.pitch, ...(sg.roll ? { roll: -sg.roll } : {}) });
     if (sg.curve && seg.curve) {
       const f = curveAxes(start);
       const world = (v: Vec3): Vec3 => [0, 1, 2].map((k) => f[0][k]! * v[0] + f[1][k]! * v[1] + f[2][k]! * v[2]) as Vec3;
@@ -1210,7 +1218,11 @@ function fuse(graph: ExhaustGraph, into: ExhaustDuct, out: ExhaustDuct, dirs?: D
   const into_ = dirs?.(into.id);
   const out_ = dirs?.(out.id);
   const first = out.segments[0];
-  if (into_ && out_ && first) {
+  if (first?.curve) {
+    // A bend, as a branch drawn out of a pipe's side sets off in: it carries straight on from the pipe it is
+    // now part of, so the two join cleanly rather than at the angle it left the side at.
+    out.segments[0] = makeSegment({ ...first, yaw: 0, pitch: 0 });
+  } else if (into_ && out_ && first) {
     const turn = turnBetweenDirs(into_.end, out_.first);
     out.segments[0] = makeSegment({ ...first, yaw: turn.yaw, pitch: turn.pitch });
   }
@@ -1236,6 +1248,8 @@ function fuse(graph: ExhaustGraph, into: ExhaustDuct, out: ExhaustDuct, dirs?: D
   else delete into.swing;
   if (out.square) into.square = true;
   else delete into.square;
+  if (out.arriveRoll !== undefined) into.arriveRoll = out.arriveRoll;
+  else delete into.arriveRoll;
   // Anything that carried straight on from `out` now carries on from `into`, which it has become.
   for (const d of graph.ducts) if (d.continues === out.id) d.continues = into.id;
   graph.ducts = graph.ducts.filter((d) => d !== out);
@@ -1266,6 +1280,7 @@ export function releaseBend(duct: ExhaustDuct): void {
   delete duct.fitted;
   delete duct.swing;
   delete duct.square;
+  delete duct.arriveRoll;
 }
 
 function touchedNodes(duct: ExhaustDuct): string[] {
