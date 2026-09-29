@@ -41,7 +41,7 @@ import {
   reshapeBend,
   splitDuct,
 } from '../src/scene/drawing.js';
-import { ductDirections, layoutGraph, type ExhaustPort } from '../src/scene/exhaustLayout.js';
+import { ductDirections, layoutGraph, pipesMeetAt, type ExhaustPort } from '../src/scene/exhaustLayout.js';
 import { bendRadius, layoutPipe } from '../src/scene/PipeMesh.js';
 import { bendShape } from '../src/model/geometry.js';
 import {
@@ -1826,4 +1826,61 @@ describe('fitted pipes ending at the same junction', () => {
       expect(arrives[0]!.angleTo(arrives[1]!)).toBeLessThan(1e-6);
     }
   });
+});
+
+describe('deleting half of a pipe at a tee a fitted pipe comes into', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
+  const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
+
+  /** A runner bent into a loose pipe's side, square across it or along it; and the tee it made. */
+  function tee(square: boolean) {
+    const graph: ExhaustGraph = { ducts: [{ id: 'runner0', segments: [], from: { kind: 'valve', cylinder: 0 }, to: { kind: 'mouth' } }] };
+    const id = placeLoosePipe(graph, [0.4, 0.2, -0.1], 0.042, 0.5);
+    const node = splitDuctAt(graph, id, 0.25)!;
+    const runner = graph.ducts[0]!;
+    runner.segments = [makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 }), makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 })];
+    runner.fitted = true;
+    if (square) runner.square = true;
+    runner.to = { kind: 'node', node };
+    refitBends(graph, ports(), spec);
+    return { graph, id, node, far: graph.ducts.find((d) => d.continues === id)! };
+  }
+
+  /** The turn between the runner's end and the way the pipe left at the junction runs there, radians. */
+  function facing(graph: ExhaustGraph, node: string, left: string, leftEnds: boolean): number {
+    const placement = layoutGraph(ports(), graph);
+    expect(pipesMeetAt(graph, placement, node)).toBe(true);
+    const swept = (d: string) => {
+      const duct = graph.ducts.find((x) => x.id === d)!;
+      const p = placement.ducts.get(d)!;
+      return layoutPipe(duct.segments, p.origin, p.heading);
+    };
+    const pipe = leftEnds ? swept(left).jointDirections.at(-1)! : swept(left).stations[0]!.direction;
+    return swept('runner0').jointDirections.at(-1)!.angleTo(pipe);
+  }
+
+  for (const square of [false, true]) {
+    it(`deleting the half past it: the runner faces the ring at the end of what is left, and follows it${square ? ', though drawn in square' : ''}`, () => {
+      const { graph, id, node, far } = tee(square);
+      removePipe(graph, far.id, layoutGraph(ports(), graph));
+      refitBends(graph, ports(), spec);
+      expect(graph.junctions ?? []).toEqual([]);
+      expect(facing(graph, node, id, true)).toBeLessThan(1e-6);
+      // What is left moved and turned: the junction is its end, and the runner follows, facing it still.
+      const pipe = graph.ducts.find((d) => d.id === id)!;
+      pipe.from = { kind: 'free', position: [0.45, 0.25, -0.05] };
+      pipe.headingYaw = (pipe.headingYaw ?? 0) + 0.6;
+      refitBends(graph, ports(), spec);
+      expect(facing(graph, node, id, true)).toBeLessThan(1e-6);
+      expect(validateGraph(graph, 1)).toEqual([]);
+    });
+
+    it(`deleting the half before it: the runner faces the ring where what is left starts${square ? ', though drawn in square' : ''}`, () => {
+      const { graph, id, node, far } = tee(square);
+      removePipe(graph, id, layoutGraph(ports(), graph));
+      refitBends(graph, ports(), spec);
+      expect(facing(graph, node, far.id, false)).toBeLessThan(1e-6);
+      expect(validateGraph(graph, 1)).toEqual([]);
+    });
+  }
 });

@@ -349,8 +349,15 @@ export function removePipe(
   let keepsEnd = false;
   for (const node of touchedAt(duct)) {
     if (turboAt(graph, node)) continue;
-    const left = endsAt(graph, node).map((e) => e.duct).filter((d) => d !== duct);
-    if (left.length >= 2) {
+    const ends = endsAt(graph, node).filter((e) => e.duct !== duct);
+    const left = ends.map((e) => e.duct);
+    // Left the end of one straight pipe, and fitted pipes: that pipe's end, which they face and follow
+    // (`bendAnchor`), as those drawn onto an open end do.
+    const straightEnds = ends.filter((e) => !e.duct.fitted);
+    const endOfOne = straightEnds.length === 1 && straightEnds[0]!.end === 'outlet';
+    if (left.length >= 2 && endOfOne) {
+      if (duct.to.kind === 'node' && duct.to.node === node) keepsEnd = true;
+    } else if (left.length >= 2) {
       // Still joining two or more: the junction stays where it is, and what is fitted to it with it.
       const joint = placement?.joints.get(node);
       if (joint && !junctionAt(graph, node)) {
@@ -523,14 +530,15 @@ export function bendAnchor(
   const swept = layoutPipe(drawn, place.origin, place.heading);
   const from = drawn.length > 0 ? swept.joints.at(-1)! : place.origin;
   const fromDir = drawn.length > 0 ? swept.jointDirections.at(-1)! : place.heading;
-  // Square into the pipe's side: across it, from where the pipe as drawn ends, at the pipe's bore there.
-  if (self.square) return { ...along, dir: squareArrival(along.point, along.dir, from, fromDir) };
   // Into a pipe's side, where it runs on through: along it, from whichever end of it the pipe comes in, its end
-  // the same circle as the pipe's there, flush. Anywhere else — a junction fixed in place, or a pipe's end —
-  // every pipe comes in the one way, the junction's, so however the pipes turn, those meeting there stay
-  // together.
+  // the same circle as the pipe's there, flush; or drawn in square (`ExhaustDuct.square`), across it. Anywhere
+  // else — a junction fixed in place, or a pipe's end, as a side becomes once the pipe past it goes — every
+  // pipe comes in the one way, the junction's, facing its ring, so however the pipes turn, those meeting there
+  // stay together.
   const through = !junctionAt(graph, node) && endsAt(graph, node).some((e) => e.end === 'inlet' && e.duct.continues !== undefined);
-  return through ? { ...along, dir: sideArrival(along.point, along.dir, from, fromDir) } : along;
+  if (!through) return along;
+  if (self.square) return { ...along, dir: squareArrival(along.point, along.dir, from, fromDir) };
+  return { ...along, dir: sideArrival(along.point, along.dir, from, fromDir) };
 }
 
 /**
