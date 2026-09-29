@@ -30,7 +30,7 @@ import { JointMesh } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
 import { engineFile, engineFileName, readConfig, readEngineFile } from './model/engineFile.js';
 import { launchSettingsJson, readLaunchSettings } from './model/launchSettings.js';
-import { detachDuct, holdOpening, loosenChildren, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
+import { detachDuct, removePipe, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
 import {
   applyHeader,
   seatLengthwaysHeaders,
@@ -515,14 +515,8 @@ const panel = new Panel(panelEl, toolsEl, config, {
   },
   onRemoveDuct: (id) => {
     freeze();
-    // The pipes carrying on from it are left loose, where they lie.
-    if (stablePlacement) loosenChildren(config.graph!, id, stablePlacement);
-    // Cut from a tee, the opening it leaves stays where it was, to draw on from.
-    if (stablePlacement) holdOpening(config.graph!, id, stablePlacement);
-    const duct = config.graph!.ducts.find((d) => d.id === id);
-    // A cylinder's own pipe stays, since every cylinder needs one, but comes off whatever it joined.
-    if (duct?.from.kind === 'valve') disconnectEnd(config.graph!, id, directionsOf(stablePlacement));
-    else removeDuct(config.graph!, id, directionsOf(stablePlacement));
+    // A fitted pipe by itself, what it joined put back as it was; a straight one whole, with what joins it.
+    removePipe(config.graph!, id, stablePlacement, directionsOf(stablePlacement));
     rebuildPipeGeometry();
     audio.setGraph(config.graph!);
     saveConfig();

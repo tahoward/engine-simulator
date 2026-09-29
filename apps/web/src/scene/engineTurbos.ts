@@ -99,7 +99,6 @@ function bankTurbo(
     delete d.fitted;
     delete d.swing;
     delete d.square;
-    delete d.arriveRoll;
   }
 }
 

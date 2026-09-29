@@ -649,40 +649,6 @@ describe('a loose pipe', () => {
   });
 });
 
-describe('drawing into a loose pipe’s far end', () => {
-  it('turns it round where it lies, so it carries on from the pipe drawn into it', async () => {
-    const { attachToLooseStart, placeLoosePipe } = await import('../src/model/exhaustGraph.js');
-    const { flipLoosePipe } = await import('../src/scene/drawing.js');
-    const { spec, graph, ports } = single();
-    const id = placeLoosePipe(graph, [0.5, 0.25, 0.1], 0.04, 0.3);
-    const loose = graph.ducts.find((d) => d.id === id)!;
-    // Bent and tapering, so turning it round has something to keep.
-    loose.segments.push(makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.04, dOut: 0.055, yaw: 0.6, pitch: 0.3 }));
-    loose.segments.push(makeSegment({ kind: 'pipe', length: 0.15, dIn: 0.055, yaw: -0.4 }));
-    const place = layoutGraph(ports, graph).ducts.get(id)!;
-    const before = layoutPipe(loose.segments, place.origin, place.heading);
-    const beforePoints = [place.origin.clone(), ...before.joints];
-    flipLoosePipe(loose, place);
-    const flippedPlace = layoutGraph(ports, graph).ducts.get(id)!;
-    const after = layoutPipe(loose.segments, flippedPlace.origin, flippedPlace.heading);
-    const afterPoints = [flippedPlace.origin.clone(), ...after.joints];
-    // The same corners, the other way round, and the same bores at each.
-    afterPoints.forEach((p, i) => expect(p.distanceTo(beforePoints[beforePoints.length - 1 - i]!)).toBeLessThan(1e-9));
-    expect(loose.segments.map((s) => s.length)).toEqual([0.15, 0.2, 0.3]);
-    expect(loose.segments[1]!.dIn).toBeCloseTo(0.055, 12);
-    expect(loose.segments[1]!.dOut).toBeCloseTo(0.04, 12);
-
-    // Drawn into, where its far end was: attached, with no junction of pipes and nothing added.
-    const dir = after.stations[0]!.direction;
-    const count = graph.ducts.length;
-    const node = attachToLooseStart(graph, 'runner0', id, [dir.x, dir.y, dir.z])!;
-    refitBends(graph, ports, spec);
-    expect(graph.ducts).toHaveLength(count);
-    expect(validateGraph(graph, 1)).toEqual([]);
-    expect(pipesMeetAt(graph, layoutGraph(ports, graph), node)).toBe(true);
-  });
-});
-
 describe('deleting a pipe in the middle', () => {
   it('leaves the pipes that carried on from it loose, where they lie', async () => {
     const { loosenChildren } = await import('../src/scene/drawing.js');
