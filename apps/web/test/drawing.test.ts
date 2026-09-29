@@ -19,6 +19,8 @@ import {
   holdOpening,
   sideArrival,
   sideLeaving,
+  swingPipe,
+  pipeShape,
   arcTo,
   collectSnapTargets,
   continuingDiameter,
@@ -1402,4 +1404,80 @@ describe("drawing onto another pipe's open end", () => {
       expect(swept.jointDirections.at(-1)!.angleTo(ghostDir)).toBeLessThan(1e-6);
     });
   }
+});
+
+describe('turning a pipe with another carrying on from its end', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
+  const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
+
+  it('swings the pipe carried on round with it, as one piece', () => {
+    const straight = makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042 });
+    const graph: ExhaustGraph = {
+      ducts: [
+        { id: 'runner0', segments: [straight], from: { kind: 'valve', cylinder: 0 }, to: { kind: 'node', node: 'j' }, headingYaw: 0, headingPitch: 0 },
+        { id: 'bend', segments: [], from: { kind: 'node', node: 'j' }, to: { kind: 'mouth' } },
+      ],
+    };
+    const before = layoutGraph(ports(), graph);
+    const s = before.ducts.get('runner0')!;
+    const j = layoutPipe([straight], s.origin, s.heading);
+    const tip = j.joints.at(-1)!;
+    const dir = j.jointDirections.at(-1)!;
+    const bend = graph.ducts[1]!;
+    bend.segments = [arcTo(tip, dir, tip.clone().addScaledVector(dir, 0.15).add(new THREE.Vector3(0.1, 0.1, 0)), { dIn: 0.042, dOut: 0.042 })];
+    const laid = (g: ExhaustGraph) => {
+      const p = layoutGraph(ports(), g).ducts.get('bend')!;
+      return layoutPipe(bend.segments, p.origin, p.heading).joints.at(-1)!;
+    };
+    const end0 = laid(graph);
+
+    // As the triad's ring does, about the port's axis through where the runner starts.
+    const axis = s.heading.clone().normalize();
+    const angle = 1.1;
+    const place = layoutGraph(ports(), graph).ducts.get('bend')!;
+    const world = new THREE.Vector3(1, 0, 0);
+    const turn = headingOffsetTo(world, place.heading);
+    Object.assign(bend, { headingYaw: turn.yaw, headingPitch: turn.pitch, headingFrame: 'world' });
+    const bendShape0 = pipeShape(bend.segments, place.heading);
+    swingPipe(graph.ducts[0]!, ports()[0]!.direction, pipeShape([straight], s.heading), axis, angle);
+    swingPipe(bend, world, bendShape0, axis, angle);
+
+    const expected = end0.clone().sub(s.origin).applyAxisAngle(axis, angle).add(s.origin);
+    expect(laid(graph).distanceTo(expected)).toBeLessThan(1e-6);
+    expect(laid(graph).distanceTo(end0)).toBeGreaterThan(0.05);
+  });
+});
+
+describe('pivoting a pipe where it leaves a junction fixed in place', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
+  const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
+
+  it('the bend into the junction follows it round', async () => {
+    const { pipesMeetAt } = await import('../src/scene/exhaustLayout.js');
+    // A runner drawn onto the start of a loose pipe: bent in to a junction fixed where the loose pipe began.
+    const graph: ExhaustGraph = {
+      ducts: [{ id: 'runner0', segments: [makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.042 })], from: { kind: 'valve', cylinder: 0 }, to: { kind: 'mouth' } }],
+    };
+    const loose = placeLoosePipe(graph, [0.4, 0.3, 0.1], 0.042, 0.5);
+    attachToLooseStart(graph, 'runner0', loose, [0, 0, 1]);
+    const runner = graph.ducts[0]!;
+    runner.fitted = true;
+    runner.segments.push(makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 }));
+    refitBends(graph, ports(), spec);
+    const node = (runner.to as { node: string }).node;
+    expect(pipesMeetAt(graph, layoutGraph(ports(), graph), node)).toBe(true);
+
+    // Pivoted where it starts: turned off the crank, and up.
+    const pipe = graph.ducts.find((d) => d.id === loose)!;
+    pipe.headingYaw = -Math.PI / 2 + 0.6;
+    pipe.headingPitch = 0.3;
+    refitBends(graph, ports(), spec);
+    const placement = layoutGraph(ports(), graph);
+    expect(pipesMeetAt(graph, placement, node)).toBe(true);
+    const out = placement.ducts.get(loose)!;
+    const leaving = layoutPipe(pipe.segments, out.origin, out.heading).stations[0]!.direction;
+    const r = placement.ducts.get('runner0')!;
+    const arriving = layoutPipe(runner.segments, r.origin, r.heading).jointDirections.at(-1)!;
+    expect(arriving.angleTo(leaving)).toBeLessThan(1e-6);
+  });
 });

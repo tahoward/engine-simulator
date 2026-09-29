@@ -32,11 +32,13 @@ import type { Quat } from '../model/exhaustGraph.js';
 import {
   attachToLooseStart,
   carryBore,
+  drawnSegments,
   endsAt,
   joinDuctEnd,
   junctionAt,
   newDuctId,
   splitDuctAt,
+  turboAt,
   type DuctSink,
   type DuctSource,
   type ExhaustDuct,
@@ -157,6 +159,8 @@ interface TriadDrag {
   /** The first segment that swings: 0 for the whole pipe, or a bend further along and what follows it. */
   from?: number;
   shape0?: PipeShape;
+  /** The pipes carrying on from its far end that swing round with it (`carriedOn`), each as `base` and `shape0` are. */
+  carried?: { id: string; base: THREE.Vector3; shape0: PipeShape }[];
   /** What a pipe's arrows move: the junction it starts from, and the way it points, or a loose pipe. */
   startNode?: string;
   startAxis?: Vec3;
@@ -1689,7 +1693,9 @@ export class PipeEditor {
     this.pipeTriadAt = null;
     const sel = this.selected;
     // Held at its far end, a pipe swung would leave the junction there: it has no bend to follow it round.
-    const endHeld = !!duct && this.heldAtEnd(duct);
+    // Carried round with it, the pipes carrying on from its end: held at theirs, it cannot turn either.
+    const carried = duct ? this.carriedOn(duct) : [];
+    const endHeld = !!duct && [duct, ...carried].some((d) => this.heldAtEnd(d));
     if (sel !== null && sel > 0 && sel < editable && this.pipe[sel]!.curve && duct && !endHeld) {
       const at = layout.joints[sel - 1]!;
       const shape = pipeShape(this.pipe.slice(0, editable), this.heading);
@@ -1704,17 +1710,31 @@ export class PipeEditor {
       this.pipeTriad.hideRing(2, true);
     } else if (sel !== null && editable > 0 && duct) {
       const opening = layout.stations[0]!.direction.clone().normalize();
-      const face = this.faceAxis(duct) ? opening : null;
       const shape = pipeShape(this.pipe.slice(0, editable), this.heading);
-      const turns =
-        !endHeld &&
-        (face ? [...shape.starts, ...shape.ends].some((d) => d.clone().cross(face).lengthSq() > 1e-8) : true);
+      // Turning about an axis does something where the pipe, or what carries on from it, leaves it.
+      const dirs = [...shape.starts, ...shape.ends];
+      for (const c of carried) {
+        const place = this.context?.placement.ducts.get(c.id);
+        if (!place) continue;
+        const own = pipeShape(drawnSegments(c), place.heading);
+        dirs.push(...own.starts, ...own.ends);
+      }
+      const across = (axis: THREE.Vector3) => dirs.some((d) => d.clone().cross(axis).lengthSq() > 1e-8);
+      /**
+       * Held to a face, it turns about the way it leaves it, so the ring sits on the opening and a bend
+       * further along swings round. A pipe straight out of the face at an angle to it has nothing to swing
+       * that way, so it turns about the face's own axis instead, sweeping round it where it starts.
+       */
+      // Free to pivot where it starts, it is held to no face: it turns every way, as a loose pipe does.
+      const faceDir = this.pivotsAtStart(duct) ? null : (this.faceAxis(duct)?.normalize() ?? null);
+      const face = faceDir ? (!across(opening) && across(faceDir) ? faceDir : opening) : null;
+      const turns = !endHeld && (face ? across(face) : true);
       const movable = duct.from.kind === 'free' || (duct.from.kind === 'node' && !this.heldAtStart(duct));
       if (turns || movable) {
         this.pipeTriadAt = { start: this.origin.clone(), from: 0 };
         this.pipeTriad.setMoveOrigin(this.origin);
         this.pipeTriad.setRotateOrigin(this.origin);
-        this.pipeTriad.setOrientation(frameAlong(opening));
+        this.pipeTriad.setOrientation(frameAlong(face ?? opening));
         this.pipeTriad.setRingsOwn(!!face);
         this.pipeTriad.showMoves(movable);
         // Held to a face, only the ring round its axis; loose, all three; held at its far end, none.
@@ -1961,6 +1981,12 @@ export class PipeEditor {
       drag.from = this.pipeTriadAt?.from ?? 0;
       drag.shape0 = pipeShape(this.pipe.slice(0, drawn), this.heading);
       drag.base = this.headingBase(duct);
+      drag.carried = this.carriedOn(duct).flatMap((c) => {
+        const place = ctx.placement.ducts.get(c.id);
+        // A pipe that is nothing but a fitted bend is fitted again from wherever it now starts.
+        if (!place || drawnSegments(c).length === 0) return [];
+        return [{ id: c.id, base: this.headingBase(c), shape0: pipeShape(drawnSegments(c), place.heading) }];
+      });
       if (duct.from.kind === 'free') {
         drag.loose = [...duct.from.position];
       } else if (duct.from.kind === 'node') {
@@ -2091,12 +2117,66 @@ export class PipeEditor {
   }
 
   /**
+   * Whether a pipe can pivot where it starts, every way: out of a junction that was fixed in place, as the
+   * only pipe leaving it, where every pipe into it is bent in to meet it. Those bends arrive along the pipe
+   * leaving (`bendAnchor`), so turned, it takes the junction's axis with it and they follow it round.
+   */
+  private pivotsAtStart(duct: ExhaustDuct): boolean {
+    const graph = this.context?.graph;
+    if (!graph || duct.from.kind !== 'node') return false;
+    const node = duct.from.node;
+    if (!junctionAt(graph, node) || turboAt(graph, node)) return false;
+    const ends = endsAt(graph, node);
+    if (ends.some((e) => e.end === 'inlet' && e.duct !== duct)) return false;
+    const feeds = ends.filter((e) => e.end === 'outlet');
+    return feeds.length > 0 && feeds.every((e) => e.duct.fitted);
+  }
+
+  /**
+   * The pipes carrying on from `duct`'s far end, and from theirs in turn, which turning it swings round with
+   * it: each starts where the one before ends, so turned as one piece, the whole run keeps its shape. Not past
+   * a fitted bend, nor a junction that was moved or a turbo, which stay where they are.
+   */
+  private carriedOn(duct: ExhaustDuct): ExhaustDuct[] {
+    const graph = this.context?.graph;
+    if (!graph) return [];
+    const carried: ExhaustDuct[] = [];
+    const seen = new Set([duct.id]);
+    const queue = [duct];
+    while (queue.length > 0) {
+      const d = queue.shift()!;
+      if (d.to.kind !== 'node' || d.fitted) continue;
+      const node = d.to.node;
+      if (junctionAt(graph, node) || turboAt(graph, node)) continue;
+      for (const e of endsAt(graph, node)) {
+        if (e.end !== 'inlet' || seen.has(e.duct.id)) continue;
+        seen.add(e.duct.id);
+        carried.push(e.duct);
+        queue.push(e.duct);
+      }
+    }
+    return carried;
+  }
+
+  /**
    * Whether a pipe is held where it ends: drawn straight into a junction other pipes also end at, with no
-   * fitted bend to carry its end back round to it. Swung, it would leave the others there, with a gap.
+   * fitted bend to carry its end back round to it, and not one the others follow. Swung, it would leave
+   * them there, with a gap.
+   *
+   * Not into a junction that was moved, which every pipe into it is bent in to meet, this one too. Nor where
+   * it is the pipe that carries on through the junction and every other is bent in to meet it, as a branch
+   * drawn into its side is: the junction is where it ends, and those bends follow it round.
    */
   private heldAtEnd(duct: ExhaustDuct): boolean {
     if (duct.to.kind !== 'node' || duct.fitted) return false;
-    return endsAt(this.context!.graph, duct.to.node).some((e) => e.end === 'outlet' && e.duct !== duct);
+    const graph = this.context!.graph;
+    const node = duct.to.node;
+    if (junctionAt(graph, node)) return false;
+    const ends = endsAt(graph, node);
+    const others = ends.filter((e) => e.end === 'outlet' && e.duct !== duct).map((e) => e.duct);
+    if (others.length === 0) return false;
+    const through = ends.some((e) => e.end === 'inlet' && e.duct.continues === duct.id);
+    return !through || others.some((o) => !o.fitted);
   }
 
   /**
@@ -2152,6 +2232,17 @@ export class PipeEditor {
       turn = snapTurnToEngine(ref, turn, drag.axis, (TRIAD_TURN_DEG * Math.PI) / 180);
     }
     swingPipe(duct, drag.base, drag.shape0, drag.axis, turn, drag.from ?? 0);
+    // Pivoting where it starts, the junction there points the way it now sets off.
+    const pinned = (drag.from ?? 0) === 0 && this.pivotsAtStart(duct) && duct.from.kind === 'node' ? junctionAt(this.context!.graph, duct.from.node) : undefined;
+    if (pinned) {
+      const set = drag.shape0.starts[0]!.clone().applyAxisAngle(drag.axis, turn);
+      pinned.axis = [set.x, set.y, set.z];
+    }
+    // What carries on from its end swings round with it, as one piece.
+    for (const c of drag.carried ?? []) {
+      const on = this.context!.graph.ducts.find((d) => d.id === c.id);
+      if (on) swingPipe(on, c.base, c.shape0, drag.axis, turn);
+    }
     drag.moved = true;
     this.commitFrame(drag, () => this.cb.onChange(false, duct.id), () => this.cb.onChange(true, duct.id));
   }
