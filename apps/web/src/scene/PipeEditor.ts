@@ -192,8 +192,8 @@ export interface PipeEditorCallbacks {
    * The owner decides what selecting it means, since switching ducts is its business, not the editor's.
    */
   onPick?: (pick: ScenePick | null) => void;
-  /** A pipe segment or a junction was right-clicked, at `x`, `y` on the page, with no tool on: it is picked first. */
-  onMenu?: (pick: ScenePick & { kind: 'segment' | 'joint' }, x: number, y: number) => void;
+  /** A pipe segment, a junction or a turbo was right-clicked, at `x`, `y` on the page, with no tool on: it is picked first. */
+  onMenu?: (pick: ScenePick, x: number, y: number) => void;
   /** A route was started or finished, so the UI can show whether drawing is in progress. */
   onDrawing?: (active: boolean) => void;
   /** Where the next segment is aimed, in words — "up, 250 mm" — or `null` when nothing is. */
@@ -2300,7 +2300,7 @@ export class PipeEditor {
       }
       this.updatePointer(e);
       const pick = this.pickScene();
-      if (pick?.kind !== 'segment' && pick?.kind !== 'joint') return;
+      if (!pick) return;
       this.cb.onPick?.(pick);
       this.cb.onMenu?.(pick, e.clientX, e.clientY);
       return;

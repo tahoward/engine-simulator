@@ -409,13 +409,26 @@ pub struct TurboSnapshot {
     pub manifold: f64,
     /// Pressure at the turbine inlet, gauge, Pa: what the exhaust works against.
     pub turbine_inlet: f64,
-    /// Each turbo's shaft speed, rev/min.
+    /// The turbos' mean shaft speed, rev/min.
     pub shaft_rpm: f64,
-    /// Wastegate and blow-off valve openings, 0..1.
+    /// The wastegates' and the blow-off valves' mean openings, 0..1.
     pub wastegate: f64,
     pub blow_off: f64,
-    /// Whether the compressor is surging.
+    /// Whether a compressor is surging.
     pub surging: bool,
+    /// Each turbo's own, in the order of the exhaust's turbines.
+    pub turbos: Vec<TurboUnitSnapshot>,
+}
+
+/// One turbo's state, sent with each snapshot: its shaft speed, rev/min, and its wastegate's and
+/// blow-off valve's openings, 0..1.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurboUnitSnapshot {
+    pub id: String,
+    pub shaft_rpm: f64,
+    pub wastegate: f64,
+    pub blow_off: f64,
 }
 
 /// The car and gearbox a launch drives through. See `LaunchRun`.

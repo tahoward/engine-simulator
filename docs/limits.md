@@ -36,8 +36,9 @@ Where the model is simplified, and by how much.
   to part-load economy and emissions, much of what a real engine uses it for, is not modelled.
 - **The turbine is a restriction without volume.** It is solved in the exhaust, between the
   junction's two sides, but as a nozzle obeying Stodola's law at every instant: it has no housing
-  volume, and its efficiency does not vary with its speed or its pressure ratio. Several turbos share one
-  lumped shaft, so they cannot spool apart from each other.
+  volume, and its efficiency does not vary with its speed or its pressure ratio. Turbos on the same
+  settings share one lumped shaft, so they cannot spool apart from each other; only one set differently
+  turns on its own.
 - **The rest of the turbocharger is lumped.** The compressor map is one generic shape scaled to the
   turbo's size, not a real turbo's map. There is no knock, so no boost is too much and the spark is not
   retarded on boost, as a real engine's would be. The shaft has no speed limit, so a turbo too small

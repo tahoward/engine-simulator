@@ -8,7 +8,7 @@
 use crate::dsp::Noise;
 use crate::euler_pipe::{DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, OutletKind, ValveState};
 use crate::exhaust_graph::{
-    DuctRole, End, ExhaustGraph, ends_at, node_order, path_to_air, radiating_ducts, validate_graph, valve_ducts,
+    DuctRole, End, ExhaustGraph, TurboMount, ends_at, node_order, path_to_air, radiating_ducts, validate_graph, valve_ducts,
 };
 use crate::math::{self, PI, clamp};
 use crate::spec::gas;
@@ -26,14 +26,13 @@ const JUNCTION_BALANCE_TOL: f64 = 0.005;
 /// Turbulence intensity of the jet through an open wastegate, as a fraction of its mass flow.
 const BYPASS_TURBULENCE: f64 = 0.2;
 
-/// A turbine at a junction: what `EngineSim` sets each sample from the turbocharger's state.
+/// A turbine at a junction: what `EngineSim` sets each sample from its turbo's state.
 ///
 /// The flow through it follows Stodola's ellipse law, `m = K sqrt(p_up^2 - p_down^2) / sqrt(T)`, with
-/// `K` the turbine's and the open wastegate's together. The constants are for all the turbines
-/// together, shared evenly between the junctions that have one.
-#[derive(Clone, Copy, Debug)]
+/// `K` the turbine's and the open wastegate's together.
+#[derive(Clone, Copy, Debug, Default)]
 pub struct TurbineSetting {
-    /// Flow constants of the turbines and of the wastegates as open as they are now, kg*sqrt(K)/(s*Pa).
+    /// Flow constants of the turbine and of its wastegate as open as it is now, kg*sqrt(K)/(s*Pa).
     pub k_turbine: f64,
     pub k_wastegate: f64,
     /// Speed of the turbine wheel's tip, m/s: with the drop across it, where it runs on its map.
@@ -66,6 +65,19 @@ struct JunctionNode {
     lp2: f64,
 }
 
+/// What one turbine did over an `advance`: the power it took from the exhaust and the power of the
+/// isentropic drop across it, W, the flow through it and through its wastegate, kg/s, and the mean
+/// pressure at its inlet and outlet, Pa.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TurbineResult {
+    pub power: f64,
+    pub isentropic_power: f64,
+    pub flow: f64,
+    pub bypass_flow: f64,
+    pub inlet: f64,
+    pub outlet: f64,
+}
+
 /// The result of one `advance`. Reused between calls.
 #[derive(Clone, Debug, Default)]
 pub struct ExhaustResult {
@@ -74,15 +86,8 @@ pub struct ExhaustResult {
     /// Mass flow through each cylinder's exhaust valve, kg/s, positive out of the cylinder.
     pub valve_mass_flows: Vec<f64>,
     pub substeps: usize,
-    /// With a turbine: the power the turbines take from the exhaust and the power of the isentropic
-    /// drop across them, W, the flow through them and through the wastegates, kg/s, and the mean
-    /// pressure at their inlets and outlets, Pa.
-    pub turbine_power: f64,
-    pub turbine_isentropic_power: f64,
-    pub turbine_flow: f64,
-    pub bypass_flow: f64,
-    pub turbine_inlet: f64,
-    pub turbine_outlet: f64,
+    /// Each turbine's, in the order of `ExhaustSystem::turbine_mounts`, while they are set.
+    pub turbines: Vec<TurbineResult>,
 }
 
 pub struct ExhaustSystem {
@@ -108,10 +113,13 @@ pub struct ExhaustSystem {
     /// Worst relative mass-flux imbalance a junction's per-duct solves produced. Diagnostic only.
     pub junction_residual: f64,
     turbulence: f64,
-    /// Per node, whether a turbo placed in the graph has its turbine there.
-    turbine_capable: Vec<bool>,
+    /// Per node, which of `turbine_mounts` has its turbine there, if one does.
+    turbine_slot: Vec<Option<usize>>,
+    /// The turbos with a turbine in the exhaust, in node order.
+    turbine_mounts: Vec<TurboMount>,
     turbine_nodes: Vec<TurbineNode>,
-    turbine: Option<TurbineSetting>,
+    /// Each turbine's setting this sample, in the order of `turbine_mounts`; empty for none.
+    turbines: Vec<TurbineSetting>,
 }
 
 impl ExhaustSystem {
@@ -300,7 +308,15 @@ impl ExhaustSystem {
         }
         let fed_flow = vec![0.0; fed_by_node.len()];
 
-        let turbine_capable: Vec<bool> = order.iter().map(|id| graph.is_turbo_node(id)).collect();
+        let mut turbine_mounts = Vec::new();
+        let turbine_slot: Vec<Option<usize>> = order
+            .iter()
+            .map(|id| {
+                let mount = graph.turbos.iter().find(|t| &t.node == id)?;
+                turbine_mounts.push(mount.clone());
+                Some(turbine_mounts.len() - 1)
+            })
+            .collect();
         let turbine_nodes: Vec<TurbineNode> = (0..nodes.len())
             .map(|n| TurbineNode {
                 noise: Noise::new(0x51ed_2705 as f64 + n as f64 * 0x9e3779b as f64),
@@ -326,9 +342,10 @@ impl ExhaustSystem {
             substep_noise_scale: 1.0,
             junction_residual: 0.0,
             turbulence: 1.0,
-            turbine_capable,
+            turbine_slot,
+            turbine_mounts,
             turbine_nodes,
-            turbine: None,
+            turbines: Vec::new(),
         })
     }
 
@@ -361,12 +378,27 @@ impl ExhaustSystem {
 
     /// How many turbines are in the exhaust: turbos placed at a junction pipes meet at.
     pub fn turbine_count(&self) -> usize {
-        self.turbine_capable.iter().filter(|&&c| c).count()
+        self.turbine_mounts.len()
     }
 
-    /// The turbines' setting this sample, or `None` for none.
-    pub fn set_turbine(&mut self, setting: Option<TurbineSetting>) {
-        self.turbine = setting;
+    /// The turbos with a turbine in the exhaust, in the order their settings and results are in.
+    pub fn turbine_mounts(&self) -> &[TurboMount] {
+        &self.turbine_mounts
+    }
+
+    /// Carry each turbo's own settings over from `graph`, which differs from the one this was built
+    /// from in nothing else.
+    pub fn update_turbo_settings(&mut self, graph: &ExhaustGraph) {
+        for m in self.turbine_mounts.iter_mut() {
+            m.settings = graph.turbos.iter().find(|t| t.id == m.id).and_then(|t| t.settings);
+        }
+    }
+
+    /// Each turbine's setting this sample, in the order of `turbine_mounts`, or none at all to take
+    /// them out.
+    pub fn set_turbines(&mut self, settings: &[TurbineSetting]) {
+        self.turbines.clear();
+        self.turbines.extend_from_slice(settings);
     }
 
     /// How many mouths radiate.
@@ -401,15 +433,8 @@ impl ExhaustSystem {
         self.substep_noise_scale = math::sqrt(substeps as f64);
         self.result.mouth_flows.fill(0.0);
         self.result.valve_mass_flows.fill(0.0);
-        if self.turbine.is_some() {
-            let r = &mut self.result;
-            r.turbine_power = 0.0;
-            r.turbine_isentropic_power = 0.0;
-            r.turbine_flow = 0.0;
-            r.bypass_flow = 0.0;
-            r.turbine_inlet = 0.0;
-            r.turbine_outlet = 0.0;
-        }
+        self.result.turbines.clear();
+        self.result.turbines.resize(self.turbines.len(), TurbineResult::default());
 
         for _ in 0..substeps {
             // 1. Reconstruct every duct, leaving the boundary faces unset.
@@ -461,16 +486,14 @@ impl ExhaustSystem {
         for v in self.result.valve_mass_flows.iter_mut() {
             *v *= inv;
         }
-        if self.turbine.is_some() {
-            let per = 1.0 / substeps as f64;
-            let at = per / math::max(self.turbine_count() as f64, 1.0);
-            let r = &mut self.result;
-            r.turbine_power *= per;
-            r.turbine_isentropic_power *= per;
-            r.turbine_flow *= per;
-            r.bypass_flow *= per;
-            r.turbine_inlet *= at;
-            r.turbine_outlet *= at;
+        let per = 1.0 / substeps as f64;
+        for t in self.result.turbines.iter_mut() {
+            t.power *= per;
+            t.isentropic_power *= per;
+            t.flow *= per;
+            t.bypass_flow *= per;
+            t.inlet *= per;
+            t.outlet *= per;
         }
         self.result.substeps = substeps;
         &self.result
@@ -480,8 +503,8 @@ impl ExhaustSystem {
     /// held within what the branches can justify, then Newton-corrected toward mass balance.
     fn solve_junctions(&mut self) {
         for ni in 0..self.nodes.len() {
-            if self.turbine.is_some() && self.turbine_capable[ni] {
-                self.solve_turbine(ni);
+            if let Some(slot) = self.turbine_slot[ni].filter(|&s| s < self.turbines.len()) {
+                self.solve_turbine(ni, slot);
                 continue;
             }
             let node = &mut self.nodes[ni];
@@ -587,11 +610,10 @@ impl ExhaustSystem {
     /// the turbine passes between those two falls as `m` rises: the one `m` where the two agree is
     /// found by Newton's method, kept inside a bisection bracket. Each side's pressure is then corrected against the flux its ducts actually
     /// pass, and the flow solved again.
-    fn solve_turbine(&mut self, ni: usize) {
-        let setting = self.turbine.unwrap();
-        let share = 1.0 / math::max(self.turbine_count() as f64, 1.0);
-        let k_t = setting.k_turbine * share * setting.pulsation;
-        let k_wg = setting.k_wastegate * share;
+    fn solve_turbine(&mut self, ni: usize, slot: usize) {
+        let setting = self.turbines[slot];
+        let k_t = setting.k_turbine * setting.pulsation;
+        let k_wg = setting.k_wastegate;
         let k = k_t + k_wg;
 
         let node = &mut self.nodes[ni];
@@ -747,13 +769,13 @@ impl ExhaustSystem {
             }
         }
 
-        let r = &mut self.result;
-        r.turbine_power += power;
-        r.turbine_isentropic_power += isentropic_power;
-        r.turbine_flow += m * turbine_share;
+        let r = &mut self.result.turbines[slot];
+        r.power += power;
+        r.isentropic_power += isentropic_power;
+        r.flow += m * turbine_share;
         r.bypass_flow += m * (1.0 - turbine_share);
-        r.turbine_inlet += pu;
-        r.turbine_outlet += pd;
+        r.inlet += pu;
+        r.outlet += pd;
 
         self.update_merge_noise(ni);
         self.add_bypass_noise(ni, m * (1.0 - turbine_share), pu, t_up, setting.bypass_noise);

@@ -127,32 +127,39 @@ Turbos are part of the exhaust: you put them in the view and pipe them up.
   turbo out takes the bend with it. Nothing is added at its outlet: until a pipe is drawn from it, the turbine
   exhausts straight to the air at its outlet flange, and still makes boost. Start drawing on the outlet
   flange to make the downpipe. Several pipes can feed one turbo.
-- **Click a turbo** to select it and see what feeds it, and move or turn it with its
+- **Click a turbo** to select it and move or turn it with its
   [triad](#the-triad), whose axes are the turbo's own: red along its shaft. The pipes feeding it follow,
   their curves into the inlet fitted again, and the pipe drawn up to each curve left as it was.
-  <kbd>Delete</kbd>, or **Take this turbo out** in the Turbocharger section, takes it out, leaving the
-  pipes that fed it open.
+  <kbd>Delete</kbd> takes it out, leaving the pipes that fed it open.
+- **Right-click a turbo** for its menu: how it is running, its boost, its shaft speed, the pressure the
+  exhaust works against at its inlet, and whether its wastegate is open, its blow-off valve is venting or a
+  compressor is surging; what feeds it; its settings; and **Take this turbo out**. See
+  [The turbocharger](engine.md#the-turbocharger).
 - **Changing the engine's layout** keeps it turbocharged, with a turbo for each bank: one on an inline
   engine or a single, one under each bank of a V or a boxer. Each sits halfway along the engine, out from
   its bank's ports the way they point, as close in as leaves it clear of the engine, with its shaft along
   the engine, its outlet facing rearwards and its inlet facing the ports. Every port of the bank is piped
   straight into the inlet. From the outlets, each bank has its own collector, or with the banks merged,
   the two downpipes meet behind the engine.
-- The line at the top of the Turbocharger section says how many turbos there are. The next gives the
-  boost, the turbos' speed, the pressure the exhaust works against at their inlets, and whether the wastegate is open, the
-  blow-off valve is venting or the compressor is surging. See
-  [The turbocharger](engine.md#the-turbocharger).
 
-The settings below apply to every turbo, and show once there is one:
+A turbo's menu has its settings:
 
-- **Boost** is what the wastegate holds.
-- **Turbo size** is each compressor's airflow at full speed. Small spools early and runs out of breath
+- **Boost** is what its wastegate holds.
+- **Turbo size** is its compressor's airflow at full speed. Small spools early and runs out of breath
   at the top; big lags and holds its boost to the limiter. At 0 it is sized for the engine.
-- **Intercooler** is how much of the compressor's heating it takes back out of the charge.
+- **Intercooler** is how much of its compressor's heating it takes back out of the air it delivers.
 - **Blow-off valve** vents the charge when the throttle shuts on boost: to the atmosphere, back to the
   compressor inlet, or, with none, not at all, so the compressor surges.
-- **Turbo sound** sets the level of the turbo's own sounds: the whine, the blow-off valve, the flutter
-  and the wastegate. See [The turbocharger's sounds](acoustics.md#the-turbochargers-sounds).
+
+**Keep turbos in sync**, in the turbos' menu, opened from the small arrow in the corner of the Place a turbo
+button or by right-clicking it, decides whose settings they are. On, as it starts, every turbo runs on the
+same settings, and setting one in its menu sets them all. Off, each keeps its own, starting from the ones
+they shared, and a turbo placed while it is off starts from them too. Syncing again puts every turbo on the
+first one's. A turbo set to a higher boost than another holds its wastegate shut while the other's opens, and
+can push the other into a surge.
+
+**Turbo sound**, in the Listener section, sets the level of the turbos' own sounds: the whine, the blow-off
+valves, the flutter and the wastegates. See [The turbocharger's sounds](acoustics.md#the-turbochargers-sounds).
 
 ## Combustion
 

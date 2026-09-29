@@ -30,11 +30,11 @@ use crate::radiation::FarField;
 use crate::spec::{
     BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout, FUEL_CUT_RPM,
     FUEL_CUT_THROTTLE, FUEL_RESUME_RPM, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment,
-    REV_LIMIT_HYSTERESIS_RPM, RunnerSize, T_REF, TurboSnapshot, ambient_sound_speed, displacement, exhaust_layout_of,
+    REV_LIMIT_HYSTERESIS_RPM, RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, displacement, exhaust_layout_of,
     exhaust_port_diameter, firing_plan, fuel_fraction_at, full_load_torque, gas, intake_runner_of, load_torque_of,
     physical_bank_count,
 };
-use crate::turbo::{TurbineDrive, Turbo};
+use crate::turbo::Turbo;
 use crate::valve::{valve_flow_area, valve_lift};
 
 /// Pressure, Pa, that maps to digital full scale.
@@ -366,21 +366,21 @@ impl EngineSim {
         sim
     }
 
-    /// Fit, resize or remove the turbocharger to match the exhaust: there is one when a turbo placed in
-    /// the exhaust has pipes feeding it.
+    /// Fit, resize or remove the turbochargers to match the exhaust: there is one for each turbo placed
+    /// in the exhaust with pipes feeding it, on its own settings or the engine's.
     fn refresh_turbo(&mut self) {
-        let count = self.wg.turbine_count();
-        if count == 0 {
+        let spec = &self.spec.spec;
+        let settings: Vec<_> = self.wg.turbine_mounts().iter().map(|m| m.settings_for(spec)).collect();
+        if settings.is_empty() {
             if self.turbo.take().is_some() {
-                self.wg.set_turbine(None);
+                self.wg.set_turbines(&[]);
             }
             self.charge_p = gas::P_AMB;
             self.charge_t = gas::T_AMB;
         } else {
-            let spec = &self.spec.spec;
             match &mut self.turbo {
-                Some(t) => t.configure(spec, count),
-                None => self.turbo = Some(Turbo::new(spec, count, self.sample_rate)),
+                Some(t) => t.configure(spec, &settings),
+                None => self.turbo = Some(Turbo::new(spec, &settings, self.sample_rate)),
             }
         }
         self.load_torque_nm = load_torque_of(&self.spec.spec, self.turbo.is_some());
@@ -521,10 +521,20 @@ impl EngineSim {
         Ok(())
     }
 
-    /// Replace the whole duct graph, for an exhaust that was drawn rather than chosen.
+    /// Replace the whole duct graph, for an exhaust that was drawn rather than chosen. One that differs
+    /// only in the turbos' own settings resizes them where they are, keeping the gas in the pipes.
     pub fn set_graph(&mut self, graph: Option<ExhaustGraph>) {
+        let settings_only = match (&self.graph, &graph) {
+            (Some(old), Some(new)) => without_turbo_settings(old) == without_turbo_settings(new),
+            _ => false,
+        };
         self.graph = graph;
-        self.rebuild_pipe();
+        if settings_only {
+            self.wg.update_turbo_settings(self.graph.as_ref().unwrap());
+            self.refresh_turbo();
+        } else {
+            self.rebuild_pipe();
+        }
     }
 
     pub fn set_pipe(&mut self, pipe: &[PipeSegment], collector: Option<&[PipeSegment]>) {
@@ -1032,7 +1042,7 @@ impl EngineSim {
 
         // --- Exhaust gas dynamics, all ducts in lockstep, with the turbine in them ---
         if let Some(turbo) = &mut self.turbo {
-            self.wg.set_turbine(Some(turbo.turbine_setting()));
+            self.wg.set_turbines(turbo.turbine_settings());
         }
         self.wg.advance(dt, &self.valve_states);
         self.substeps = self.wg.result.substeps;
@@ -1122,15 +1132,7 @@ impl EngineSim {
         // --- Turbocharger ---
         let mut turbo_pa = 0.0;
         if let Some(turbo) = &mut self.turbo {
-            let r = &self.wg.result;
-            let drive = TurbineDrive {
-                power: r.turbine_power,
-                isentropic_power: r.turbine_isentropic_power,
-                flow: r.turbine_flow,
-                inlet: r.turbine_inlet,
-                outlet: r.turbine_outlet,
-            };
-            let out = turbo.step(dt, drive, throttle_flow, self.plenum.pressure());
+            let out = turbo.step(dt, &self.wg.result.turbines, throttle_flow, self.plenum.pressure());
             self.charge_p = out.charge_p;
             self.charge_t = out.charge_t;
             turbo_pa = out.sound;
@@ -1281,6 +1283,14 @@ impl EngineSim {
                 wastegate: t.wastegate(),
                 blow_off: t.blow_off(),
                 surging: t.surging(),
+                turbos: (0..t.count())
+                    .map(|i| TurboUnitSnapshot {
+                        id: self.wg.turbine_mounts()[i].id.clone(),
+                        shaft_rpm: t.shaft_rpm_of(i),
+                        wastegate: t.wastegate_of(i),
+                        blow_off: t.blow_off_of(i),
+                    })
+                    .collect(),
             }),
             banks,
         };
@@ -1438,6 +1448,15 @@ fn build_exhaust_for(
         .expect("a compiled or validated graph is solvable");
     sys.set_turbulence(spec.throat_noise);
     sys
+}
+
+/// `graph` without any turbo's own settings.
+fn without_turbo_settings(graph: &ExhaustGraph) -> ExhaustGraph {
+    let mut g = graph.clone();
+    for t in g.turbos.iter_mut() {
+        t.settings = None;
+    }
+    g
 }
 
 /// True if the crank swept past `target` degrees between two samples.

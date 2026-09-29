@@ -30,6 +30,7 @@ import {
   type EngineSpec,
 } from '../src/model/spec.js';
 import {
+  engineTurboSettings,
   graphTurboSize,
   newTurbo,
   placeTurbo,
@@ -39,7 +40,9 @@ import {
   fittedBend,
   lockedFrom,
   removeTurbo,
+  setTurbosSynced,
   turboPortsOf,
+  turbosSynced,
   UPRIGHT,
 } from '../src/model/turbo.js';
 import { bendAnchor, collectSnapTargets, fitCurve } from '../src/scene/drawing.js';
@@ -256,6 +259,31 @@ describe('a turbo put down on the open end of a pipe', () => {
     const { graph } = singleWithTurbo();
     const back = graphFromJson(JSON.parse(JSON.stringify(graph)));
     expect(back).toEqual(graph);
+  });
+
+  it('keeps its own settings in a link, and drops ones that are not numbers', () => {
+    const { graph } = singleWithTurbo();
+    graph.turbos![0]!.settings = { boostTarget: 1.1e5, turboSize: 0.2, intercooler: 0.5, blowOff: 'none' };
+    expect(graphFromJson(JSON.parse(JSON.stringify(graph)))).toEqual(graph);
+    const raw = JSON.parse(JSON.stringify(graph));
+    raw.turbos[0].settings = { boostTarget: 'lots', turboSize: 0.2 };
+    expect(graphFromJson(raw)!.turbos![0]!.settings).toBeUndefined();
+  });
+
+  it('keeps the turbos in sync until told not to, then syncs them onto the first', () => {
+    const { spec, graph } = singleWithTurbo();
+    const second = newTurbo(graph, [0, 0, 0.3]);
+    placeTurbo(graph, second);
+    expect(turbosSynced(graph)).toBe(true);
+    expect(setTurbosSynced(graph, spec, false)).toBeNull();
+    expect(turbosSynced(graph)).toBe(false);
+    for (const t of graph.turbos!) expect(t.settings).toEqual(engineTurboSettings(spec));
+    graph.turbos![0]!.settings!.boostTarget = 1.2e5;
+    graph.turbos![1]!.settings!.blowOff = 'none';
+    const patch = setTurbosSynced(graph, spec, true);
+    expect(patch).toEqual({ ...engineTurboSettings(spec), boostTarget: 1.2e5 });
+    expect(turbosSynced(graph)).toBe(true);
+    expect(graph.turbos!.every((t) => t.settings === undefined)).toBe(true);
   });
 
   it.each([false, true])('makes the engine boost, heard through the Wasm build, with an outlet pipe: %s', async (outlet) => {
