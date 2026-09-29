@@ -16,6 +16,7 @@ import * as THREE from 'three';
 import {
   MIN_DRAW_LENGTH,
   closesLoop,
+  sideArrival,
   collectSnapTargets,
   continuingDiameter,
   detachDuct,
@@ -1228,5 +1229,23 @@ describe('closesLoop', () => {
     const before = JSON.stringify(graph);
     closesLoop(graph, 'tail', { kind: 'ductSurface', point: at(0), duct: 'a', x: 0.15 });
     expect(JSON.stringify(graph)).toBe(before);
+  });
+});
+
+describe('sideArrival', () => {
+  const point = new THREE.Vector3(0, 0, 0);
+  const axis = new THREE.Vector3(0, 0, 1);
+
+  it('merges along the pipe from whichever end it is drawn down', () => {
+    const across = new THREE.Vector3(1, 0, 0);
+    expect(sideArrival(point, axis, new THREE.Vector3(0.2, 0, -0.3), across).toArray()).toEqual([0, 0, 1]);
+    expect(sideArrival(point, axis, new THREE.Vector3(0.2, 0, 0.3), across).z).toBe(-1);
+  });
+
+  it('level with the joint, goes the way the pipe drawn leans along it', () => {
+    const from = new THREE.Vector3(0.2, 0, 0);
+    expect(sideArrival(point, axis, from, new THREE.Vector3(-1, 0, -0.2)).z).toBe(-1);
+    expect(sideArrival(point, axis, from, new THREE.Vector3(-1, 0, 0.2)).z).toBe(1);
+    expect(sideArrival(point, axis, from, new THREE.Vector3(-1, 0, 0)).z).toBe(1);
   });
 });
