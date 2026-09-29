@@ -1731,7 +1731,22 @@ export class PipeEditor {
     this.pipeTriadAt = null;
     const root = duct && drawnSegments(duct).length > 0 ? this.runRoot(duct) : null;
     const rootAt = root ? this.context?.placement.ducts.get(root.id) : undefined;
-    if (this.selected !== null && root && rootAt && root.segments.length > 0) {
+    const sel = this.selected;
+    if (sel !== null && duct && sel > 0 && sel < editable) {
+      // A segment further along, where it starts: its one ring rolls it, and all after it, about the way it
+      // sets off, so a bend there, or further on, swings round.
+      const at = layout.joints[sel - 1]!;
+      const shape = pipeShape(this.pipe.slice(0, editable), this.heading);
+      this.pipeTriadAt = { start: at.clone(), from: sel, root: duct.id };
+      this.pipeTriad.setMoveOrigin(at);
+      this.pipeTriad.setRotateOrigin(at);
+      this.pipeTriad.setOrientation(frameAlong(shape.starts[sel]!));
+      this.pipeTriad.setRingsOwn(true);
+      this.pipeTriad.showMoves(false);
+      this.pipeTriad.hideRing(0, false);
+      this.pipeTriad.hideRing(1, true);
+      this.pipeTriad.hideRing(2, true);
+    } else if (sel !== null && root && rootAt && root.segments.length > 0) {
       const opening = layoutPipe(root.segments, rootAt.origin, rootAt.heading).stations[0]!.direction.clone().normalize();
       const held = root.from.kind === 'valve' || (root.from.kind === 'node' && !!graph?.turbos?.some((t) => t.node === (root.from as { node: string }).node));
       this.pipeTriadAt = { start: rootAt.origin.clone(), from: 0, root: root.id };
@@ -1974,7 +1989,8 @@ export class PipeEditor {
       drag.frame0 = frameAlong(this.header.axis);
     } else if (on === 'pipe') {
       const ctx = this.context;
-      // The whole pipe the selected one is part of, from where it starts (`runRoot`).
+      // The whole pipe the selected one is part of, from where it starts (`runRoot`); or from a segment
+      // further along, the pipe from there on.
       const rootId = this.pipeTriadAt?.root;
       const duct = rootId ? ctx?.graph.ducts.find((d) => d.id === rootId) : undefined;
       const place = duct ? ctx?.placement.ducts.get(duct.id) : undefined;
@@ -1982,7 +1998,7 @@ export class PipeEditor {
       if (!ctx || !duct || !place || segments.length === 0) return;
       drag.ductId = duct.id;
       drag.drawn = segments.length;
-      drag.from = 0;
+      drag.from = this.pipeTriadAt?.from ?? 0;
       drag.shape0 = pipeShape(segments, place.heading);
       drag.base = this.headingBase(duct);
       drag.carried = this.carriedOn(duct).flatMap((c) => {
@@ -2184,7 +2200,7 @@ export class PipeEditor {
     }
     swingPipe(duct, drag.base, drag.shape0, drag.axis, turn, drag.from ?? 0);
     // Turned where it starts, a junction fixed there points the way it now sets off.
-    const pinned = duct.from.kind === 'node' ? junctionAt(this.context!.graph, duct.from.node) : undefined;
+    const pinned = (drag.from ?? 0) === 0 && duct.from.kind === 'node' ? junctionAt(this.context!.graph, duct.from.node) : undefined;
     if (pinned) {
       const set = drag.shape0.starts[0]!.clone().applyAxisAngle(drag.axis, turn);
       pinned.axis = [set.x, set.y, set.z];
