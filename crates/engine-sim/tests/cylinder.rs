@@ -157,6 +157,22 @@ fn motored_does_not_arm_combustion_when_the_intake_valve_closing_is_never_crosse
     assert_eq!(cyl.burned, 0.0);
 }
 
+/// Traps the charge when a phaser advancing the intake cam moves its closing back past the crank
+/// between two steps, so the crank never sweeps over it.
+#[test]
+fn traps_the_charge_when_a_phaser_moves_the_intake_closing_back_past_the_crank() {
+    let si = SpecInstance::new(default_engine());
+    let ivc = si.spec.ivc;
+    let mut cyl = Cylinder::new(&si.spec, ivc - 20.0, SEED);
+    // Left over from the last cycle's burn, until this cycle's charge is trapped.
+    cyl.burned = 1.0;
+    motor(&si, &mut cyl, ivc - 0.5, 3000.0);
+    assert_eq!(cyl.burned, 1.0, "the intake valve is still open at {}", cyl.angle);
+    cyl.intake_cam_offset = -2.0;
+    motor(&si, &mut cyl, ivc + 5.0, 3000.0);
+    assert_eq!(cyl.burned, 0.0, "the charge was never trapped");
+}
+
 // --- wiebe combustion ---
 
 /// Is monotonic, starts at zero and finishes burnt.
