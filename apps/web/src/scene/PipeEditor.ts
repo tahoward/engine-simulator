@@ -112,7 +112,7 @@ interface HandleData {
   segment: number;
 }
 
-/** The attachment dot's colours: on a port, pipe or turbo, and on a junction. */
+/** The attachment dot's colours: on a port, pipe, turbo or where two pipes join, and where three or more meet. */
 const ATTACH_MARKER = 0xffd166;
 const JUNCTION_MARKER = 0xc792ff;
 /** The attachment dot's radius, m, at the least, and against the bore it sits on: wider, so it shows round the pipe. */
@@ -1056,13 +1056,14 @@ export class PipeEditor {
   }
 
   /**
-   * The attachment dot: violet on a junction, so it reads apart from a pipe end or port's yellow, and wider
-   * than the pipe it is on, so the pipe does not swallow it.
+   * The attachment dot: violet on a junction where three or more pipes meet, so it reads apart from a pipe
+   * end, port or segment joint's yellow, and wider than the pipe it is on, so the pipe does not swallow it.
    */
   private styleMarker(target: SnapTarget): void {
-    (this.marker.material as THREE.MeshBasicMaterial).color.setHex(
-      target.kind === 'node' ? JUNCTION_MARKER : ATTACH_MARKER,
-    );
+    // Violet only where three or more pipes meet: two joined end to end, as a straight and the bend fitted to
+    // it are, are where one segment meets the next, and look it.
+    const branch = target.kind === 'node' && !!this.context && endsAt(this.context.graph, target.node).length >= 3;
+    (this.marker.material as THREE.MeshBasicMaterial).color.setHex(branch ? JUNCTION_MARKER : ATTACH_MARKER);
     const bore =
       target.kind === 'port'
         ? this.portDiameter

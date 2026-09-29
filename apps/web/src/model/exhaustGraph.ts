@@ -1010,9 +1010,16 @@ export function splitDuctAt(
     from: { kind: 'node', node },
     to: duct.to,
     continues: duct.id,
+    // The bend it is fitted to what it joins with is at its far end, so goes with the far half.
+    ...(duct.fitted ? { fitted: true as const } : {}),
+    ...(duct.swing ? { swing: true as const } : {}),
+    ...(duct.square ? { square: true as const } : {}),
   };
   duct.segments = halves[0];
   duct.to = { kind: 'node', node };
+  delete duct.fitted;
+  delete duct.swing;
+  delete duct.square;
   // Immediately after its upstream half, so the list reads along the flow.
   graph.ducts.splice(index + 1, 0, downstream);
   return node;
@@ -1194,8 +1201,8 @@ function tidy(graph: ExhaustGraph, nodes: Iterable<string>, dirs?: DuctDirection
       // where they join, which takes the layout (`joinCutEnds`).
       const [feed, out] = [feeds[0]!, outs[0]!];
       const bend = (d: ExhaustDuct) => !!d.fitted && !d.square;
-      // Carried straight on, the two are one pipe again, but for a bend and nothing else carrying a pipe on.
-      const through = out.continues === feed.id && !(bend(out) && drawnSegments(out).length === 0);
+      // Carried straight on, the two are one pipe again, the bend it may end in and all.
+      const through = out.continues === feed.id;
       if (through || (!junctionAt(graph, node) && !bend(feed) && !bend(out))) fuse(graph, feed, out, dirs);
     }
   }
