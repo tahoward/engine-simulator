@@ -109,12 +109,6 @@ export interface ExhaustDuct {
    * the pipe it joins.
    */
   square?: true;
-  /**
-   * Which side of the pipe it joins its fitted bend comes into it from, where that is the side of a pipe: a
-   * roll round the pipe from level (`acrossAxis`), radians. Kept, so the pipe rolled carries it round, and
-   * the bend is fitted again to come in from there. Absent, it comes in from the side it was drawn from.
-   */
-  arriveRoll?: number;
 }
 
 /** How near two bores have to be to count as matched where pipes meet, m. */
@@ -293,7 +287,6 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
       ...(d.fitted === true ? { fitted: true as const } : {}),
       ...(d.fitted === true && d.swing === true ? { swing: true as const } : {}),
       ...(d.fitted === true && d.square === true ? { square: true as const } : {}),
-      ...(d.fitted === true && finite(d.arriveRoll) ? { arriveRoll: d.arriveRoll } : {}),
     })),
   };
 }
@@ -1178,23 +1171,49 @@ function tidy(graph: ExhaustGraph, nodes: Iterable<string>, dirs?: DuctDirection
 
     if (turboAt(graph, node)) {
       // A turbo stays as it is, with or without a pipe drawn from its outlet, fed or not.
+    } else if (feeds.length === 0 && junctionAt(graph, node)) {
+      // A junction fixed where a pipe starts, and nothing joining it now but pipes starting there: each is a
+      // loose pipe again, starting there and heading as it did.
+      const pin = junctionAt(graph, node)!;
+      for (const out of outs) loosenAt(out, pin);
     } else if (feeds.length === 0) {
       graph.ducts = graph.ducts.filter((d) => !outs.includes(d));
       for (const d of graph.ducts) if (outs.some((out) => out.id === d.continues)) delete d.continues;
       for (const out of outs) for (const n of touchedNodes(out)) if (n !== node) queue.push(n);
-    } else if (outs.length === 0 && (feeds.length < 2 || feeds.every((f) => f.fitted))) {
-      // A junction of one pipe is not one; two or more are a merge waiting for the pipe after it. Not where
-      // every one left was only bent in to meet what has gone: they meet nothing there, so they come off.
+    } else if (outs.length === 0 && feeds.length < 2) {
+      // A junction of one pipe is not one; two or more are a merge waiting for the pipe after it, drawn from
+      // where they meet.
       for (const feed of feeds) {
         feed.to = { kind: 'mouth' };
         releaseBend(feed);
       }
     } else if (feeds.length === 1 && outs.length === 1) {
       // A junction fixed in place stays, as something may yet be drawn into it, unless it is a pipe that
-      // was split for a branch, and the branch has gone.
-      if (!junctionAt(graph, node) || outs[0]!.continues === feeds[0]!.id) fuse(graph, feeds[0]!, outs[0]!, dirs);
+      // was split for a branch, and the branch has gone. So does one where either pipe is a bend fitted to
+      // meet the other's side: the two are pipes of their own, the bend fitted again to run along the other
+      // where they join, which takes the layout (`joinCutEnds`).
+      const [feed, out] = [feeds[0]!, outs[0]!];
+      const bend = (d: ExhaustDuct) => !!d.fitted && !d.square;
+      // Carried straight on, the two are one pipe again, but for a bend and nothing else carrying a pipe on.
+      const through = out.continues === feed.id && !(bend(out) && drawnSegments(out).length === 0);
+      if (through || (!junctionAt(graph, node) && !bend(feed) && !bend(out))) fuse(graph, feed, out, dirs);
     }
   }
+}
+
+/**
+ * Make `duct`, starting at the fixed junction `pin`, a loose pipe starting where the junction is, heading as
+ * it did: in the world's terms, which a pipe leaving a junction stores its heading in or off the junction's
+ * way.
+ */
+function loosenAt(duct: ExhaustDuct, pin: JunctionMount): void {
+  const heading = duct.headingFrame === 'world' ? turnDir([1, 0, 0], duct.headingYaw ?? 0, duct.headingPitch ?? 0) : turnDir(pin.axis, duct.headingYaw ?? 0, duct.headingPitch ?? 0);
+  const turn = turnBetweenDirs([1, 0, 0], heading);
+  duct.from = { kind: 'free', position: [...pin.position] };
+  duct.headingYaw = turn.yaw;
+  duct.headingPitch = turn.pitch;
+  duct.headingFrame = 'world';
+  delete duct.continues;
 }
 
 /**
@@ -1248,8 +1267,6 @@ function fuse(graph: ExhaustGraph, into: ExhaustDuct, out: ExhaustDuct, dirs?: D
   else delete into.swing;
   if (out.square) into.square = true;
   else delete into.square;
-  if (out.arriveRoll !== undefined) into.arriveRoll = out.arriveRoll;
-  else delete into.arriveRoll;
   // Anything that carried straight on from `out` now carries on from `into`, which it has become.
   for (const d of graph.ducts) if (d.continues === out.id) d.continues = into.id;
   graph.ducts = graph.ducts.filter((d) => d !== out);
@@ -1280,7 +1297,6 @@ export function releaseBend(duct: ExhaustDuct): void {
   delete duct.fitted;
   delete duct.swing;
   delete duct.square;
-  delete duct.arriveRoll;
 }
 
 function touchedNodes(duct: ExhaustDuct): string[] {
@@ -1392,8 +1408,6 @@ function reverseDuct(duct: ExhaustDuct): ExhaustDuct {
 
 /** How far the gas out of a turbo with no pipe drawn from its outlet runs before the air, m. */
 const TURBO_EXIT = 0.05;
-/** How far the gas out of a junction's opening, left where a pipe was cut from it, runs before the air, m. */
-const OPEN_EXIT = 0.05;
 
 /**
  * The graph as the solver is given it: with the pipes the gas runs through against the way they were drawn
@@ -1401,9 +1415,7 @@ const OPEN_EXIT = 0.05;
  * the turbo, nor anything reached only through one, since no gas reaches them; and with the pipes into a
  * junction nothing leaves yet ending in open air. What is left is every duct fed from a cylinder. A turbo fed
  * with nothing drawn from its outlet exhausts to the air at its outlet flange, through the shortest of pipes
- * there, a little wider than what feeds it. So does a junction nothing was drawn leaving whose gas goes on
- * only back along a pipe turned round, as where a loose pipe was teed into and its far half deleted: open at
- * the cut, through the shortest of pipes there, as wide as the pipe it was cut from.
+ * there, a little wider than what feeds it.
  */
 export function solverGraph(drawn: ExhaustGraph): ExhaustGraph {
   const reversed = reversedDucts(drawn);
@@ -1413,11 +1425,7 @@ export function solverGraph(drawn: ExhaustGraph): ExhaustGraph {
   const ending = graph.ducts.some((d) => d.to.kind === 'node' && !leaving.has(d.to.node));
   const fed = fedDucts(graph);
   const turbos = new Set((graph.turbos ?? []).map((t) => t.node));
-  // A junction nothing was drawn leaving, left open where a pipe was cut from it, that the gas leaves only
-  // back through a pipe turned round: open to the air at that opening too.
-  const drawnLeaving = new Set(drawn.ducts.flatMap((d) => (d.from.kind === 'node' ? [d.from.node] : [])));
-  const opened = [...leaving].filter((node) => !drawnLeaving.has(node) && !turbos.has(node));
-  if (!ending && opened.length === 0 && fed.size === graph.ducts.length) return graph;
+  if (!ending && fed.size === graph.ducts.length) return graph;
   const kept = graph.ducts.filter((d) => fed.has(d.id));
   const ducts = kept
     // A junction nothing leaves yet: its pipes end in open air there.
@@ -1434,21 +1442,6 @@ export function solverGraph(drawn: ExhaustGraph): ExhaustGraph {
     ducts.push({
       id: freeId(new Set(ducts.map((d) => d.id)), `${node}-exit`),
       segments: [makeSegment({ kind: 'pipe', length: TURBO_EXIT, dIn: dia, dOut: dia })],
-      from: { kind: 'node', node },
-      to: { kind: 'mouth' },
-    });
-  }
-  for (const node of opened) {
-    // As wide as the pipe it opens out of, the widest where several do.
-    let dia = 0;
-    for (const d of kept) {
-      const first = d.segments[0];
-      if (reversed.has(d.id) && d.from.kind === 'node' && d.from.node === node && first) dia = Math.max(dia, segmentDiameter(first, 0));
-    }
-    if (dia === 0) continue;
-    ducts.push({
-      id: freeId(new Set(ducts.map((d) => d.id)), `${node}-open`),
-      segments: [makeSegment({ kind: 'pipe', length: OPEN_EXIT, dIn: dia, dOut: dia })],
       from: { kind: 'node', node },
       to: { kind: 'mouth' },
     });
@@ -1558,22 +1551,26 @@ export function validateGraph(graph: ExhaustGraph, cylinders: number): string[] 
   for (const node of nodeOrder(graph)) {
     const ends = endsAt(graph, node);
     const downstream = ends.filter((e) => e.end === 'inlet');
-    const upstream = ends.filter((e) => e.end === 'outlet');
-    // A turbo fed by one pipe, with nothing drawn from its outlet, exhausts to the air there.
+    // A turbo fed by one pipe, with nothing drawn from its outlet, exhausts to the air there. A junction
+    // nothing is drawn into is a start, as a loose pipe's is: its pipes carry gas only once a cylinder's
+    // reaches them, and then the solver is given them turned round (`reversedDucts`).
     if (ends.length < 2 && !turboAt(graph, node)) problems.push(`junction "${node}" joins only one pipe`);
-    // A turbo nothing is drawn into keeps its outlet pipe, which carries no gas yet, like a loose pipe.
-    if (upstream.length === 0 && !turboAt(graph, node)) problems.push(`junction "${node}" has nothing flowing into it`);
     // A junction with nothing leaving it yet is its pipes ending in air there: see `solverGraph`.
     if (downstream.length > 1 && turboAt(graph, node)) {
       problems.push(`the turbo at "${node}" has ${downstream.length} pipes leaving its one outlet`);
     }
   }
 
-  // Every duct must trace back to a valve, or the gas in it came from nowhere: or to a loose pipe, or a
-  // turbo's outlet, which may carry no gas yet and then is not given to the solver (`solverGraph`).
+  // Every duct must trace back to a valve, or the gas in it came from nowhere: or to a loose pipe, a
+  // junction nothing is drawn into, or a turbo's outlet, which may carry no gas yet and then are not given to
+  // the solver (`solverGraph`).
   const reachable = new Set<string>();
+  const drawnInto = new Set(graph.ducts.flatMap((d) => (d.to.kind === 'node' ? [d.to.node] : [])));
   const frontier = graph.ducts.filter(
-    (d) => d.from.kind === 'valve' || d.from.kind === 'free' || (d.from.kind === 'node' && turboAt(graph, d.from.node)),
+    (d) =>
+      d.from.kind === 'valve' ||
+      d.from.kind === 'free' ||
+      (d.from.kind === 'node' && (turboAt(graph, d.from.node) || !drawnInto.has(d.from.node))),
   );
   for (const d of frontier) reachable.add(d.id);
   for (let guard = 0; guard < graph.ducts.length + 1 && frontier.length > 0; guard++) {

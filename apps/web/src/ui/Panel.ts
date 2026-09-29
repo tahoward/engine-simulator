@@ -766,13 +766,13 @@ export class Panel {
       bar,
       TOOL_ICONS.draw,
       'Draw a pipe',
-      'Start from an exhaust port, a junction or the open end of a pipe (to continue it), then click to ' +
-        'add corners. A pipe cannot start from the side of another, only join it there. Out of a port it runs straight on ' +
-        'first, and from an open end straight on all the way, until it joins something. Click a junction, a pipe or a pipe end to join ' +
-        'it. Each straight locks to the engine: across (red), up (green), along the crank (blue), or 45 ' +
-        'degrees between two of them. Alt rounds the turn off the pipe instead, Shift draws freely. A ' +
-        'double-click or Enter finishes in open air; Escape abandons the pipe; right-click finishes it and ' +
-        'exits. Bend the straights afterwards with the bend tool.',
+      'From an opening — an exhaust port, the open end of a pipe (to continue it), a loose pipe\'s start, or a ' +
+        'junction nothing leaves yet — a pipe runs straight out of it: each click sets how far. Click another pipe\'s end or side, where two of ' +
+        'its segments meet, a junction, a turbo\'s inlet or a port to join it, in one bent pipe fitted to it; ' +
+        'Shift joins a pipe\'s side square. From the side of a pipe, where its segments meet, or a junction ' +
+        'something already leaves, only such a fitted pipe onto something can be drawn. A double-click or Enter finishes in open air; ' +
+        'Escape abandons the pipe; right-click finishes it and exits. Turn and bend straights afterwards with ' +
+        'the triad and the bend tool.',
     );
     this.drawGroup = el('div', 'tool-group', this.toolOptions);
     el('div', 'tool-name', this.drawGroup).textContent = 'Draw a pipe';

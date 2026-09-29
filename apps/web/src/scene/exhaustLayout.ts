@@ -232,9 +232,16 @@ export function layoutGraph(
        * together stay where they were put. See `ExhaustDuct.continues`.
        */
       const carried = downstream.find((d) => d.continues !== undefined);
-      const primary = carried ? upstream.find((d) => d.id === carried.continues) : undefined;
       /** A junction that has been moved has a place of its own: the pipes into it bend in to meet it. */
       const pinned = junctionAt(graph, node);
+      /**
+       * Or, where nothing carries straight on, the one pipe ending here that is not a bend fitted to meet it:
+       * the end of a pipe that bends were drawn onto. The junction is that pipe's end, and follows it, and
+       * the bends come in to meet it there (`bendAnchor`).
+       */
+      const unbent = upstream.filter((d) => !d.fitted && d.segments.length > 0);
+      const owner = !carried && !pinned && unbent.length === 1 && upstream.length > 1 ? unbent[0] : undefined;
+      const primary = carried ? upstream.find((d) => d.id === carried.continues) : owner;
 
       /**
        * Pipes this node may aim: compiled ones, which neither carry a manifold on nor were drawn, at a
