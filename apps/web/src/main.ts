@@ -30,7 +30,7 @@ import { JointMesh } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
 import { engineFile, engineFileName, readConfig, readEngineFile } from './model/engineFile.js';
 import { launchSettingsJson, readLaunchSettings } from './model/launchSettings.js';
-import { detachDuct, loosenChildren, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
+import { detachDuct, holdOpening, loosenChildren, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
 import {
   applyHeader,
   seatLengthwaysHeaders,
@@ -258,7 +258,8 @@ const editor = new PipeEditor(
         return;
       }
       // A segment of another pipe: the handles and the panel move to that pipe, then select it.
-      if (pick.duct !== editedDuctId) {
+      // Against the panel's too: a pipe drawn since the edited one went can have been given its id.
+      if (pick.duct !== editedDuctId || panel.ductId !== pick.duct) {
         editedDuctId = pick.duct;
         panel.showDuct(pick.duct);
         rebuildPipeGeometry();
@@ -516,6 +517,8 @@ const panel = new Panel(panelEl, toolsEl, config, {
     freeze();
     // The pipes carrying on from it are left loose, where they lie.
     if (stablePlacement) loosenChildren(config.graph!, id, stablePlacement);
+    // Cut from a tee, the opening it leaves stays where it was, to draw on from.
+    if (stablePlacement) holdOpening(config.graph!, id, stablePlacement);
     const duct = config.graph!.ducts.find((d) => d.id === id);
     // A cylinder's own pipe stays, since every cylinder needs one, but comes off whatever it joined.
     if (duct?.from.kind === 'valve') disconnectEnd(config.graph!, id, directionsOf(stablePlacement));
@@ -824,6 +827,8 @@ function rebuildPipeGeometry(): void {
    * be aimed to reach the collar, and handles laid out on the port direction would sit off the pipe.
    */
   const editedDuct = graph.ducts.find((d) => d.id === editedDuctId) ?? graph.ducts[0];
+  // The edited pipe gone, the one the handles go to instead is the edited one, as it is the panel's.
+  if (editedDuct) editedDuctId = editedDuct.id;
   editor.lockedFrom = editedDuct ? lockedFrom(editedDuct) : null;
   if (editedDuct) {
     const place = placement.ducts.get(editedDuct.id);
