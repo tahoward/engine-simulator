@@ -16,11 +16,15 @@ import * as THREE from 'three';
 import {
   MIN_DRAW_LENGTH,
   closesLoop,
+  holdOpening,
   sideArrival,
+  sideLeaving,
+  arcTo,
   collectSnapTargets,
   continuingDiameter,
   detachDuct,
   fitSegment,
+  fitCurve,
   headingOffsetTo,
   nearestSnap,
   quantiseLength,
@@ -1248,4 +1252,154 @@ describe('sideArrival', () => {
     expect(sideArrival(point, axis, from, new THREE.Vector3(-1, 0, 0.2)).z).toBe(1);
     expect(sideArrival(point, axis, from, new THREE.Vector3(-1, 0, 0)).z).toBe(1);
   });
+});
+
+describe('deleting the far half of a tee', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
+  const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
+
+  /** A runner drawn into the side of a loose pipe, and the loose pipe's far half deleted. */
+  async function cut() {
+    const { removeDuct } = await import('../src/model/exhaustGraph.js');
+    const graph: ExhaustGraph = {
+      ducts: [
+        { id: 'r', segments: [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.042 })], from: { kind: 'valve', cylinder: 0 }, to: { kind: 'mouth' } },
+      ],
+    };
+    const loose = placeLoosePipe(graph, [0.3, 0, 0], 0.042, 0.8);
+    const node = splitDuctAt(graph, loose, 0.4)!;
+    graph.ducts.find((d) => d.id === 'r')!.to = { kind: 'node', node };
+    const far = graph.ducts.find((d) => d.continues === loose)!;
+    const placement = layoutGraph(ports(), graph);
+    const at = placement.ducts.get(far.id)!.origin.clone();
+    holdOpening(graph, far.id, placement);
+    expect(removeDuct(graph, far.id)).toBe(true);
+    return { graph, node, at };
+  }
+
+  it('leaves the junction where the pipe was cut, pointing the way it went, to draw on from', async () => {
+    const { graph, node, at } = await cut();
+    const { junctionAt } = await import('../src/model/exhaustGraph.js');
+    const pin = junctionAt(graph, node)!;
+    expect(new THREE.Vector3(...pin.position).distanceTo(at)).toBeLessThan(1e-9);
+    expect(new THREE.Vector3(...pin.axis).angleTo(new THREE.Vector3(0, 0, 1))).toBeLessThan(1e-6);
+    const target = collectSnapTargets(graph, layoutGraph(ports(), graph), ports()).find((t) => t.kind === 'node');
+    expect(target?.kind === 'node' && target.node).toBe(node);
+    expect(target!.point.distanceTo(at)).toBeLessThan(1e-9);
+  });
+
+  it('keeps the cut open to the air, not closed off', async () => {
+    const { graph, node } = await cut();
+    expect(validateGraph(graph, 1)).toEqual([]);
+    const solved = solverGraph(graph);
+    // The gas out of the runner goes both ways: back along the loose pipe, and out of the cut.
+    const leaving = solved.ducts.filter((d) => d.from.kind === 'node' && d.from.node === node);
+    expect(leaving).toHaveLength(2);
+    expect(leaving.every((d) => d.to.kind === 'mouth')).toBe(true);
+  });
+});
+
+describe('drawing out of the side of a pipe', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
+  const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];
+
+  it('sets off along the pipe whichever way along it the point lies', () => {
+    const axis = new THREE.Vector3(0, 0, 1);
+    const tip = new THREE.Vector3(0, 0, 0);
+    expect(sideLeaving(axis, tip, new THREE.Vector3(0.2, 0, 0.3)).z).toBe(1);
+    expect(sideLeaving(axis, tip, new THREE.Vector3(0.2, 0, -0.3)).z).toBe(-1);
+    expect(sideLeaving(axis, tip, new THREE.Vector3(0.2, 0, 0)).z).toBe(1);
+  });
+
+  it('bends in one arc from along the pipe to the point', () => {
+    const tip = new THREE.Vector3(0, 0, 0);
+    const dir = new THREE.Vector3(0, 0, -1);
+    const point = new THREE.Vector3(0.2, 0.1, -0.3);
+    const seg = arcTo(tip, dir, point, { dIn: 0.042, dOut: 0.042 });
+    expect(seg.curve).toBeDefined();
+    const swept = layoutPipe([seg], tip, dir);
+    expect(swept.stations[0]!.direction.angleTo(dir)).toBeLessThan(1e-6);
+    expect(swept.joints.at(-1)!.distanceTo(point)).toBeLessThan(1e-6);
+    // As an arc, it arrives turned off the chord by as much as it set off.
+    const chord = point.clone().normalize();
+    expect(swept.jointDirections.at(-1)!.angleTo(chord)).toBeCloseTo(dir.angleTo(chord), 2);
+  });
+
+  it('laid out, a branch set off back along the pipe leaves tangent to it', () => {
+    const graph = compileLayout(spec, [makeSegment({ kind: 'pipe', length: 0.8, dIn: 0.042 })], []);
+    const before = layoutGraph(ports(), graph);
+    const up = before.ducts.get('runner0')!;
+    const swept = layoutPipe(graph.ducts[0]!.segments, up.origin, up.heading);
+    const node = splitDuctAt(graph, 'runner0', 0.4)!;
+    const placement = layoutGraph(ports(), graph);
+    const axis = placement.joints.get(node)?.axis ?? swept.stations.find((s) => s.x >= 0.4)!.direction;
+    const origin = placement.ducts.get(graph.ducts.find((d) => d.continues === 'runner0')!.id)!.origin;
+    const back = axis.clone().negate();
+    const point = origin.clone().addScaledVector(back, 0.25).add(new THREE.Vector3(0, 0.15, 0));
+    const turn = headingOffsetTo(axis, back);
+    graph.ducts.push({
+      id: 'branch',
+      segments: [arcTo(origin, back, point, { dIn: 0.042, dOut: 0.042 })],
+      from: { kind: 'node', node },
+      to: { kind: 'mouth' },
+      headingYaw: turn.yaw,
+      headingPitch: turn.pitch,
+    });
+    const laid = layoutGraph(ports(), graph).ducts.get('branch')!;
+    const branch = layoutPipe(graph.ducts.at(-1)!.segments, laid.origin, laid.heading);
+    expect(laid.origin.distanceTo(origin)).toBeLessThan(1e-9);
+    expect(branch.stations[0]!.direction.angleTo(back)).toBeLessThan(1e-6);
+    expect(branch.joints.at(-1)!.distanceTo(point)).toBeLessThan(1e-6);
+    expect(validateGraph(graph, 1)).toEqual([]);
+  });
+});
+
+describe("drawing onto another pipe's open end", () => {
+  const twin = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: 'perBank' } as EngineSpec;
+  const ports = (): ExhaustPort[] => {
+    const mesh = new EngineMesh(twin);
+    return [0, 1].map((i) => mesh.exhaustPort(i));
+  };
+
+  // Where the ghost's bend goes, as the editor works it out before the click.
+  for (const [label, beyond] of [['from behind its end', -0.15], ['from beyond its end', 0.15]] as const) {
+    it(`bends in as the ghost showed, ${label}`, () => {
+      const graph: ExhaustGraph = {
+        ducts: [0, 1].map((i) => ({
+          id: `runner${i}`,
+          segments: [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.042 })],
+          from: { kind: 'valve' as const, cylinder: i },
+          to: { kind: 'mouth' as const },
+        })),
+      };
+      const placement = layoutGraph(ports(), graph);
+      const a = placement.ducts.get('runner0')!;
+      const sweptA = layoutPipe(graph.ducts[0]!.segments, a.origin, a.heading);
+      const end = sweptA.joints.at(-1)!.clone();
+      const endDir = sweptA.jointDirections.at(-1)!.clone();
+      // runner1 drawn on to a point off to the side of runner0's end, behind or beyond it.
+      const b = placement.ducts.get('runner1')!;
+      const tipB = layoutPipe(graph.ducts[1]!.segments, b.origin, b.heading);
+      const target = end.clone().addScaledVector(endDir, beyond).add(new THREE.Vector3(0, 0.12, 0));
+      const runner1 = graph.ducts[1]!;
+      runner1.segments.push(fitSegment(tipB.joints.at(-1)!, tipB.jointDirections.at(-1)!, target, { kind: 'pipe', dIn: 0.042, dOut: 0.042 }));
+      const drawn = layoutPipe(runner1.segments, b.origin, b.heading);
+      const tip = { point: drawn.joints.at(-1)!, dir: drawn.jointDirections.at(-1)! };
+      const ghostDir = sideArrival(end, endDir, tip.point, tip.dir);
+      // From beyond, it comes back in to the end head on, rather than looping round to arrive beside it.
+      expect(ghostDir.angleTo(endDir)).toBeCloseTo(beyond > 0 ? Math.PI : 0, 6);
+      const ghost = fitCurve(tip.point, tip.dir, end, ghostDir, { dIn: 0.042, dOut: 0.042 });
+
+      // The click: joined as the editor joins it, then fitted again as every rebuild does.
+      runner1.segments.push(makeSegment(ghost));
+      runner1.fitted = true;
+      const node = joinDuctEnd(graph, 'runner0', { position: [end.x, end.y, end.z], axis: [endDir.x, endDir.y, endDir.z] })!;
+      runner1.to = { kind: 'node', node };
+      refitBends(graph, ports(), twin);
+      const after = layoutGraph(ports(), graph).ducts.get('runner1')!;
+      const swept = layoutPipe(runner1.segments, after.origin, after.heading);
+      expect(swept.joints.at(-1)!.distanceTo(end)).toBeLessThan(1e-6);
+      expect(swept.jointDirections.at(-1)!.angleTo(ghostDir)).toBeLessThan(1e-6);
+    });
+  }
 });

@@ -67,6 +67,8 @@ import {
   bendAnchor,
   squareArrival,
   sideArrival,
+  sideLeaving,
+  arcTo,
   closesLoop,
   collectSnapTargets,
   flipLoosePipe,
@@ -382,6 +384,11 @@ export class PipeEditor {
     snapshot: string;
     /** Segments the duct already had, when the route continues an existing pipe rather than a new one. */
     base: number;
+    /**
+     * Out of the side of a pipe, the way that pipe runs there. The route sets off along it, either way, in
+     * a bend: a branch leaves a pipe as a merge joins one, never square off it in a straight.
+     */
+    side?: THREE.Vector3;
   } | null = null;
   /**
    * The segment the next click would add, as a see-through pipe of the bore it would be: a straight, or the
@@ -1243,7 +1250,8 @@ export class PipeEditor {
         kind: 'ductSurface',
         point: (station?.position ?? hit.point).clone(),
         duct: duct.id,
-        x: st.x,
+        // Split where the station is, so the junction that makes is where the ghost went.
+        x: station?.x ?? st.x,
         ...(station ? { dir: station.direction.clone() } : {}),
       };
       if (trapped(surface)) continue;
@@ -1254,14 +1262,17 @@ export class PipeEditor {
     return free ? { kind: 'free', point: free } : null;
   }
 
-  /** Whether a route can start from this target: not the side of a pipe, which a route may only end on. */
+  /**
+   * Whether a route can start from this target: not a turbo's inlet nor a loose pipe's start, which a route
+   * may only end on, and the side of a pipe only where it has a way along it to set off by.
+   */
   private static startable(target: SnapTarget | null): boolean {
     return (
       !!target &&
       target.kind !== 'free' &&
       target.kind !== 'turboInlet' &&
       target.kind !== 'looseStart' &&
-      target.kind !== 'ductSurface'
+      (target.kind !== 'ductSurface' || !!target.dir)
     );
   }
 
@@ -1270,7 +1281,9 @@ export class PipeEditor {
    *
    * From a port it is a new runner, replacing whatever the cylinder had. From a junction it is a new pipe
    * leaving it. From the open end of a pipe it *continues that pipe* — the same duct, with segments added —
-   * since a pipe carrying on is one pipe, not two joined end to end.
+   * since a pipe carrying on is one pipe, not two joined end to end. From the side of a pipe it is a
+   * branch: the pipe is split there, as it is when something is drawn into its side, and the new pipe leaves
+   * the junction that makes, in a bend off the pipe (`route.side`).
    */
   private beginRoute(target: SnapTarget): void {
     const ctx = this.context;
@@ -1288,6 +1301,7 @@ export class PipeEditor {
 
     let from: DuctSource;
     let place: DuctPlacement;
+    let side: THREE.Vector3 | undefined;
     if (target.kind === 'port') {
       from = { kind: 'valve', cylinder: target.cylinder };
       place = { origin: target.point.clone(), heading: target.dir.clone() };
@@ -1310,13 +1324,20 @@ export class PipeEditor {
         origin: target.point.clone(),
         heading: joint ? joint.axis.clone() : this.heading.clone(),
       };
+    } else if (target.kind === 'ductSurface' && target.dir) {
+      const node = splitDuctAt(ctx.graph, target.duct, target.x);
+      if (!node) return;
+      from = { kind: 'node', node };
+      // Its heading is turned off the way the pipe runs there, which the layout takes the junction's to be.
+      side = target.dir.clone().normalize();
+      place = { origin: target.point.clone(), heading: side.clone() };
     } else {
       return;
     }
 
     const id = newDuctId(ctx.graph, 'drawn');
     ctx.graph.ducts.push({ id, segments: [], from, to: { kind: 'mouth' } });
-    this.route = { ductId: id, place, snapshot, base: 0 };
+    this.route = { ductId: id, place, snapshot, base: 0, ...(side ? { side } : {}) };
     this.cb.onDrawing?.(true);
     this.cb.onChange(true, id);
   }
@@ -1349,10 +1370,11 @@ export class PipeEditor {
     const duct = ctx.graph.ducts.find((d) => d.id === this.route!.ductId);
     if (!duct) return;
 
-    const tip = routeTip(duct.segments, this.route.place);
+    const routeEnd = routeTip(duct.segments, this.route.place);
     const dia = this.routeDiameter(duct);
 
-    const { point } = this.aim(tip, target, snap);
+    const { point } = this.aim(routeEnd, target, snap);
+    const tip = this.setOff(duct, routeEnd, point);
 
     /**
      * Joining something ends the route in one smooth bend, fitted to arrive along what it joins: square
@@ -1364,9 +1386,10 @@ export class PipeEditor {
     if (anchor) {
       if (anchor.point.distanceTo(tip.point) < MIN_DRAW_LENGTH) return;
       if (duct.segments.length === 0) {
-        // Straight out of where it starts: the bend does the turning.
-        duct.headingYaw = 0;
-        duct.headingPitch = 0;
+        // Straight out of where it starts, or along the pipe it branches from: the bend does the turning.
+        const turn = this.route.side ? headingOffsetTo(this.route.place.heading, tip.dir) : { yaw: 0, pitch: 0 };
+        duct.headingYaw = turn.yaw;
+        duct.headingPitch = turn.pitch;
       }
       // Tapering from the bore it leaves at to the bore of what it joins, so it matches at both.
       duct.segments.push(fitCurve(tip.point, tip.dir, anchor.point, anchor.dir, { dIn: dia, dOut: anchor.dia }));
@@ -1392,6 +1415,13 @@ export class PipeEditor {
         duct.headingPitch = 0;
       }
       duct.segments.push(makeSegment({ kind: 'pipe', length: straightOut, dIn: dia, dOut: dia }));
+    } else if (this.route.side && duct.segments.length === 0) {
+      // Out of the side of a pipe, along it and bending round to the point.
+      if (point.distanceTo(tip.point) < MIN_DRAW_LENGTH) return;
+      const turn = headingOffsetTo(this.route.place.heading, tip.dir);
+      duct.headingYaw = turn.yaw;
+      duct.headingPitch = turn.pitch;
+      duct.segments.push(arcTo(tip.point, tip.dir, point, { dIn: dia, dOut: dia }));
     } else if (duct.segments.length === 0) {
       /**
        * The first segment is straight, and the duct's stored heading carries the direction.
@@ -1449,6 +1479,20 @@ export class PipeEditor {
   }
 
   /**
+   * Where the route's next segment sets off from, and which way: from where it ends, the way it is going,
+   * but for its first out of the side of a pipe, which sets off along the pipe towards `point`, whichever
+   * way along it that is (`sideLeaving`).
+   */
+  private setOff(
+    duct: ExhaustDuct,
+    tip: { point: THREE.Vector3; dir: THREE.Vector3 },
+    point: THREE.Vector3,
+  ): { point: THREE.Vector3; dir: THREE.Vector3 } {
+    if (!this.route?.side || duct.segments.length > 0) return tip;
+    return { point: tip.point, dir: sideLeaving(this.route.side, tip.point, point) };
+  }
+
+  /**
    * Where a route ending on `target` bends in to, and the way it arrives, or `null` where it has nothing
    * fixed to arrive along and ends in a corner, as a free point does. `square`, into a pipe's side across
    * it from the route's `tip`, rather than along its flow.
@@ -1481,11 +1525,14 @@ export class PipeEditor {
         if (!other || !place || other.segments.length === 0) return null;
         const swept = layoutPipe(other.segments, place.origin, place.heading);
         // A loose pipe is turned round to carry on from here, so the bend arrives going the way it will.
+        // Anything else's end is a junction with nothing leaving it yet, which the bend comes in to along
+        // the pipe from whichever side it is drawn (`bendAnchor`), as it will once joined.
         const loose = other.from.kind === 'free';
         const dir = swept.jointDirections.at(-1)!.clone();
+        const point = swept.joints.at(-1)!.clone();
         return {
-          point: swept.joints.at(-1)!.clone(),
-          dir: loose ? dir.negate() : dir,
+          point,
+          dir: loose ? dir.negate() : tip ? sideArrival(point, dir, tip.point, tip.dir) : dir,
           dia: segmentDiameter(other.segments.at(-1)!, 1),
         };
       }
@@ -2195,15 +2242,16 @@ export class PipeEditor {
 
     const duct = ctx.graph.ducts.find((d) => d.id === this.route!.ductId);
     if (!duct) return;
-    const tip = routeTip(duct.segments, this.route.place);
-    const target = this.resolveSnap(tip.point);
+    const routeEnd = routeTip(duct.segments, this.route.place);
+    const target = this.resolveSnap(routeEnd.point);
     if (!target) {
       this.hidePreview();
       return;
     }
 
-    const aimed = this.aim(tip, target, snap);
+    const aimed = this.aim(routeEnd, target, snap);
     let { point, dir, name } = aimed;
+    const tip = this.setOff(duct, routeEnd, point);
     // Out of an exhaust port the first segment runs straight on, and carrying on from an open end every one.
     const run = target.kind === 'free' ? this.straightRun(duct, tip, point) : null;
     if (run !== null) {
@@ -2218,6 +2266,8 @@ export class PipeEditor {
     const reach = point.distanceTo(tip.point);
     if (anchor) {
       this.drawGhost.rebuild([fitCurve(tip.point, tip.dir, anchor.point, anchor.dir, { dIn: dia, dOut: anchor.dia })], tip.point, tip.dir);
+    } else if (this.route.side && duct.segments.length === 0 && reach > 1e-4) {
+      this.drawGhost.rebuild([arcTo(tip.point, tip.dir, point, { dIn: dia, dOut: dia })], tip.point, tip.dir);
     } else if (reach > 1e-4) {
       const heading = point.clone().sub(tip.point).normalize();
       this.drawGhost.rebuild([makeSegment({ kind: 'pipe', length: reach, dIn: dia, dOut: dia })], tip.point, heading);

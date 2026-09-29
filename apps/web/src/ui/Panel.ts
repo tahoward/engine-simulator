@@ -1876,6 +1876,11 @@ export class Panel {
   }
 
   /** The duct the menu is editing, or the first one if the selection has gone stale. */
+  /** The pipe the menu edits, if there is one. */
+  get ductId(): string | undefined {
+    return this.currentDuct()?.id;
+  }
+
   private currentDuct(): ExhaustDuct | null {
     const graph = this.config.graph;
     if (!graph || graph.ducts.length === 0) return null;

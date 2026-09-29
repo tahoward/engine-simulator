@@ -220,6 +220,30 @@ export function fitSegment(
 }
 
 /**
+ * Hold the opening a pipe carrying another on through a junction leaves when it is deleted, as it is about to
+ * be: where it is the only pipe leaving and two or more arrive, the junction is fixed where the pipe was cut,
+ * pointing the way it went, so what is left meets there around an opening a pipe can be drawn on from.
+ * Otherwise the junction would go where the ends left average out, pointing between them.
+ */
+export function holdOpening(graph: ExhaustGraph, ductId: string, placement: ExhaustPlacement): void {
+  const duct = graph.ducts.find((d) => d.id === ductId);
+  if (!duct || duct.from.kind !== 'node' || !duct.continues || duct.segments.length === 0) return;
+  const node = duct.from.node;
+  if (turboAt(graph, node) || junctionAt(graph, node)) return;
+  const ends = endsAt(graph, node);
+  if (ends.some((e) => e.end === 'inlet' && e.duct !== duct)) return;
+  if (ends.filter((e) => e.end === 'outlet').length < 2) return;
+  const place = placement.ducts.get(duct.id);
+  if (!place) return;
+  const axis = layoutPipe(duct.segments, place.origin, place.heading).stations[0]!.direction;
+  (graph.junctions ??= []).push({
+    node,
+    position: [place.origin.x, place.origin.y, place.origin.z],
+    axis: [axis.x, axis.y, axis.z],
+  });
+}
+
+/**
  * Free the pipes carrying on from `ductId`'s end, as it is deleted: where it is the only pipe into its
  * junction, the pipes leaving that junction are left as loose pipes, each where it lies, heading as it
  * does, and what was attached to them stays attached to them. Its end is left open.
@@ -490,9 +514,9 @@ export function bendAnchor(
   const fromDir = drawn.length > 0 ? swept.jointDirections.at(-1)! : place.heading;
   // Square into the pipe's side: across it, from where the pipe as drawn ends, at the pipe's bore there.
   if (self.square) return { ...along, dir: squareArrival(along.point, along.dir, from, fromDir) };
-  // Into a pipe's side, along it the way the pipe as drawn comes from. Not into a junction that was moved,
-  // which every pipe arrives at along the pipe leaving it.
-  if (junctionAt(graph, node)) return along;
+  // Into a pipe's side, or a junction's opening, along it the way the pipe as drawn comes from. Not into a
+  // junction that was moved and has a pipe leaving it, which every pipe arrives at along that pipe.
+  if (junctionAt(graph, node) && endsAt(graph, node).some((e) => e.end === 'inlet')) return along;
   return { ...along, dir: sideArrival(along.point, along.dir, from, fromDir) };
 }
 
@@ -586,6 +610,35 @@ function junctionAnchor(
     dir: leaving,
     dia: segmentDiameter(primary.segments.at(-1)!, 1),
   };
+}
+
+/**
+ * The way a branch drawn out of the side of a pipe running along `axis` sets off from `tip`, towards
+ * `point`: along the pipe, whichever way along it `point` lies, so it turns off it the least. Level with
+ * `tip`, along `axis`.
+ */
+export function sideLeaving(axis: THREE.Vector3, tip: THREE.Vector3, point: THREE.Vector3): THREE.Vector3 {
+  const a = axis.clone().normalize();
+  return point.clone().sub(tip).dot(a) < -1e-6 ? a.negate() : a;
+}
+
+/**
+ * The one bend from `tip`, setting off along `dir`, to `point`: an arc, so it arrives turned as far again
+ * off the line from `tip` to `point` as it set off, the smoothest way there. Straight where `point` is ahead.
+ */
+export function arcTo(
+  tip: THREE.Vector3,
+  dir: THREE.Vector3,
+  point: THREE.Vector3,
+  template: Partial<PipeSegment> = {},
+): PipeSegment {
+  const d0 = dir.clone().normalize();
+  const chord = point.clone().sub(tip);
+  const c = chord.lengthSq() > 1e-12 ? chord.clone().normalize() : d0.clone();
+  // The arc's tangent at its far end: the way it set off, reflected in the line across it.
+  const d1 = c.clone().multiplyScalar(2 * d0.dot(c)).sub(d0);
+  if (d1.lengthSq() < 1e-12) d1.copy(c);
+  return fitCurve(tip, d0, point, d1.normalize(), template);
 }
 
 /** Below this turn and this offset, a pipe runs straight into a port rather than curving: radians, m. */
