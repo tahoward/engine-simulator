@@ -175,6 +175,8 @@ pub struct EngineSpec {
     pub burn_duration: f64,
     pub lambda: f64,
     pub fuel_cut: bool,
+    pub overrun_crackle: bool,
+    pub crackle_intensity: f64,
     pub combustion_variability: f64,
     pub recip_mass: f64,
     pub throttle: f64,
@@ -260,6 +262,8 @@ impl Default for EngineSpec {
             advance_curve: true,
             lambda: 1.0,
             fuel_cut: true,
+            overrun_crackle: false,
+            crackle_intensity: 0.6,
             combustion_variability: 1.0,
             recip_mass: 0.55,
             throttle: 0.75,
@@ -362,6 +366,10 @@ pub struct LaunchSnapshot {
     pub points: Vec<f32>,
 }
 
+fn is_zero(n: &u32) -> bool {
+    *n == 0
+}
+
 /// Snapshot pushed from the audio thread to the UI at about 60 Hz for drawing.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -394,6 +402,11 @@ pub struct EngineSnapshot {
     pub substeps: f64,
     pub wall_temp: f64,
     pub launch: Option<LaunchSnapshot>,
+    /// Afterfires since the last snapshot, and whether the overrun crackle map is running.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub afterfires: u32,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub crackle: bool,
     /// The turbocharger's state, on a turbocharged engine only.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turbo: Option<TurboSnapshot>,

@@ -311,7 +311,7 @@ next cycle.
 
 - **Lean**, each charge carries less fuel, so it releases less heat, and it burns slower.
 - **Rich**, the oxygen runs out first. The extra fuel goes out unburned, so torque stays level with
-  stoichiometric rather than rising.
+  stoichiometric rather than rising. With no air left to burn it, it does not light in the pipe.
 - **The spark can fail to light the charge.** Excess air dilutes the charge the way leftover exhaust
   does, and the two are counted together, so a lean idle misfires sooner than a lean charge at full
   throttle. Misfires also start once the mixture itself burns at under half the speed of a
@@ -323,6 +323,45 @@ below 1200 rpm or as soon as the throttle opens. The injectors stop at once; wha
 the runners is drawn in over the next cycle or two.
 Turn **Overrun fuel cut** off for a carburettor's behaviour, which keeps feeding fuel with the air
 that leaks past the throttle, so the engine keeps firing weakly.
+
+## Afterfire
+
+Fuel that leaves the cylinder unburned can light in the exhaust and pop. A spark cut sends out whole
+charges, fuel and air together: the rev limiter, the launch control holding the engine at the launch
+speed, and the traction control through a shift. So does a misfire, and a burn still going when the
+exhaust valve opens sends out what it has not yet burned. That fuel burns in the pipe, if at all,
+not in the cylinder.
+
+Each cylinder keeps a pocket of this mixture in the first 0.4 m of its primary: the port and the
+start of the pipe, where the next blowdown is still hot. The pocket fills with the fuel and air its
+valve sends out. The gas the valve sends in after it pushes it on down the pipe in proportion, so a
+pocket that does not light soon washes out. With the valve shut it waits in the header.
+
+The mixture lights once its ignition delay runs out in hot gas: the hottest gas in those cells, as a
+blowdown from a cylinder that fired, or a pulse coming back from the collector. The delay follows an
+Arrhenius law, about 5 ms at 1000 K and 38 ms at 900 K, integrated over the gas's temperature as it
+changes. Nothing reacts below 850 K, where hydrocarbons stop oxidising in an exhaust port. A pocket
+leaner than the lean limit never lights. That limit falls with temperature, from about λ 1.8 at
+room temperature to about three times leaner at 1300 K. The point where each pocket lights is drawn
+at random, so pops come at irregular moments, and the same ones every run.
+
+Hot and already mixed, a pocket burns nearly all at once, in about 1.5 ms, and burns between half
+and all of the fuel its air can burn. The heat goes into the gas of those cells. So the pop is a
+pressure pulse that travels down the exhaust, through its junctions and mufflers, like any other.
+Rich fuel with no air to burn it goes out unburned, and a lean charge that fired leaves nothing to
+burn. A steady engine burns its fuel in the cylinder, so it never afterfires.
+
+**Overrun crackle.** This is a performance car's "pops and bangs" map. Switched on, for up to 3 s
+after the throttle shuts above 2500 rpm, it holds off the fuel cut. It cracks the throttle open to
+feed the charge and fires the spark long after top dead centre, and it skips the spark on some
+cycles. The late burns fill the header with hot gas, and the charges it skips light in it.
+**Crackle** sets how hard it works:
+- the spark from 15° to 45° after top dead centre;
+- from 10% to 35% of the sparks skipped;
+- the throttle open from 0.05 to 0.15.
+
+The map stops below 2000 rpm, and the fuel cut takes over. Opening the throttle arms it for the next
+lift.
 
 ## Why it does not sound looped
 

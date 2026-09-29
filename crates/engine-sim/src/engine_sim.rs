@@ -13,7 +13,8 @@
 //!                                    mouth flow -> d/dt -> far-field pressure
 //! ```
 
-use crate::cylinder::{AdvanceIo, CylState, Cylinder, SpecInstance};
+use crate::afterfire::Afterfire;
+use crate::cylinder::{AdvanceIo, CrackleSpark, CylState, Cylinder, SpecInstance};
 use crate::drivetrain::{LaunchPhase, LaunchRun};
 use crate::dsp::{Delay, Impact, Noise, Resonator, soft_clip, wrap_cycle};
 use crate::euler_pipe::{
@@ -30,9 +31,9 @@ use crate::radiation::FarField;
 use crate::spec::{
     BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout, FUEL_CUT_RPM,
     FUEL_CUT_THROTTLE, FUEL_RESUME_RPM, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment,
-    REV_LIMIT_HYSTERESIS_RPM, RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, displacement, exhaust_layout_of,
-    exhaust_port_diameter, firing_plan, fuel_fraction_at, full_load_torque, gas, intake_runner_of, load_torque_of,
-    physical_bank_count,
+    REV_LIMIT_HYSTERESIS_RPM, RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, displacement,
+    exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_fraction_at, full_load_torque, gas, intake_runner_of,
+    load_torque_of, physical_bank_count,
 };
 use crate::turbo::Turbo;
 use crate::valve::{valve_flow_area, valve_lift};
@@ -63,6 +64,21 @@ const MAX_CYL_SUBSTEPS: f64 = 64.0;
 
 /// Idle floor, rev/min.
 const MIN_RPM: f64 = 450.0;
+
+/// The overrun crackle map: the speed above which a lift starts it, rev/min, and below which it
+/// stops; the longest it runs after a lift, s; how late it fires the spark, degrees after top dead
+/// centre, and the share of cycles it skips the spark on, at its least and most intense.
+const CRACKLE_RPM: f64 = 2500.0;
+const CRACKLE_END_RPM: f64 = 2000.0;
+const CRACKLE_WINDOW: f64 = 3.0;
+const CRACKLE_ATDC_MIN: f64 = 15.0;
+const CRACKLE_ATDC_MAX: f64 = 45.0;
+const CRACKLE_SKIP_MIN: f64 = 0.1;
+const CRACKLE_SKIP_MAX: f64 = 0.35;
+/// How far the map holds the throttle open, at its least and most intense, to feed the charge it
+/// burns late: as a drive-by-wire throttle is cracked open for it.
+const CRACKLE_THROTTLE_MIN: f64 = 0.05;
+const CRACKLE_THROTTLE_MAX: f64 = 0.15;
 
 /// Peak structure-borne levels at 1 m, Pa, at `mech_noise = 1`.
 const CLACK_PA_AT_1M: f64 = 6.0;
@@ -216,6 +232,15 @@ pub struct EngineSim {
     omega_display: f64,
     limiter_cut: bool,
     fuel_cut_active: bool,
+    /// The overrun crackle map: running, for how long since the lift, s, and done for this lift.
+    crackle_active: bool,
+    crackle_time: f64,
+    crackle_spent: bool,
+    /// Whether the plenum's throttle is held at the crackle map's opening.
+    crackle_opened: bool,
+    afterfire: Afterfire,
+    /// Afterfires counted at the last snapshot.
+    afterfires_seen: u64,
     launch: Option<LaunchRun>,
     launch_opening: f64,
     prev_ex_lift: Vec<f64>,
@@ -325,6 +350,12 @@ impl EngineSim {
             omega_display: 0.0,
             limiter_cut: false,
             fuel_cut_active: false,
+            crackle_active: false,
+            crackle_time: 0.0,
+            crackle_spent: false,
+            crackle_opened: false,
+            afterfire: Afterfire::default(),
+            afterfires_seen: 0,
             launch: None,
             launch_opening: f64::NAN,
             prev_ex_lift: Vec::new(),
@@ -395,6 +426,7 @@ impl EngineSim {
         let spec = &self.spec.spec;
         self.inject_fraction = fuel_fraction_at(spec.lambda);
         self.full_charge_kg = (gas::P_AMB * displacement(spec)) / (gas::R * gas::T_AMB);
+        self.afterfire.set_charge(self.full_charge_kg, fuel_fraction_at(1.0));
         self.displacement_m3 = displacement(spec) * spec.cylinders as f64;
         self.load_torque_nm = load_torque_of(spec, self.turbo.is_some());
     }
@@ -566,6 +598,7 @@ impl EngineSim {
     fn rebuild_exhaust(&mut self) {
         self.wg = self.build_exhaust();
         self.last_valve_mdot.fill(0.0);
+        self.afterfire.clear();
         self.refresh_far_fields();
         for f in self.far_fields.iter_mut() {
             f.reset();
@@ -683,6 +716,11 @@ impl EngineSim {
         &self.wg
     }
 
+    /// Every cylinder's afterfire pocket.
+    pub fn afterfire(&self) -> &Afterfire {
+        &self.afterfire
+    }
+
     /// Bank 0's cylinder.
     pub fn cylinder(&self) -> &Cylinder {
         &self.cyls[0]
@@ -716,6 +754,8 @@ impl EngineSim {
         let n = self.spec.spec.cylinders as usize;
         let sr = self.sample_rate;
         self.make_cylinder_variation(n);
+        let full_charge = (gas::P_AMB * displacement(&self.spec.spec)) / (gas::R * gas::T_AMB);
+        self.afterfire = Afterfire::new(n, full_charge, fuel_fraction_at(1.0));
         self.last_valve_mdot = vec![0.0; n];
         self.turb1 = vec![0.0; n];
         self.turb2 = vec![0.0; n];
@@ -973,17 +1013,49 @@ impl EngineSim {
             }
         }
 
-        // --- Overrun fuel cut ---
+        // --- Overrun fuel cut, and the crackle map that holds it off after a lift ---
+        let rpm_now = (self.omega_mean * 60.0) / (2.0 * PI);
         if !self.spec.spec.fuel_cut || throttle > FUEL_CUT_THROTTLE {
             self.fuel_cut_active = false;
-        } else {
-            let rpm_now = (self.omega_mean * 60.0) / (2.0 * PI);
-            if rpm_now > FUEL_CUT_RPM {
-                self.fuel_cut_active = true;
-            } else if rpm_now < FUEL_RESUME_RPM {
-                self.fuel_cut_active = false;
-            }
+        } else if rpm_now > FUEL_CUT_RPM {
+            self.fuel_cut_active = true;
+        } else if rpm_now < FUEL_RESUME_RPM {
+            self.fuel_cut_active = false;
         }
+        if self.spec.spec.overrun_crackle && throttle <= FUEL_CUT_THROTTLE {
+            if !self.crackle_active && !self.crackle_spent && rpm_now > CRACKLE_RPM {
+                self.crackle_active = true;
+                self.crackle_time = 0.0;
+            }
+            if self.crackle_active {
+                self.crackle_time += dt;
+                if rpm_now < CRACKLE_END_RPM || self.crackle_time > CRACKLE_WINDOW {
+                    self.crackle_active = false;
+                    self.crackle_spent = true;
+                }
+            }
+        } else {
+            self.crackle_active = false;
+            self.crackle_spent = false;
+        }
+        let intensity = clamp(self.spec.spec.crackle_intensity, 0.0, 1.0);
+        if self.crackle_active != self.crackle_opened {
+            let opening = if self.crackle_active {
+                CRACKLE_THROTTLE_MIN + (CRACKLE_THROTTLE_MAX - CRACKLE_THROTTLE_MIN) * intensity
+            } else {
+                throttle
+            };
+            self.plenum.set_opening(&self.spec.spec, opening);
+            self.crackle_opened = self.crackle_active;
+        }
+        let crackle = if self.crackle_active {
+            Some(CrackleSpark {
+                atdc: CRACKLE_ATDC_MIN + (CRACKLE_ATDC_MAX - CRACKLE_ATDC_MIN) * intensity,
+                skip: CRACKLE_SKIP_MIN + (CRACKLE_SKIP_MAX - CRACKLE_SKIP_MIN) * intensity,
+            })
+        } else {
+            None
+        };
 
         // --- Valves and flows, per bank ---
         let banks = self.cyls.len();
@@ -996,6 +1068,7 @@ impl EngineSim {
             {
                 let cyl = &mut self.cyls[b];
                 cyl.spark_cut = limiter_cut;
+                cyl.crackle = crackle;
                 cyl.intake_cam_offset = self.timing[b] + self.intake_shift;
                 cyl.exhaust_cam_offset = self.timing[b] + self.exhaust_shift;
             }
@@ -1057,7 +1130,10 @@ impl EngineSim {
             self.prev_angle[b] = angle;
         }
 
-        // --- Exhaust gas dynamics, all ducts in lockstep, with the turbine in them ---
+        // --- Exhaust gas dynamics, all ducts in lockstep, with the turbine in them and afterfire ---
+        for b in 0..banks {
+            self.wg.afterfire_heat_mut()[b] = self.afterfire.heat_rate(b);
+        }
         if let Some(turbo) = &mut self.turbo {
             self.wg.set_turbines(turbo.turbine_settings());
         }
@@ -1073,7 +1149,7 @@ impl EngineSim {
             rho: p_plenum / (gas::R * t_plenum),
             burned: self.plenum.burned_fraction(),
             fuel: self.plenum.fuel_fraction(),
-            inject: if self.fuel_cut_active { 0.0 } else { self.inject_fraction },
+            inject: if self.fuel_cut_active && !self.crackle_active { 0.0 } else { self.inject_fraction },
         };
         let intake = if self.on_short_runners { self.intake_short.as_mut().unwrap() } else { &mut self.intake_long };
         intake.advance(&run_io, &self.in_valves, &self.breathing, &self.cyl_state);
@@ -1117,6 +1193,17 @@ impl EngineSim {
             dpdt_sum += cyl.dpdt;
             self.prev_ex_lift[b] = self.ex_lift[b];
             self.prev_in_lift[b] = self.in_lift[b];
+        }
+
+        // --- Afterfire: what each valve sent out unburned, in the leading cells of its primary ---
+        for b in 0..banks {
+            let (fuel, air) = self.cyls[b].take_exhausted();
+            let inflow = math::max(self.wg.result.valve_mass_flows[b], 0.0) * dt;
+            let taken = self.wg.result.heat_taken[b];
+            let (cells, volume) = self.wg.afterfire_zone(b);
+            let primary = self.wg.primary(b);
+            let zone_mass = primary.density_at(0) * volume;
+            self.afterfire.step(b, dt, fuel, air, inflow, zone_mass, || primary.leading_state(cells).1, taken);
         }
 
         // --- Plenum ---
@@ -1273,7 +1360,9 @@ impl EngineSim {
             crank_angle: first.crank_angle,
             rpm: self.rpm(),
             limiter: self.limiter_cut,
-            fuel_cut: self.fuel_cut_active,
+            fuel_cut: self.fuel_cut_active && !self.crackle_active,
+            afterfires: (self.afterfire.events() - self.afterfires_seen) as u32,
+            crackle: self.crackle_active,
             intake_cam_advance: -self.intake_shift,
             exhaust_cam_retard: self.exhaust_shift,
             short_runners: self.on_short_runners,
@@ -1312,6 +1401,7 @@ impl EngineSim {
             banks,
         };
         self.peak = 0.0;
+        self.afterfires_seen = self.afterfire.events();
         snap
     }
 

@@ -87,11 +87,20 @@ for. Plain-language definitions of the terms are in the [Glossary](glossary.md).
   2nd ed. McGraw-Hill Education.
   — The standard engine textbook. Covers the filling-and-emptying cylinder model, the Wiebe burn
   function, compressible flow through valves, polytropic compression, cycle-to-cycle variation
-  and residual gas.
+  and residual gas, and how hot an exhaust port must be for unburned fuel to oxidise in it.
 - <a id="woschni1967"></a>**Woschni, G. (1967).** "A universally applicable equation for the
   instantaneous heat transfer coefficient in the internal combustion engine." SAE Technical Paper
   670931. [doi:10.4271/670931](https://doi.org/10.4271/670931)
   — The in-cylinder heat loss model.
+- <a id="livengood1955"></a>**Livengood, J. C. and Wu, P. C. (1955).** "Correlation of
+  autoignition phenomena in internal combustion engines and rapid compression machines." *Fifth
+  Symposium (International) on Combustion*, 347–356.
+  [doi:10.1016/S0082-0784(55)80047-1](https://doi.org/10.1016/S0082-0784(55)80047-1)
+  — The integral of time over ignition delay that decides when an afterfire pocket lights.
+- <a id="zabetakis1965"></a>**Zabetakis, M. G. (1965).** "Flammability characteristics of
+  combustible gases and vapors." U.S. Bureau of Mines Bulletin 627.
+  — The lean flammability limit and how it widens with temperature (the Burgess–Wheeler rule),
+  used for the leanest pocket that lights.
 - <a id="rhodes1985"></a>**Rhodes, D. B. and Keck, J. C. (1985).** "Laminar burning speed
   measurements of indolene-air-diluent mixtures at high pressures and temperatures." SAE
   Technical Paper 850047. [doi:10.4271/850047](https://doi.org/10.4271/850047)

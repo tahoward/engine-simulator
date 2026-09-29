@@ -95,9 +95,14 @@ Where the model is simplified, and by how much.
 - **Rich mixtures make no extra power.** A real engine peaks near λ 0.85-0.9, from fuel evaporation
   cooling the charge and the extra gas molecules rich combustion produces. Neither is modelled,
   so here torque is flat, or falls slightly, rich of stoichiometric.
-- **The exhaust carries no chemistry.** Unburned fuel from a rich mixture, a misfire or the rev
-  limiter goes down the pipe as ordinary exhaust gas. So there is no afterfire or popping on the
-  overrun.
+- **Afterfire is a pocket at each port, not chemistry in the pipe.** The gas solver carries no
+  composition. Each cylinder's unburned fuel and air are kept as one well-mixed pocket in the first
+  0.4 m of its primary, and they can only light there. A charge that washes out unlit is lost, and
+  fuel carried back into the port by reverse flow is not counted. Rich fuel can only burn with air
+  from the same cylinder, since no air arrives from the other cylinders or the tailpipe. The pipe
+  gas has one constant ratio of specific heats however hot a pop makes it. The ignition delay, the
+  lean limit and the burn time are literature values, not measured on these engines. There is no
+  catalytic converter.
 - **Port injection only, and no fuel film.** The fuel is injected in each runner as vapour, straight
   into the air it draws. A real port injector wets the port walls, and that film takes a few cycles
   to follow a change of throttle. Direct injection, into the cylinder, is not modelled either. There

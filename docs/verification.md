@@ -41,6 +41,20 @@ matters.
   Lean mixtures must release less heat, rich ones no more than stoichiometric, and λ 2 must
   misfire. With the fuel cut, a shut throttle at 3200 rpm must leave no fuel in the manifold and
   fire no cycles, and opening the throttle must bring every cycle back.
+- **Afterfire.**
+  - Pockets: air alone, or fuel with no air, must never light, and neither must a pocket leaner
+    than the lean limit. A charge in a cold header must wait there and light within milliseconds of
+    hot gas reaching it. A pocket must wash out in proportion to the gas pushed in behind it. A burn
+    must release its fuel's heating value, including heat the pipe takes late. Ignition must come
+    at irregular moments, the same ones every run.
+  - The pipe: heat released in the leading cells must all appear in the gas's energy, and no cell
+    may take more than a quarter of its energy at once or pass 2600 K.
+  - The running engine: the LT6's launch control and the LT2's rev limiter must pop. With the
+    crackle map, a lift above 2500 rpm must pop, and more at full intensity. Without it, the fuel
+    cut must leave the pipe silent. The map must fire the spark after top dead centre, skip between
+    a fifth and a half of the cycles at full intensity, end within its window and re-arm when the
+    throttle opens. Every preset held steady at part and full throttle, and rich, must never
+    afterfire.
 - **Intake runners.** Left on auto, a runner's bore must follow the valves and its length the rev
   limit, and set values must be used as given. On a 6.2 litre V8, the tuned runner must fill the
   cylinder to over 95% at its tuned speed. That must be more than 10 points above an 80 mm stub, and

@@ -55,6 +55,12 @@ pub const DESIGN_WAVE_SPEED: f64 = 1400.0;
 /// Audio samples between refreshes of the thermal coefficients.
 const HEAT_INTERVAL: i32 = 16;
 
+/// Heat a cell takes at a time from a burn in it, as a share of its internal energy, the same bound as
+/// the valve's mass source; and the temperature it is heated to at most, K, over the adiabatic flame
+/// temperature of a stoichiometric gasoline charge starting from hot exhaust.
+const HEAT_CAP_FRACTION: f64 = 0.25;
+const HEAT_CEILING_T: f64 = 2600.0;
+
 /// Internal-energy floor, J/m^3.
 const MIN_INTERNAL: f64 = 1e-3 / (GAMMA - 1.0);
 
@@ -650,6 +656,40 @@ impl EulerPipe {
             e += self.en[i] * self.area_cell[i] * self.dx;
         }
         e
+    }
+
+    /// Volume of the first `cells` cells, m^3.
+    pub fn leading_volume(&self, cells: usize) -> f64 {
+        self.cell_volume[..cells.min(self.n)].iter().sum()
+    }
+
+    /// Mass of gas in the first `cells` cells, kg, and the hottest of them, K.
+    pub fn leading_state(&self, cells: usize) -> (f64, f64) {
+        let (mut mass, mut hottest) = (0.0, 0.0);
+        for i in 0..cells.min(self.n) {
+            mass += self.rho[i] * self.cell_volume[i];
+            hottest = math::max(hottest, self.temperature_at(i));
+        }
+        (mass, hottest)
+    }
+
+    /// Release `joules` of heat into the gas of the first `cells` cells, the same per unit of their
+    /// `volume`. A cell takes at most `HEAT_CAP_FRACTION` of its internal energy at a time, and none
+    /// past `HEAT_CEILING_T`. Returns the heat taken, J; the caller keeps the rest.
+    pub fn add_heat(&mut self, joules: f64, cells: usize, volume: f64) -> f64 {
+        let q = joules / volume;
+        let mut taken = 0.0;
+        for i in 0..cells.min(self.n) {
+            let r = self.rho[i];
+            let m = self.mom[i];
+            let e_int = self.en[i] - (0.5 * m * m) / r;
+            let t = e_int / (r * CV);
+            let room = math::max(e_int * (HEAT_CEILING_T / t - 1.0), 0.0);
+            let de = math::min(math::min(q, HEAT_CAP_FRACTION * e_int), room);
+            self.en[i] += de;
+            taken += de * self.cell_volume[i];
+        }
+        taken
     }
 
     /// Gauge pressure along the visible pipe into `out`.

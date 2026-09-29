@@ -337,6 +337,15 @@ export interface EngineSpec {
    */
   fuelCut: boolean;
   /**
+   * Overrun crackle, as a performance car's "pops and bangs" map does it: for a few seconds after the
+   * throttle shuts above 2500 rpm it holds off the fuel cut, cracks the throttle open, fires the spark
+   * far after top dead centre and skips it on some cycles. The charges it sends out unburned light in
+   * the hot header, and pop.
+   */
+  overrunCrackle: boolean;
+  /** How hard the crackle map works, 0..1: later sparks, more of them skipped, the throttle further open. */
+  crackleIntensity: number;
+  /**
    * Cycle-to-cycle combustion scatter, 0..1 (1 = realistic amount).
    *
    * Flame kernel growth depends on whatever turbulence happens to be at the spark gap
@@ -451,8 +460,8 @@ export interface EngineSpec {
    *
    * A hard spark cut: past the limit every cylinder whose charge is committed misses its firing,
    * and sparks return once speed has fallen `REV_LIMIT_HYSTERESIS_RPM` below it. The unburned
-   * charge still goes down the pipe, and the engine bounces off the limit in the stuttering way a
-   * real one does. With the speed held (`freeRunning` off) at or past the limit, the crank is let
+   * charge still goes down the pipe, where it can light and pop, and the engine bounces off the
+   * limit in the stuttering way a real one does. With the speed held (`freeRunning` off) at or past the limit, the crank is let
    * go instead, unloaded, so it can bounce too.
    */
   revLimit: number;
@@ -610,6 +619,10 @@ export interface EngineSnapshot {
   limiter: boolean;
   /** Whether the overrun fuel cut has stopped the fuel right now. */
   fuelCut: boolean;
+  /** Afterfires, unburned fuel lighting in the exhaust, since the last snapshot; absent for none. */
+  afterfires?: number;
+  /** Whether the overrun crackle map is running; absent when it is not. */
+  crackle?: boolean;
   /** How far the phasers have moved the cams from rest, crank degrees: intake advance, exhaust retard. */
   intakeCamAdvance: number;
   exhaustCamRetard: number;
@@ -1204,6 +1217,8 @@ export const DEFAULT_ENGINE: EngineSpec = {
   advanceCurve: true,
   lambda: 1,
   fuelCut: true,
+  overrunCrackle: false,
+  crackleIntensity: 0.6,
   combustionVariability: 1,
   recipMass: 0.55,
   throttle: 0.75,
