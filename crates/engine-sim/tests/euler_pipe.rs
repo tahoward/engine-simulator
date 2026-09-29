@@ -1129,3 +1129,35 @@ mod vectorised_loops {
         assert!(parities[0] && parities[1]);
     }
 }
+
+// --- heat released in the gas ---
+
+/// Heat released in the leading cells raises their pressure, and all of it is in the gas's energy.
+#[test]
+fn heat_in_the_leading_cells_raises_their_pressure_and_is_accounted_for() {
+    let mut p = tube(40, 1.0, SlopeLimiter::Mc);
+    let cells = 4;
+    let volume = p.leading_volume(cells);
+    let (e0, p0) = (p.total_energy(), p.pressure_at(0));
+    let taken = p.add_heat(1.0, cells, volume);
+    assert!((taken - 1.0).abs() < 1e-12, "took {taken} J of 1 J");
+    assert!(((p.total_energy() - e0) / taken - 1.0).abs() < 1e-9);
+    assert!(p.pressure_at(0) > p0 && p.pressure_at(cells) == p0, "only the leading cells are heated");
+}
+
+/// A cell takes at most a quarter of its internal energy at a time, and is never heated past the
+/// ceiling however much is released in it: the heat it refuses is handed back.
+#[test]
+fn a_cell_is_never_heated_past_the_ceiling() {
+    let mut p = tube(40, 1.0, SlopeLimiter::Mc);
+    let volume = p.leading_volume(2);
+    let e0 = p.total_energy();
+    let taken = p.add_heat(1e3, 2, volume);
+    assert!(taken < 1e3, "took all {taken} J");
+    assert!(((p.total_energy() - e0) / (0.25 * e0 / 20.0) - 1.0).abs() < 1e-9, "a quarter of each cell's");
+    for _ in 0..40 {
+        p.add_heat(1e3, 2, volume);
+    }
+    assert!(p.temperature_at(0) <= 2600.0 + 1e-6, "{} K", p.temperature_at(0));
+    assert!(p.temperature_at(0) > 2500.0, "{} K", p.temperature_at(0));
+}

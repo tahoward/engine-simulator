@@ -71,6 +71,14 @@ pub struct AdvanceIo {
     pub intake_fuel: f64,
 }
 
+/// An overrun crackle map's spark: fired `atdc` degrees after top dead centre, in place of the advance
+/// map's, and skipped on a random `skip` share of the cycles, whose charge goes out unburned.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CrackleSpark {
+    pub atdc: f64,
+    pub skip: f64,
+}
+
 /// Pressure, temperature, burned fraction and fuel fraction of a cylinder's contents.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CylState {
@@ -106,6 +114,12 @@ pub struct Cylinder {
     armed: bool,
     /// Set by the rev limiter; read when the charge is committed.
     pub spark_cut: bool,
+    /// Set by the overrun crackle map; read when the charge is committed.
+    pub crackle: Option<CrackleSpark>,
+    /// Unburned fuel, and the air with it, sent out through the exhaust valve since the last
+    /// `take_exhausted`, kg.
+    exhausted_fuel: f64,
+    exhausted_air: f64,
     /// This cylinder's cam timing offsets from nominal, crank degrees.
     pub intake_cam_offset: f64,
     pub exhaust_cam_offset: f64,
@@ -156,7 +170,7 @@ const WOSCHNI_C1_EXCHANGE: f64 = 6.18;
 const WOSCHNI_C1_CLOSED: f64 = 2.28;
 const WOSCHNI_C2: f64 = 3.24e-3;
 
-const COMBUSTION_EFFICIENCY: f64 = 0.96;
+pub(crate) const COMBUSTION_EFFICIENCY: f64 = 0.96;
 
 /// Floor on trapped mass, kg.
 const MIN_MASS: f64 = 2e-7;
@@ -231,6 +245,9 @@ impl Cylinder {
             spark: 0.0,
             armed: false,
             spark_cut: false,
+            crackle: None,
+            exhausted_fuel: 0.0,
+            exhausted_air: 0.0,
             intake_cam_offset: 0.0,
             exhaust_cam_offset: 0.0,
             torque: 0.0,
@@ -265,6 +282,14 @@ impl Cylinder {
             step_temp: 0.0,
             step_omega: 0.0,
         }
+    }
+
+    /// The unburned fuel and air sent out through the exhaust valve since the last call, kg.
+    pub fn take_exhausted(&mut self) -> (f64, f64) {
+        let out = (self.exhausted_fuel, self.exhausted_air);
+        self.exhausted_fuel = 0.0;
+        self.exhausted_air = 0.0;
+        out
     }
 
     /// Fraction of the trapped charge that is spent gas, 0..1.
@@ -424,6 +449,11 @@ impl Cylinder {
         d_fuel += (if in_mdot >= 0.0 { in_mdot * intake_fuel } else { in_mdot * fuel_frac }) * dt;
         d_fuel -= (if ex_mdot >= 0.0 { ex_mdot * fuel_frac } else { 0.0 }) * dt;
         self.fuel_mass = clamp(self.fuel_mass + d_fuel, 0.0, self.fresh_mass);
+        if ex_mdot > 0.0 {
+            let out = ex_mdot * dt;
+            self.exhausted_fuel += out * fuel_frac;
+            self.exhausted_air += out * math::max(fresh_frac - fuel_frac, 0.0);
+        }
 
         // Floor the internal energy so the derived temperature stays admissible. Counted.
         let min_energy = self.mass * derived().energy_at_floor;
@@ -521,7 +551,10 @@ impl Cylinder {
             }
 
             // --- Burn duration and spark timing ---
-            let nominal = spec.ignition + self.ignition_offset;
+            let nominal = match self.crackle {
+                Some(c) => 720.0 + c.atdc + self.ignition_offset,
+                None => spec.ignition + self.ignition_offset,
+            };
             let squeeze = self.step_volume / cylinder_volume(spec, nominal);
             let predicted = burn_angle(
                 spec,
@@ -532,10 +565,21 @@ impl Cylinder {
                 self.charge_residual,
             );
             self.burn_angle = clamp(predicted * self.burn_scale, 4.0, MAX_BURN_ANGLE);
-            self.spark = if spec.advance_curve { advanced_spark(spec, nominal, predicted) } else { nominal };
+            self.spark = if self.crackle.is_some() {
+                wrap_cycle(nominal)
+            } else if spec.advance_curve {
+                advanced_spark(spec, nominal, predicted)
+            } else {
+                nominal
+            };
 
             self.burned = 0.0;
             self.armed = !self.spark_cut;
+            if let Some(c) = self.crackle {
+                if (self.noise.next() + 1.0) / 2.0 < c.skip {
+                    self.armed = false;
+                }
+            }
         }
     }
 
@@ -554,13 +598,24 @@ impl Cylinder {
             return 0.0;
         }
         self.burned = to;
-        let fuel_burned = d * self.burn_fuel;
+        let mut fuel_burned = d * self.burn_fuel;
+        let mut q = d * self.q_cycle;
+        if self.exchanging {
+            // A burn still going once the exhaust valve has opened burns only the fuel, and the air for
+            // it, still in the cylinder: what has left burns in the pipe, if at all.
+            let left = math::min(self.fuel_mass, (self.fresh_mass - self.fuel_mass) / gas::AFR_STOICH);
+            let left = math::max(left, 0.0);
+            if fuel_burned > left {
+                q *= left / fuel_burned;
+                fuel_burned = left;
+            }
+        }
         self.fresh_mass = math::max(self.fresh_mass - fuel_burned * (1.0 + gas::AFR_STOICH), 0.0);
         self.fuel_mass = clamp(self.fuel_mass - fuel_burned, 0.0, self.fresh_mass);
         if to >= 0.999 {
             self.armed = false;
         }
-        d * self.q_cycle
+        q
     }
 
     /// Woschni's convective heat transfer coefficient times the chamber surface, W into the gas.

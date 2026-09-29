@@ -470,6 +470,25 @@ The mass of air per mass of fuel. Gasoline burns completely at about 14.7:1, the
 the air can burn), above 1 is lean. The *equivalence ratio* φ is its inverse.
 [Wikipedia](https://en.wikipedia.org/wiki/Air%E2%80%93fuel_ratio)
 
+### Afterfire
+
+Fuel that leaves the cylinder unburned and burns in the exhaust, where the pressure it raises is
+heard as a pop or a bang. It follows a spark cut, a misfire or a very late burn.
+[Heywood 2018](references.md#heywood2018)
+
+### Ignition delay
+
+How long a fuel-air mixture takes to light on its own once it is hot, falling steeply as the
+temperature rises. Where the temperature changes, the Livengood–Wu integral adds up the time spent
+at each temperature as a share of the delay there, and the mixture lights when the shares reach one.
+[Livengood and Wu 1955](references.md#livengood1955)
+
+### Lean limit
+
+The leanest mixture a flame can travel through. It is wider, leaner, the hotter the mixture starts:
+by the Burgess–Wheeler rule it falls by about 0.07% of itself for each kelvin.
+[Zabetakis 1965](references.md#zabetakis1965)
+
 ### Mean piston speed
 
 Twice the stroke times the revolutions per second: how fast the piston moves on average. Most

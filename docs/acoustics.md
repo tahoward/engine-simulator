@@ -193,6 +193,17 @@ Modelling it as duct also means tuned length is measured from the valve seat, as
 real engine. On a four-valve head the two exhaust valves share one port, with the area of both
 valve heads together.
 
+### Afterfire
+
+A pop is heat released in the gas of the first cells of a primary: a source term in the solver's
+energy equation, spread evenly over those cells' volume. The gas there heats, its pressure rises,
+and the pulse it makes travels out through the exhaust like a blowdown. So a pop sounds different
+through an open header and through a muffler, as it does on a real car. A cell takes at most a
+quarter of its internal energy at a time, and is heated to at most 2600 K, above the flame
+temperature of a stoichiometric charge from hot exhaust. What a cell cannot take yet is released
+over the following samples, so none of a burn's heat is lost. The heat then goes into the wall
+like any other, so a run of pops warms the header. See [Afterfire](engine.md#afterfire).
+
 ## Heat and friction
 
 Heat transfer and friction are modelled in several places. Each one is checked to be active

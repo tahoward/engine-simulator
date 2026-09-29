@@ -7,6 +7,7 @@
 // not and never panics.
 #![allow(clippy::needless_range_loop, clippy::neg_cmp_op_on_partial_ord, clippy::manual_clamp, clippy::collapsible_if)]
 
+pub mod afterfire;
 pub mod cross_modes;
 pub mod cylinder;
 pub mod drivetrain;

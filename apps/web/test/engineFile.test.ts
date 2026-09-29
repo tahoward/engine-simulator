@@ -57,6 +57,21 @@ describe('an engine file', () => {
     expect(read.config.engine.cylinders).toBe(6);
   });
 
+  it('keeps its crackle map, and reads one saved without a crackle map as having it off', () => {
+    const cfg = presetConfig('V8, Chevrolet LT2');
+    cfg.engine = { ...cfg.engine, overrunCrackle: true, crackleIntensity: 0.9 };
+    const read = readEngineFile(engineFile(cfg), defaultConfig())!;
+    expect(read.config.engine.overrunCrackle).toBe(true);
+    expect(read.config.engine.crackleIntensity).toBe(0.9);
+
+    const file = JSON.parse(engineFile(presetConfig('V8, Chevrolet LT2')));
+    delete file.engine.overrunCrackle;
+    delete file.engine.crackleIntensity;
+    const older = readEngineFile(JSON.stringify(file), defaultConfig())!;
+    expect(older.config.engine.overrunCrackle).toBe(false);
+    expect(older.config.engine.crackleIntensity).toBe(0.6);
+  });
+
   it('is named for its layout', () => {
     expect(engineFileName(presetConfig('V8, Chevrolet LT2').engine)).toBe('engine-v8-crossplane');
     expect(engineFileName(presetConfig('Boxer four').engine)).toBe('engine-flat-4');

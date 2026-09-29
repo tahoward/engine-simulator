@@ -191,6 +191,11 @@ valves, the flutter and the wastegates. See [The turbocharger's sounds](acoustic
 - **Overrun fuel cut** stops the fuel with the throttle shut above 1500 rpm, until the engine
   drops below 1200 or the throttle opens. Off, it behaves like a carburettor and keeps firing
   weakly.
+- **Overrun crackle** is a "pops and bangs" map. For up to 3 s after the throttle shuts above
+  2500 rpm, it keeps the fuel on and fires the spark late, skipping it on some cycles, so the
+  exhaust pops. **Crackle** sets how hard it works. See [Afterfire](engine.md#afterfire).
+  The readout shows **crackle** while the map runs and **pop** as the exhaust afterfires, from any
+  cause.
 
 ## The camera
 

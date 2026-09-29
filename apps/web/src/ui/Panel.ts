@@ -238,6 +238,8 @@ export class Panel {
   private drawing = false;
   private noticeEl!: HTMLElement;
   private noticeTimer = 0;
+  /** When the readout stops showing the last afterfire, ms on `performance.now`'s clock: a pop is shorter than a frame. */
+  private popShownUntil = 0;
   private placing = false;
   private placingPipe = false;
   private placePipeBtn!: HTMLButtonElement;
@@ -1341,6 +1343,26 @@ export class Panel {
       'With the throttle shut above 1500 rpm the fuel stops, as an injected engine does, until ' +
       'the speed falls below 1200 or the throttle opens. Off, the engine keeps firing weakly on ' +
       'the air leaking past the throttle, as a carburettor does.';
+    const crackle = toggle(comb, 'Overrun crackle', spec.overrunCrackle, (on) =>
+      this.cb.onEngine({ overrunCrackle: on }),
+    );
+    this.resyncers.push(() => (checkbox(crackle).checked = this.config.engine.overrunCrackle));
+    crackle.title =
+      'A "pops and bangs" map: for up to 3 s after the throttle shuts above 2500 rpm, it holds off ' +
+      'the fuel cut, cracks the throttle open and fires the spark long after top dead centre, ' +
+      'skipping it on some cycles. The unburned charges light in the hot header and pop.';
+    this.slider(comb, {
+      label: 'Crackle',
+      min: 0,
+      max: 1,
+      step: 0.05,
+      value: spec.crackleIntensity,
+      sync: () => this.config.engine.crackleIntensity,
+      format: (v) => `${Math.round(v * 100)}%`,
+      onInput: (v) => this.cb.onEngine({ crackleIntensity: v }),
+    }).row.title =
+      'How hard the crackle map works: the spark from 15° to 45° after top dead centre, from 10% to ' +
+      '35% of the sparks skipped, and the throttle further open to feed them.';
     this.slider(comb, {
       label: 'Cycle-to-cycle scatter',
       min: 0,
@@ -2743,8 +2765,11 @@ export class Panel {
       this.dynoBtn.classList.toggle('running', pulling);
       this.dynoBtn.disabled = launching;
     }
+    const now = performance.now();
+    if (s.afterfires) this.popShownUntil = now + 400;
     this.rpmEl.textContent =
-      `${Math.round(s.rpm)} rpm${s.limiter ? ' · limiter' : ''}${s.fuelCut ? ' · fuel cut' : ''}`;
+      `${Math.round(s.rpm)} rpm${s.limiter ? ' · limiter' : ''}${s.fuelCut ? ' · fuel cut' : ''}` +
+      `${s.crackle ? ' · crackle' : ''}${now < this.popShownUntil ? ' · pop' : ''}`;
     const stroke = strokeName(s.crankAngle);
     this.readoutEl.textContent =
       `${stroke} · ${s.crankAngle.toFixed(0)}° · ` +

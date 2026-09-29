@@ -5,10 +5,12 @@
 //! travels up the other primaries, where it helps scavenge those cylinders or blocks them depending
 //! on where the firing interval puts it.
 
+use crate::afterfire::AFTERFIRE_ZONE_LENGTH;
 use crate::dsp::Noise;
 use crate::euler_pipe::{DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, OutletKind, ValveState};
 use crate::exhaust_graph::{
-    DuctRole, End, ExhaustGraph, TurboMount, ends_at, node_order, path_to_air, radiating_ducts, validate_graph, valve_ducts,
+    DuctRole, End, ExhaustGraph, TurboMount, ends_at, node_order, path_to_air, radiating_ducts, validate_graph,
+    valve_ducts,
 };
 use crate::math::{self, PI, clamp};
 use crate::spec::gas;
@@ -88,6 +90,8 @@ pub struct ExhaustResult {
     pub substeps: usize,
     /// Each turbine's, in the order of `ExhaustSystem::turbine_mounts`, while they are set.
     pub turbines: Vec<TurbineResult>,
+    /// Heat each primary's afterfire zone took from `afterfire_heat` this sample, J.
+    pub heat_taken: Vec<f64>,
 }
 
 pub struct ExhaustSystem {
@@ -120,6 +124,11 @@ pub struct ExhaustSystem {
     turbine_nodes: Vec<TurbineNode>,
     /// Each turbine's setting this sample, in the order of `turbine_mounts`; empty for none.
     turbines: Vec<TurbineSetting>,
+    /// Heat released by afterfire in each primary's leading cells this sample, W; and how many cells
+    /// that is, and their volume, m^3.
+    afterfire_heat: Vec<f64>,
+    zone_cells: Vec<usize>,
+    zone_volume: Vec<f64>,
 }
 
 impl ExhaustSystem {
@@ -278,6 +287,7 @@ impl ExhaustSystem {
         let result = ExhaustResult {
             mouth_flows: vec![0.0; radiating.len()],
             valve_mass_flows: vec![0.0; valve_fed.len()],
+            heat_taken: vec![0.0; valve_fed.len()],
             substeps: 1,
             ..ExhaustResult::default()
         };
@@ -325,7 +335,16 @@ impl ExhaustSystem {
             })
             .collect();
 
+        let zone_cells: Vec<usize> = ducts[..valve_fed.len()]
+            .iter()
+            .map(|d| ((AFTERFIRE_ZONE_LENGTH / d.dx).ceil() as usize).clamp(2, d.n.max(2)))
+            .collect();
+        let zone_volume: Vec<f64> = zone_cells.iter().enumerate().map(|(b, &c)| ducts[b].leading_volume(c)).collect();
+
         Ok(ExhaustSystem {
+            afterfire_heat: vec![0.0; valve_fed.len()],
+            zone_cells,
+            zone_volume,
             primary_count: valve_fed.len(),
             by_graph: position,
             duct_ids: graph.ducts.iter().map(|d| d.id.clone()).collect(),
@@ -347,6 +366,16 @@ impl ExhaustSystem {
             turbine_nodes,
             turbines: Vec::new(),
         })
+    }
+
+    /// Heat afterfire releases in each primary's leading cells over the next sample, W.
+    pub fn afterfire_heat_mut(&mut self) -> &mut [f64] {
+        &mut self.afterfire_heat
+    }
+
+    /// Cylinder `b`'s afterfire zone: its primary's leading cells, how many, and their volume, m^3.
+    pub fn afterfire_zone(&self, b: usize) -> (usize, f64) {
+        (self.zone_cells[b], self.zone_volume[b])
     }
 
     /// Cylinder `b`'s primary.
@@ -433,6 +462,7 @@ impl ExhaustSystem {
         self.substep_noise_scale = math::sqrt(substeps as f64);
         self.result.mouth_flows.fill(0.0);
         self.result.valve_mass_flows.fill(0.0);
+        self.result.heat_taken.fill(0.0);
         self.result.turbines.clear();
         self.result.turbines.resize(self.turbines.len(), TurbineResult::default());
 
@@ -461,6 +491,10 @@ impl ExhaustSystem {
                 primary.set_end_step(h, flow + valve.extra_mass_flow);
                 primary.end_step_set(valve);
                 self.result.valve_mass_flows[b] += flow * primary.source_scale;
+                let heat = self.afterfire_heat[b];
+                if heat > 0.0 {
+                    self.result.heat_taken[b] += primary.add_heat(heat * h, self.zone_cells[b], self.zone_volume[b]);
+                }
             }
             // 5. Everything a junction feeds, carrying that junction's share of the mixing noise.
             for i in 0..self.fed_by_node.len() {
