@@ -90,6 +90,9 @@ matters.
   fitting drawn; its inlet must be offered to draw to, its outlet to draw from until a pipe is drawn from
   it, and its node not as a junction; tidying must leave its pipes as they are; taking it out must leave the
   pipe open again; moved, the pipe must follow it and still meet its inlet; and it must survive a link, with its own settings if it has them.
+- **A T into a placed pipe.** A runner drawn into the side of a loose pipe must give the solver the half
+  before the junction turned round, from the junction to its open end with its taper reversed, in a graph
+  it accepts with two mouths, and the gas must reach both halves in the Wasm build.
   Heard through the Wasm build it must make boost, with a pipe drawn from its outlet or
   without. The RB26, its exhaust compiled, must have one turbo with every cylinder through it. Turned a
   quarter turn about an axis, a turbo's outlet must turn by that, with its pipe still meeting its inlet.

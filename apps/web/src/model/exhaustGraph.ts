@@ -1305,17 +1305,81 @@ function fedDucts(graph: ExhaustGraph): Set<string> {
   return fed;
 }
 
+/**
+ * The pipes the gas runs through against the way they were drawn, in the order they are found: each from
+ * open air or a junction the gas does not reach, into one it does. A loose pipe drawn into from the side is
+ * one: split there, the half before the junction runs into it from its open end, and the gas arriving at
+ * the junction goes out that way as well as on. The solver is given them turned round (`solverGraph`).
+ *
+ * Not into or out of a turbo, whose inlet and outlet are what they are.
+ */
+export function reversedDucts(graph: ExhaustGraph): Set<string> {
+  const turbos = new Set((graph.turbos ?? []).map((t) => t.node));
+  const out = new Set<string>();
+  let ducts = graph.ducts;
+  for (let guard = 0; guard <= graph.ducts.length; guard++) {
+    const fed = fedDucts({ ...graph, ducts });
+    const reached = new Set<string>();
+    for (const d of ducts) {
+      if (!fed.has(d.id)) continue;
+      if (d.from.kind === 'node') reached.add(d.from.node);
+      if (d.to.kind === 'node') reached.add(d.to.node);
+    }
+    const flip = ducts.find(
+      (d) =>
+        !fed.has(d.id) &&
+        d.to.kind === 'node' &&
+        reached.has(d.to.node) &&
+        !turbos.has(d.to.node) &&
+        (d.from.kind === 'free' || (d.from.kind === 'node' && !reached.has(d.from.node) && !turbos.has(d.from.node))),
+    );
+    if (!flip) break;
+    out.add(flip.id);
+    ducts = ducts.map((d) => (d === flip ? reverseDuct(d) : d));
+  }
+  return out;
+}
+
+/**
+ * `duct` for the solver, turned round: from the junction it ends at to where it starts, a node or open air,
+ * its segments in the other order and each turned round too. Only what the solver reads is kept.
+ */
+function reverseDuct(duct: ExhaustDuct): ExhaustDuct {
+  const to = duct.to as { kind: 'node'; node: string };
+  return {
+    id: duct.id,
+    segments: [...duct.segments].reverse().map((s) => {
+      const { offsetIn, offsetOut, curve: _curve, ...rest } = s;
+      return {
+        ...rest,
+        yaw: 0,
+        pitch: 0,
+        // A chamber's `dOut` is its body, and its throats are both `dIn`.
+        ...(s.kind === 'chamber' ? {} : { dIn: s.dOut, dOut: s.dIn }),
+        ...(offsetOut !== undefined ? { offsetIn: offsetOut } : {}),
+        ...(offsetIn !== undefined ? { offsetOut: offsetIn } : {}),
+      };
+    }),
+    from: { kind: 'node', node: to.node },
+    to: duct.from.kind === 'node' ? { kind: 'node', node: duct.from.node } : { kind: 'mouth' },
+  };
+}
+
 /** How far the gas out of a turbo with no pipe drawn from its outlet runs before the air, m. */
 const TURBO_EXIT = 0.05;
 
 /**
- * The graph as the solver is given it: without loose pipes, nor a turbo's outlet pipe while nothing is
- * drawn into the turbo, nor anything reached only through one, since
- * no gas reaches them, and with the pipes into a junction nothing leaves yet ending in open air. What is
- * left is every duct fed from a cylinder. A turbo fed with nothing drawn from its outlet exhausts to the air
- * at its outlet flange, through the shortest of pipes there, a little wider than what feeds it.
+ * The graph as the solver is given it: with the pipes the gas runs through against the way they were drawn
+ * turned round (`reversedDucts`); without loose pipes, nor a turbo's outlet pipe while nothing is drawn into
+ * the turbo, nor anything reached only through one, since no gas reaches them; and with the pipes into a
+ * junction nothing leaves yet ending in open air. What is left is every duct fed from a cylinder. A turbo fed
+ * with nothing drawn from its outlet exhausts to the air at its outlet flange, through the shortest of pipes
+ * there, a little wider than what feeds it.
  */
-export function solverGraph(graph: ExhaustGraph): ExhaustGraph {
+export function solverGraph(drawn: ExhaustGraph): ExhaustGraph {
+  const reversed = reversedDucts(drawn);
+  const graph =
+    reversed.size > 0 ? { ...drawn, ducts: drawn.ducts.map((d) => (reversed.has(d.id) ? reverseDuct(d) : d)) } : drawn;
   const leaving = new Set(graph.ducts.flatMap((d) => (d.from.kind === 'node' ? [d.from.node] : [])));
   const ending = graph.ducts.some((d) => d.to.kind === 'node' && !leaving.has(d.to.node));
   const fed = fedDucts(graph);
