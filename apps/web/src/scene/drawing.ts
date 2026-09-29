@@ -20,6 +20,7 @@ import {
   disconnectEnd,
   drawnSegments,
   endsAt,
+  fittedCount,
   joinDuctEnd,
   junctionAt,
   newDuctId,
@@ -32,7 +33,16 @@ import {
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
-import { curveFrame, curveInWorld, curvePath, layoutPipe, turnBetween, turnHeading } from './PipeMesh.js';
+import {
+  acrossAxis,
+  curveFrame,
+  curveInWorld,
+  curvePath,
+  layoutPipe,
+  turnBetween,
+  turnHeading,
+  widthAxis,
+} from './PipeMesh.js';
 import type { DuctPlacement, ExhaustPlacement, ExhaustPort } from './exhaustLayout.js';
 
 /** Longest segment a click may produce, m. */
@@ -302,6 +312,7 @@ export function splitDuct(graph: ExhaustGraph, ductId: string, index: number, pl
     ...(duct.fitted ? { fitted: true as const } : {}),
     ...(duct.swing ? { swing: true as const } : {}),
     ...(duct.square ? { square: true as const } : {}),
+    ...(duct.arriveRoll !== undefined ? { arriveRoll: duct.arriveRoll } : {}),
   };
   for (const d of graph.ducts) if (d.continues === duct.id) d.continues = rest.id;
   duct.segments = duct.segments.slice(0, index);
@@ -309,6 +320,7 @@ export function splitDuct(graph: ExhaustGraph, ductId: string, index: number, pl
   delete duct.fitted;
   delete duct.swing;
   delete duct.square;
+  delete duct.arriveRoll;
   graph.ducts.push(rest);
   return rest.id;
 }
@@ -340,6 +352,15 @@ export function detachDuct(
  */
 export function flipLoosePipe(duct: ExhaustDuct, place: DuctPlacement): void {
   if (duct.from.kind !== 'free' || duct.segments.length === 0) return;
+  const start = turnRound(duct, place);
+  duct.from = { kind: 'free', position: [start.x, start.y, start.z] };
+}
+
+/**
+ * Turn `duct`'s segments round end for end where it lies, laid out at `place`, heading from its far end in
+ * the world's terms: `flipLoosePipe` but for what it starts from and ends at. Returns where it now starts.
+ */
+function turnRound(duct: ExhaustDuct, place: DuctPlacement): THREE.Vector3 {
   const swept = layoutPipe(duct.segments, place.origin, place.heading);
   const points = [place.origin.clone(), ...swept.joints.map((p) => p.clone())];
   // Each segment's direction where it starts and where it ends.
@@ -368,6 +389,8 @@ export function flipLoosePipe(duct: ExhaustDuct, place: DuctPlacement): void {
       pitch: corner.pitch,
       offsetIn: seg.offsetOut,
       offsetOut: seg.offsetIn,
+      // Run the other way, the same roll is the other way round it.
+      ...(seg.roll ? { roll: -seg.roll } : {}),
       curve: undefined,
     };
     if (seg.curve) {
@@ -379,12 +402,54 @@ export function flipLoosePipe(duct: ExhaustDuct, place: DuctPlacement): void {
     prevEnd = endDir;
   }
   const h = turnBetween(new THREE.Vector3(1, 0, 0), heading);
-  const start = points[points.length - 1]!;
-  duct.from = { kind: 'free', position: [start.x, start.y, start.z] };
   duct.headingYaw = h.yaw;
   duct.headingPitch = h.pitch;
   duct.headingFrame = 'world';
   duct.segments = flipped;
+  return points[points.length - 1]!.clone();
+}
+
+/**
+ * The run of pipes from the loose pipe `ductId` to open air: it, and each carrying it straight on through a
+ * junction a branch made on it (`ExhaustDuct.continues`), to the last, which ends in air. `null` where it does
+ * not run to air that way, or through a junction fixed in place or a turbo.
+ */
+export function looseRun(graph: ExhaustGraph, ductId: string): ExhaustDuct[] | null {
+  const first = graph.ducts.find((d) => d.id === ductId);
+  if (!first || first.from.kind !== 'free') return null;
+  const run = [first];
+  for (let cur: ExhaustDuct = first; cur.to.kind === 'node'; ) {
+    const node = cur.to.node;
+    const id = cur.id;
+    if (junctionAt(graph, node) || turboAt(graph, node) || cur.fitted) return null;
+    const on: ExhaustDuct | undefined = graph.ducts.find((d) => d.from.kind === 'node' && d.from.node === node && d.continues === id);
+    if (!on || run.includes(on)) return null;
+    run.push(on);
+    cur = on;
+  }
+  return run;
+}
+
+/**
+ * Turn a loose pipe round end for end where it lies, and the pipes carrying it straight on through the
+ * junctions branches made on it (`looseRun`), so its far end, in open air, is where it starts, and its start
+ * is its open end. The junctions stay where they are, and what joins them stays joined. Returns the pipe that
+ * now ends where the loose pipe started, which is `ductId`, or `null` where it cannot be turned round.
+ */
+export function flipLooseRun(graph: ExhaustGraph, ductId: string, placement: ExhaustPlacement): string | null {
+  const run = looseRun(graph, ductId);
+  if (!run || run.some((d) => d.segments.length === 0 || !placement.ducts.get(d.id))) return null;
+  const nodes = run.slice(0, -1).map((d) => (d.to as { node: string }).node);
+  const starts = run.map((d) => turnRound(d, placement.ducts.get(d.id)!));
+  const last = run.length - 1;
+  run.forEach((d, i) => {
+    // Each now runs from where the one after it joined it, the last from open air, to where it started.
+    d.from = i === last ? { kind: 'free', position: [starts[i]!.x, starts[i]!.y, starts[i]!.z] } : { kind: 'node', node: nodes[i]! };
+    d.to = i === 0 ? { kind: 'mouth' } : { kind: 'node', node: nodes[i - 1]! };
+    if (i < last) d.continues = run[i + 1]!.id;
+    else delete d.continues;
+  });
+  return ductId;
 }
 
 /**
@@ -396,11 +461,13 @@ export interface PipeShape {
   ends: THREE.Vector3[];
   /** A bend's chord, start to end; `null` for a straight. */
   chords: (THREE.Vector3 | null)[];
+  /** A can's width axis (`widthAxis`), which turns with it; `null` for anything else. */
+  widths: (THREE.Vector3 | null)[];
 }
 
 /** The shape of `segments` leaving along `heading`. */
 export function pipeShape(segments: PipeSegment[], heading: THREE.Vector3): PipeShape {
-  const shape: PipeShape = { starts: [], ends: [], chords: [] };
+  const shape: PipeShape = { starts: [], ends: [], chords: [], widths: [] };
   let dir = heading.clone().normalize();
   for (const seg of segments) {
     const start = turnHeading(dir, seg.yaw, seg.pitch);
@@ -414,6 +481,7 @@ export function pipeShape(segments: PipeSegment[], heading: THREE.Vector3): Pipe
     }
     shape.starts.push(start);
     shape.ends.push(dir.clone());
+    shape.widths.push(seg.kind === 'chamber' ? widthAxis(seg, start) : null);
   }
   return shape;
 }
@@ -452,6 +520,15 @@ export function swingPipe(
     const corner = i === 0 ? { yaw: 0, pitch: 0 } : turnBetween(ends[i - 1]!, start);
     seg.yaw = corner.yaw;
     seg.pitch = corner.pitch;
+    // A can turns with the rest, rolled round the way it now runs to where its width has turned to.
+    const width = shape.widths[i];
+    if (seg.kind === 'chamber' && width) {
+      const level = acrossAxis(start);
+      const want = turn(width);
+      const roll = Math.atan2(level.clone().cross(want).dot(start.clone().normalize()), level.dot(want));
+      if (Math.abs(roll) > 1e-9) seg.roll = roll;
+      else delete seg.roll;
+    }
     const chord = shape.chords[i];
     if (seg.curve && chord) {
       const f = curveFrame(start);
@@ -514,10 +591,60 @@ export function bendAnchor(
   const fromDir = drawn.length > 0 ? swept.jointDirections.at(-1)! : place.heading;
   // Square into the pipe's side: across it, from where the pipe as drawn ends, at the pipe's bore there.
   if (self.square) return { ...along, dir: squareArrival(along.point, along.dir, from, fromDir) };
-  // Into a pipe's side, or a junction's opening, along it the way the pipe as drawn comes from. Not into a
-  // junction that was moved and has a pipe leaving it, which every pipe arrives at along that pipe.
-  if (junctionAt(graph, node) && endsAt(graph, node).some((e) => e.end === 'inlet')) return along;
-  return { ...along, dir: sideArrival(along.point, along.dir, from, fromDir) };
+  // Into a junction's opening, along it the way the pipe as drawn comes from. Not into a junction that was
+  // moved and has a pipe leaving it, which every pipe arrives at along that pipe.
+  if (junctionAt(graph, node)) {
+    if (endsAt(graph, node).some((e) => e.end === 'inlet')) return along;
+    // An opening: from the side it has been rolled round to, where it has one.
+    if (self.arriveRoll !== undefined) return { ...along, dir: lateralArrival(along.point, along.dir, from, fromDir, self.arriveRoll) };
+    return { ...along, dir: sideArrival(along.point, along.dir, from, fromDir) };
+  }
+  // Into a pipe's side: a lateral into it, from the side it was drawn from, or has been rolled round to.
+  // Without a side, as a compiled manifold's stubs are, merging along it.
+  if (self.arriveRoll === undefined) return { ...along, dir: sideArrival(along.point, along.dir, from, fromDir) };
+  return { ...along, dir: lateralArrival(along.point, along.dir, from, fromDir, self.arriveRoll) };
+}
+
+/** How far round a pipe along `axis` the direction `out` from it lies, from level (`acrossAxis`), radians. */
+export function rollOf(axis: THREE.Vector3, out: THREE.Vector3): number {
+  const a = axis.clone().normalize();
+  const level = acrossAxis(a);
+  const o = out.clone().addScaledVector(a, -out.dot(a));
+  return Math.atan2(level.clone().cross(o).dot(a), level.dot(o));
+}
+
+/** The direction out of a pipe along `axis` that is `roll` round it from level: `rollOf`'s inverse. */
+export function rollSide(axis: THREE.Vector3, roll: number): THREE.Vector3 {
+  const a = axis.clone().normalize();
+  return acrossAxis(a).applyAxisAngle(a, roll);
+}
+
+/**
+ * The side of a pipe along `axis` through `point` that `from` is on, as `rollOf` it; `null` on its line.
+ */
+export function sideRoll(axis: THREE.Vector3, point: THREE.Vector3, from: THREE.Vector3): number | null {
+  const a = axis.clone().normalize();
+  const rel = from.clone().sub(point);
+  const out = rel.addScaledVector(a, -rel.dot(a));
+  return out.lengthSq() < 1e-12 ? null : rollOf(a, out);
+}
+
+/**
+ * The way a pipe from `from`, heading `fromDir` there, comes into the side of a pipe running along `axis`
+ * through `point`: a lateral, `SIDE_LEAVING` off it, merging along it the way `sideArrival` goes, in from the
+ * side `roll` is round it, or where no roll is given, the side `from` is on. From its line, along it.
+ */
+export function lateralArrival(
+  point: THREE.Vector3,
+  axis: THREE.Vector3,
+  from: THREE.Vector3,
+  fromDir: THREE.Vector3,
+  roll?: number,
+): THREE.Vector3 {
+  const along = sideArrival(point, axis, from, fromDir);
+  const r = roll ?? sideRoll(axis, point, from);
+  if (r === null) return along;
+  return along.multiplyScalar(Math.cos(SIDE_LEAVING)).addScaledVector(rollSide(axis, r), -Math.sin(SIDE_LEAVING)).normalize();
 }
 
 /**
@@ -612,14 +739,22 @@ function junctionAnchor(
   };
 }
 
+/** How far off the pipe it leaves a branch drawn out of its side sets off, radians: a lateral, as welded. */
+export const SIDE_LEAVING = (30 * Math.PI) / 180;
+
 /**
  * The way a branch drawn out of the side of a pipe running along `axis` sets off from `tip`, towards
- * `point`: along the pipe, whichever way along it `point` lies, so it turns off it the least. Level with
- * `tip`, along `axis`.
+ * `point`: `SIDE_LEAVING` off the pipe, along it whichever way `point` lies, so it turns off it the least,
+ * and out of the side `point` is on. Out of that side, so a pipe rolled turns the way the branch leaves it
+ * round with it. Level with `tip`, along `axis`; on the pipe's line, straight along it.
  */
 export function sideLeaving(axis: THREE.Vector3, tip: THREE.Vector3, point: THREE.Vector3): THREE.Vector3 {
   const a = axis.clone().normalize();
-  return point.clone().sub(tip).dot(a) < -1e-6 ? a.negate() : a;
+  const rel = point.clone().sub(tip);
+  const along = rel.dot(a) < -1e-6 ? a.negate() : a;
+  const out = rel.clone().addScaledVector(a, -rel.dot(a));
+  if (out.lengthSq() < 1e-12) return along;
+  return along.multiplyScalar(Math.cos(SIDE_LEAVING)).addScaledVector(out.normalize(), Math.sin(SIDE_LEAVING)).normalize();
 }
 
 /**
@@ -865,10 +1000,11 @@ export type SnapTarget =
   | { kind: 'free'; point: THREE.Vector3 };
 
 /**
- * Every point a route could snap to, other than duct surfaces.
+ * Every point a route could snap to, other than anywhere along a duct's side: of its side, only where one
+ * of its segments meets the next.
  *
- * Surfaces are found by raycasting the meshes instead, because "the nearest point on a tube" is what a
- * ray already answers and `PipeMesh.stationAt` already turns a hit into an arc distance.
+ * The rest of a side is found by raycasting the meshes instead, because "the nearest point on a tube" is what
+ * a ray already answers and `PipeMesh.stationAt` already turns a hit into an arc distance.
  *
  * Every port is offered, including ones that already have a pipe. Excluding those would make draw mode
  * useless: a compiled engine gives every cylinder a runner, so *no* port would ever be clickable and a
@@ -959,6 +1095,20 @@ export function collectSnapTargets(
     // Only a duct that vents to air: one already at a junction has that junction as its target.
     if (end && duct.to.kind === 'mouth') {
       targets.push({ kind: 'ductEnd', point: end.clone(), duct: duct.id });
+    }
+    // Where one of its segments meets the next: a place to join it, or draw from, as on its side, the pipe
+    // split there into a junction. Not at a bend fitted to what it joins, which is fitted, not drawn.
+    const drawn = duct.segments.length - fittedCount(duct);
+    let x = 0;
+    for (let i = 0; i < drawn - 1; i++) {
+      x += duct.segments[i]!.length;
+      targets.push({
+        kind: 'ductSurface',
+        point: layout.joints[i]!.clone(),
+        duct: duct.id,
+        x,
+        dir: layout.jointDirections[i]!.clone(),
+      });
     }
   }
 

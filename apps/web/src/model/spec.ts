@@ -72,6 +72,11 @@ export interface PipeSegment {
   offsetIn?: number;
   offsetOut?: number;
   /**
+   * Chamber only: how far its body is rolled about the way it runs, radians, from lying flat: its width
+   * level and square to it. Routing only, like a corner.
+   */
+  roll?: number;
+  /**
    * A smooth bend instead of a straight run: where the segment ends, m, and the way it is heading there,
    * both in the frame of the way it starts (x along it, y as near up as that allows, z across; see
    * `curveFrame`). `length` is the length along the bend. Routing only, like a corner: the solver hears a
@@ -1158,6 +1163,7 @@ export function makeSegment(partial: Partial<PipeSegment> = {}): PipeSegment {
     }
     if (finite(partial.offsetIn) && partial.offsetIn !== 0) seg.offsetIn = partial.offsetIn;
     if (finite(partial.offsetOut) && partial.offsetOut !== 0) seg.offsetOut = partial.offsetOut;
+    if (finite(partial.roll) && partial.roll !== 0) seg.roll = partial.roll;
   }
   // Checked for the same reason: a bend from a link must be three numbers each way, the way a unit.
   const c = partial.curve as (SegmentCurve & { handle?: unknown }) | undefined;

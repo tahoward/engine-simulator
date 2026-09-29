@@ -134,6 +134,7 @@ export function fitBend(duct: ExhaustDuct, origin: THREE.Vector3, heading: THREE
     delete duct.fitted;
     delete duct.swing;
     delete duct.square;
+    delete duct.arriveRoll;
     return;
   }
   const last = drawn.at(-1);
