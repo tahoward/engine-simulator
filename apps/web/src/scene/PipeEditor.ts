@@ -32,6 +32,7 @@ import type { Quat } from '../model/exhaustGraph.js';
 import {
   attachToLooseStart,
   carryBore,
+  endsAt,
   joinDuctEnd,
   junctionAt,
   newDuctId,
@@ -1640,7 +1641,9 @@ export class PipeEditor {
     const duct = graph?.ducts.find((d) => d.segments === this.pipe);
     this.pipeTriadAt = null;
     const sel = this.selected;
-    if (sel !== null && sel > 0 && sel < editable && this.pipe[sel]!.curve && duct) {
+    // Held at its far end, a pipe swung would leave the junction there: it has no bend to follow it round.
+    const endHeld = !!duct && this.heldAtEnd(duct);
+    if (sel !== null && sel > 0 && sel < editable && this.pipe[sel]!.curve && duct && !endHeld) {
       const at = layout.joints[sel - 1]!;
       const shape = pipeShape(this.pipe.slice(0, editable), this.heading);
       this.pipeTriadAt = { start: at.clone(), from: sel };
@@ -1656,9 +1659,9 @@ export class PipeEditor {
       const opening = layout.stations[0]!.direction.clone().normalize();
       const face = this.faceAxis(duct) ? opening : null;
       const shape = pipeShape(this.pipe.slice(0, editable), this.heading);
-      const turns = face
-        ? [...shape.starts, ...shape.ends].some((d) => d.clone().cross(face).lengthSq() > 1e-8)
-        : true;
+      const turns =
+        !endHeld &&
+        (face ? [...shape.starts, ...shape.ends].some((d) => d.clone().cross(face).lengthSq() > 1e-8) : true);
       const movable = duct.from.kind === 'free' || (duct.from.kind === 'node' && !this.heldAtStart(duct));
       if (turns || movable) {
         this.pipeTriadAt = { start: this.origin.clone(), from: 0 };
@@ -1667,10 +1670,10 @@ export class PipeEditor {
         this.pipeTriad.setOrientation(frameAlong(opening));
         this.pipeTriad.setRingsOwn(!!face);
         this.pipeTriad.showMoves(movable);
-        // Held to a face, only the ring round its axis; loose, all three.
+        // Held to a face, only the ring round its axis; loose, all three; held at its far end, none.
         this.pipeTriad.hideRing(0, !turns);
-        this.pipeTriad.hideRing(1, !!face);
-        this.pipeTriad.hideRing(2, !!face);
+        this.pipeTriad.hideRing(1, !!face || endHeld);
+        this.pipeTriad.hideRing(2, !!face || endHeld);
       }
     }
 
@@ -2038,6 +2041,15 @@ export class PipeEditor {
     if (ctx.graph.turbos?.some((t) => t.node === node)) return true;
     const carried = duct.continues ? ctx.graph.ducts.find((d) => d.id === duct.continues) : undefined;
     return carried !== undefined && !carried.fitted;
+  }
+
+  /**
+   * Whether a pipe is held where it ends: drawn straight into a junction other pipes also end at, with no
+   * fitted bend to carry its end back round to it. Swung, it would leave the others there, with a gap.
+   */
+  private heldAtEnd(duct: ExhaustDuct): boolean {
+    if (duct.to.kind !== 'node' || duct.fitted) return false;
+    return endsAt(this.context!.graph, duct.to.node).some((e) => e.end === 'outlet' && e.duct !== duct);
   }
 
   /**

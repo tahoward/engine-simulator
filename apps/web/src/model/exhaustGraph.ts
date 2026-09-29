@@ -1377,6 +1377,8 @@ function reverseDuct(duct: ExhaustDuct): ExhaustDuct {
 
 /** How far the gas out of a turbo with no pipe drawn from its outlet runs before the air, m. */
 const TURBO_EXIT = 0.05;
+/** How far the gas out of a junction's opening, left where a pipe was cut from it, runs before the air, m. */
+const OPEN_EXIT = 0.05;
 
 /**
  * The graph as the solver is given it: with the pipes the gas runs through against the way they were drawn
@@ -1384,7 +1386,9 @@ const TURBO_EXIT = 0.05;
  * the turbo, nor anything reached only through one, since no gas reaches them; and with the pipes into a
  * junction nothing leaves yet ending in open air. What is left is every duct fed from a cylinder. A turbo fed
  * with nothing drawn from its outlet exhausts to the air at its outlet flange, through the shortest of pipes
- * there, a little wider than what feeds it.
+ * there, a little wider than what feeds it. So does a junction nothing was drawn leaving whose gas goes on
+ * only back along a pipe turned round, as where a loose pipe was teed into and its far half deleted: open at
+ * the cut, through the shortest of pipes there, as wide as the pipe it was cut from.
  */
 export function solverGraph(drawn: ExhaustGraph): ExhaustGraph {
   const reversed = reversedDucts(drawn);
@@ -1393,8 +1397,12 @@ export function solverGraph(drawn: ExhaustGraph): ExhaustGraph {
   const leaving = new Set(graph.ducts.flatMap((d) => (d.from.kind === 'node' ? [d.from.node] : [])));
   const ending = graph.ducts.some((d) => d.to.kind === 'node' && !leaving.has(d.to.node));
   const fed = fedDucts(graph);
-  if (!ending && fed.size === graph.ducts.length) return graph;
   const turbos = new Set((graph.turbos ?? []).map((t) => t.node));
+  // A junction nothing was drawn leaving, left open where a pipe was cut from it, that the gas leaves only
+  // back through a pipe turned round: open to the air at that opening too.
+  const drawnLeaving = new Set(drawn.ducts.flatMap((d) => (d.from.kind === 'node' ? [d.from.node] : [])));
+  const opened = [...leaving].filter((node) => !drawnLeaving.has(node) && !turbos.has(node));
+  if (!ending && opened.length === 0 && fed.size === graph.ducts.length) return graph;
   const kept = graph.ducts.filter((d) => fed.has(d.id));
   const ducts = kept
     // A junction nothing leaves yet: its pipes end in open air there.
@@ -1411,6 +1419,21 @@ export function solverGraph(drawn: ExhaustGraph): ExhaustGraph {
     ducts.push({
       id: freeId(new Set(ducts.map((d) => d.id)), `${node}-exit`),
       segments: [makeSegment({ kind: 'pipe', length: TURBO_EXIT, dIn: dia, dOut: dia })],
+      from: { kind: 'node', node },
+      to: { kind: 'mouth' },
+    });
+  }
+  for (const node of opened) {
+    // As wide as the pipe it opens out of, the widest where several do.
+    let dia = 0;
+    for (const d of kept) {
+      const first = d.segments[0];
+      if (reversed.has(d.id) && d.from.kind === 'node' && d.from.node === node && first) dia = Math.max(dia, segmentDiameter(first, 0));
+    }
+    if (dia === 0) continue;
+    ducts.push({
+      id: freeId(new Set(ducts.map((d) => d.id)), `${node}-open`),
+      segments: [makeSegment({ kind: 'pipe', length: OPEN_EXIT, dIn: dia, dOut: dia })],
       from: { kind: 'node', node },
       to: { kind: 'mouth' },
     });
