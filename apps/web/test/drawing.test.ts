@@ -1884,3 +1884,32 @@ describe('deleting half of a pipe at a tee a fitted pipe comes into', () => {
     });
   }
 });
+
+describe('rolling a pipe from a segment further along', () => {
+  it('rolls that segment and all after it about the way it sets off, leaving the pipe before it', () => {
+    const origin = new THREE.Vector3(0.1, 0.2, 0.3);
+    const heading = new THREE.Vector3(0, 0, 1);
+    const up = new THREE.Vector3(0, 1, 0);
+    const bend = bendSegment(new THREE.Vector3(), heading, up, 0.08, { dIn: 0.045, dOut: 0.045 })!;
+    const duct: ExhaustGraph['ducts'][number] = {
+      id: 'p',
+      segments: [makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.045 }), bend, makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.045 })],
+      from: { kind: 'free', position: [origin.x, origin.y, origin.z] },
+      to: { kind: 'mouth' },
+      headingYaw: 0,
+      headingPitch: 0,
+      headingFrame: 'world',
+    };
+    const before = layoutPipe(duct.segments, origin, heading);
+    const pivot = before.joints[0]!;
+    const shape = pipeShape(duct.segments, heading);
+    swingPipe(duct, new THREE.Vector3(1, 0, 0), shape, shape.starts[1]!.clone(), Math.PI / 2, 1);
+    const after = layoutPipe(duct.segments, origin, heading);
+    // The pipe before the bend stays; everything from it on turns about the way the bend sets off.
+    expect(after.joints[0]!.distanceTo(pivot)).toBeLessThan(1e-9);
+    const turn = (v: THREE.Vector3) => v.clone().sub(pivot).applyAxisAngle(shape.starts[1]!, Math.PI / 2).add(pivot);
+    expect(after.joints[1]!.distanceTo(turn(before.joints[1]!))).toBeLessThan(1e-6);
+    expect(after.joints[2]!.distanceTo(turn(before.joints[2]!))).toBeLessThan(1e-6);
+    expect(after.joints[2]!.distanceTo(before.joints[2]!)).toBeGreaterThan(0.05);
+  });
+});
