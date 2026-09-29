@@ -75,6 +75,24 @@ from the moment the car has rolled a foot, where a drag strip's clock starts, an
 tests, and the makers' figures from them, start theirs. Below that it plots crank power, torque, volumetric efficiency and intake
 pressure against rpm, one colour per gear.
 
+## Dyno
+
+**Start dyno pull** runs one pull at full throttle on an engine dyno. The crank drives the dyno's absorber
+directly, in one gear at 1:1, so there is no car, tyres or gearbox. The absorber is a brake under a speed
+controller, as on an eddy-current or water-brake dyno. It holds the engine at the **Pull from** speed for a
+second, then lets it speed up at the **Sweep rate** to the **Pull to** speed. All the way it brakes with
+whatever torque holds the engine to that sweep, so its resistance rises and falls with the engine's torque.
+It only ever brakes, and never drives the engine.
+
+- **Pull from** is where the sweep starts. Auto is a quarter of the rev limiter, and at least 2000 rpm.
+- **Pull to** is where it ends. Auto is just under the rev limiter.
+- **Sweep rate** is how fast the engine speeds up through the pull. Auto is 500 rpm/s, an engine dyno's
+  steady sweep. A slower sweep gives a turbo longer to spool at each speed, so it reads more boost low down.
+
+The sheet plots the same crank power, torque, volumetric efficiency and intake pressure as a launch's, from
+one engine cycle at a time. Because the sweep is slow and steady, little of the engine's torque goes into
+speeding up its own flywheel, and the curve comes out close to what the engine makes held at each speed.
+
 ## Valves
 
 - **Valves per cylinder** chooses a two-valve head (one intake, one exhaust) or a four-valve head

@@ -35,6 +35,9 @@ describe('launch settings in a link', () => {
       tractionControl: false,
       ratios: [3, 2, 1.5, 1],
       finalDrive: 3.9,
+      dynoFrom: 2500,
+      dynoTo: 7000,
+      sweepRate: 300,
     };
     expect(throughALink(settings)).toEqual(settings);
   });

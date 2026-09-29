@@ -19,6 +19,9 @@
  * palette's fixed order, which has eight colours: as many gears as a gearbox here may have. The gears are the same engine, so their traces lie on top of one another where
  * they overlap; each is its own stretch of line, broken at every shift.
  *
+ * A dyno pull has no timeslip and one gear, at 1:1, so the sheet leaves out the timeslip, the gears'
+ * legend and the per-gear table, and draws every chart in its measure's colour.
+ *
  * Each point is one engine cycle's average, as a dyno reports it. The line is smoothed over a
  * few cycles either side, because cycle-to-cycle combustion scatter is a few percent; the tooltip and
  * the peaks read the smoothed values too.
@@ -99,6 +102,7 @@ function colourOf(pane: Pane, series: Pane['series'][number], q: Smoothed): stri
 
 const PHASE_TEXT: Record<LaunchSnapshot['phase'], string> = {
   launch: 'launching',
+  hold: 'holding',
   pull: 'pulling',
   shiftOut: 'shifting',
   shiftIn: 'shifting',
@@ -113,6 +117,8 @@ export class LaunchSheet {
   private readonly gearLegend: HTMLElement;
   /** The timeslip's three figures: 0-60 mph, the quarter mile and the half mile. */
   private readonly slip: { value: HTMLElement; trap: HTMLElement }[];
+  private readonly slipRow: HTMLElement;
+  private readonly tableBox: HTMLElement;
   private readonly canvas: HTMLCanvasElement;
   private readonly ctx: CanvasRenderingContext2D;
   private readonly tooltip: HTMLElement;
@@ -145,6 +151,7 @@ export class LaunchSheet {
 
     this.status = el('div', 'launch-status', this.card);
     const slip = el('div', 'launch-slip', this.card);
+    this.slipRow = slip;
     this.slip = ['0–60 mph', '¼ mile', '½ mile'].map((label) => {
       const cell = el('div', 'launch-slip-cell', slip);
       el('div', 'launch-slip-label', cell).textContent = label;
@@ -181,6 +188,7 @@ export class LaunchSheet {
     this.gearLegend = el('div', 'launch-legend', this.card);
 
     const details = el('details', 'launch-table', this.card);
+    this.tableBox = details;
     el('summary', '', details).textContent = 'Per gear';
     const tbl = el('table', '', details) as HTMLTableElement;
     const thead = el('thead', '', tbl);
@@ -206,7 +214,12 @@ export class LaunchSheet {
   begin(config: LaunchConfig): void {
     this.config = config;
     this.minRpm = Math.max(Math.floor(config.launchRpm / 1000) * 1000, 0);
-    this.title.textContent = `Launch · ${config.ratios.length}-speed`;
+    this.title.textContent = config.dyno
+      ? `Dyno · 1:1 · ${Math.round(config.sweepRate)} rpm/s`
+      : `Launch · ${config.ratios.length}-speed`;
+    this.slipRow.classList.toggle('hidden', config.dyno);
+    this.gearLegend.classList.toggle('hidden', config.dyno);
+    this.tableBox.classList.toggle('hidden', config.dyno);
     this.gearLegend.replaceChildren();
     el('span', 'launch-legend-title', this.gearLegend).textContent = 'kW, N·m, VE and intake by gear:';
     for (let g = 1; g <= config.ratios.length; g++) {
@@ -221,7 +234,7 @@ export class LaunchSheet {
     this.running = true;
     this.seen = false;
     this.card.classList.remove('hidden');
-    this.status.textContent = 'Revving to launch…';
+    this.status.textContent = config.dyno ? 'Holding at the start speed…' : 'Revving to launch…';
     this.peaks.textContent = '';
     this.table.replaceChildren();
     this.resize();
@@ -255,6 +268,13 @@ export class LaunchSheet {
       this.dirty = true;
     }
     const state = launch.finished ? 'winding down' : PHASE_TEXT[launch.phase];
+    if (this.config?.dyno) {
+      const last = this.points[this.points.length - 1];
+      this.status.textContent =
+        `${last ? `${formatNumber(Math.round(last.rpm))} rpm · ` : ''}${launch.elapsed.toFixed(1)} s · ` +
+        (launch.phase === 'pull' && !launch.finished ? 'sweeping' : state);
+      return;
+    }
     this.status.textContent =
       `${ordinal(launch.gear)} gear · ${Math.round(launch.speedKmh / KMH_PER_MPH)} mph · ` +
       `${(launch.distance / M_PER_MILE).toFixed(2)} mi · ${launch.elapsed.toFixed(1)} s · ${state}`;
@@ -316,6 +336,8 @@ export class LaunchSheet {
     const x1 = Math.ceil((this.config.shiftRpm + 1) / 1000) * 1000;
     const xs = (rpm: number) => left + ((rpm - x0) / (x1 - x0)) * (w - left - right);
     const pts = this.smoothed;
+    // One gear on the dyno: each chart in its measure's colour.
+    const byGear = !this.config.dyno;
 
     const panes: Pane[] = [
       {
@@ -335,7 +357,7 @@ export class LaunchSheet {
         floor: 10,
         digits: 0,
         crossing: false,
-        byGear: true,
+        byGear,
       },
       {
         title: 'Torque, N·m',
@@ -343,7 +365,7 @@ export class LaunchSheet {
         floor: 10,
         digits: 0,
         crossing: false,
-        byGear: true,
+        byGear,
       },
       {
         title: 'Volumetric efficiency, %',
@@ -351,7 +373,7 @@ export class LaunchSheet {
         floor: 10,
         digits: 0,
         crossing: false,
-        byGear: true,
+        byGear,
       },
       {
         title: 'Intake manifold pressure, bar abs',
@@ -359,7 +381,7 @@ export class LaunchSheet {
         floor: 1.5,
         digits: 1,
         crossing: false,
-        byGear: true,
+        byGear,
       },
     ];
     const maxes = panes.map((pane) =>
@@ -545,10 +567,13 @@ export class LaunchSheet {
     this.tooltip.replaceChildren();
     el('div', 'launch-tip-head', this.tooltip).textContent = `${formatNumber(Math.round(rpm))} rpm`;
     for (const q of rows) {
-      el('div', 'launch-tip-row', this.tooltip).textContent =
-        `${ordinal(q.gear)}  ${Math.round(q.hp)} hp · ${Math.round(q.lbft)} lb·ft · ` +
+      const readings =
+        `${Math.round(q.hp)} hp · ${Math.round(q.lbft)} lb·ft · ` +
         `${Math.round(q.kw)} kW · ${Math.round(q.nm)} N·m · VE ${Math.round(q.ve)}% · ` +
-        `${q.map.toFixed(2)} bar · ${Math.round(q.mph)} mph`;
+        `${q.map.toFixed(2)} bar`;
+      el('div', 'launch-tip-row', this.tooltip).textContent = this.config?.dyno
+        ? readings
+        : `${ordinal(q.gear)}  ${readings} · ${Math.round(q.mph)} mph`;
     }
     this.tooltip.classList.remove('hidden');
     const tw = this.tooltip.offsetWidth;

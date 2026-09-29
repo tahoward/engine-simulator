@@ -694,12 +694,12 @@ export interface TurboUnitSnapshot {
 
 /** A launch's state, sent with each snapshot while it runs. */
 export interface LaunchSnapshot {
-  phase: 'launch' | 'pull' | 'shiftOut' | 'shiftIn' | 'cooldown';
+  phase: 'launch' | 'hold' | 'pull' | 'shiftOut' | 'shiftIn' | 'cooldown';
   /** Gear engaged, 1-based. */
   gear: number;
   /** Road speed, km/h. */
   speedKmh: number;
-  /** Seconds since the clock started, once the car had rolled a foot. */
+  /** Seconds since the clock started, once the car had rolled a foot; on the dyno, since the sweep started. */
   elapsed: number;
   /** Distance covered, m. */
   distance: number;
@@ -747,6 +747,35 @@ export interface LaunchConfig {
   shiftTime: number;
   /** Whether the gearbox is a dual clutch, which shifts with no gap in the drive. */
   dualClutch: boolean;
+  /**
+   * A dyno pull rather than a launch: the crank drives a dyno's absorber through one gear at 1:1, from
+   * `launchRpm` to `shiftRpm`, and the car, tyres and gearbox are not used.
+   */
+  dyno: boolean;
+  /** How fast a dyno pull sweeps the engine up, rev/min per s. */
+  sweepRate: number;
+}
+
+/** A dyno pull's sweep rate, rev/min per s: an engine dyno's steady sweep. */
+export const DYNO_SWEEP_RATE = 500;
+
+/** Where a dyno pull starts on auto, rev/min: a quarter of the rev limiter, and no lower than this. */
+export const DYNO_FROM_RPM = 2000;
+
+/**
+ * A dyno pull for `spec`: from `from` to `to` rpm, each on auto where `null`, at `rate` rpm/s. It starts
+ * at a quarter of the rev limiter, and ends where a launch shifts, just under it.
+ */
+export function fitDyno(
+  spec: EngineSpec,
+  from: number | null = null,
+  to: number | null = null,
+  rate: number | null = null,
+): LaunchConfig {
+  const fit = fitLaunch(spec, false, [1]);
+  const end = Math.min(to ?? fit.shiftRpm, spec.revLimit - 50);
+  const start = Math.max(Math.min(from ?? Math.max(0.25 * spec.revLimit, DYNO_FROM_RPM), end - LAUNCH_RPM_MARGIN), 1000);
+  return { ...fit, ratios: [1], finalDrive: 1, launchRpm: start, shiftRpm: end, dyno: true, sweepRate: rate ?? DYNO_SWEEP_RATE };
 }
 
 /**
@@ -818,6 +847,8 @@ export function fitLaunch(spec: EngineSpec, boosted = false, ratios: number[] = 
     shiftRpm,
     shiftTime: MANUAL_SHIFT_TIME,
     dualClutch: false,
+    dyno: false,
+    sweepRate: DYNO_SWEEP_RATE,
   };
 }
 

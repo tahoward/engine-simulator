@@ -440,10 +440,14 @@ impl EngineSim {
         self.launch_opening = f64::NAN;
     }
 
-    /// Start a launch from standstill through `config`'s gearbox. A gearbox without a gear, or with
-    /// one that is not a positive ratio, starts nothing.
+    /// Start a launch from standstill through `config`'s gearbox, or a dyno pull. A gearbox without a
+    /// gear, or with one that is not a positive ratio, starts nothing; nor does a dyno pull without a
+    /// positive sweep rate.
     pub fn start_launch(&mut self, config: LaunchConfig) {
         if config.ratios.is_empty() || config.ratios.iter().any(|r| !(*r > 0.0)) || !(config.final_drive > 0.0) {
+            return;
+        }
+        if config.dyno && !(config.sweep_rate > 0.0) {
             return;
         }
         self.launch = Some(LaunchRun::new(config, full_load_torque(&self.spec.spec, self.turbo.is_some())));
