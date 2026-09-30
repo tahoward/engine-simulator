@@ -197,6 +197,11 @@ export interface JunctionMount {
    * arrives, rather than tapering to the pipe carrying it on.
    */
   collector?: true;
+  /**
+   * Which pipe leaving it each pipe into it runs straight on into, by duct id: an X-pipe's, where each
+   * pipe crosses to the other side. A pipe into it not named arrives along the first pipe leaving it.
+   */
+  through?: Record<string, string>;
 }
 
 export interface ExhaustGraph {
@@ -228,6 +233,13 @@ const ROLES = new Set(['runner', 'stub', 'manifold', 'downpipe', 'collector']);
  * exhaust out differently when the page is reloaded — a frozen heading read in the wrong frame turns the
  * pipe, and a manifold length that no longer knows what it continues gets re-aimed.
  */
+/** A junction's `through` as a file has it, or `null` where it is not a map of duct ids to duct ids. */
+function throughOf(raw: unknown): Record<string, string> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const entries = Object.entries(raw as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === 'string');
+  return entries.length > 0 ? Object.fromEntries(entries) : null;
+}
+
 export function graphFromJson(raw: unknown): ExhaustGraph | null {
   const ducts = (raw as { ducts?: unknown } | null)?.ducts;
   if (!Array.isArray(ducts) || ducts.length === 0) return null;
@@ -267,7 +279,15 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
   const placed: JunctionMount[] = Array.isArray(junctions)
     ? junctions.flatMap((j: Record<string, unknown>) =>
         typeof j?.node === 'string' && triple(j.position) && triple(j.axis)
-          ? [{ node: j.node, position: [...j.position] as Vec3, axis: [...j.axis] as Vec3, ...(j.collector === true ? { collector: true as const } : {}) }]
+          ? [
+              {
+                node: j.node,
+                position: [...j.position] as Vec3,
+                axis: [...j.axis] as Vec3,
+                ...(j.collector === true ? { collector: true as const } : {}),
+                ...(throughOf(j.through) ? { through: throughOf(j.through)! } : {}),
+              },
+            ]
           : [],
       )
     : [];

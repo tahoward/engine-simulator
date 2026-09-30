@@ -39,6 +39,7 @@ import {
   defaultMerge,
   runnerBore,
 } from './scene/headerTool.js';
+import { applyXPipe } from './scene/xpipeTool.js';
 import { seatEngineTurbos } from './scene/engineTurbos.js';
 import {
   matchLength,
@@ -324,6 +325,13 @@ const editor = new PipeEditor(
       panel.setHeaderToolState(false);
       afterTurboEdit(true);
     },
+    onXPipeAim: (aim) => panel.setXPipeAim(aim),
+    onApplyXPipe: (plan) => {
+      freeze();
+      applyXPipe(config.graph!, plan);
+      panel.setXPipeToolState(false);
+      afterTurboEdit(true);
+    },
     onMoveTurbo: (id, position, rotation, commit) => {
       freeze();
       const ports = Array.from({ length: engineMesh.bankCount }, (_, b) => engineMesh.exhaustPort(b));
@@ -473,6 +481,8 @@ const panel = new Panel(panelEl, toolsEl, config, {
   onHeaderLength: (length) => editor.setHeaderLength(length),
   onHeaderMirror: (on) => editor.setHeaderMirrored(on),
   onApplyHeader: () => editor.applyHeader(),
+  onXPipeTool: (on) => editor.setXPipeTool(on ? { points: [], cross: new THREE.Vector3(), moved: false } : null),
+  onApplyXPipe: () => editor.applyXPipe(),
   onReshapeBend: (id, index, angle, radius, changed) => {
     const duct = config.graph!.ducts.find((d) => d.id === id);
     if (!duct) return;

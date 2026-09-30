@@ -98,6 +98,7 @@ import {
   type HeaderPrimary,
   type OpeningAt,
 } from './headerTool.js';
+import { boreAt, defaultCrossing, xLegs, xPairs, type PipePoint, type XPlan } from './xpipeTool.js';
 
 const MIN_RADIUS = 0.006;
 const MAX_RADIUS = 0.22;
@@ -130,7 +131,7 @@ const PIPE_TRIAD_SIZE = 0.11;
  * than the sum of every frame's step.
  */
 interface TriadDrag {
-  on: 'pipe' | 'turbo' | 'header';
+  on: 'pipe' | 'turbo' | 'header' | 'xpipe';
   handle: TriadHandle;
   /** The part's axis the handle works along or about, and for a ring its frame, as they were at the start. */
   axis: THREE.Vector3;
@@ -232,6 +233,10 @@ export interface PipeEditorCallbacks {
   onApplyHeader?: (builds: Array<{ plan: HeaderPlan; primaries: HeaderPrimary[] }>) => void;
   /** The pipes' length, where it follows what is picked. */
   onHeaderLength?: (length: number) => void;
+  /** What the X-pipe being placed comes to, in words. */
+  onXPipeAim?: (aim: string) => void;
+  /** Build the X-pipe the ghost shows. */
+  onApplyXPipe?: (plan: XPlan) => void;
 }
 
 /**
@@ -253,6 +258,16 @@ export interface HeaderSetup {
   portBore: number;
   /** Whether the length was set; until it is, it is the shortest that reaches, following what is picked. */
   lengthSet: boolean;
+}
+
+/**
+ * The X-pipe being placed: the points picked on the pipes, two on each of two, and where the two cross, which
+ * the triad moves. Until it is moved, they cross amid the four points.
+ */
+export interface XPipeSetup {
+  points: PipePoint[];
+  cross: THREE.Vector3;
+  moved: boolean;
 }
 
 /** The openings' dots: picked, and not. */
@@ -438,6 +453,12 @@ export class PipeEditor {
   private readonly openingDots: THREE.Mesh[] = [];
   private openings: OpeningAt[] = [];
 
+  /** The X-pipe tool: what it is building, its triad on the crossing, a dot on each point, and the ghost. */
+  private xpipe: XPipeSetup | null = null;
+  private readonly xpipeTriad = new Triad(PIPE_TRIAD_SIZE * 1.4);
+  private readonly xpipeGhosts: PipeMesh[] = [];
+  private readonly xpipeDots: THREE.Mesh[] = [];
+
   private readonly matHover = new THREE.MeshBasicMaterial({ color: 0xffd166 });
   private readonly matSelected = new THREE.MeshBasicMaterial({ color: 0x8cff9e });
   private readonly matRing = new THREE.MeshBasicMaterial({
@@ -479,7 +500,11 @@ export class PipeEditor {
     this.ghostPipe.visible = false;
     this.group.add(this.ghostPipe);
     this.group.add(this.pipeTriad.group, this.turboTriad.group, this.bendTriad.group, this.bendGhost.group, this.headerTriad.group);
+    this.group.add(this.xpipeTriad.group);
     this.headerTriad.setVisible(false);
+    this.xpipeTriad.setVisible(false);
+    // Only its arrows: where two pipes cross has no way of its own to point.
+    for (const axis of [0, 1, 2] as const) this.xpipeTriad.hideRing(axis, true);
     this.bendGhost.group.visible = false;
     // Only its rings: a bend is made by turning, and not about the pipe's own axis, which would do nothing.
     this.bendTriad.showMoves(false);
@@ -534,6 +559,7 @@ export class PipeEditor {
   setPlaceMode(on: boolean, kind: 'turbo' | 'pipe' = 'turbo'): void {
     if (on && this.drawMode) this.setDrawMode(false);
     if (on) this.setHeaderTool(null);
+    if (on) this.setXPipeTool(null);
     this.placeMode = on;
     this.placeKind = kind;
     this.ghost.rebuild(this.size);
@@ -609,6 +635,7 @@ export class PipeEditor {
     this.context = context;
     this.placeTurboTriad();
     if (this.header) this.updateHeader();
+    if (this.xpipe) this.updateXPipe();
     if (!this.route) return;
     /**
      * Follow the duct through the rebuild, and only abandon the route if the duct is *gone from the
@@ -630,6 +657,7 @@ export class PipeEditor {
 
   setDrawMode(on: boolean): void {
     if (on) this.setHeaderTool(null);
+    if (on) this.setXPipeTool(null);
     this.drawMode = on;
     if (!on) this.cancelRoute();
     this.group.visible = true;
@@ -663,6 +691,7 @@ export class PipeEditor {
     if (on && this.drawMode) this.setDrawMode(false);
     if (on && this.placeMode) this.setPlaceMode(false);
     if (on) this.setHeaderTool(null);
+    if (on) this.setXPipeTool(null);
     this.bendTool = on;
     this.bendAt = null;
     this.bendDrag = null;
@@ -672,9 +701,9 @@ export class PipeEditor {
     this.applyHandleVisibility();
   }
 
-  /** Whether a tool is on: drawing, placing, bending or the header. */
+  /** Whether a tool is on: drawing, placing, bending, the header or the X-pipe. */
   get toolOn(): boolean {
-    return this.drawMode || this.placeMode || this.bendTool || this.header !== null;
+    return this.drawMode || this.placeMode || this.bendTool || this.header !== null || this.xpipe !== null;
   }
 
   /**
@@ -688,6 +717,7 @@ export class PipeEditor {
     if (this.placeMode) this.setPlaceMode(false);
     if (this.bendTool) this.setBendTool(false);
     if (this.header) this.setHeaderTool(null);
+    if (this.xpipe) this.setXPipeTool(null);
     this.controls.enabled = true;
     this.cb.onToolEnded?.();
   }
@@ -706,6 +736,7 @@ export class PipeEditor {
       if (this.drawMode) this.setDrawMode(false);
       if (this.placeMode) this.setPlaceMode(false);
       if (this.bendTool) this.setBendTool(false);
+      if (this.xpipe) this.setXPipeTool(null);
     }
     this.header = setup;
     if (this.triadDrag?.on === 'header') {
@@ -896,6 +927,162 @@ export class PipeEditor {
     }
     drag.moved = true;
     this.updateHeader();
+  }
+
+  // -------------------------------------------------------------------------
+  // X-pipes
+  // -------------------------------------------------------------------------
+
+  /**
+   * Start the X-pipe tool on `setup`, or with `null` end it. A click on a pipe puts a point there, two on each
+   * of two pipes; a click on a point's dot takes it back. Once there are four, a triad sits where the pipes
+   * cross, its arrows moving it, and a ghost shows the bends the X would add.
+   */
+  setXPipeTool(setup: XPipeSetup | null): void {
+    if (setup) {
+      if (this.drawMode) this.setDrawMode(false);
+      if (this.placeMode) this.setPlaceMode(false);
+      if (this.bendTool) this.setBendTool(false);
+      if (this.header) this.setHeaderTool(null);
+    }
+    this.xpipe = setup;
+    if (this.triadDrag?.on === 'xpipe') {
+      this.triadDrag = null;
+      this.controls.enabled = true;
+    }
+    this.updateXPipe();
+    this.applyHandleVisibility();
+  }
+
+  /** The X the points picked make, crossing where the triad is, or why they make none. */
+  private xpipePlan(): XPlan | { error: string } {
+    const x = this.xpipe;
+    if (!x) return { error: '' };
+    const picked = xPairs(x.points);
+    if ('error' in picked) return picked;
+    if (!x.moved) x.cross = defaultCrossing(picked.pairs);
+    return { pairs: picked.pairs, cross: x.cross.clone() };
+  }
+
+  /** Build what the ghost shows, and end the tool. With no X to build yet, nothing happens. */
+  applyXPipe(): void {
+    const plan = this.xpipePlan();
+    if ('error' in plan) return;
+    this.setXPipeTool(null);
+    this.cb.onApplyXPipe?.(plan);
+  }
+
+  /** A dot on each point picked, the triad where the pipes cross, the ghost of the X, and what it comes to. */
+  private updateXPipe(): void {
+    const ctx = this.context;
+    const x = this.xpipe;
+    if (!x || !ctx) {
+      this.xpipeTriad.setVisible(false);
+      for (const g of this.xpipeGhosts) g.group.visible = false;
+      for (const d of this.xpipeDots) d.visible = false;
+      return;
+    }
+    // A point on a pipe that has gone is not one.
+    x.points = x.points.filter((p) => ctx.graph.ducts.some((d) => d.id === p.duct));
+    while (this.xpipeDots.length < x.points.length) {
+      const dot = new THREE.Mesh(
+        new THREE.SphereGeometry(1, 16, 12),
+        new THREE.MeshBasicMaterial({ color: OPENING_PICKED, transparent: true, opacity: 0.9, depthTest: false }),
+      );
+      dot.renderOrder = 14;
+      this.xpipeDots.push(dot);
+      this.group.add(dot);
+    }
+    this.xpipeDots.forEach((dot, i) => {
+      const p = x.points[i];
+      dot.visible = !!p;
+      if (!p) return;
+      dot.position.copy(p.point);
+      dot.scale.setScalar(Math.max(p.bore * 0.35, 0.008));
+    });
+
+    const plan = this.xpipePlan();
+    const legs = 'error' in plan ? [] : xLegs(plan);
+    this.xpipeTriad.setVisible(legs.length > 0);
+    if (!('error' in plan)) {
+      this.xpipeTriad.setMoveOrigin(plan.cross);
+      this.xpipeTriad.setRotateOrigin(plan.cross);
+    }
+    const bends =
+      'error' in plan
+        ? []
+        : legs.flatMap((leg) => {
+            const pair = plan.pairs[leg.pair];
+            return [
+              { segments: [leg.into], origin: pair.from.point, heading: pair.from.dir },
+              { segments: [leg.out], origin: plan.cross, heading: leg.leaving },
+            ];
+          });
+    while (this.xpipeGhosts.length < bends.length) {
+      const g = new PipeMesh(true);
+      this.xpipeGhosts.push(g);
+      this.group.add(g.group);
+    }
+    this.xpipeGhosts.forEach((g, i) => {
+      const bend = bends[i];
+      g.group.visible = !!bend;
+      if (bend) g.rebuild(bend.segments, bend.origin, bend.heading);
+    });
+
+    const mm = (m: number) => `${Math.round(m * 1000)}`;
+    this.cb.onXPipeAim?.(
+      'error' in plan
+        ? plan.error
+        : `Bends of ${legs.flatMap((l) => [mm(l.into.length), mm(l.out.length)]).join(', ')} mm · drag the triad to move the crossing` +
+            (legs.some((l) => l.tight) ? ' · a bend turns tighter than the pipe can be bent' : ''),
+    );
+  }
+
+  /** The point picked whose dot is under the pointer, within a few pixels, if any. */
+  private xpipePointUnderPointer(): PipePoint | null {
+    const x = this.xpipe;
+    if (!x) return null;
+    const rect = this.dom.getBoundingClientRect();
+    let best: { d: number; p: PipePoint } | null = null;
+    for (const p of x.points) {
+      const at = p.point.clone().project(this.camera);
+      if (at.z > 1) continue;
+      const d = Math.hypot(((at.x - this.pointer.x) * rect.width) / 2, ((at.y - this.pointer.y) * rect.height) / 2);
+      if (d <= SNAP_PIXELS && (!best || d < best.d)) best = { d, p };
+    }
+    return best?.p ?? null;
+  }
+
+  /** A click in the X-pipe tool: take back the point under it, or put one on the pipe under it. */
+  private pickXPipePoint(): boolean {
+    const x = this.xpipe;
+    const ctx = this.context;
+    if (!x || !ctx) return false;
+    const picked = this.xpipePointUnderPointer();
+    if (picked) {
+      x.points = x.points.filter((p) => p !== picked);
+      this.updateXPipe();
+      return true;
+    }
+    if (x.points.length >= 4) return false;
+    const surface = this.surfaceUnderPointer();
+    const duct = surface ? ctx.graph.ducts.find((d) => d.id === surface.duct) : undefined;
+    if (!surface || !surface.dir || !duct) return false;
+    x.points.push({ duct: duct.id, x: surface.x, point: surface.point.clone(), dir: surface.dir.clone(), bore: boreAt(duct.segments, surface.x) });
+    this.updateXPipe();
+    return true;
+  }
+
+  /** The X-pipe's triad: its arrows move where the pipes cross. */
+  private dragXPipeTriad(drag: TriadDrag, snap: boolean): void {
+    const x = this.xpipe;
+    if (!x) return;
+    const at = this.triadMove(drag, snap);
+    if (!at) return;
+    x.cross = at;
+    x.moved = true;
+    drag.moved = true;
+    this.updateXPipe();
   }
 
   /**
@@ -1152,7 +1339,7 @@ export class PipeEditor {
   private applyEngineFrame(): void {
     if (this.engineFrameOn === this.engineFrameHeld) return;
     this.engineFrameOn = this.engineFrameHeld;
-    for (const t of [this.pipeTriad, this.turboTriad, this.headerTriad]) t.setEngineFrame(this.engineFrameOn);
+    for (const t of [this.pipeTriad, this.turboTriad, this.headerTriad, this.xpipeTriad]) t.setEngineFrame(this.engineFrameOn);
   }
 
   private onKeyUp = (e: KeyboardEvent): void => {
@@ -1175,6 +1362,11 @@ export class PipeEditor {
     const typing = e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement;
     if (this.header && !typing && e.key === 'Enter') {
       this.applyHeader();
+      e.preventDefault();
+      return;
+    }
+    if (this.xpipe && !typing && e.key === 'Enter') {
+      this.applyXPipe();
       e.preventDefault();
       return;
     }
@@ -1222,9 +1414,25 @@ export class PipeEditor {
     if (point) return point;
 
     // Nothing within reach, so try the tubes themselves: a hit on one is a T.
+    const surface = this.surfaceUnderPointer((t) => t.duct !== this.route?.ductId && !trapped(t) && this.endable(t));
+    if (surface) return surface;
+
+    const free = this.freePoint(tip);
+    return free ? { kind: 'free', point: free } : null;
+  }
+
+  /**
+   * The point on a pipe's side under the pointer, on its centreline, that `accept` takes: the first pipe hit
+   * along its drawn length, not in a bend, which is not cut.
+   */
+  private surfaceUnderPointer(
+    accept: (t: Extract<SnapTarget, { kind: 'ductSurface' }>) => boolean = () => true,
+  ): Extract<SnapTarget, { kind: 'ductSurface' }> | null {
+    const ctx = this.context;
+    if (!ctx) return null;
     for (let i = 0; i < ctx.meshes.length; i++) {
       const duct = ctx.graph.ducts[i];
-      if (!duct || duct.id === this.route?.ductId) continue;
+      if (!duct) continue;
       const target = ctx.meshes[i]!.pickTarget;
       if (!target) continue;
       const hit = this.raycaster.intersectObject(target, false)[0];
@@ -1257,12 +1465,10 @@ export class PipeEditor {
         x: station?.x ?? st.x,
         ...(station ? { dir: station.direction.clone() } : {}),
       };
-      if (trapped(surface) || !this.endable(surface)) continue;
+      if (!accept(surface)) continue;
       return surface;
     }
-
-    const free = this.freePoint(tip);
-    return free ? { kind: 'free', point: free } : null;
+    return null;
   }
 
   /**
@@ -1844,6 +2050,15 @@ export class PipeEditor {
       return;
     }
 
+    if (this.xpipe) {
+      // The triad, a point's dot or a pipe; anywhere else turns the view.
+      const handle = this.xpipeTriad.visible ? this.xpipeTriad.pick(this.raycaster) : null;
+      if (handle) this.beginTriadDrag('xpipe', handle);
+      const acted = !!handle || this.pickXPipePoint();
+      if (acted) e.preventDefault();
+      return;
+    }
+
     if (this.bendTool) {
       const ring = this.bendTriad.pick(this.raycaster);
       if (ring) this.beginBendDrag(ring);
@@ -1961,7 +2176,8 @@ export class PipeEditor {
 
   /** Take hold of a triad's handle, on the selected segment or the selected turbo. */
   private beginTriadDrag(on: TriadDrag['on'], handle: TriadHandle): void {
-    const triad = on === 'pipe' ? this.pipeTriad : on === 'header' ? this.headerTriad : this.turboTriad;
+    const triad =
+      on === 'pipe' ? this.pipeTriad : on === 'header' ? this.headerTriad : on === 'xpipe' ? this.xpipeTriad : this.turboTriad;
     const moveOrigin = triad.moveOrigin;
     const rotateOrigin = triad.rotateOrigin;
     const axis = triad.axisDir(handle.axis, handle.kind);
@@ -1989,6 +2205,9 @@ export class PipeEditor {
       if (!this.header) return;
       drag.axis0 = this.header.axis.clone();
       drag.frame0 = frameAlong(this.header.axis);
+    } else if (on === 'xpipe') {
+      // Only moves: nothing more to take hold of.
+      if (!this.xpipe) return;
     } else if (on === 'pipe') {
       const ctx = this.context;
       // The whole pipe the selected one is part of, from where it starts (`runRoot`); or from a segment
@@ -2072,6 +2291,7 @@ export class PipeEditor {
     const drag = this.triadDrag!;
     if (drag.on === 'pipe') this.dragPipeTriad(drag, snap);
     else if (drag.on === 'header') this.dragHeaderTriad(drag, snap);
+    else if (drag.on === 'xpipe') this.dragXPipeTriad(drag, snap);
     else this.dragTurboTriad(drag, snap);
   }
 
@@ -2371,6 +2591,12 @@ export class PipeEditor {
       this.dom.style.cursor = this.headerTriad.hover(this.raycaster) ? 'grab' : this.openingUnderPointer() ? 'pointer' : '';
       return;
     }
+    if (this.xpipe) {
+      this.updatePointer(e);
+      const onTriad = this.xpipeTriad.visible && this.xpipeTriad.hover(this.raycaster);
+      this.dom.style.cursor = onTriad ? 'grab' : this.xpipePointUnderPointer() || this.surfaceUnderPointer() ? 'pointer' : '';
+      return;
+    }
     if (this.bendTool) {
       this.updatePointer(e);
       if (this.bendDrag) this.dragBend(e.shiftKey);
@@ -2481,7 +2707,7 @@ export class PipeEditor {
       this.triadDrag = null;
       this.controls.enabled = true;
       this.applyEngineFrame();
-      if (!drag.moved || drag.on === 'header') return;
+      if (!drag.moved || drag.on === 'header' || drag.on === 'xpipe') return;
       // Final authoritative push, since intermediate frames were throttled.
       if (drag.on === 'turbo') {
         const mount = this.context?.graph.turbos?.find((t) => t.id === drag.turbo);
@@ -2517,6 +2743,12 @@ export class PipeEditor {
     this.turboTriad.dispose();
     this.headerTriad.dispose();
     for (const g of this.headerGhosts) g.dispose();
+    this.xpipeTriad.dispose();
+    for (const g of this.xpipeGhosts) g.dispose();
+    for (const d of this.xpipeDots) {
+      d.geometry.dispose();
+      (d.material as THREE.Material).dispose();
+    }
     for (const d of this.openingDots) {
       d.geometry.dispose();
       (d.material as THREE.Material).dispose();
