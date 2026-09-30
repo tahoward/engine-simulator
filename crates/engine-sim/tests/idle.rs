@@ -1,5 +1,6 @@
-//! Every engine preset loads idling: in neutral, on a throttle found for it that holds
-//! `PRESET_IDLE_RPM`. Run free, each has to settle there rather than stall or run away.
+//! Every engine preset loads idling: in neutral, with the throttle shut and the idle air valve holding
+//! `PRESET_IDLE_RPM`. Run free, each has to settle there rather than stall or run away, catch itself
+//! there coming down off a lift, and stall under a load the valve cannot hold up.
 //!
 //! Also a readout, with no assertions, of every preset run free on a shut throttle and a few on a
 //! mid-throttle hold: `--nocapture` prints how the speed and manifold pressure evolve.
@@ -19,6 +20,8 @@ fn settles_near_the_idle_speed(name: &str) {
     let mut cfg = common::engine_preset(name).config.clone();
     cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true }));
     assert_eq!(cfg.engine.rpm, PRESET_IDLE_RPM);
+    assert_eq!(cfg.engine.idle_rpm, PRESET_IDLE_RPM);
+    assert_eq!(cfg.engine.throttle, 0.0);
     assert_eq!(cfg.engine.load, 0.0);
 
     let mut sim = EngineSim::new(FS, &cfg);
@@ -87,6 +90,69 @@ idle_tests! {
     presets_idle_boxer_four => 11,
     presets_idle_boxer_six => 12,
     presets_idle_parallel_twin_360 => 13,
+}
+
+// --- the idle air valve ---
+
+fn idling(name: &str, over: serde_json::Value) -> EngineSim {
+    let mut cfg = common::engine_preset(name).config.clone();
+    cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true }));
+    cfg.engine = common::with(&cfg.engine, over);
+    let mut sim = EngineSim::new(FS, &cfg);
+    sim.render(FS as usize * 3);
+    sim
+}
+
+/// The slowest and the mean speed over `seconds`, rpm, read every tenth of a second.
+fn slowest_and_mean(sim: &mut EngineSim, seconds: usize) -> (f64, f64) {
+    let (mut slowest, mut sum) = (f64::INFINITY, 0.0);
+    for _ in 0..seconds * 10 {
+        sim.render(FS as usize / 10);
+        slowest = slowest.min(sim.rpm());
+        sum += sim.rpm();
+    }
+    (slowest, sum / (seconds * 10) as f64)
+}
+
+/// Lifting off after a rev, the fuel cut lets the engine fall, and the valve's dashpot catches it at
+/// the idle rather than letting it fall through and stall.
+#[test]
+fn comes_down_off_a_lift_to_the_idle_without_stalling() {
+    for name in ["Single, megaphone", "Inline four, Honda F20C", "V8, Chevrolet LT2", "Inline six, Nissan RB26DETT"] {
+        let mut sim = idling(name, json!({}));
+        sim.set_controls(0.6, 0.0);
+        sim.render(FS as usize * 3 / 2);
+        sim.set_controls(0.0, 0.0);
+        // Ten seconds: the single's heavy flywheel takes most of them to come down.
+        let (slowest, _) = slowest_and_mean(&mut sim, 10);
+        let (_, mean) = slowest_and_mean(&mut sim, 3);
+        assert!(slowest > 550.0, "{name}: fell to {slowest} rpm");
+        assert!((mean - PRESET_IDLE_RPM).abs() < 150.0, "{name}: back at {mean} rpm");
+    }
+}
+
+/// The idle speed is the valve's to set.
+#[test]
+fn holds_the_idle_speed_it_is_set_to() {
+    for name in ["Single, megaphone", "V8, Chevrolet LT2"] {
+        let mut sim = idling(name, json!({ "idleRpm": 1100 }));
+        sim.render(FS as usize * 3);
+        let (_, mean) = slowest_and_mean(&mut sim, 2);
+        assert!((mean - 1100.0).abs() < 150.0, "{name}: idles at {mean} rpm");
+    }
+}
+
+/// A load past what the valve can open against stalls the engine: it comes to a standstill and stays.
+#[test]
+fn stalls_under_a_load_it_cannot_hold() {
+    for name in ["Single, megaphone", "Inline four, Honda F20C", "V8, Chevrolet LT2"] {
+        let mut sim = idling(name, json!({}));
+        sim.set_controls(0.0, 1.0);
+        sim.render(FS as usize * 3);
+        let out = sim.render(FS as usize);
+        assert!(sim.rpm_instant() < 1.0, "{name}: still turning at {} rpm", sim.rpm_instant());
+        assert!(out.iter().all(|s| s.is_finite()), "{name}: finite at a standstill");
+    }
 }
 
 // --- closed throttle must not run away ---

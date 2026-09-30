@@ -1279,7 +1279,19 @@ export class Panel {
       'openings.';
 
     // ---- Combustion ------------------------------------------------------
-    const comb = section('Combustion', 'combustion', 'Rev limiter, ignition advance, burn duration and mixture.');
+    const comb = section('Combustion', 'combustion', 'Idle speed, rev limiter, ignition advance, burn duration and mixture.');
+    this.slider(comb, {
+      label: 'Idle speed',
+      min: 500,
+      max: 1500,
+      step: 25,
+      value: spec.idleRpm,
+      sync: () => this.config.engine.idleRpm,
+      unit: 'rpm',
+      onInput: (v) => this.cb.onEngine({ idleRpm: v }),
+    }).row.title =
+      'What the idle air valve holds with the throttle shut. It opens round the throttle to hold this ' +
+      'speed against a load, and past what it can open the engine stalls.';
     const revLimit = this.slider(comb, {
       label: 'Rev limiter',
       min: 2000,

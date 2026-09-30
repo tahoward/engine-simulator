@@ -471,6 +471,14 @@ export interface EngineSpec {
    */
   revLimit: number;
   /**
+   * Idle speed, rev/min: what the idle air valve holds with the throttle shut, as an engine management
+   * system does. The valve bypasses the throttle plate, opened by a controller on the crank speed: shut
+   * above the idle speed, so the throttle alone sets the speed there, and opening further below it to
+   * hold the idle against a load, up to its limit, past which the engine stalls. 0 for no idle control.
+   * Only for a free-running engine (`freeRunning`).
+   */
+  idleRpm: number;
+  /**
    * When true the crank is integrated from gas torque, reciprocating inertia and load, so the
    * throttle and the pipe's tuning set the speed. See `flywheelInertia` / `load`. The app always runs
    * this way.
@@ -1245,6 +1253,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
 
   rpm: 3200,
   revLimit: 7000,
+  idleRpm: 800,
   freeRunning: false,
   // A bare crank is nearer 0.06; 0.25 represents crank plus clutch and primary
   // drive, which is what a rider actually hears. Lower it for a lumpier idle.
@@ -1972,16 +1981,16 @@ function fourValveHead(bore: number): Pick<EngineSpec, 'exValveDia' | 'exValveCo
 export const PRESET_IDLE_RPM = 800;
 
 /**
- * A preset's operating point: idling in neutral at `PRESET_IDLE_RPM`, on `throttle`.
- *
- * The throttle is each preset's own, found by running it free with no load and adjusting the opening
- * until it settles at the idle speed. Most come out at 7-8%, because every throttle is sized to its
- * engine's airflow (`throttleDiaOf`). The engine starts at the idle speed too, so it does not have
- * to settle there from somewhere else.
+ * A preset's operating point: idling in neutral at `PRESET_IDLE_RPM`, with the throttle shut and the
+ * idle air valve holding the speed (`idleRpm`). The engine starts at the idle speed too, so it does not
+ * have to settle there from somewhere else.
  */
-function idling(throttle: number): Pick<EngineSpec, 'rpm' | 'load' | 'throttle'> {
-  return { rpm: PRESET_IDLE_RPM, load: 0, throttle };
-}
+const IDLING: Pick<EngineSpec, 'rpm' | 'idleRpm' | 'load' | 'throttle'> = {
+  rpm: PRESET_IDLE_RPM,
+  idleRpm: PRESET_IDLE_RPM,
+  load: 0,
+  throttle: 0,
+};
 
 /** Engines sized from their real counterparts, with exhausts fitted by `fittedExhaust`. */
 const THREE_CYL: Partial<EngineSpec> = {
@@ -1990,7 +1999,7 @@ const THREE_CYL: Partial<EngineSpec> = {
   exhaustLayout: 'merged',
   exhaustHeaders: true,
   headerRun: 'lengthways',
-  ...idling(0.075),
+  ...IDLING,
   // A Ford 1.0 EcoBoost's.
   revLimit: 6500,
   flywheelInertia: 0.2,
@@ -2010,7 +2019,7 @@ const NISSAN_RB26: Partial<EngineSpec> = {
   cylinders: 6,
   vAngle: 0,
   exhaustLayout: 'merged',
-  ...idling(0.079),
+  ...IDLING,
   // Its fuel cut, a little past the 8000 rpm redline.
   revLimit: 8200,
   flywheelInertia: 0.3,
@@ -2052,7 +2061,7 @@ const TOYOTA_2GR: Partial<EngineSpec> = {
   cylinders: 6,
   vAngle: 60,
   exhaustLayout: 'perBank',
-  ...idling(0.078),
+  ...IDLING,
   // Its fuel cut.
   revLimit: 6600,
   flywheelInertia: 0.5,
@@ -2093,7 +2102,7 @@ const BOXER_FOUR: Partial<EngineSpec> = {
   exhaustLayout: 'merged',
   exhaustHeaders: true,
   headerRun: 'lengthways',
-  ...idling(0.075),
+  ...IDLING,
   // A Subaru EJ25's.
   revLimit: 6500,
   flywheelInertia: 0.3,
@@ -2115,7 +2124,7 @@ const BOXER_SIX: Partial<EngineSpec> = {
   exhaustLayout: 'perBank',
   exhaustHeaders: true,
   headerRun: 'lengthways',
-  ...idling(0.076),
+  ...IDLING,
   // A 997 Carrera 3.6's.
   revLimit: 7300,
   flywheelInertia: 0.35,
@@ -2131,8 +2140,7 @@ const BOXER_SIX: Partial<EngineSpec> = {
   outputGain: 1.03,
 };
 
-/** The F20C preset's idle throttle, output gain and high-speed cam. See `idling`. */
-const F20C_IDLE_THROTTLE = 0.078;
+/** The F20C preset's output gain and high-speed cam. */
 /** Level-matched to the single at idle, as the other presets are to this one. */
 const F20C_GAIN = 1.31;
 const F20C_CAM = { evo: 108, evc: 392, ivo: 328, ivc: 625 };
@@ -2146,7 +2154,7 @@ const TOYOTA_3SGTE: Partial<EngineSpec> = {
   cylinders: 4,
   vAngle: 0,
   exhaustLayout: 'merged',
-  ...idling(0.076),
+  ...IDLING,
   // Its fuel cut, a little past the 7000 rpm redline.
   revLimit: 7200,
   flywheelInertia: 0.25,
@@ -2184,7 +2192,7 @@ const AUDI_EA855_EVO: Partial<EngineSpec> = {
   cylinders: 5,
   vAngle: 0,
   exhaustLayout: 'merged',
-  ...idling(0.076),
+  ...IDLING,
   // Its fuel cut, a little past the 7000 rpm redline.
   revLimit: 7200,
   flywheelInertia: 0.3,
@@ -2211,11 +2219,8 @@ const AUDI_EA855_EVO: Partial<EngineSpec> = {
   outputGain: 1.24,
 };
 
-/** The LT2 preset's idle throttle and output gain. See `idling`. */
-const LT2_IDLE_THROTTLE = 0.075;
+/** The LT2 and LT6 presets' output gains. */
 const LT2_GAIN = 2.1;
-/** The LT6 preset's idle throttle and output gain. See `idling`. */
-const LT6_IDLE_THROTTLE = 0.082;
 const LT6_GAIN = 0.93;
 
 export const ENGINE_PRESETS: EnginePreset[] = [
@@ -2223,7 +2228,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     name: 'Single, megaphone',
     description: 'A 500 cc air-cooled thumper.',
     // A big air-cooled single is out of breath well before 7000.
-    engine: { cylinders: 1, exhaustLayout: 'single', revLimit: 7000, ...idling(0.072), outputGain: 0.68 },
+    engine: { cylinders: 1, exhaustLayout: 'single', revLimit: 7000, ...IDLING, outputGain: 0.68 },
     pipe: () => PIPE_PRESETS[1]!.build(),
   },
   {
@@ -2237,7 +2242,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       exhaustLayout: '2into1',
       exhaustHeaders: true,
       headerRun: 'lengthways',
-      ...idling(0.073),
+      ...IDLING,
       // Long-stroke and pushrod: a Harley stops pulling not far past 5500.
       revLimit: 5600,
       flywheelInertia: 0.4,
@@ -2262,7 +2267,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       vAngle: 90,
       firingOffset: null,
       exhaustLayout: '2into2',
-      ...idling(0.075),
+      ...IDLING,
       // Desmodromic valves, so no float to guard against: a Ducati twin's 9000.
       revLimit: 9000,
       mouthSpacing: 0.45,
@@ -2298,7 +2303,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       exhaustLayout: 'merged',
       exhaustHeaders: true,
       headerRun: 'lengthways',
-      ...idling(F20C_IDLE_THROTTLE),
+      ...IDLING,
       // Its fuel cut; the redline is 9000.
       revLimit: 9150,
       flywheelInertia: 0.14,
@@ -2471,7 +2476,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       exhaustLayout: 'perBank',
       exhaustHeaders: true,
       headerRun: 'lengthways',
-      ...idling(LT2_IDLE_THROTTLE),
+      ...IDLING,
       revLimit: 6600,
       mouthSpacing: 1.3,
       // The crank, flexplate and dual clutch's input: the gearbox has no flywheel of its own.
@@ -2527,7 +2532,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       exhaustLayout: 'perBank',
       exhaustHeaders: true,
       headerRun: 'lengthways',
-      ...idling(LT6_IDLE_THROTTLE),
+      ...IDLING,
       revLimit: 8600,
       mouthSpacing: 0.6,
       flywheelInertia: 0.45,
@@ -2605,7 +2610,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       exhaustLayout: '2into1',
       exhaustHeaders: true,
       headerRun: 'lengthways',
-      ...idling(0.074),
+      ...IDLING,
       // A modern 1200 cc parallel twin's.
       revLimit: 7500,
       outputGain: 0.54,

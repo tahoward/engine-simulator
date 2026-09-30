@@ -53,6 +53,9 @@ pub struct IntakePlenum {
     burned_mass: f64,
     fuel_mass: f64,
     volume: f64,
+    /// The throttle plate's opening, 0..1, and the idle air valve's, as more of the plate's.
+    opening: f64,
+    bypass: f64,
     /// Effective throttle area, m^2.
     area: f64,
 }
@@ -67,18 +70,32 @@ impl IntakePlenum {
             burned_mass: 0.0,
             fuel_mass: 0.0,
             volume,
+            opening: spec.throttle,
+            bypass: 0.0,
             area: IntakePlenum::throttle_area(spec),
         }
     }
 
     /// Set the throttle to `opening`, 0..1, in place of the spec's, until the next `set_geometry`.
     pub fn set_opening(&mut self, spec: &EngineSpec, opening: f64) {
-        self.area = IntakePlenum::throttle_area_at(spec, opening);
+        self.opening = opening;
+        self.area = IntakePlenum::throttle_area_at(spec, self.opening + self.bypass);
+    }
+
+    /// Open the idle air valve, the bypass round the throttle plate, by `bypass`: as much air as that
+    /// much more of the plate's opening would pass.
+    pub fn set_bypass(&mut self, spec: &EngineSpec, bypass: f64) {
+        if bypass == self.bypass {
+            return;
+        }
+        self.bypass = bypass;
+        self.area = IntakePlenum::throttle_area_at(spec, self.opening + self.bypass);
     }
 
     /// Rebuild geometry in place, keeping the gas state.
     pub fn set_geometry(&mut self, spec: &EngineSpec) {
-        self.area = IntakePlenum::throttle_area(spec);
+        self.opening = spec.throttle;
+        self.area = IntakePlenum::throttle_area_at(spec, self.opening + self.bypass);
         let v = math::max(plenum_volume_of(spec), 1e-5);
         if v == self.volume {
             return;
