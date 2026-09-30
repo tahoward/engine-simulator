@@ -9,12 +9,13 @@
 
 import * as THREE from 'three';
 
-import { newDuctId, newNodeId, splitSegments, type ExhaustDuct, type ExhaustGraph } from '../model/exhaustGraph.js';
+import { junctionAt, newDuctId, newNodeId, splitSegments, type ExhaustDuct, type ExhaustGraph } from '../model/exhaustGraph.js';
+import type { Vec3 } from '../model/geometry.js';
 import { segmentDiameter, type PipeSegment } from '../model/spec.js';
 import { lockedFrom } from '../model/turbo.js';
 import { MIN_BEND_BORES, fitCurve, headingOffsetTo } from './drawing.js';
 import type { DuctPlacement } from './exhaustLayout.js';
-import { bendRadius, layoutPipe } from './PipeMesh.js';
+import { bendRadius, layoutPipe, turnHeading } from './PipeMesh.js';
 
 /** Where the ways a pipe leaving a junction in the world's terms are measured from. */
 const WORLD_X = new THREE.Vector3(1, 0, 0);
@@ -206,4 +207,48 @@ export function applyXPipe(graph: ExhaustGraph, plan: XPlan): string | null {
     through: { [ducts[0]!.id]: leavingIds[1]!, [ducts[1]!.id]: leavingIds[0]! },
   });
   return node;
+}
+
+/** The pipes leaving the X-pipe crossing at `node`, or none where it is not one. */
+export function crossingLegs(graph: ExhaustGraph, node: string): ExhaustDuct[] {
+  const pin = junctionAt(graph, node);
+  if (!pin?.through) return [];
+  const ids = new Set(Object.values(pin.through));
+  return graph.ducts.filter((d) => ids.has(d.id) && d.from.kind === 'node' && d.from.node === node);
+}
+
+/**
+ * Move the X-pipe crossing at `node` to `position`. Each pipe leaving it bends out again from there to where
+ * it bent out to before, arriving the way it did, so what carries on from it stays put; the pipes into it,
+ * fitted, follow it when bends are fitted again. Returns whether `node` is a crossing.
+ */
+export function moveCrossing(graph: ExhaustGraph, node: string, position: Vec3): boolean {
+  const pin = junctionAt(graph, node);
+  const legs = crossingLegs(graph, node);
+  if (!pin || legs.length === 0) return false;
+  const from = new THREE.Vector3(...pin.position);
+  const to = new THREE.Vector3(...position);
+  const axis = new THREE.Vector3();
+  for (const leg of legs) {
+    const bend = leg.segments[0];
+    if (!bend) continue;
+    const frame = leg.headingFrame === 'world' ? WORLD_X : new THREE.Vector3(...pin.axis);
+    const swept = layoutPipe([bend], from, turnHeading(frame, leg.headingYaw ?? 0, leg.headingPitch ?? 0));
+    const end = swept.joints[0]!;
+    const arriving = swept.jointDirections[0]!;
+    const out = end.clone().sub(to);
+    const leaving = out.lengthSq() > 1e-12 ? out.normalize() : arriving.clone();
+    leg.segments[0] = { ...fitCurve(to, leaving, end, arriving, { dIn: bend.dIn, dOut: bend.dOut }), id: bend.id };
+    const turn = headingOffsetTo(WORLD_X, leaving);
+    leg.headingYaw = turn.yaw;
+    leg.headingPitch = turn.pitch;
+    leg.headingFrame = 'world';
+    axis.add(leaving);
+  }
+  pin.position = [...position];
+  if (axis.lengthSq() > 1e-12) {
+    axis.normalize();
+    pin.axis = [axis.x, axis.y, axis.z];
+  }
+  return true;
 }

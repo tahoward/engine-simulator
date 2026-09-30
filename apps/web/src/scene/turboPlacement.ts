@@ -25,6 +25,7 @@ import { MIN_BEND_BORES, bendAnchor, fitCurve, type BendAnchor } from './drawing
 import { bendRadius } from './PipeMesh.js';
 import { layoutGraph, type ExhaustPort } from './exhaustLayout.js';
 import { layoutPipe } from './PipeMesh.js';
+import { moveCrossing } from './xpipeTool.js';
 
 /** Where a turbo is put down unless it is snapped to a pipe: level with the exhaust ports. */
 export function turboHeight(ports: ExhaustPort[]): number {
@@ -72,8 +73,11 @@ export function moveJunction(
   axis: Vec3,
 ): void {
   const pinned = junctionAt(graph, node);
-  if (pinned) pinned.position = position;
-  else (graph.junctions ??= []).push({ node, position, axis });
+  // An X-pipe's crossing takes its legs with it, bending out again to where they went.
+  if (!moveCrossing(graph, node, position)) {
+    if (pinned) pinned.position = position;
+    else (graph.junctions ??= []).push({ node, position, axis });
+  }
   refitBends(graph, ports, spec);
 }
 

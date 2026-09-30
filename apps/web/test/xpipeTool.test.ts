@@ -12,7 +12,7 @@ import { defaultConfig, makeSegment, type EngineSpec } from '../src/model/spec.j
 import { EngineMesh } from '../src/scene/EngineMesh.js';
 import { layoutGraph, type ExhaustPlacement, type ExhaustPort } from '../src/scene/exhaustLayout.js';
 import { layoutPipe } from '../src/scene/PipeMesh.js';
-import { refitBends } from '../src/scene/turboPlacement.js';
+import { moveJunction, refitBends } from '../src/scene/turboPlacement.js';
 import { applyXPipe, boreAt, defaultCrossing, snapPoints, xLegs, xPairs, type PipePoint, type XPlan } from '../src/scene/xpipeTool.js';
 
 const v8 = { ...defaultConfig().engine, cylinders: 8, vAngle: 90, crankType: 'crossplane', exhaustLayout: 'perBank' } as EngineSpec;
@@ -124,6 +124,38 @@ describe('the X-pipe', () => {
       expect(own.stations[0]!.position.distanceTo(plan.cross)).toBeLessThan(1e-9);
       expect(own.joints[0]!.distanceTo(pair.to.point)).toBeLessThan(1e-3);
       expect(own.jointDirections[0]!.angleTo(pair.to.dir)).toBeLessThan(0.02);
+    }
+  });
+
+  it('moves its crossing with the legs bending out again to where they went, and what follows them staying put', () => {
+    const { graph, ports, tails } = duals();
+    const plan = planOf(graph, layoutGraph(ports, graph), tails);
+    const node = applyXPipe(graph, plan)!;
+    refitBends(graph, ports, v8);
+    const pin = junctionAt(graph, node)!;
+    const legIds = Object.values(pin.through!);
+    const sweep = (id: string, placement: ExhaustPlacement) => {
+      const d = graph.ducts.find((x) => x.id === id)!;
+      const at = placement.ducts.get(id)!;
+      return layoutPipe(d.segments, at.origin, at.heading);
+    };
+    const before = layoutGraph(ports, graph);
+    const ends = new Map(legIds.map((id) => [id, sweep(id, before).joints.map((j) => j.clone())]));
+
+    const to = plan.cross.clone().add(new THREE.Vector3(0.05, 0.1, -0.04));
+    moveJunction(graph, ports, v8, node, [to.x, to.y, to.z], pin.axis);
+    expect(validateGraph(graph, 8)).toEqual([]);
+    const after = layoutGraph(ports, graph);
+    for (const id of legIds) {
+      const now = sweep(id, after);
+      expect(now.stations[0]!.position.distanceTo(to)).toBeLessThan(1e-9);
+      // Every joint from the bend's end on is where it was.
+      now.joints.forEach((j, k) => expect(j.distanceTo(ends.get(id)![k]!)).toBeLessThan(1e-6));
+    }
+    for (const pair of plan.pairs) {
+      const feed = sweep(pair.duct, after);
+      expect(feed.joints.at(-1)!.distanceTo(to)).toBeLessThan(1e-3);
+      expect(feed.jointDirections.at(-1)!.angleTo(sweep(pin.through![pair.duct]!, after).stations[0]!.direction)).toBeLessThan(0.02);
     }
   });
 
