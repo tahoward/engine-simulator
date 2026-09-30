@@ -93,6 +93,7 @@ import {
   mirrorPlan,
   openingKey,
   shortestHeader,
+  type BankMirror,
   type HeaderPlan,
   type HeaderPrimary,
   type OpeningAt,
@@ -244,9 +245,9 @@ export interface HeaderSetup {
   length: number;
   /** The openings picked, by `openingKey`. */
   picked: Set<string>;
-  /** Each cylinder's bank, and the engine's middle, which one bank is the mirror image of the other in. */
+  /** Each cylinder's bank, and how one bank is the mirror image of the other (`bankMirror`). */
   banks: number[];
-  mirror: { point: THREE.Vector3; normal: THREE.Vector3 } | null;
+  mirror: BankMirror | null;
   mirrored: boolean;
   /** The bore a pipe from a port with none on it starts at. */
   portBore: number;
@@ -770,7 +771,7 @@ export class PipeEditor {
     const there = picked.filter((o) => bankOf(o) === 1 - here);
     const main = plan(picked.filter((o) => bankOf(o) !== 1 - here), h.merge, h.axis);
     const plans = main.openings.length > 0 ? [main] : [];
-    if (there.length > 0) plans.push({ ...mirrorPlan(main, h.mirror, there), collectorBore: headerCollectorBore(ctx.graph, there) });
+    if (there.length > 0) plans.push({ ...mirrorPlan(main, h.mirror, there, 1 - here), collectorBore: headerCollectorBore(ctx.graph, there) });
     return plans;
   }
 

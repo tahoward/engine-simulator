@@ -122,16 +122,33 @@ describe('equal-length pipes', () => {
     const p = planFrom(graph, portOpenings(graph, ports, bankCylinders(spec, 0)));
     const mirror = bankMirror(spec)!;
     expect(mirror).not.toBeNull();
-    const other = mirrorPlan(p, mirror, portOpenings(graph, ports, bankCylinders(spec, 1)));
+    const other = mirrorPlan(p, mirror, portOpenings(graph, ports, bankCylinders(spec, 1)), 1);
     for (const q of [p, other]) applyHeader(graph, q, headerPrimaries(q));
     expect(validateGraph(graph, spec.cylinders)).toEqual([]);
 
-    // Across the engine's middle: the merge and the way it points, mirrored in x.
+    // Across the engine's middle, and along the crank as far as the banks are staggered: the merge and the
+    // way it points, mirrored in x.
+    const stagger = ports[bankCylinders(spec, 1)[0]!]!.position.z - ports[bankCylinders(spec, 0)[0]!]!.position.z;
     expect(other.merge.x).toBeCloseTo(-p.merge.x, 9);
     expect(other.merge.y).toBeCloseTo(p.merge.y, 9);
-    expect(other.merge.z).toBeCloseTo(p.merge.z, 9);
+    expect(other.merge.z).toBeCloseTo(p.merge.z + stagger, 9);
     expect(other.axis.x).toBeCloseTo(-p.axis.x, 9);
+    // And from the other bank back again.
+    expect(mirrorPlan(other, mirror, p.openings, 0).merge.distanceTo(p.merge)).toBeLessThan(1e-9);
     for (let c = 0; c < spec.cylinders; c++) expect(total(runner(graph, c).segments)).toBeCloseTo(p.length, 2);
+
+    // Pipe for pipe, the other bank's are the mirror image of the first's.
+    const a = bankCylinders(spec, 0);
+    const b = bankCylinders(spec, 1);
+    a.forEach((ca, k) => {
+      const cb = b[k]!;
+      const mine = layoutPipe(runner(graph, ca).segments, ports[ca]!.position, ports[ca]!.direction).joints;
+      const theirs = layoutPipe(runner(graph, cb).segments, ports[cb]!.position, ports[cb]!.direction).joints;
+      expect(theirs.length).toBe(mine.length);
+      mine.forEach((pt, j) => {
+        expect(theirs[j]!.distanceTo(new THREE.Vector3(-pt.x, pt.y, pt.z + stagger))).toBeLessThan(1e-6);
+      });
+    });
   });
 
   it('offers a port with a pipe on it only as where that pipe ends, and carries open pipes on', () => {
