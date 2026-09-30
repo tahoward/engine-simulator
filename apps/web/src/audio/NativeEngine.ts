@@ -156,14 +156,14 @@ export class NativeEngine implements EngineHost {
   }
 
   readWaveform(out: Float32Array<ArrayBuffer>): boolean {
-    if (!this.hasWaveform) return false;
+    if (!this.hasWaveform || !this.playing) return false;
     const from = Math.max(0, FFT_SIZE - out.length);
     out.set(this.waveform.subarray(from, from + Math.min(out.length, FFT_SIZE)));
     return true;
   }
 
   readSpectrum(out: Float32Array<ArrayBuffer>): boolean {
-    if (!this.hasWaveform) return false;
+    if (!this.hasWaveform || !this.playing) return false;
     const { re, im, window, smoothed } = this;
     for (let i = 0; i < FFT_SIZE; i++) {
       re[i] = this.waveform[i]! * window[i]!;

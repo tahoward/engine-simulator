@@ -87,7 +87,6 @@ import { LagNotice } from './ui/LagNotice.js';
 const viewportEl = must<HTMLElement>('#viewport');
 const panelEl = must<HTMLElement>('#panel');
 const scopeEl = must<HTMLCanvasElement>('#scope');
-const overlayEl = must<HTMLElement>('#overlay');
 const hudEl = must<HTMLElement>('#hud');
 const toolsEl = must<HTMLElement>('#tools');
 
@@ -614,10 +613,7 @@ const panel = new Panel(panelEl, toolsEl, config, {
   },
   onSelect: (i) => editor.select(i),
   onToggleAudio: () => {
-    void audio.toggle().then((running) => {
-      panel.setRunning(running);
-      overlayEl.classList.toggle('hidden', running);
-    });
+    void audio.toggle().then((running) => showRunning(running));
   },
   onLaunch: (launchConfig) => {
     if (!launchConfig) {
@@ -627,10 +623,7 @@ const panel = new Panel(panelEl, toolsEl, config, {
     // A run needs the engine running; starting it is what the button asks for.
     const ready = audio.running
       ? Promise.resolve()
-      : audio.start().then(() => {
-          panel.setRunning(true);
-          overlayEl.classList.add('hidden');
-        });
+      : audio.start().then(() => showRunning(true));
     void ready.then(() => {
       launchSheet.begin(launchConfig);
       audio.launch(launchConfig);
@@ -865,6 +858,8 @@ let displayRpm = 0;
 let timeScale = 1;
 
 audio.onSnapshot((s) => {
+  // One sent just before a stop can land after it, and would set the stopped engine going again.
+  if (!audio.running) return;
   latest = s;
   displayRpm = s.rpm;
   // Snapshots arrive at 60 Hz but the crank may be turning at 160 rev/s, so the
@@ -909,12 +904,25 @@ viewer.onFrame((dt) => {
     engineMesh.highCam = latest.highCam;
     engineMesh.update(
       posed,
-      posed.map((b) => glow(b.crankAngle, config.engine.ignition)),
+      posed.map((b) => (displayRpm > 0 ? glow(b.crankAngle, config.engine.ignition) : 0)),
     );
   }
   scope.draw();
   launchSheet.draw();
 });
+
+/**
+ * Show the engine running or stopped. A stopped one stands still where it stopped, with its pipes at
+ * ambient pressure and the readouts cleared; the scope goes flat by itself, as the audio has no output.
+ */
+function showRunning(running: boolean): void {
+  panel.setRunning(running);
+  if (running) return;
+  displayRpm = 0;
+  const ambient = new Float32Array(1);
+  for (const m of pipeMeshes) m.update(ambient, 1);
+  hudEl.textContent = '';
+}
 
 /** Wraps to (-360, 360]. */
 function shortestAngle(d: number): number {
@@ -1061,29 +1069,17 @@ applyView(panel.viewOptions);
 viewer.frameBounds(sceneBounds());
 viewer.start();
 
-// Audio needs a user gesture, so the whole viewport is the start button until it is
-// running. The desktop app needs none, and starts at once.
+// Audio needs a user gesture on the web, so it waits for the start button. The desktop app needs
+// none, and starts at once.
 if (import.meta.env.VITE_TARGET === 'desktop') {
-  void audio.start().then(() => {
-    panel.setRunning(true);
-    overlayEl.classList.add('hidden');
-  });
+  void audio.start().then(() => showRunning(true));
 }
-overlayEl.addEventListener('click', () => {
-  void audio.start().then(() => {
-    panel.setRunning(true);
-    overlayEl.classList.add('hidden');
-  });
-});
 
 document.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   if (e.code === 'Space') {
     e.preventDefault();
-    void audio.toggle().then((running) => {
-      panel.setRunning(running);
-      overlayEl.classList.toggle('hidden', running);
-    });
+    void audio.toggle().then((running) => showRunning(running));
   }
 });
 
