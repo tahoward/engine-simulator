@@ -154,6 +154,9 @@ export class EngineMesh {
 
     // Straddle vertical, so a V looks like a V rather than leaning.
     this.group.rotation.z = ((plan.bankCount > 1 ? this.spec.vAngle / 2 : 0) * Math.PI) / 180;
+
+    // Posed with cylinder 1 at TDC, so the engine is assembled before the first snapshot turns it.
+    this.update(plan.offsets.map((o) => ({ crankAngle: (720 - o) % 720 })), []);
   }
 
   private buildCrank(throws: Array<{ angles: number[]; z: number }>): void {
@@ -473,7 +476,7 @@ export class EngineMesh {
    * Driven by each cylinder's own crank angle rather than a single global one, so the phase
    * relationship on screen is whatever the physics is actually running.
    */
-  update(banks: BankSnapshot[], burnGlow: number[]): void {
+  update(banks: Array<Pick<BankSnapshot, 'crankAngle'>>, burnGlow: number[]): void {
     const s = this.spec;
     const a = s.stroke / 2;
 

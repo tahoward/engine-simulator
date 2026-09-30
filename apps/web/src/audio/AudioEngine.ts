@@ -274,16 +274,17 @@ export class AudioEngine implements EngineHost {
     this.node?.port.postMessage(msg);
   }
 
-  /** Fills `out` with the current time-domain waveform. Returns false if audio was never started. */
+  /** Fills `out` with the current time-domain waveform. Returns false while the audio is not running. */
   readWaveform(out: Float32Array<ArrayBuffer>): boolean {
-    if (!this.analyser) return false;
+    // A suspended analyser holds its last frame, which is not what a stopped engine sounds like.
+    if (!this.analyser || !this.running) return false;
     this.analyser.getFloatTimeDomainData(out);
     return true;
   }
 
-  /** Fills `out` with the current magnitude spectrum in dB. Returns false if audio was never started. */
+  /** Fills `out` with the current magnitude spectrum in dB. Returns false while the audio is not running. */
   readSpectrum(out: Float32Array<ArrayBuffer>): boolean {
-    if (!this.analyser) return false;
+    if (!this.analyser || !this.running) return false;
     this.analyser.getFloatFrequencyData(out);
     return true;
   }

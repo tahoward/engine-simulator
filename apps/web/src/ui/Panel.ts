@@ -337,7 +337,7 @@ export class Panel {
     const section = sectionRail(root);
 
     // ---- Transport -------------------------------------------------------
-    const transport = section('Transport', 'transport', 'Start and stop the engine, pick a preset, and save or load an engine.');
+    const transport = section('Transport', 'transport', 'Start and stop the engine, its throttle and load, and pick, save or load an engine.');
     this.startBtn = el('button', 'primary', transport) as HTMLButtonElement;
     this.startBtn.textContent = 'Start engine';
     this.startBtn.addEventListener('click', () => this.cb.onToggleAudio());
@@ -348,35 +348,7 @@ export class Panel {
     this.rpmEl = el('div', 'big-readout', transport);
     this.rpmEl.textContent = '— rpm';
 
-    const rateRow = el('div', 'row', transport);
-    el('label', '', rateRow).textContent = 'Sample rate';
-    const rateSel = el('select', '', rateRow) as HTMLSelectElement;
-    this.rateSel = rateSel;
-    for (const [hz, label] of SAMPLE_RATES) rateSel.appendChild(option(String(hz), label));
-    rateSel.value = String(sampleRate);
-    rateSel.addEventListener('change', () => this.cb.onSampleRate(Number(rateSel.value)));
-    rateRow.title =
-      'The solver takes one step per audio sample, so a lower rate means fewer steps and coarser ' +
-      'cells: much less CPU, for a duller exhaust. For phones and slow machines. Changing it ' +
-      'restarts the audio, and the pipes warm up again from cold.';
-
-    // ---- Operating point -------------------------------------------------
-    const op = section('Operating point', 'operatingPoint', 'Throttle, load, rev limiter and flywheel.');
-    const revLimit = this.slider(op, {
-      label: 'Rev limiter',
-      min: 2000,
-      max: 12000,
-      step: 100,
-      value: spec.revLimit,
-      sync: () => this.config.engine.revLimit,
-      unit: 'rpm',
-      onInput: (v) => this.cb.onEngine({ revLimit: v }),
-    });
-    revLimit.row.title =
-      'The spark is cut above this and returns once the crank has dropped back, so the engine ' +
-      'bounces off it.';
-
-    this.slider(op, {
+    this.slider(transport, {
       label: 'Throttle',
       min: 0,
       max: 1,
@@ -389,7 +361,7 @@ export class Panel {
       'The engine speed follows from this and the load: the crank is driven by the gas torque ' +
       'against friction and the load, so the exhaust tuning moves it too.';
 
-    const load = this.slider(op, {
+    const load = this.slider(transport, {
       label: 'Load',
       min: 0,
       // Past full throttle's worth, so the engine can be bogged down and stalled.
@@ -403,16 +375,18 @@ export class Panel {
     load.row.title =
       'Braking torque at the crank, as a share of what this engine makes at full throttle, ' +
       'so the same setting loads a single and a V8 alike.';
-    this.slider(op, {
-      label: 'Flywheel inertia',
-      min: 0.02,
-      max: 1.2,
-      step: 0.01,
-      value: spec.flywheelInertia,
-      sync: () => this.config.engine.flywheelInertia,
-      unit: 'kg·m²',
-      onInput: (v) => this.cb.onEngine({ flywheelInertia: v }),
-    });
+
+    const rateRow = el('div', 'row', transport);
+    el('label', '', rateRow).textContent = 'Sample rate';
+    const rateSel = el('select', '', rateRow) as HTMLSelectElement;
+    this.rateSel = rateSel;
+    for (const [hz, label] of SAMPLE_RATES) rateSel.appendChild(option(String(hz), label));
+    rateSel.value = String(sampleRate);
+    rateSel.addEventListener('change', () => this.cb.onSampleRate(Number(rateSel.value)));
+    rateRow.title =
+      'The solver takes one step per audio sample, so a lower rate means fewer steps and coarser ' +
+      'cells: much less CPU, for a duller exhaust. For phones and slow machines. Changing it ' +
+      'restarts the audio, and the pipes warm up again from cold.';
 
     // ---- Launch ----------------------------------------------------------
     const launch = section('Launch', 'launch', 'A timed standing start through the gears, and the car and gearbox it runs through.');
@@ -907,7 +881,7 @@ export class Panel {
     this.noticeEl = el('div', 'notice-toast hidden', tools.parentElement ?? tools);
 
     // ---- Engine geometry -------------------------------------------------
-    const geo = section('Engine geometry', 'geometry', 'Bore, stroke, rod length and compression.');
+    const geo = section('Engine geometry', 'geometry', 'Bore, stroke, rod length, moving masses and compression.');
     this.slider(geo, {
       label: 'Bore',
       min: 0.05,
@@ -954,6 +928,16 @@ export class Panel {
       'Piston, rings, pin and rod small end. Its inertia torque averages to zero over a ' +
       'cycle so it does not change the speed, but it is as large as the gas torque and ' +
       'sets how unevenly the crank turns.';
+    this.slider(geo, {
+      label: 'Flywheel inertia',
+      min: 0.02,
+      max: 1.2,
+      step: 0.01,
+      value: spec.flywheelInertia,
+      sync: () => this.config.engine.flywheelInertia,
+      unit: 'kg·m²',
+      onInput: (v) => this.cb.onEngine({ flywheelInertia: v }),
+    });
     this.slider(geo, {
       label: 'Compression ratio',
       min: 6,
@@ -1295,7 +1279,21 @@ export class Panel {
       'openings.';
 
     // ---- Combustion ------------------------------------------------------
-    const comb = section('Combustion', 'combustion', 'Ignition advance, burn duration and mixture.');
+    const comb = section('Combustion', 'combustion', 'Rev limiter, ignition advance, burn duration and mixture.');
+    const revLimit = this.slider(comb, {
+      label: 'Rev limiter',
+      min: 2000,
+      max: 12000,
+      step: 100,
+      value: spec.revLimit,
+      sync: () => this.config.engine.revLimit,
+      unit: 'rpm',
+      onInput: (v) => this.cb.onEngine({ revLimit: v }),
+    });
+    revLimit.row.title =
+      'The spark is cut above this and returns once the crank has dropped back, so the engine ' +
+      'bounces off it.';
+
     this.slider(comb, {
       label: 'Ignition advance',
       min: 0,
@@ -1805,6 +1803,10 @@ export class Panel {
   setRunning(running: boolean): void {
     this.startBtn.textContent = running ? 'Stop engine' : 'Start engine';
     this.startBtn.classList.toggle('running', running);
+    if (running) return;
+    this.rpmEl.textContent = '— rpm';
+    this.meterFill.style.width = '0%';
+    this.meterFill.classList.remove('hot');
   }
 
   /** Show a sample rate chosen somewhere other than the menu. */

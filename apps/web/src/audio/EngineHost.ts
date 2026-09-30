@@ -34,9 +34,9 @@ export interface EngineHost {
    * sound slowed and pitched down to match. Safe to call before the audio has started.
    */
   setTimeScale(scale: number): void;
-  /** The latest output samples into `out`. Returns false if there are none yet. */
+  /** The latest output samples into `out`. Returns false if there are none: not started, or stopped. */
   readWaveform(out: Float32Array<ArrayBuffer>): boolean;
-  /** The magnitude spectrum of the output, dB, into `out`. Returns false if there is none yet. */
+  /** The magnitude spectrum of the output, dB, into `out`. Returns false if there is none: not started, or stopped. */
   readSpectrum(out: Float32Array<ArrayBuffer>): boolean;
   /** Bins `readSpectrum` fills. */
   readonly spectrumSize: number;

@@ -33,8 +33,6 @@ export const TOOL_ICONS = {
 export const SECTION_ICONS = {
   /** Play. */
   transport: svg('<path d="M8 5v14l11-7z"/>'),
-  /** A dial and its needle. */
-  operatingPoint: svg('<path d="M4 17a8 8 0 1 1 16 0"/><path d="m12 17 4-5"/><circle cx="12" cy="17" r="1.3"/>'),
   /** A flag. */
   launch: svg('<path d="M5 21V4h12l-2.5 4L17 12H5"/>'),
   /** A power curve on its axes. */
