@@ -23,6 +23,8 @@ export const TOOL_ICONS = {
   header: svg(
     '<path d="M3 4c6 0 7 8 12 8M3 9.3c6 0 7 2.7 12 2.7M3 14.7c6 0 7-2.7 12-2.7M3 20c6 0 7-8 12-8M15 12h6"/>',
   ),
+  /** Two pipes crossing. */
+  xpipe: svg('<path d="M5 3v3c0 4 14 8 14 12v3M19 3v3c0 4-14 8-14 12v3"/>'),
   /** A turbine's scroll, and its outlet. */
   turbo: svg(
     '<path d="M12 12a1 1 0 0 1 2 0 2 2 0 0 1-4 0 3 3 0 0 1 6 0 4 4 0 0 1-8 0 5 5 0 0 1 10 0"/><path d="M13 7h8"/>',

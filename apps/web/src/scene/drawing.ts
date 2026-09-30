@@ -587,11 +587,12 @@ function junctionAnchor(
   ductId: string,
 ): BendAnchor | null {
   const ends = endsAt(graph, node);
-  // A junction that has been moved is where it was put, every pipe into it arriving along the first
-  // leaving it.
+  // A junction that has been moved is where it was put, every pipe into it arriving along the one leaving it
+  // that it runs straight on into, or else the first leaving it.
   const pinned = junctionAt(graph, node);
   if (pinned) {
-    const out = ends.find((e) => e.end === 'inlet')?.duct;
+    const onto = pinned.through?.[ductId];
+    const out = ends.find((e) => e.end === 'inlet' && e.duct.id === onto)?.duct ?? ends.find((e) => e.end === 'inlet')?.duct;
     const place = out ? placement.ducts.get(out.id) : undefined;
     const dir =
       out && place && out.segments.length > 0

@@ -117,6 +117,10 @@ export interface PanelCallbacks {
   onHeaderMirror: (on: boolean) => void;
   /** Build the header the ghost shows. */
   onApplyHeader: () => void;
+  /** The X-pipe tool was switched on or off. */
+  onXPipeTool: (on: boolean) => void;
+  /** Build the X-pipe the ghost shows. */
+  onApplyXPipe: () => void;
   /**
    * Reshape bend `index` of this pipe to turn through `angle` radians round `radius` m, the straights either
    * side of it taking up the difference so the pipe keeps its length.
@@ -255,6 +259,11 @@ export class Panel {
   private headerHint!: HTMLElement;
   private headerLengthInput!: HTMLInputElement;
   private headerMirrorLabel!: HTMLLabelElement;
+  /** The X-pipe tool: whether it is on, and its controls. */
+  private xpipeOn = false;
+  private xpipeBtn!: HTMLButtonElement;
+  private xpipeApplyBtn!: HTMLButtonElement;
+  private xpipeHint!: HTMLElement;
   private placePipeHint!: HTMLElement;
   private placeBtn!: HTMLButtonElement;
   private placeHint!: HTMLElement;
@@ -275,6 +284,7 @@ export class Panel {
   private placePipeGroup!: HTMLElement;
   private bendToolGroup!: HTMLElement;
   private headerGroup!: HTMLElement;
+  private xpipeGroup!: HTMLElement;
   private placeGroup!: HTMLElement;
   /** The junction selected in the scene, which adding a segment adds at. */
   private jointNode: string | null = null;
@@ -822,6 +832,22 @@ export class Panel {
     this.headerApplyBtn = el('button', 'primary', this.headerGroup) as HTMLButtonElement;
     this.headerApplyBtn.textContent = 'Apply';
 
+    this.xpipeBtn = toolButton(
+      bar,
+      TOOL_ICONS.xpipe,
+      'X-pipe',
+      'Crosses two pipes, as an X-pipe does between a V’s two banks. Click two points along each of two ' +
+        'pipes: where the X leaves it, and where it joins it again further on. Drag the triad’s arrows to ' +
+        'move where the two cross; a ghost shows each pipe bending in, running straight through the ' +
+        'crossing and bending out onto the other pipe, and what ran between the points goes. Click a ' +
+        'point’s dot to take it back. Apply or Enter builds it; Escape or right-click abandons it.',
+    );
+    this.xpipeGroup = el('div', 'tool-group', this.toolOptions);
+    el('div', 'tool-name', this.xpipeGroup).textContent = 'X-pipe';
+    this.xpipeHint = el('div', 'hint', this.xpipeGroup);
+    this.xpipeApplyBtn = el('button', 'primary', this.xpipeGroup) as HTMLButtonElement;
+    this.xpipeApplyBtn.textContent = 'Apply';
+
     this.turboTool = el('div', 'tool-split', bar);
     this.placeBtn = toolButton(
       this.turboTool,
@@ -870,6 +896,11 @@ export class Panel {
       this.cb.onHeaderTool(this.headerOn);
     });
     this.headerApplyBtn.addEventListener('click', () => this.cb.onApplyHeader());
+    this.xpipeBtn.addEventListener('click', () => {
+      this.setXPipeToolState(!this.xpipeOn);
+      this.cb.onXPipeTool(this.xpipeOn);
+    });
+    this.xpipeApplyBtn.addEventListener('click', () => this.cb.onApplyXPipe());
     this.bendToolBtn.addEventListener('click', () => {
       this.setBendToolState(!this.bendingTool);
       this.cb.onBendTool(this.bendingTool);
@@ -2435,6 +2466,7 @@ export class Panel {
       this.cb.onPlacePipeMode(false);
     }
     if (on) this.stopHeaderTool();
+    if (on) this.stopXPipeTool();
     this.bendingTool = on;
     this.bendToolHint.textContent = on ? BEND_HINT : '';
     this.syncTools();
@@ -2458,6 +2490,7 @@ export class Panel {
       this.setBendToolState(false);
       this.cb.onBendTool(false);
     }
+    if (on) this.stopXPipeTool();
     this.headerOn = on;
     this.headerMirrorLabel.classList.toggle('hidden', physicalBankCount(this.config.engine) < 2);
     this.headerHint.textContent = '';
@@ -2469,6 +2502,42 @@ export class Panel {
     if (!this.headerOn) return;
     this.setHeaderToolState(false);
     this.cb.onHeaderTool(false);
+  }
+
+  /** Show the X-pipe tool as on or off, and turn off what it replaces. */
+  setXPipeToolState(on: boolean): void {
+    if (on && this.drawing) {
+      this.setDrawMode(false);
+      this.cb.onDrawMode(false);
+    }
+    if (on && this.placingPipe) {
+      this.setPlacingPipeState(false);
+      this.cb.onPlacePipeMode(false);
+    }
+    if (on && this.placing) {
+      this.setPlacingState(false);
+      this.cb.onPlaceMode(false);
+    }
+    if (on && this.bendingTool) {
+      this.setBendToolState(false);
+      this.cb.onBendTool(false);
+    }
+    if (on) this.stopHeaderTool();
+    this.xpipeOn = on;
+    this.xpipeHint.textContent = '';
+    this.syncTools();
+  }
+
+  /** Turn the X-pipe tool off, as starting another tool does. */
+  private stopXPipeTool(): void {
+    if (!this.xpipeOn) return;
+    this.setXPipeToolState(false);
+    this.cb.onXPipeTool(false);
+  }
+
+  /** What the X-pipe being placed comes to, from the view. */
+  setXPipeAim(aim: string): void {
+    if (this.xpipeOn) this.xpipeHint.textContent = aim;
   }
 
   /** Whether the header is to be mirrored onto the other bank. */
@@ -2506,6 +2575,7 @@ export class Panel {
     }
     if (on && this.placing) this.setPlacingState(false);
     if (on) this.stopHeaderTool();
+    if (on) this.stopXPipeTool();
     this.placingPipe = on;
     this.placePipeHint.textContent = on ? 'Click where the pipe should start' : '';
     this.syncTools();
@@ -2519,6 +2589,7 @@ export class Panel {
       this.cb.onDrawMode(false);
     }
     if (on) this.stopHeaderTool();
+    if (on) this.stopXPipeTool();
     this.placing = on;
     this.placeHint.textContent = on ? PLACE_HINT : '';
     this.syncTools();
@@ -2647,6 +2718,7 @@ export class Panel {
       this.cb.onPlacePipeMode(false);
     }
     if (on) this.stopHeaderTool();
+    if (on) this.stopXPipeTool();
     this.drawing = on;
     this.drawingRoute = false;
     this.drawHint.textContent = on ? START_HINT : '';
@@ -2660,6 +2732,7 @@ export class Panel {
     this.setPlacingPipeState(false);
     this.setBendToolState(false);
     this.setHeaderToolState(false);
+    this.setXPipeToolState(false);
   }
 
   /** Light the button of the tool that is on, and show its part of the options card, or no card. */
@@ -2669,6 +2742,7 @@ export class Panel {
       [this.placingPipe, this.placePipeBtn, this.placePipeGroup],
       [this.bendingTool, this.bendToolBtn, this.bendToolGroup],
       [this.headerOn, this.headerBtn, this.headerGroup],
+      [this.xpipeOn, this.xpipeBtn, this.xpipeGroup],
       [this.placing, this.placeBtn, this.placeGroup],
     ];
     for (const [on, button, group] of tools) {
