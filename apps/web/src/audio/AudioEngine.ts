@@ -40,6 +40,7 @@ export class AudioEngine implements EngineHost {
   private config: EngineConfig;
   private starting: Promise<void> | null = null;
   private timeScale = 1;
+  private ignition = true;
 
   /**
    * @param rate Audio sample rate, Hz. The solver takes one step per sample, so this also sets the
@@ -149,6 +150,8 @@ export class AudioEngine implements EngineHost {
 
     this.node = node;
     if (this.timeScale !== 1) this.post({ type: 'timeScale', scale: this.timeScale });
+    // A new simulation starts with the ignition on.
+    if (!this.ignition) this.post({ type: 'ignition', on: false });
     this.analyser = analyser;
 
     await ctx.resume();
@@ -268,6 +271,11 @@ export class AudioEngine implements EngineHost {
   setTimeScale(scale: number): void {
     this.timeScale = scale;
     this.post({ type: 'timeScale', scale });
+  }
+
+  setIgnition(on: boolean): void {
+    this.ignition = on;
+    this.post({ type: 'ignition', on });
   }
 
   private post(msg: ToWorklet): void {

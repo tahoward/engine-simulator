@@ -232,6 +232,9 @@ pub struct EngineSim {
     omega_display: f64,
     limiter_cut: bool,
     fuel_cut_active: bool,
+    /// Whether the spark and the fuel are on. Off, the engine coasts to a stop on its own friction and
+    /// pumping, and the pipes ring down with it.
+    ignition: bool,
     /// The overrun crackle map: running, for how long since the lift, s, and done for this lift.
     crackle_active: bool,
     crackle_time: f64,
@@ -350,6 +353,7 @@ impl EngineSim {
             omega_display: 0.0,
             limiter_cut: false,
             fuel_cut_active: false,
+            ignition: true,
             crackle_active: false,
             crackle_time: 0.0,
             crackle_spent: false,
@@ -484,6 +488,25 @@ impl EngineSim {
         }
         self.launch = Some(LaunchRun::new(config, full_load_torque(&self.spec.spec, self.turbo.is_some())));
         self.launch_opening = f64::NAN;
+    }
+
+    /// Switch the ignition on or off. Off cuts the spark and the fuel and lets the crank run down to a
+    /// standstill; on again from a standstill starts the engine at its starting speed, as a fresh one
+    /// does, with the pipes as they were left.
+    pub fn set_ignition(&mut self, on: bool) {
+        if on == self.ignition {
+            return;
+        }
+        self.ignition = on;
+        if !on {
+            self.stop_launch();
+        } else if self.omega_mean < (MIN_RPM * 2.0 * PI) / 60.0 {
+            let spec = &self.spec.spec;
+            self.omega_mean = (math::min(spec.rpm, spec.rev_limit) * 2.0 * PI) / 60.0;
+            self.omega = self.omega_mean;
+            self.omega_display = self.omega_mean;
+            self.omega_ripple = 0.0;
+        }
     }
 
     /// End the launch.
@@ -909,7 +932,7 @@ impl EngineSim {
 
     fn integrating_crank(&self) -> bool {
         let spec = &self.spec.spec;
-        spec.free_running || spec.rpm >= spec.rev_limit || self.launch.is_some()
+        !self.ignition || spec.free_running || spec.rpm >= spec.rev_limit || self.launch.is_some()
     }
 
     /// Instantaneous crank speed, rev/min, ripple included.
@@ -946,7 +969,8 @@ impl EngineSim {
             };
             let net = torque - load - friction;
             self.omega_mean += (net / inertia) * dt;
-            let min_omega = (MIN_RPM * 2.0 * PI) / 60.0;
+            // Running, the idle floor; coasting with the ignition off, all the way to a standstill.
+            let min_omega = if self.ignition { (MIN_RPM * 2.0 * PI) / 60.0 } else { 0.0 };
             let max_omega = (12000.0 * 2.0 * PI) / 60.0;
             self.omega_mean = clamp(self.omega_mean, min_omega, max_omega);
             self.omega = self.omega_mean;
@@ -1022,7 +1046,7 @@ impl EngineSim {
         } else if rpm_now < FUEL_RESUME_RPM {
             self.fuel_cut_active = false;
         }
-        if self.spec.spec.overrun_crackle && throttle <= FUEL_CUT_THROTTLE {
+        if self.spec.spec.overrun_crackle && throttle <= FUEL_CUT_THROTTLE && self.ignition {
             if !self.crackle_active && !self.crackle_spent && rpm_now > CRACKLE_RPM {
                 self.crackle_active = true;
                 self.crackle_time = 0.0;
@@ -1061,7 +1085,7 @@ impl EngineSim {
         let banks = self.cyls.len();
         let mut torque_sum = 0.0;
         let mut dpdt_sum = 0.0;
-        let limiter_cut = self.limiter_cut || self.launch.as_ref().is_some_and(|l| l.spark_cut);
+        let limiter_cut = self.limiter_cut || !self.ignition || self.launch.as_ref().is_some_and(|l| l.spark_cut);
         let rpm = self.rpm();
         for b in 0..banks {
             let angle = self.cyls[b].angle;
@@ -1149,7 +1173,7 @@ impl EngineSim {
             rho: p_plenum / (gas::R * t_plenum),
             burned: self.plenum.burned_fraction(),
             fuel: self.plenum.fuel_fraction(),
-            inject: if self.fuel_cut_active && !self.crackle_active { 0.0 } else { self.inject_fraction },
+            inject: if (self.fuel_cut_active && !self.crackle_active) || !self.ignition { 0.0 } else { self.inject_fraction },
         };
         let intake = if self.on_short_runners { self.intake_short.as_mut().unwrap() } else { &mut self.intake_long };
         intake.advance(&run_io, &self.in_valves, &self.breathing, &self.cyl_state);

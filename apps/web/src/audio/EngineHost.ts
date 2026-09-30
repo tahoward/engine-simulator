@@ -21,6 +21,12 @@ export interface EngineHost {
   suspend(): Promise<void>;
   /** Start or suspend; resolves to whether it is now running. */
   toggle(): Promise<boolean>;
+  /**
+   * Switch the ignition. Off, the engine coasts to a standstill on its friction and pumping and the
+   * pipes ring down, with the audio still playing; on, it starts again. Safe to call before the audio
+   * has started, and kept across a change of sample rate.
+   */
+  setIgnition(on: boolean): void;
   onSnapshot(listener: SnapshotListener): () => void;
   onLag(listener: LagListener): () => void;
   /** Change the engine: only the fields given. Safe to call before the audio has started. */

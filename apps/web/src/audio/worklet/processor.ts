@@ -20,6 +20,7 @@ export type ToWorklet =
   | { type: 'graph'; graph: ExhaustGraph | null }
   | { type: 'snapshotRate'; hz: number }
   | { type: 'timeScale'; scale: number }
+  | { type: 'ignition'; on: boolean }
   | { type: 'launch'; config: LaunchConfig | null };
 
 /** Worklet -> main thread. */
@@ -71,6 +72,9 @@ class EngineProcessor extends AudioWorkletProcessor {
             break;
           case 'timeScale':
             this.sim.setTimeScale(msg.scale);
+            break;
+          case 'ignition':
+            this.sim.setIgnition(msg.on);
             break;
         }
       } catch (err) {

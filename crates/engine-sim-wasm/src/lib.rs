@@ -119,6 +119,15 @@ pub unsafe extern "C" fn sim_stop_launch(h: *mut Handle) {
     unsafe { &mut *h }.sim.stop_launch();
 }
 
+/// Switch the ignition on (non-zero) or off: off, the engine coasts to a standstill.
+///
+/// # Safety
+/// `h` from `sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sim_set_ignition(h: *mut Handle, on: u32) {
+    unsafe { &mut *h }.sim.set_ignition(on != 0);
+}
+
 /// The operating point: throttle and load, 0..1.
 ///
 /// # Safety

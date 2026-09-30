@@ -24,6 +24,7 @@ interface Exports {
   sim_stop_launch(h: number): void;
   sim_set_controls(h: number, throttle: number, load: number): void;
   sim_set_time_scale(h: number, scale: number): void;
+  sim_set_ignition(h: number, on: number): void;
   sim_render(h: number, n: number): number;
   sim_snapshot(h: number): number;
   sim_snapshot_len(h: number): number;
@@ -187,6 +188,11 @@ export class Sim {
   /** Run at `scale` of real time: 1 is real time, less is slow motion. */
   setTimeScale(scale: number): void {
     this.ex.sim_set_time_scale(this.handle, scale);
+  }
+
+  /** Switch the ignition: off, the engine coasts to a standstill. */
+  setIgnition(on: boolean): void {
+    this.ex.sim_set_ignition(this.handle, on ? 1 : 0);
   }
 
   /** Render `out.length` samples into `out`. Allocates nothing unless the module's memory grew. */
