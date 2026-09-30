@@ -73,6 +73,8 @@ impl IntakeRunners {
             outlet_kind: Some(OutletKind::Mouth),
             heat_transfer: Some(false),
             initial_port_temp: Some(gas::T_AMB),
+            // The runners' ramming is tuned against the plenum's air taken in at its own pressure.
+            nozzle_inflow: Some(false),
             linear_damping: Some(damping),
             port: None,
             inherit_wall: None,

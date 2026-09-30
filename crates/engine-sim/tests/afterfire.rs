@@ -136,18 +136,23 @@ fn a_steady_engine_never_afterfires() {
     }
 }
 
-/// The crackle map fires the spark well after top dead centre, and skips it on some cycles.
+/// The crackle map fires the spark well after top dead centre, and skips it on some cycles. A cylinder
+/// already past planning its next spark when the throttle shuts fires that one where it was planned.
 #[test]
 fn the_crackle_map_fires_late_and_skips_some_sparks() {
     let (mut sim, _) = revved(json!({ "overrunCrackle": true, "crackleIntensity": 1.0 }));
     sim.set_controls(0.0, 0.0);
     let mut prev: Vec<f64> = sim.cylinders().iter().map(|c| c.angle).collect();
+    let mut planned = vec![false; prev.len()];
     let (mut cycles, mut unfired) = (0, 0);
     for _ in 0..FS as usize {
         sim.render(1);
         for (b, c) in sim.cylinders().iter().enumerate() {
             if prev[b] < 700.0 && c.angle >= 700.0 {
-                assert!(c.spark > 30.0 && c.spark < 60.0, "spark at {}", c.spark);
+                if planned[b] {
+                    assert!(c.spark > 30.0 && c.spark < 60.0, "spark at {}", c.spark);
+                }
+                planned[b] = true;
             }
             if prev[b] < 240.0 && c.angle >= 240.0 {
                 cycles += 1;
