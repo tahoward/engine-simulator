@@ -79,7 +79,9 @@ matters.
   from part throttle at 3500 rpm, it must take between 0.2 and 2.5 s to reach 90% of its boost. It must
   make within 10% of the real engine's 368 N·m at 4400 rpm, less friction, and between 280 and 350 PS
   at 6800. The 3S-GTE, four cylinders on one turbo, on its 0.7 bar must make within 10% of the Japanese
-  engine's rated 304 N·m at 5000 rpm, once on boost, and 225 PS at 6000, and the EA855 EVO, five on one
+  engine's rated 304 N·m at 5000 rpm, once on boost, and 225 PS at 6000, the 1.5 EcoBoost Dragon, three
+  on one turbo, on its 1.15 bar within 10% of the real engine's rated 290 N·m at 3000 rpm, once on boost,
+  and 200 PS at 6000, and the EA855 EVO, five on one
   turbo, on its 1.35 bar within 10% of the real engine's rated 480 N·m at 4500 rpm and 400 PS at 5850
   and 7000; with compressors too small for it, passing 0.12 kg/s each, it must make less power at 7900
   than at 7000, where they are at their choke. With
@@ -228,7 +230,9 @@ matters.
   them, and no quicker than 2.4 s, what their grip allows. The engines from real cars must launch through
   those cars' gearboxes, and the Skyline through all four wheels must be quicker to 60 than through the
   rear. The RS 3 must run 0–60 mph in 3.1 to 4.1 s, around the 3.6 s road tests time it at; it runs
-  3.5 s and the quarter mile in 11.7 s at 120 mph.
+  3.5 s and the quarter mile in 11.7 s at 120 mph. The Fiesta ST must run 0–60 mph in 5.7 to 6.9 s,
+  around the 6.5 s Ford gives it to 62; it runs 6.1 s and the quarter mile in 14.5 s at 99 mph. Through
+  the rear wheels rather than the front it must be quicker to 60 by more than a tenth.
 
 ## The reference renders
 

@@ -24,7 +24,8 @@
 **Start launch** runs a standing start at full throttle. The engine revs to the **Launch at** speed, and
 the clutch slips to hold it there until the car catches up. Then each gear is pulled to the **Shift at**
 speed. The run works the throttle itself, and it ends at the shift point in top gear, or when the car
-stops gaining speed. As the car accelerates, its weight moves onto the rear wheels, so they grip harder.
+stops gaining speed. As the car accelerates, its weight moves back, onto the rear wheels and off the
+front, so driven rear wheels grip harder and driven front ones less.
 Too much torque for the tyres spins them, and a spinning tyre grips about a fifth less than one at its
 peak. The car is slowed by rolling resistance and by air drag, with a drag area of 0.6 m².
 
@@ -37,8 +38,10 @@ peak. The car is slowed by rolling resistance and by air drag, with a drag area 
   because a tyre grips a little harder driving in a straight line than cornering.
 - **Dual-clutch gearbox** shifts with no gap in the drive: the next gear's clutch takes the drive as the
   last one lets it go, and the throttle stays open. Off, each shift lifts off and takes the clutch out.
-- **All-wheel drive** lets the tyres take the car's whole weight, rather than the share on the rear
-  wheels, so it launches harder before they spin.
+- **Driven wheels** are the rear, the front or all four. Auto is the rear, and a real car's stock is its
+  own. The rear wheels of a car fitted to the engine carry half its weight at rest, and front ones three
+  fifths; a real car's carry its own share. All four take the car's whole weight, so it launches
+  hardest before the tyres spin.
 - **Traction control**, on by default, works as a launch control and a dual-clutch gearbox's torque
   management do. Off the line it cuts the spark to hold the engine at the launch speed. While the clutch
   slips, it passes no more torque than the tyres can take. In gear it cuts the spark whenever the tyres
@@ -57,6 +60,7 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 | Preset | Car | Gearbox | Tyres |
 |---|---|---|---|
 | Honda F20C | Honda S2000 (AP1), 1349 kg | six-speed manual | road |
+| Ford 1.5 EcoBoost Dragon | Ford Fiesta ST (Mk8), 1265 kg, front-wheel drive | six-speed manual | road |
 | Toyota 3S-GTE | Toyota MR2 GT-S (SW20, 1992–93), 1325 kg | Toyota E153 five-speed manual | Yokohama A022 |
 | Audi EA855 EVO | Audi RS 3 Sportback (8V, 2017–20), 1585 kg, all-wheel drive | Audi seven-speed S tronic dual clutch | road |
 | Nissan RB26DETT | Nissan Skyline GT-R V-Spec (R34), 1635 kg, all-wheel drive | Getrag six-speed manual | road |

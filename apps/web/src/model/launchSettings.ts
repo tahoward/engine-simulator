@@ -7,7 +7,7 @@
  * what it should be is left on auto.
  */
 
-import { ENGINE_PRESETS, MAX_GEARS, MIN_GEARS, type Car } from './spec.js';
+import { DRIVES, ENGINE_PRESETS, MAX_GEARS, MIN_GEARS, type Car, type Drive } from './spec.js';
 
 /** Each setting where the user has set it; `null` leaves it on the car's, or fitted to the engine. */
 export interface LaunchSettings {
@@ -19,7 +19,8 @@ export interface LaunchSettings {
   shiftTime: number | null;
   tyreGrip: number | null;
   dualClutch: boolean | null;
-  awd: boolean | null;
+  /** The wheels it drives. */
+  drive: Drive | null;
   tractionControl: boolean;
   ratios: number[] | null;
   finalDrive: number | null;
@@ -39,7 +40,7 @@ export function autoLaunchSettings(car: Car | null = null): LaunchSettings {
     shiftTime: null,
     tyreGrip: null,
     dualClutch: null,
-    awd: null,
+    drive: null,
     tractionControl: true,
     ratios: null,
     finalDrive: null,
@@ -68,7 +69,7 @@ export function readLaunchSettings(raw: unknown): LaunchSettings {
   out.shiftTime = number(r.shiftTime);
   out.tyreGrip = number(r.tyreGrip);
   out.dualClutch = flag(r.dualClutch);
-  out.awd = flag(r.awd);
+  out.drive = DRIVES.find((d) => d === r.drive) ?? null;
   out.tractionControl = flag(r.tractionControl) ?? true;
   const ratios = Array.isArray(r.ratios) ? r.ratios.map(number) : null;
   out.ratios =
