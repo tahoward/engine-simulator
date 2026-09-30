@@ -763,6 +763,8 @@ export interface LaunchConfig {
   mass: number;
   /** Share of the car's weight on the driven wheels at rest: see `DRIVEN_LOAD`. */
   drivenLoad: number;
+  /** Whether the driven wheels are the front ones, which the car's weight moves off as it accelerates. */
+  frontWheelDrive: boolean;
   /** Whether traction control eases the throttle to stop the driven wheels spinning. */
   tractionControl: boolean;
   /** Engine speed the clutch is slipped at off the line, rev/min. */
@@ -804,12 +806,17 @@ export function fitDyno(
   return { ...fit, ratios: [1], finalDrive: 1, launchRpm: start, shiftRpm: end, dyno: true, sweepRate: rate ?? DYNO_SWEEP_RATE };
 }
 
+/** The wheels a car drives: the rear, the front or all four. */
+export type Drive = 'rwd' | 'fwd' | 'awd';
+export const DRIVES: Drive[] = ['rwd', 'fwd', 'awd'];
+
 /**
  * Share of a car's weight on its driven wheels at rest, by the wheels it drives: the rear wheels of a
- * front-engined car carry about half, and all four carry it all. Driving the rear wheels, the launch
- * moves more onto them as the car accelerates.
+ * front-engined car carry about half, the front wheels of a front-wheel-drive car, its engine over them,
+ * about three fifths, and all four carry it all. As the car accelerates its weight moves back: onto
+ * driven rear wheels, and off driven front ones.
  */
-export const DRIVEN_LOAD = { rwd: 0.5, awd: 1 } as const;
+export const DRIVEN_LOAD: Record<Drive, number> = { rwd: 0.5, fwd: 0.6, awd: 1 };
 
 /**
  * How much harder a tyre grips driving in a straight line than cornering, where a skidpad measures it:
@@ -868,6 +875,7 @@ export function fitLaunch(spec: EngineSpec, boosted = false, ratios: number[] = 
     tyreGrip: TYRE_GRIP.road,
     mass,
     drivenLoad: DRIVEN_LOAD.rwd,
+    frontWheelDrive: false,
     tractionControl: true,
     launchRpm,
     shiftRpm,
@@ -1898,6 +1906,8 @@ export interface Car {
   tyreGrip: number;
   /** Kerb weight with a 75 kg driver, kg. */
   mass: number;
+  /** The wheels it drives. */
+  drive: Drive;
   /** Share of its weight on the driven wheels at rest: 1 for all-wheel drive. */
   drivenLoad: number;
   /** How long a shift takes, s: `MANUAL_SHIFT_TIME` for a manual, much less for a dual clutch. */
@@ -1924,6 +1934,7 @@ export function presetLaunch(spec: EngineSpec, boosted: boolean, car: Car | null
     tyreGrip: car.tyreGrip,
     mass: car.mass,
     drivenLoad: car.drivenLoad,
+    frontWheelDrive: car.drive === 'fwd',
     shiftTime: car.shiftTime,
     dualClutch: car.dualClutch,
   };
@@ -1992,27 +2003,47 @@ const IDLING: Pick<EngineSpec, 'rpm' | 'idleRpm' | 'load' | 'throttle'> = {
   throttle: 0,
 };
 
-/** Engines sized from their real counterparts, with exhausts fitted by `fittedExhaust`. */
-const THREE_CYL: Partial<EngineSpec> = {
+/**
+ * The 1.5 litre EcoBoost "Dragon" of the Mk8 Fiesta ST: 84.0 x 90.0 mm, 9.7:1, and one turbo through an
+ * air-to-air intercooler, rated at 200 PS (197 hp) at 6000 rpm and 290 N*m (214 lb-ft) from 1600 rpm.
+ */
+const FORD_DRAGON: Partial<EngineSpec> = {
   cylinders: 3,
   vAngle: 0,
   exhaustLayout: 'merged',
-  exhaustHeaders: true,
-  headerRun: 'lengthways',
   ...IDLING,
-  // A Ford 1.0 EcoBoost's.
-  revLimit: 6500,
+  // Its fuel cut, a little past the 6500 rpm redline.
+  revLimit: 6700,
   flywheelInertia: 0.2,
   pipeCellSize: 0.035,
-  // A 1.0 litre three.
-  bore: 0.072,
-  stroke: 0.082,
-  rodLength: 0.137,
-  compressionRatio: 10,
-  ...fourValveHead(0.072),
-  maxLift: 0.0085,
+  bore: 0.084,
+  stroke: 0.09,
+  // Estimated: its published figures do not include the rod.
+  rodLength: 0.145,
+  compressionRatio: 9.7,
+  ...fourValveHead(0.084),
+  // Estimated, like its timing: 236 degrees on the exhaust and 242 on the intake, with little overlap, as
+  // a turbo engine's are.
+  maxLift: 0.009,
+  evo: 126,
+  evc: 362,
+  ivo: 358,
+  ivc: 600,
+  // Twin independent variable cam timing, its map estimated: at low speed under load the intake advanced
+  // 30 degrees and the exhaust retarded 20, easing back to rest by 6000 rpm. With the cams fixed it makes
+  // 200 N*m at 2000 rpm and 270 at 3000, where the turbo is still spooling.
+  vvtIntakeLow: 30,
+  vvtExhaustLow: 20,
+  vvtLowRpm: 2000,
+  vvtHighRpm: 6000,
+  // Its turbo's boost and size are estimates: no map of its compressor is published.
+  boostTarget: 1.15e5,
+  turboSize: 0.16,
+  intercooler: 0.7,
+  // The factory valve recirculates.
+  blowOff: 'recirculating',
   // Level-matched to the inline four, as the other presets are.
-  outputGain: 2.21,
+  outputGain: 2.44,
 };
 
 const NISSAN_RB26: Partial<EngineSpec> = {
@@ -2290,6 +2321,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       tyreRadius: 0.308,
       tyreGrip: TYRE_GRIP.road,
       mass: 1274 + DRIVER_MASS,
+      drive: 'rwd',
       // Its engine behind the front axle puts its weight 50:50.
       drivenLoad: 0.5,
       shiftTime: MANUAL_SHIFT_TIME,
@@ -2359,6 +2391,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       tyreRadius: 0.295,
       tyreGrip: 0.92 * SKIDPAD_TO_DRIVE,
       mass: 1250 + DRIVER_MASS,
+      drive: 'rwd',
       drivenLoad: 0.56,
       shiftTime: MANUAL_SHIFT_TIME,
       dualClutch: false,
@@ -2371,12 +2404,27 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     turbos: 1,
   },
   {
-    name: 'Inline three',
+    name: 'Inline three, Ford 1.5 EcoBoost Dragon',
+    car: {
+      // The Mk8 Fiesta ST's six-speed manual and its 3.91 final drive. 205/40R18 tyres, about 1190 kg,
+      // front-wheel drive with about 61% of its weight on the front.
+      name: 'Ford Fiesta ST (Mk8)',
+      ratios: [3.59, 2.19, 1.52, 1.15, 0.92, 0.79],
+      finalDrive: 3.91,
+      tyreRadius: 0.305,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 1190 + DRIVER_MASS,
+      drive: 'fwd',
+      drivenLoad: 0.61,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
     description:
-      'Fires every 240\u00b0 on a 120\u00b0 crank, in the order 1-3-2. An odd number of cylinders puts the loudest order at one and a half times the crank speed, which is the offbeat thrum of a three.',
-    engine: THREE_CYL,
-    pipe: () => fittedExhaust(fullSpec(THREE_CYL)).pipe,
-    collector: () => fittedExhaust(fullSpec(THREE_CYL)).collector,
+      'The 1.5 litre turbocharged three in the Mk8 Ford Fiesta ST: 84 x 90 mm, 9.7:1, four valves a cylinder and a 6500 rpm redline. It fires every 240\u00b0 on a 120\u00b0 crank, in the order 1-3-2, all three into one turbo on 1.15 bar through an intercooler, with variable timing on both cams. An odd number of cylinders puts the loudest order at one and a half times the crank speed, which is the offbeat thrum of a three. It makes about 290-300 N\u00b7m from 2000 to 4000 rpm and 194 PS at 6000, against the real engine\u2019s rated 290 N\u00b7m from 1600 and 200 PS at 6000; below 2000 its turbo is still spooling. Its rod, cams, cam map, turbo size and exhaust are estimates.',
+    engine: FORD_DRAGON,
+    pipe: () => fittedExhaust(fullSpec(FORD_DRAGON)).pipe,
+    collector: () => fittedExhaust(fullSpec(FORD_DRAGON)).collector,
+    turbos: 1,
   },
   {
     name: 'Inline five, Audi EA855 EVO',
@@ -2390,6 +2438,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       tyreRadius: 0.323,
       tyreGrip: TYRE_GRIP.road,
       mass: 1510 + DRIVER_MASS,
+      drive: 'awd',
       drivenLoad: DRIVEN_LOAD.awd,
       shiftTime: 0.1,
       dualClutch: true,
@@ -2412,6 +2461,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       tyreRadius: 0.319,
       tyreGrip: TYRE_GRIP.road,
       mass: 1560 + DRIVER_MASS,
+      drive: 'awd',
       drivenLoad: DRIVEN_LOAD.awd,
       shiftTime: MANUAL_SHIFT_TIME,
       dualClutch: false,
@@ -2437,6 +2487,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       tyreRadius: 0.323,
       tyreGrip: TYRE_GRIP.road,
       mass: 1382 + DRIVER_MASS,
+      drive: 'rwd',
       // Mid-engined, 39:61.
       drivenLoad: 0.61,
       shiftTime: MANUAL_SHIFT_TIME,
@@ -2462,6 +2513,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       tyreRadius: 0.337,
       tyreGrip: TYRE_GRIP.corvette,
       mass: 1654 + DRIVER_MASS,
+      drive: 'rwd',
       // Mid-engined, 40:60; the dual clutch shifts in about a tenth of a second.
       drivenLoad: 0.6,
       shiftTime: 0.1,
@@ -2519,6 +2571,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       tyreRadius: 0.344,
       tyreGrip: TYRE_GRIP.corvette,
       mass: 1663 - 27 + DRIVER_MASS,
+      drive: 'rwd',
       drivenLoad: 0.6,
       shiftTime: 0.1,
       dualClutch: true,

@@ -6,8 +6,8 @@
 //! launch speed until the car has caught up with it. The driven wheels are a body of their own, tied
 //! to the road by a tyre whose grip follows its slip on Pacejka's magic formula: it rises to a peak,
 //! what the weight on the driven wheels allows, then falls away as the tyre slides, to about four
-//! fifths of that spinning freely. That weight grows as the car accelerates and its weight moves back onto the
-//! rear wheels. An engine with more torque than the tyres can take spins them up, unless traction control
+//! fifths of that spinning freely. As the car accelerates its weight moves back, onto the rear wheels and
+//! off the front: driving the rear wheels, that weight grows, and driving the front it shrinks. An engine with more torque than the tyres can take spins them up, unless traction control
 //! steps in, as a launch control and a dual-clutch gearbox's torque management do. While the clutch slips,
 //! off the line and through each shift, it passes no more torque than the tyres can take at their peak;
 //! off the line the spark is cut to hold the engine at the launch speed, and through a shift while the
@@ -87,7 +87,7 @@ const DRAG_AREA: f64 = 0.6;
 /// The driven wheels, tyres and half-shafts, about their axle, kg*m^2.
 const WHEEL_INERTIA: f64 = 3.0;
 /// Height of the centre of gravity over the wheelbase: how much of the car's weight moves onto the rear
-/// wheels for each g it accelerates at.
+/// wheels, and off the front, for each g it accelerates at.
 const WEIGHT_TRANSFER: f64 = 0.18;
 /// Traction control: the share of the tyres' peak grip a slipping clutch passes, a little under it so the
 /// tyres hold just short of the peak rather than sliding past it; how far the engine may outrun the
@@ -150,7 +150,7 @@ pub struct LaunchRun {
     pub throttle: f64,
     /// Whether traction control, or the launch control, is cutting the spark.
     pub spark_cut: bool,
-    /// The car's acceleration, m/s^2: how much weight it has moved onto the rear wheels.
+    /// The car's acceleration, m/s^2: how much weight it has moved onto the rear wheels and off the front.
     pub accel: f64,
     /// Clutch engagement, 0..1.
     pub clutch: f64,
@@ -236,6 +236,21 @@ impl LaunchRun {
         self.ratio(g) * self.config.final_drive
     }
 
+    /// Share of the car's weight on the driven wheels now: what they carry at rest, and what the car's
+    /// acceleration moves onto the rear wheels or off the front. Driving all four, they carry it all.
+    fn driven_load(&self) -> f64 {
+        let at_rest = self.config.driven_load;
+        if at_rest >= 1.0 {
+            return 1.0;
+        }
+        let moved = (WEIGHT_TRANSFER * math::max(self.accel, 0.0)) / G;
+        if self.config.front_wheel_drive {
+            math::max(at_rest - moved, 0.0)
+        } else {
+            math::min(at_rest + moved, 1.0)
+        }
+    }
+
     /// Seconds since the clock started, or 0 before it has.
     pub fn run_time(&self) -> f64 {
         self.moved_at.map_or(0.0, |t| self.elapsed - t)
@@ -261,7 +276,7 @@ impl LaunchRun {
         let mut clutch_sum = 0.0;
         let mut capped = false;
         for _ in 0..SUBSTEPS {
-            let load = math::min(self.config.driven_load + (WEIGHT_TRANSFER * math::max(self.accel, 0.0)) / G, 1.0);
+            let load = self.driven_load();
             let grip = self.config.tyre_grip * load * mass * G;
             let input_omega = (self.wheel_speed * ratio) / radius;
             let mut clutch_torque = self.capacity * self.clutch * math::tanh((omega - input_omega) / CLUTCH_SLIP);

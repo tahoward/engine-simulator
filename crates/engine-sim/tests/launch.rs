@@ -105,8 +105,8 @@ fn traction_control_beats_spinning_the_tyres() {
 }
 
 /// The engines from real cars launch through those cars: the Skyline's six-speed to all four wheels, the
-/// Corvettes' eight-speed dual clutch, the MR2's five-speed, and the RS 3's seven-speed dual clutch to all
-/// four wheels.
+/// Corvettes' eight-speed dual clutch, the MR2's five-speed, the RS 3's seven-speed dual clutch to all four
+/// wheels, and the Fiesta ST's six-speed to the front wheels.
 #[test]
 fn real_engines_launch_through_their_own_cars() {
     let r34 = &common::engine_preset("Inline six, Nissan RB26DETT").launch;
@@ -122,6 +122,29 @@ fn real_engines_launch_through_their_own_cars() {
     assert_eq!(rs3.ratios.len(), 7);
     assert_eq!((rs3.final_drive, rs3.driven_load), (4.059, 1.0));
     assert!(rs3.dual_clutch);
+    let st = &common::engine_preset("Inline three, Ford 1.5 EcoBoost Dragon").launch;
+    assert_eq!(st.ratios, vec![3.59, 2.19, 1.52, 1.15, 0.92, 0.79]);
+    assert_eq!(st.final_drive, 3.91);
+    assert!(st.front_wheel_drive);
+}
+
+/// The Fiesta ST gets to 60 mph in about the 6.5 s Ford gives it to 62: 200 PS through the front wheels.
+#[test]
+fn the_fiesta_st_launches_about_as_quick_as_the_real_car() {
+    let snaps = run("Inline three, Ford 1.5 EcoBoost Dragon", None);
+    let sixty = snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph");
+    assert!((5.7..6.9).contains(&sixty), "0-60 in {sixty} s");
+}
+
+/// Driving the front wheels, the weight the car moves back as it pulls away comes off them, so the same
+/// car launches slower than it does through the rear.
+#[test]
+fn front_wheel_drive_launches_softer() {
+    let name = "Inline three, Ford 1.5 EcoBoost Dragon";
+    let fwd = run(name, None);
+    let rwd = run(name, Some(LaunchConfig { front_wheel_drive: false, ..common::engine_preset(name).launch.clone() }));
+    let (f, r) = (fwd.last().unwrap().zero_to_sixty.unwrap(), rwd.last().unwrap().zero_to_sixty.unwrap());
+    assert!(f > r + 0.1, "0-60 in {f} s through the front wheels, against {r} s through the rear");
 }
 
 /// The RS 3 gets to 60 mph in about the 3.6 s road tests time it at: 400 PS through all four wheels.

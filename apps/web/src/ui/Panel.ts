@@ -35,6 +35,7 @@ import {
   fitLaunch,
   fullLoadTorque,
   DRIVEN_LOAD,
+  DRIVES,
   DRIVER_MASS,
   MANUAL_SHIFT_TIME,
   TYRE_GRIP,
@@ -50,6 +51,7 @@ import {
   presetEngine,
   type BlowOff,
   type Car,
+  type Drive,
   type LaunchConfig,
   type EngineConfig,
   type EngineSnapshot,
@@ -477,11 +479,24 @@ export class Panel {
       'throttle stays open. Off, each shift lifts off and takes the clutch out, as a manual does. Stock ' +
       'for the Corvettes.';
     this.resyncers.push(() => (checkbox(dct).checked = this.launchConfig().dualClutch));
-    const awd = toggle(launch, 'All-wheel drive', this.launchIsAwd(), (v) => this.setLaunch('awd', v));
-    awd.title =
-      'Drive all four wheels, so the tyres can take the whole weight of the car pulling away rather than ' +
-      'what is on the rear. It launches harder before the tyres spin. Stock for the Skyline.';
-    this.resyncers.push(() => (checkbox(awd).checked = this.launchIsAwd()));
+    const driveRow = el('div', 'row', launch);
+    el('label', '', driveRow).textContent = 'Driven wheels';
+    const driveSel = el('select', '', driveRow) as HTMLSelectElement;
+    const driveNames: Record<Drive, string> = { rwd: 'Rear', fwd: 'Front', awd: 'All four' };
+    const driveOptions = DRIVES.map((d) => driveSel.appendChild(option(d, driveNames[d])));
+    const syncDrive = (): void => {
+      const stock = this.launch.car?.drive ?? 'rwd';
+      DRIVES.forEach((d, i) => (driveOptions[i]!.textContent = `${driveNames[d]}${d === stock ? (this.launch.car ? ' (stock)' : ' (auto)') : ''}`));
+      driveSel.value = this.launchDrive();
+    };
+    syncDrive();
+    driveSel.addEventListener('change', () => this.setLaunch('drive', driveSel.value as Drive));
+    driveRow.title =
+      'The wheels the engine drives. As the car pulls away its weight moves back, onto the rear wheels ' +
+      'and off the front, so driven rear wheels grip harder the harder it accelerates and driven front ' +
+      'ones less. All four take the whole weight of the car, and launch hardest before the tyres spin. ' +
+      'Stock is the real car\'s: all four for the Skyline and the RS 3, the front for the Fiesta.';
+    this.resyncers.push(syncDrive);
     const tc = toggle(launch, 'Traction control', this.launch.tractionControl, (v) => this.setLaunch('tractionControl', v));
     tc.title =
       'Ease the throttle whenever the driven tyres slip past where they grip best, and open it again as ' +
@@ -1613,6 +1628,7 @@ export class Panel {
       tyreRadius: stock?.tyreRadius ?? fit.tyreRadius,
       tyreGrip: this.launch.tyreGrip ?? stock?.tyreGrip ?? fit.tyreGrip,
       drivenLoad: this.launchDrivenLoad(),
+      frontWheelDrive: this.launchDrive() === 'fwd',
       tractionControl: this.launch.tractionControl,
       shiftTime: this.launch.shiftTime ?? stock?.shiftTime ?? fit.shiftTime,
       dualClutch: this.launch.dualClutch ?? stock?.dualClutch ?? fit.dualClutch,
@@ -1627,16 +1643,16 @@ export class Panel {
     return fitDyno(this.config.engine, this.launch.dynoFrom, this.launch.dynoTo, this.launch.sweepRate);
   }
 
-  /** Whether a launch drives all four wheels: the user's choice, or the real car's. */
-  private launchIsAwd(): boolean {
-    return this.launch.awd ?? (this.launch.car?.drivenLoad ?? 0) >= DRIVEN_LOAD.awd;
+  /** The wheels a launch drives: the user's choice, or the real car's, or the rear. */
+  private launchDrive(): Drive {
+    return this.launch.drive ?? this.launch.car?.drive ?? 'rwd';
   }
 
   /** The share of the car's weight a launch's driven wheels carry: the real car's where it drives them. */
   private launchDrivenLoad(): number {
-    if (this.launchIsAwd()) return DRIVEN_LOAD.awd;
-    const own = this.launch.car?.drivenLoad;
-    return own !== undefined && own < DRIVEN_LOAD.awd ? own : DRIVEN_LOAD.rwd;
+    const drive = this.launchDrive();
+    const car = this.launch.car;
+    return car && car.drive === drive ? car.drivenLoad : DRIVEN_LOAD[drive];
   }
 
   /**

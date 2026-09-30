@@ -2,8 +2,8 @@
 //! throttle, what the blow-off valve does when the throttle shuts and what happens without one, and
 //! the whine of the compressor; and the turbine running on its map.
 //!
-//! The Nissan RB26DETT preset is the turbocharged engine throughout, but for the Toyota 3S-GTE's and the
-//! Audi EA855 EVO's own torque and power: a four and a five, each on one turbo.
+//! The Nissan RB26DETT preset is the turbocharged engine throughout, but for the Ford Dragon's, the Toyota
+//! 3S-GTE's and the Audi EA855 EVO's own torque and power: a three, a four and a five, each on one turbo.
 
 mod common;
 
@@ -205,6 +205,33 @@ fn a_four_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
     assert!((t5000 - 304.0).abs() < 0.1 * 304.0, "{t5000} N*m at 5000 rpm");
     let ps = torque(6000.0) * 6000.0 * 2.0 * std::f64::consts::PI / 60.0 / 735.5;
     assert!((ps - 225.0).abs() < 0.1 * 225.0, "{ps} PS at 6000 rpm");
+}
+
+/// The 1.5 EcoBoost Dragon, one turbo on three cylinders, on its 1.15 bar makes about the real engine's
+/// rated 290 N*m once on boost and 200 PS at 6000 rpm. The real one has its peak torque from 1600, where
+/// this turbo is still spooling.
+#[test]
+fn a_three_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
+    let torque = |rpm: f64| {
+        let mut cfg = common::engine_preset("Inline three, Ford 1.5 EcoBoost Dragon").config.clone();
+        cfg.engine = common::with(
+            &cfg.engine,
+            json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm }),
+        );
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(3 * FS as usize);
+        let n = FS as usize / 2;
+        let mut t = 0.0;
+        for _ in 0..n {
+            sim.render(1);
+            t += sim.snapshot().torque - sim.friction_torque();
+        }
+        t / n as f64
+    };
+    let t3000 = torque(3000.0);
+    assert!((t3000 - 290.0).abs() < 0.1 * 290.0, "{t3000} N*m at 3000 rpm");
+    let ps = torque(6000.0) * 6000.0 * 2.0 * std::f64::consts::PI / 60.0 / 735.5;
+    assert!((ps - 200.0).abs() < 0.1 * 200.0, "{ps} PS at 6000 rpm");
 }
 
 /// The EA855 EVO, one turbo on five cylinders, on its 1.35 bar makes about the real engine's rated

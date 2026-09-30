@@ -110,8 +110,8 @@ Where the model is simplified, and by how much.
 - **The launch car is a point mass on a flat strip.** Its tyres' grip is one friction coefficient,
   whatever the speed, with no suspension, tyre heat or surface to change it. Where a real car's grip is
   known it is from a skidpad, which measures it cornering, raised by a fixed 7% for grip driving in a
-  straight line; the true difference depends on the tyre. The weight moving onto the rear wheels is one
-  fixed share per g, 0.18, the same for every car. Its drag area is fixed at 0.6 m², and its wheels,
+  straight line; the true difference depends on the tyre. The weight moving back, onto the rear wheels and
+  off the front, is one fixed share per g, 0.18, the same for every car. Its drag area is fixed at 0.6 m², and its wheels,
   tyres and half-shafts are one 3 kg·m² body. The gearbox and clutch have no inertia of their own, and
   the engine's rotating inertia is an estimate where it is not published: through the low gears it
   weighs as much as a few hundred kilograms more car. Traction control is idealised: it knows the tyres'

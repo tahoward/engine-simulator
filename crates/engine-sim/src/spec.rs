@@ -461,8 +461,11 @@ pub struct LaunchConfig {
     /// The car's mass, kg.
     pub mass: f64,
     /// Share of the car's weight on the driven wheels at rest: 1 driving all four. Driving the rear
-    /// wheels, more moves onto them as the car accelerates.
+    /// wheels, more moves onto them as the car accelerates; driving the front, it moves off them.
     pub driven_load: f64,
+    /// Whether the driven wheels are the front ones, which the car's weight moves off as it accelerates.
+    #[serde(default)]
+    pub front_wheel_drive: bool,
     /// Whether traction control keeps the driven wheels from spinning: see `LaunchRun`.
     pub traction_control: bool,
     /// Engine speed the clutch is slipped at off the line, rev/min.
