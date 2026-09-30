@@ -98,7 +98,7 @@ import {
   type HeaderPrimary,
   type OpeningAt,
 } from './headerTool.js';
-import { boreAt, crossingLegs, defaultCrossing, snapPoints, xLegs, xPairs, type PipePoint, type XPlan } from './xpipeTool.js';
+import { boreAt, crossingBore, crossingLegs, defaultCrossing, setCrossingBore, snapPoints, xLegs, xPairs, type PipePoint, type XPlan } from './xpipeTool.js';
 
 const MIN_RADIUS = 0.006;
 const MAX_RADIUS = 0.22;
@@ -107,11 +107,14 @@ const MAX_RADIUS = 0.22;
 const AUDIO_COMMIT_MS = 200;
 
 /** A diameter handle: the ring at a joint, or at the inlet. */
-type HandleKind = 'ring' | 'inlet';
+/** A diameter ring: at a joint, where a pipe starts, or where an X-pipe's pipes meet. */
+type HandleKind = 'ring' | 'inlet' | 'crossing';
 
 interface HandleData {
   kind: HandleKind;
   segment: number;
+  /** A crossing's: its junction. */
+  node?: string;
 }
 
 /** The attachment dot's colours: on a port, pipe, turbo or where two pipes join, and where three or more meet. */
@@ -120,6 +123,13 @@ const JUNCTION_MARKER = 0xc792ff;
 /** The attachment dot's radius, m, at the least, and against the bore it sits on: wider, so it shows round the pipe. */
 const MARKER_RADIUS = 0.016;
 const MARKER_OVER_BORE = 0.7;
+
+/**
+ * How much wider than the bore it sets an X-pipe crossing's ring is drawn, so it shows round the joint where
+ * four pipes meet, which is fatter than any one of them. Pulling it out by a millimetre still widens the bore
+ * by a millimetre's worth.
+ */
+const CROSSING_RING_OVER = 2;
 
 /** Size of the selected segment's triad, m. */
 const PIPE_TRIAD_SIZE = 0.11;
@@ -480,6 +490,9 @@ export class PipeEditor {
     transparent: true,
     opacity: 0.6,
   });
+  /** An X-pipe crossing's ring's, drawn over the joint where four pipes meet, which would hide it. */
+  private readonly matCrossing = new THREE.MeshBasicMaterial({ color: 0x4fd1ff, transparent: true, opacity: 0.85, depthTest: false });
+  private readonly matCrossingHover = new THREE.MeshBasicMaterial({ color: 0xffd166, depthTest: false });
 
   constructor(
     private readonly dom: HTMLElement,
@@ -2024,6 +2037,10 @@ export class PipeEditor {
       this.pipeTriad.setRingsOwn(true);
       this.pipeTriad.showMoves(true);
       for (const axis of [0, 1, 2] as const) this.pipeTriad.hideRing(axis, true);
+      // And one ring for the bore they meet at.
+      const along = new THREE.Vector3(...pin.axis);
+      this.addRing(at, along, (crossingBore(graph, crossing.node) / 2) * CROSSING_RING_OVER, { kind: 'crossing', segment: -1, node: crossing.node });
+      this.handles.at(-1)!.renderOrder = 16;
     } else if (sel !== null && duct && sel > 0 && sel < editable) {
       // A segment further along, where it starts: its one ring rolls it, and all after it, about the way it
       // sets off, so a bend there, or further on, swings round.
@@ -2096,7 +2113,8 @@ export class PipeEditor {
   private applyHandleColours(): void {
     for (const h of this.handles) {
       const data = h.userData as HandleData;
-      if (h === this.hovered) h.material = this.matHover;
+      if (data.kind === 'crossing') h.material = h === this.hovered || h === this.drag?.handle ? this.matCrossingHover : this.matCrossing;
+      else if (h === this.hovered) h.material = this.matHover;
       else if (data.segment === this.selected) h.material = this.matSelected;
       else h.material = this.matRing;
     }
@@ -2191,8 +2209,11 @@ export class PipeEditor {
       const handle = hit.object as THREE.Mesh;
       const data = handle.userData as HandleData;
       this.beginDrag(handle, data);
-      this.select(data.segment);
-      this.cb.onSelect(data.segment);
+      // A crossing's ring is on no one segment: what was selected stays so.
+      if (data.kind !== 'crossing') {
+        this.select(data.segment);
+        this.cb.onSelect(data.segment);
+      }
       e.preventDefault();
       return;
     }
@@ -2266,9 +2287,14 @@ export class PipeEditor {
     const plane = new THREE.Plane();
     plane.setFromNormalAndCoplanarPoint(normal, handle.position);
 
-    const axisPoint = data.kind === 'inlet' ? this.origin.clone() : layout.joints[i]!.clone();
+    const pin = data.kind === 'crossing' && data.node ? junctionAt(this.context!.graph, data.node) : undefined;
+    const axisPoint = pin
+      ? new THREE.Vector3(...pin.position)
+      : data.kind === 'inlet'
+        ? this.origin.clone()
+        : layout.joints[i]!.clone();
     const axisDir = (
-      data.kind === 'inlet' ? this.heading.clone() : layout.jointDirections[i]!.clone()
+      pin ? new THREE.Vector3(...pin.axis) : data.kind === 'inlet' ? this.heading.clone() : layout.jointDirections[i]!.clone()
     ).normalize();
 
     this.drag = { handle, data, plane, axisPoint, axisDir, lastCommit: 0 };
@@ -2727,11 +2753,16 @@ export class PipeEditor {
       return;
     }
 
-    const seg = this.pipe[this.drag.data.segment];
-    if (!seg) return;
     const point = new THREE.Vector3();
-    if (!this.raycaster.ray.intersectPlane(this.drag.plane, point)) return;
-    this.dragRadius(seg, point);
+    if (this.drag.data.kind === 'crossing') {
+      if (!this.raycaster.ray.intersectPlane(this.drag.plane, point)) return;
+      this.dragCrossingRadius(point);
+    } else {
+      const seg = this.pipe[this.drag.data.segment];
+      if (!seg) return;
+      if (!this.raycaster.ray.intersectPlane(this.drag.plane, point)) return;
+      this.dragRadius(seg, point);
+    }
 
     const now = performance.now();
     const commit = now - this.drag.lastCommit > AUDIO_COMMIT_MS;
@@ -2739,6 +2770,16 @@ export class PipeEditor {
     this.cb.onChange(commit, this.pipeDuctId());
     e.preventDefault();
   };
+
+  /** Grab an X-pipe's crossing ring and pull: sets the bore all four pipes meet at. */
+  private dragCrossingRadius(target: THREE.Vector3): void {
+    const { axisPoint, axisDir, data } = this.drag!;
+    const graph = this.context?.graph;
+    if (!graph || !data.node) return;
+    const rel = target.clone().sub(axisPoint);
+    rel.sub(axisDir.clone().multiplyScalar(rel.dot(axisDir)));
+    setCrossingBore(graph, data.node, clamp(rel.length() / CROSSING_RING_OVER, MIN_RADIUS, MAX_RADIUS) * 2);
+  }
 
   /** Grab a joint ring and pull: sets the diameter at that joint. */
   private dragRadius(seg: PipeSegment, target: THREE.Vector3): void {
@@ -2862,7 +2903,7 @@ export class PipeEditor {
     this.ghost.dispose();
     this.ghostPipe.geometry.dispose();
     (this.ghostPipe.material as THREE.Material).dispose();
-    for (const m of [this.matHover, this.matSelected, this.matRing]) {
+    for (const m of [this.matHover, this.matSelected, this.matRing, this.matCrossing, this.matCrossingHover]) {
       m.dispose();
     }
   }
