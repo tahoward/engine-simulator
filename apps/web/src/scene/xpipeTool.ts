@@ -252,3 +252,17 @@ export function moveCrossing(graph: ExhaustGraph, node: string, position: Vec3):
   }
   return true;
 }
+
+/** Set the bore the pipes meet at in the X-pipe crossing at `node`, m: where each leg sets off from it, which the pipes into it bend in to meet. */
+export function setCrossingBore(graph: ExhaustGraph, node: string, bore: number): void {
+  for (const leg of crossingLegs(graph, node)) {
+    const bend = leg.segments[0];
+    if (bend) bend.dIn = bore;
+  }
+}
+
+/** The bore the pipes meet at in the X-pipe crossing at `node`, m, or 0 where it is not one. */
+export function crossingBore(graph: ExhaustGraph, node: string): number {
+  const bend = crossingLegs(graph, node)[0]?.segments[0];
+  return bend ? segmentDiameter(bend, 0) : 0;
+}

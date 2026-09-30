@@ -13,7 +13,7 @@ import { EngineMesh } from '../src/scene/EngineMesh.js';
 import { layoutGraph, type ExhaustPlacement, type ExhaustPort } from '../src/scene/exhaustLayout.js';
 import { layoutPipe } from '../src/scene/PipeMesh.js';
 import { moveJunction, refitBends } from '../src/scene/turboPlacement.js';
-import { applyXPipe, boreAt, defaultCrossing, snapPoints, xLegs, xPairs, type PipePoint, type XPlan } from '../src/scene/xpipeTool.js';
+import { applyXPipe, boreAt, crossingBore, defaultCrossing, setCrossingBore, snapPoints, xLegs, xPairs, type PipePoint, type XPlan } from '../src/scene/xpipeTool.js';
 
 const v8 = { ...defaultConfig().engine, cylinders: 8, vAngle: 90, crankType: 'crossplane', exhaustLayout: 'perBank' } as EngineSpec;
 const portsOf = (spec: EngineSpec): ExhaustPort[] => {
@@ -156,6 +156,20 @@ describe('the X-pipe', () => {
       const feed = sweep(pair.duct, after);
       expect(feed.joints.at(-1)!.distanceTo(to)).toBeLessThan(1e-3);
       expect(feed.jointDirections.at(-1)!.angleTo(sweep(pin.through![pair.duct]!, after).stations[0]!.direction)).toBeLessThan(0.02);
+    }
+  });
+
+  it('sets the bore all four pipes meet at in the crossing', () => {
+    const { graph, ports, tails } = duals();
+    const node = applyXPipe(graph, planOf(graph, layoutGraph(ports, graph), tails))!;
+    refitBends(graph, ports, v8);
+    expect(crossingBore(graph, node)).toBeCloseTo(0.07, 9);
+    setCrossingBore(graph, node, 0.09);
+    refitBends(graph, ports, v8);
+    expect(crossingBore(graph, node)).toBeCloseTo(0.09, 9);
+    for (const e of endsAt(graph, node)) {
+      const seg = e.end === 'inlet' ? e.duct.segments[0]! : e.duct.segments.at(-1)!;
+      expect(e.end === 'inlet' ? seg.dIn : seg.dOut).toBeCloseTo(0.09, 9);
     }
   });
 
