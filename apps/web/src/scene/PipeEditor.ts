@@ -98,7 +98,7 @@ import {
   type HeaderPrimary,
   type OpeningAt,
 } from './headerTool.js';
-import { boreAt, defaultCrossing, snapPoints, xLegs, xPairs, type PipePoint, type XPlan } from './xpipeTool.js';
+import { boreAt, crossingLegs, defaultCrossing, snapPoints, xLegs, xPairs, type PipePoint, type XPlan } from './xpipeTool.js';
 
 const MIN_RADIUS = 0.006;
 const MAX_RADIUS = 0.22;
@@ -1984,9 +1984,13 @@ export class PipeEditor {
     this.handles.length = 0;
 
     const layout = layoutPipe(this.pipe, this.origin, this.heading);
+    const graph = this.context?.graph;
+    const duct = graph?.ducts.find((d) => d.segments === this.pipe);
+    const crossing = duct ? this.crossingOf(duct) : null;
 
-    // Inlet ring: the header diameter, the one inlet not fixed by a previous segment.
-    if (this.pipe.length > 0) {
+    // Inlet ring: the header diameter, the one inlet not fixed by a previous segment. Not on a leg of an
+    // X-pipe, which leaves the crossing at the bore of the pipe it runs on from.
+    if (this.pipe.length > 0 && !crossing?.leaving) {
       const r0 = this.pipe[0]!.dIn / 2;
       this.addRing(this.origin, this.heading, r0, { kind: 'inlet', segment: 0 });
     }
@@ -2003,13 +2007,24 @@ export class PipeEditor {
      * port, or a turbo's outlet, it is held there, and only rolls, about the way it leaves. A pipe that is
      * nothing but a bend fitted to what it joins is fitted, not drawn, and has none.
      */
-    const graph = this.context?.graph;
-    const duct = graph?.ducts.find((d) => d.segments === this.pipe);
     this.pipeTriadAt = null;
     const root = duct && drawnSegments(duct).length > 0 ? this.runRoot(duct) : null;
     const rootAt = root ? this.context?.placement.ducts.get(root.id) : undefined;
     const sel = this.selected;
-    if (sel !== null && duct && sel > 0 && sel < editable) {
+    const onCrossing = crossing && sel !== null && (crossing.leaving || sel >= editable);
+    if (onCrossing && graph) {
+      // Any part of an X-pipe's crossing: the one triad, on the crossing, whose arrows move it, the legs
+      // bending out again to where they go and the pipes into it following.
+      const pin = junctionAt(graph, crossing.node)!;
+      const at = new THREE.Vector3(...pin.position);
+      this.pipeTriadAt = { start: at.clone(), from: 0, root: crossing.leg };
+      this.pipeTriad.setMoveOrigin(at);
+      this.pipeTriad.setRotateOrigin(at);
+      this.pipeTriad.setOrientation(new THREE.Quaternion());
+      this.pipeTriad.setRingsOwn(true);
+      this.pipeTriad.showMoves(true);
+      for (const axis of [0, 1, 2] as const) this.pipeTriad.hideRing(axis, true);
+    } else if (sel !== null && duct && sel > 0 && sel < editable) {
       // A segment further along, where it starts: its one ring rolls it, and all after it, about the way it
       // sets off, so a bend there, or further on, swings round.
       const at = layout.joints[sel - 1]!;
@@ -2040,6 +2055,23 @@ export class PipeEditor {
     this.applyHandleColours();
     // Rebuilt handles come back visible, so draw mode has to hide them again.
     this.applyHandleVisibility();
+  }
+
+  /**
+   * The X-pipe crossing `duct` is part of: leaving it as one of its legs, or bending into it, with the leg it
+   * runs on into. `null` for a pipe that is neither.
+   */
+  private crossingOf(duct: ExhaustDuct): { node: string; leg: string; leaving: boolean } | null {
+    const graph = this.context?.graph;
+    if (!graph) return null;
+    if (duct.from.kind === 'node' && crossingLegs(graph, duct.from.node).includes(duct)) {
+      return { node: duct.from.node, leg: duct.id, leaving: true };
+    }
+    if (duct.to.kind === 'node') {
+      const onto = junctionAt(graph, duct.to.node)?.through?.[duct.id];
+      if (onto && crossingLegs(graph, duct.to.node).some((d) => d.id === onto)) return { node: duct.to.node, leg: onto, leaving: false };
+    }
+    return null;
   }
 
   private addRing(
