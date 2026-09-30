@@ -197,6 +197,8 @@ pub struct EngineSpec {
     // --- Operating point ---
     pub rpm: f64,
     pub rev_limit: f64,
+    /// Speed the idle air valve holds with the throttle shut, rev/min; 0 for no idle control.
+    pub idle_rpm: f64,
     pub free_running: bool,
     pub flywheel_inertia: f64,
     pub load: f64,
@@ -282,6 +284,7 @@ impl Default for EngineSpec {
 
             rpm: 3200.0,
             rev_limit: 7000.0,
+            idle_rpm: 800.0,
             free_running: false,
             flywheel_inertia: 0.25,
             load: 0.46,

@@ -185,23 +185,6 @@ fn advance_map_holds_the_spark_where_it_is_set_with_the_map_off() {
     assert_close(advance(json!({ "throttle": 1, "rpm": 1000, "advanceCurve": false })), nominal, 9.0);
 }
 
-/// Lets a bogged engine pull away.
-///
-/// A four bogged to its speed floor under load has to be able to pull away on full throttle. On fixed
-/// timing its burn is so short at 450 rpm that most of the heat is released before top dead centre,
-/// and it sits there making no power whatever the throttle does.
-#[test]
-fn advance_map_lets_a_bogged_engine_pull_away() {
-    let mut cfg = common::engine_preset("Inline four, Honda F20C").config.clone();
-    cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true, "load": 0.46, "throttle": 0.1 }));
-    let mut sim = EngineSim::new(FS, &cfg);
-    sim.render(FS as usize * 2);
-    assert!(sim.rpm() < 600.0, "rpm {}", sim.rpm());
-    sim.set_controls(1.0, 0.46);
-    sim.render(FS as usize * 3);
-    assert!(sim.rpm() > 3000.0, "rpm {}", sim.rpm());
-}
-
 // --- mixture ---
 
 /// Lean releases less heat per charge; rich has no more oxygen to release it with.

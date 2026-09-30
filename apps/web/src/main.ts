@@ -916,15 +916,23 @@ viewer.onFrame((dt) => {
 let engineOn = false;
 /** When the coasting engine came to rest, ms, or null while it still turns. */
 let restSince: number | null = null;
+/** When the ignition last went on, ms. */
+let startedAt = 0;
 
 /** Output peak below which a stopped engine counts as silent, about -80 dB. */
 const SILENT_PEAK = 1e-4;
 /** How long a stopped engine may keep making a sound before the audio is suspended anyway, ms. */
 const REST_TIMEOUT_MS = 3000;
+/**
+ * How long after the ignition goes on a standstill does not count as a stall, ms: snapshots from before
+ * the simulation has the ignition can still arrive.
+ */
+const STALL_GRACE_MS = 500;
 
 async function startEngine(): Promise<void> {
   engineOn = true;
   restSince = null;
+  startedAt = performance.now();
   audio.setIgnition(true);
   panel.setRunning(true);
   await audio.start();
@@ -948,7 +956,15 @@ function toggleEngine(): void {
  * while it stands. The pipes are painted at ambient, as the last snapshot was a hair off it.
  */
 function settleWhenStill(s: EngineSnapshot): void {
-  if (engineOn || !audio.running) return;
+  if (!audio.running) return;
+  if (engineOn) {
+    // A load more than the idle valve can hold up has stalled it: switched off, as a driver would.
+    if (s.rpm < 0.5 && performance.now() - startedAt > STALL_GRACE_MS) {
+      stopEngine();
+      panel.notify('The engine stalled: the load was more than the idle valve could hold up.');
+    }
+    return;
+  }
   if (s.rpm >= 0.5) {
     restSince = null;
     return;
