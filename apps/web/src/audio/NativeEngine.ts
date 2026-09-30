@@ -30,6 +30,7 @@ type Command =
   | { type: 'snapshotRate'; hz: number }
   | { type: 'timeScale'; scale: number }
   | { type: 'controls'; throttle: number; load: number }
+  | { type: 'ignition'; on: boolean }
   | { type: 'suspend' }
   | { type: 'resume' };
 
@@ -53,6 +54,7 @@ export class NativeEngine implements EngineHost {
   private info: StreamInfo | null = null;
   private playing = false;
   private timeScale = 1;
+  private ignition = true;
   private opening: Promise<void> | null = null;
   private readonly decoder = new TextDecoder();
 
@@ -155,6 +157,11 @@ export class NativeEngine implements EngineHost {
     void this.send({ type: 'timeScale', scale });
   }
 
+  setIgnition(on: boolean): void {
+    this.ignition = on;
+    void this.send({ type: 'ignition', on });
+  }
+
   readWaveform(out: Float32Array<ArrayBuffer>): boolean {
     if (!this.hasWaveform || !this.playing) return false;
     const from = Math.max(0, FFT_SIZE - out.length);
@@ -203,6 +210,8 @@ export class NativeEngine implements EngineHost {
     this.hasWaveform = false;
     // A new simulation starts in real time.
     if (this.timeScale !== 1) await invoke('audio_command', { command: { type: 'timeScale', scale: this.timeScale } });
+    // And with the ignition on.
+    if (!this.ignition) await invoke('audio_command', { command: { type: 'ignition', on: false } });
   }
 
   private receive(buffer: ArrayBuffer): void {

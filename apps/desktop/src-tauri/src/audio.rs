@@ -68,6 +68,10 @@ pub enum Command {
         throttle: f64,
         load: f64,
     },
+    /// Off, the engine coasts to a standstill with the stream still playing.
+    Ignition {
+        on: bool,
+    },
     Suspend,
     Resume,
 }
@@ -407,6 +411,7 @@ fn apply(sim: &mut EngineSim, command: Command, snapshot_interval: &mut usize, s
         Command::SnapshotRate { hz } => *snapshot_interval = ((fs / hz).round() as usize).max(1),
         Command::TimeScale { scale } => sim.set_time_scale(scale),
         Command::Controls { throttle, load } => sim.set_controls(throttle, load),
+        Command::Ignition { on } => sim.set_ignition(on),
         Command::Suspend => *suspended = true,
         Command::Resume => *suspended = false,
     }

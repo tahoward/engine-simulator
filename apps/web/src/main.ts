@@ -612,18 +612,14 @@ const panel = new Panel(panelEl, toolsEl, config, {
     saveConfig();
   },
   onSelect: (i) => editor.select(i),
-  onToggleAudio: () => {
-    void audio.toggle().then((running) => showRunning(running));
-  },
+  onToggleAudio: toggleEngine,
   onLaunch: (launchConfig) => {
     if (!launchConfig) {
       audio.launch(null);
       return;
     }
     // A run needs the engine running; starting it is what the button asks for.
-    const ready = audio.running
-      ? Promise.resolve()
-      : audio.start().then(() => showRunning(true));
+    const ready = engineOn ? Promise.resolve() : startEngine();
     void ready.then(() => {
       launchSheet.begin(launchConfig);
       audio.launch(launchConfig);
@@ -858,7 +854,7 @@ let displayRpm = 0;
 let timeScale = 1;
 
 audio.onSnapshot((s) => {
-  // One sent just before a stop can land after it, and would set the stopped engine going again.
+  // One sent just before the audio suspends can land after it.
   if (!audio.running) return;
   latest = s;
   displayRpm = s.rpm;
@@ -887,6 +883,7 @@ audio.onSnapshot((s) => {
     `${Math.round(s.rpm)} rpm · ${(s.cylPressure / 1e5).toFixed(1)} bar · ` +
     `${Math.round(s.cylTemp)} K · wall ${Math.round(s.wallTemp)} K · ` +
     `${s.pipeCells} cells × ${s.substeps}`;
+  settleWhenStill(s);
 });
 
 viewer.onFrame((dt) => {
@@ -904,24 +901,67 @@ viewer.onFrame((dt) => {
     engineMesh.highCam = latest.highCam;
     engineMesh.update(
       posed,
-      posed.map((b) => (displayRpm > 0 ? glow(b.crankAngle, config.engine.ignition) : 0)),
+      posed.map((b) => (engineOn ? glow(b.crankAngle, config.engine.ignition) : 0)),
     );
   }
   scope.draw();
   launchSheet.draw();
 });
 
+// ---------------------------------------------------------------------------
+// Starting and stopping
+// ---------------------------------------------------------------------------
+
+/** Whether the ignition is on. Off, the engine may still be coasting down, with the audio playing. */
+let engineOn = false;
+/** When the coasting engine came to rest, ms, or null while it still turns. */
+let restSince: number | null = null;
+
+/** Output peak below which a stopped engine counts as silent, about -80 dB. */
+const SILENT_PEAK = 1e-4;
+/** How long a stopped engine may keep making a sound before the audio is suspended anyway, ms. */
+const REST_TIMEOUT_MS = 3000;
+
+async function startEngine(): Promise<void> {
+  engineOn = true;
+  restSince = null;
+  audio.setIgnition(true);
+  panel.setRunning(true);
+  await audio.start();
+}
+
+/** Switch the ignition off, and let the engine run down on its own. The audio carries on until it has. */
+function stopEngine(): void {
+  engineOn = false;
+  restSince = null;
+  audio.setIgnition(false);
+  panel.setRunning(false);
+}
+
+function toggleEngine(): void {
+  if (engineOn) stopEngine();
+  else void startEngine();
+}
+
 /**
- * Show the engine running or stopped. A stopped one stands still where it stopped, with its pipes at
- * ambient pressure and the readouts cleared; the scope goes flat by itself, as the audio has no output.
+ * Once a stopped engine is at rest and its pipes have rung down, suspend the audio, which costs nothing
+ * while it stands. The pipes are painted at ambient, as the last snapshot was a hair off it.
  */
-function showRunning(running: boolean): void {
-  panel.setRunning(running);
-  if (running) return;
-  displayRpm = 0;
-  const ambient = new Float32Array(1);
-  for (const m of pipeMeshes) m.update(ambient, 1);
-  hudEl.textContent = '';
+function settleWhenStill(s: EngineSnapshot): void {
+  if (engineOn || !audio.running) return;
+  if (s.rpm >= 0.5) {
+    restSince = null;
+    return;
+  }
+  const now = performance.now();
+  restSince ??= now;
+  if (s.peak >= SILENT_PEAK && now - restSince < REST_TIMEOUT_MS) return;
+  void audio.suspend().then(() => {
+    if (engineOn) return;
+    displayRpm = 0;
+    const ambient = new Float32Array(1);
+    for (const m of pipeMeshes) m.update(ambient, 1);
+  });
 }
 
 /** Wraps to (-360, 360]. */
@@ -1072,14 +1112,14 @@ viewer.start();
 // Audio needs a user gesture on the web, so it waits for the start button. The desktop app needs
 // none, and starts at once.
 if (import.meta.env.VITE_TARGET === 'desktop') {
-  void audio.start().then(() => showRunning(true));
+  void startEngine();
 }
 
 document.addEventListener('keydown', (e) => {
   if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
   if (e.code === 'Space') {
     e.preventDefault();
-    void audio.toggle().then((running) => showRunning(running));
+    toggleEngine();
   }
 });
 

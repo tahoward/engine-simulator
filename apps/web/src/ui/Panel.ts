@@ -1803,10 +1803,6 @@ export class Panel {
   setRunning(running: boolean): void {
     this.startBtn.textContent = running ? 'Stop engine' : 'Start engine';
     this.startBtn.classList.toggle('running', running);
-    if (running) return;
-    this.rpmEl.textContent = '— rpm';
-    this.meterFill.style.width = '0%';
-    this.meterFill.classList.remove('hot');
   }
 
   /** Show a sample rate chosen somewhere other than the menu. */
