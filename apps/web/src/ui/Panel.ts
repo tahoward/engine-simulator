@@ -239,7 +239,6 @@ export class Panel {
   private noticeEl!: HTMLElement;
   private noticeTimer = 0;
   /** When the readout stops showing the last afterfire, ms on `performance.now`'s clock: a pop is shorter than a frame. */
-  private popShownUntil = 0;
   private placing = false;
   private placingPipe = false;
   private placePipeBtn!: HTMLButtonElement;
@@ -314,7 +313,6 @@ export class Panel {
   private camText = '';
   /** Rewrites the intake section's tuning readout if anything it shows has changed. */
   private refreshIntake: () => void = () => {};
-  private readonly readoutEl: HTMLElement;
   private readonly meterFill: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
   private readonly rateSel: HTMLSelectElement;
@@ -348,7 +346,6 @@ export class Panel {
 
     this.rpmEl = el('div', 'big-readout', transport);
     this.rpmEl.textContent = '— rpm';
-    this.readoutEl = el('div', 'readout', transport);
 
     const rateRow = el('div', 'row', transport);
     el('label', '', rateRow).textContent = 'Sample rate';
@@ -2714,7 +2711,6 @@ export class Panel {
   // Readouts
   // -------------------------------------------------------------------------
 
-
   updateReadouts(s: EngineSnapshot): void {
     this.shortRunnersNow = s.shortRunners;
     this.refreshIntake();
@@ -2770,17 +2766,7 @@ export class Panel {
       this.dynoBtn.classList.toggle('running', pulling);
       this.dynoBtn.disabled = launching;
     }
-    const now = performance.now();
-    if (s.afterfires) this.popShownUntil = now + 400;
-    this.rpmEl.textContent =
-      `${Math.round(s.rpm)} rpm${s.limiter ? ' · limiter' : ''}${s.fuelCut ? ' · fuel cut' : ''}` +
-      `${s.crackle ? ' · crackle' : ''}${now < this.popShownUntil ? ' · pop' : ''}`;
-    const stroke = strokeName(s.crankAngle);
-    this.readoutEl.textContent =
-      `${stroke} · ${s.crankAngle.toFixed(0)}° · ` +
-      `${(s.cylPressure / 1e5).toFixed(1)} bar · ${Math.round(s.cylTemp)} K · ` +
-      `ex ${(s.exLift * MM).toFixed(1)} mm · in ${(s.inLift * MM).toFixed(1)} mm · ` +
-      `pipe wall ${Math.round(s.wallTemp)} K`;
+    this.rpmEl.textContent = `${Math.round(s.rpm)} rpm${s.limiter ? ' · limiter' : ''}`;
     // Peak is a linear sample magnitude; show it on a dB scale so quiet mufflers
     // still move the meter.
     const db = 20 * Math.log10(Math.max(s.peak, 1e-5));
@@ -2792,13 +2778,6 @@ export class Panel {
 // ---------------------------------------------------------------------------
 // Small DOM helpers
 // ---------------------------------------------------------------------------
-
-function strokeName(deg: number): string {
-  if (deg < 180) return 'Power';
-  if (deg < 360) return 'Exhaust';
-  if (deg < 540) return 'Intake';
-  return 'Compression';
-}
 
 function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
