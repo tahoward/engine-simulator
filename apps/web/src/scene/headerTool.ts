@@ -22,6 +22,7 @@ import {
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
+import { exhaustPortOf } from '../model/geometry.js';
 import { makeSegment, physicalBank, physicalBankCount, segmentDiameter, type EngineSpec, type PipeSegment } from '../model/spec.js';
 import { fitCurve } from './drawing.js';
 import type { ExhaustPlacement, ExhaustPort } from './exhaustLayout.js';
@@ -175,24 +176,48 @@ export function headerPrimaries(plan: HeaderPlan): HeaderPrimary[] {
   });
 }
 
-/**
- * The plane one bank is the mirror image of the other in: the engine's middle, upright through the crank,
- * which the banks lean apart either side of (`exhaustPortOf`) — a V's, or a boxer's laid flat, whose ports
- * both point down. `null` for an engine with one bank.
- */
-export function bankMirror(spec: EngineSpec): { point: THREE.Vector3; normal: THREE.Vector3 } | null {
-  if (physicalBankCount(spec) < 2) return null;
-  return { point: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
+/** How one bank is the mirror image of the other: see `bankMirror`. */
+export interface BankMirror {
+  point: THREE.Vector3;
+  normal: THREE.Vector3;
+  shift: THREE.Vector3;
 }
 
-/** `plan`'s merge in the mirror, for the other bank's `openings`. */
+/**
+ * How one bank is the mirror image of the other: in the engine's middle, upright through the crank, which the
+ * banks lean apart either side of (`exhaustPortOf`) — a V's, or a boxer's laid flat, whose ports both point
+ * down — and then `shift` along the crank, the way bank 1 sits staggered from bank 0's reflection, its rods
+ * beside bank 0's on the shared pins. `null` for an engine with one bank.
+ */
+export function bankMirror(spec: EngineSpec): BankMirror | null {
+  if (physicalBankCount(spec) < 2) return null;
+  const point = new THREE.Vector3();
+  const normal = new THREE.Vector3(1, 0, 0);
+  const middle = (bank: number, reflect: boolean) => {
+    const cylinders = bankCylinders(spec, bank);
+    const sum = new THREE.Vector3();
+    for (const c of cylinders) {
+      const at = new THREE.Vector3(...exhaustPortOf(spec, c).position);
+      if (reflect) at.x = -at.x;
+      sum.add(at);
+    }
+    return sum.multiplyScalar(1 / Math.max(cylinders.length, 1));
+  };
+  const shift = middle(1, false).sub(middle(0, true));
+  shift.x = 0;
+  return { point, normal, shift };
+}
+
+/** `plan`'s merge in the mirror, for `openings` on bank `toBank`, the other bank from the plan's. */
 export function mirrorPlan(
   plan: HeaderPlan,
-  mirror: { point: THREE.Vector3; normal: THREE.Vector3 },
+  mirror: BankMirror,
   openings: OpeningAt[],
+  toBank: number,
 ): HeaderPlan {
   const n = mirror.normal;
   const merge = plan.merge.clone().addScaledVector(n, -2 * plan.merge.clone().sub(mirror.point).dot(n));
+  merge.addScaledVector(mirror.shift, toBank === 1 ? 1 : -1);
   const axis = plan.axis.clone().addScaledVector(n, -2 * plan.axis.dot(n));
   return { ...plan, openings, merge, axis };
 }
