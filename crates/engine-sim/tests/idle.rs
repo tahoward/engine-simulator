@@ -1,6 +1,7 @@
 //! Every engine preset loads idling: in neutral, with the throttle shut and the idle air valve holding
 //! `PRESET_IDLE_RPM`. Run free, each has to settle there rather than stall or run away, catch itself
-//! there coming down off a lift, and stall under a load the valve cannot hold up.
+//! there coming down off a lift, come back to it when a load is taken off, and stall under a load the
+//! valve cannot hold up.
 //!
 //! Also a readout, with no assertions, of every preset run free on a shut throttle and a few on a
 //! mid-throttle hold: `--nocapture` prints how the speed and manifold pressure evolve.
@@ -139,6 +140,21 @@ fn holds_the_idle_speed_it_is_set_to() {
         sim.render(FS as usize * 3);
         let (_, mean) = slowest_and_mean(&mut sim, 2);
         assert!((mean - 1100.0).abs() < 150.0, "{name}: idles at {mean} rpm");
+    }
+}
+
+/// The valve opens further to hold the idle against a load; when the load goes, the engine rises past
+/// the hold, and the valve must still wind back down to the idle rather than keep the engine up there.
+#[test]
+fn comes_back_to_the_idle_when_a_load_is_taken_off() {
+    for name in ["Inline four, Toyota 3S-GTE", "Inline six, Nissan RB26DETT"] {
+        let mut sim = idling(name, json!({}));
+        sim.set_controls(0.0, 0.07);
+        sim.render(FS as usize * 10);
+        sim.set_controls(0.0, 0.0);
+        sim.render(FS as usize * 10);
+        let (_, mean) = slowest_and_mean(&mut sim, 3);
+        assert!((mean - PRESET_IDLE_RPM).abs() < 150.0, "{name}: settled at {mean} rpm");
     }
 }
 

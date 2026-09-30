@@ -76,7 +76,15 @@ const IDLE_KP: f64 = 0.02;
 const IDLE_KI: f64 = 0.04;
 /// Above this multiple of the idle speed the controller keeps the opening it has learned rather than
 /// winding it shut, so an engine coming down from high revs is caught at the idle speed, not stalled.
+/// Once the engine has sat there with the throttle shut for `IDLE_SETTLE_TIME`, s, its speed smoothed
+/// over `IDLE_TREND_TAU`, s, falling no faster than `IDLE_SETTLED_RATE` idle speeds per second, it
+/// winds the opening down again, as slowly as it would at the hold speed, so an opening learned against a load that has gone, or in a dip,
+/// cannot hold the engine above its idle. Time spent falling faster counts back down, so a lumpy
+/// idle's surges delay the unwinding rather than preventing it.
 const IDLE_HOLD_ABOVE: f64 = 1.25;
+const IDLE_SETTLED_RATE: f64 = 0.1;
+const IDLE_TREND_TAU: f64 = 1.0;
+const IDLE_SETTLE_TIME: f64 = 2.0;
 /// The dashpot: how much further the valve opens, as more of the plate's, for each idle speed per
 /// second the engine is falling at, s, so an engine dropping off a lift has the air to catch itself at
 /// the idle rather than falling through it. And the time constant the rate is smoothed over, s.
@@ -258,6 +266,10 @@ pub struct EngineSim {
     /// The crank speed it last saw, rev/min, and how fast that is changing, rev/min per s, smoothed.
     idle_last_rpm: f64,
     idle_rate: f64,
+    /// The speed's rate of change smoothed over `IDLE_TREND_TAU`, rpm/s, and how long the engine has
+    /// sat above the hold with the throttle shut, not falling, s.
+    idle_trend: f64,
+    idle_settled_for: f64,
     /// The overrun crackle map: running, for how long since the lift, s, and done for this lift.
     crackle_active: bool,
     crackle_time: f64,
@@ -380,6 +392,8 @@ impl EngineSim {
             idle_learned: IDLE_VALVE_START,
             idle_last_rpm: 0.0,
             idle_rate: 0.0,
+            idle_trend: 0.0,
+            idle_settled_for: 0.0,
             crackle_active: false,
             crackle_time: 0.0,
             crackle_spent: false,
@@ -539,8 +553,8 @@ impl EngineSim {
     /// a PI controller on the crank speed, to hold the idle speed with the throttle shut. Above the idle
     /// speed it closes, so the throttle alone sets the speed; below it, it opens further against a load,
     /// up to its limit, past which the engine stalls. Only for a free-running engine with the ignition on:
-    /// one held at a speed has no use for it.
-    fn update_idle_valve(&mut self, dt: f64) {
+    /// one held at a speed has no use for it. `throttle` is the plate's opening this sample.
+    fn update_idle_valve(&mut self, dt: f64, throttle: f64) {
         let spec = &self.spec.spec;
         if !(spec.free_running && self.ignition && spec.idle_rpm > 0.0) {
             self.plenum.set_bypass(spec, 0.0);
@@ -551,8 +565,21 @@ impl EngineSim {
         self.idle_last_rpm = rpm;
         self.idle_rate += (rate - self.idle_rate) * (dt / IDLE_RATE_TAU);
         let error = (spec.idle_rpm - rpm) / spec.idle_rpm;
-        if rpm < IDLE_HOLD_ABOVE * spec.idle_rpm {
+        let above = rpm >= IDLE_HOLD_ABOVE * spec.idle_rpm;
+        let shut = throttle <= FUEL_CUT_THROTTLE && !self.crackle_active;
+        self.idle_trend += (self.idle_rate - self.idle_trend) * (dt / IDLE_TREND_TAU);
+        self.idle_settled_for = if !(above && shut) {
+            0.0
+        } else if self.idle_trend > -IDLE_SETTLED_RATE * spec.idle_rpm {
+            self.idle_settled_for + dt
+        } else {
+            math::max(self.idle_settled_for - dt, 0.0)
+        };
+        if !above {
             self.idle_learned = clamp(self.idle_learned + IDLE_KI * error * dt, 0.0, IDLE_VALVE_MAX);
+        } else if self.idle_settled_for >= IDLE_SETTLE_TIME {
+            let unwind = IDLE_KI * (1.0 - IDLE_HOLD_ABOVE) * dt;
+            self.idle_learned = clamp(self.idle_learned + unwind, 0.0, IDLE_VALVE_MAX);
         }
         let falling = math::max(-self.idle_rate, 0.0) / spec.idle_rpm;
         let opening = clamp(self.idle_learned + IDLE_KP * error + IDLE_DASHPOT * falling, 0.0, IDLE_VALVE_MAX);
@@ -1087,7 +1114,7 @@ impl EngineSim {
         }
 
         // --- Idle air valve ---
-        self.update_idle_valve(dt);
+        self.update_idle_valve(dt, throttle);
 
         // --- Overrun fuel cut, and the crackle map that holds it off after a lift ---
         let rpm_now = (self.omega_mean * 60.0) / (2.0 * PI);
