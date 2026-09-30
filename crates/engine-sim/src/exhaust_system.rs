@@ -942,10 +942,19 @@ impl ExhaustSystem {
         self.ducts[self.radiating[m]].mouth_cutoff_rad
     }
 
-    /// Upper band limit for mouth `m`'s radiation: whichever model limit binds first.
-    pub fn band_limit_rad_of(&self, m: usize) -> f64 {
-        let d = &self.ducts[self.radiating[m]];
-        math::min(d.plane_wave_cutoff_rad, d.resolution_cutoff_rad)
+    /// The plane-wave limit on mouth `m`'s radiation, rad/s.
+    pub fn plane_wave_cutoff_rad_of(&self, m: usize) -> f64 {
+        self.ducts[self.radiating[m]].plane_wave_cutoff_rad
+    }
+
+    /// The highest frequency the grid resolves at mouth `m`, rad/s.
+    pub fn resolution_cutoff_rad_of(&self, m: usize) -> f64 {
+        self.ducts[self.radiating[m]].resolution_cutoff_rad
+    }
+
+    /// The duct radiating from mouth `m`.
+    pub fn radiating_duct(&self, m: usize) -> &EulerPipe {
+        &self.ducts[self.radiating[m]]
     }
 
     pub fn set_air_speed(&mut self, v: f64) {
