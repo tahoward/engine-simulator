@@ -1,0 +1,566 @@
+{
+ "format": "engine-simulator/engine",
+ "version": 1,
+ "engine": {
+  "cylinders": 6,
+  "vAngle": 60,
+  "firingOffset": null,
+  "crankType": "shared",
+  "exhaustLayout": "perBank",
+  "exhaustHeaders": false,
+  "headerRun": "outward",
+  "bore": 0.094,
+  "stroke": 0.083,
+  "rodLength": 0.155,
+  "compressionRatio": 10.8,
+  "exValveDia": 0.03196,
+  "exValveCount": 2,
+  "portLength": 0.055,
+  "inValveDia": 0.0376,
+  "inValveCount": 2,
+  "maxLift": 0.01,
+  "evo": 128,
+  "evc": 378,
+  "ivo": 357,
+  "ivc": 605,
+  "camSwitchRpm": 0,
+  "highEvo": 128,
+  "highEvc": 378,
+  "highIvo": 342,
+  "highIvc": 576,
+  "highMaxLift": 0.0095,
+  "vvtIntakeLow": 40,
+  "vvtIntakeHigh": 0,
+  "vvtExhaustLow": 0,
+  "vvtExhaustHigh": 0,
+  "vvtLowRpm": 2000,
+  "vvtHighRpm": 5600,
+  "vvtLinked": false,
+  "ignition": 695,
+  "burnDuration": 55,
+  "advanceCurve": true,
+  "lambda": 1,
+  "fuelCut": true,
+  "overrunCrackle": false,
+  "crackleIntensity": 0.6,
+  "combustionVariability": 1,
+  "recipMass": 0.55,
+  "throttle": 0.078,
+  "throttleDia": 0,
+  "plenumVolume": 0,
+  "intakeRunnerLength": 0,
+  "intakeRunnerDia": 0,
+  "intakeRunnerShortLength": 0,
+  "intakeSwitchRpm": 5000,
+  "boostTarget": 70000,
+  "turboSize": 0,
+  "intercooler": 0.7,
+  "blowOff": "atmospheric",
+  "turboNoise": 1,
+  "rpm": 800,
+  "revLimit": 6600,
+  "freeRunning": true,
+  "flywheelInertia": 0.5,
+  "load": 0,
+  "portGasTemp": 950,
+  "pipeCellSize": 0.035,
+  "pipeWallThickness": 0.0012,
+  "airSpeed": 0,
+  "micDistance": 1.5,
+  "micHeight": 1.2,
+  "exhaustHeight": 0.35,
+  "mouthSpacing": 1,
+  "cylinderSpread": 1,
+  "groundReflection": 0.7,
+  "outputGain": 0.96,
+  "mechNoise": 0.45,
+  "throatNoise": 0.5
+ },
+ "pipe": [
+  {
+   "id": "seg1616",
+   "kind": "pipe",
+   "length": 0.45,
+   "dIn": 0.038418525635427504,
+   "dOut": 0.038418525635427504,
+   "yaw": 0,
+   "pitch": 0
+  }
+ ],
+ "collector": [
+  {
+   "id": "seg1622",
+   "kind": "cone",
+   "length": 0.16,
+   "dIn": 0.04802315704428438,
+   "dOut": 0.06121941128425199,
+   "yaw": 0,
+   "pitch": 0
+  },
+  {
+   "id": "seg1623",
+   "kind": "pipe",
+   "length": 0.6500000000000004,
+   "dIn": 0.06121941128425199,
+   "dOut": 0.06121941128425199,
+   "yaw": 0,
+   "pitch": 0
+  },
+  {
+   "id": "seg1624",
+   "kind": "chamber",
+   "length": 0.6,
+   "dIn": 0.06121941128425199,
+   "dOut": 0.15304852821062997,
+   "yaw": 0,
+   "pitch": 0
+  },
+  {
+   "id": "seg1625",
+   "kind": "pipe",
+   "length": 0.5,
+   "dIn": 0.06121941128425199,
+   "dOut": 0.06121941128425199,
+   "yaw": 0,
+   "pitch": 0
+  }
+ ],
+ "graph": {
+  "junctions": [
+   {
+    "node": "join1",
+    "position": [
+     -0.2780006091638911,
+     0.13847755810522036,
+     -0.08088318924913147
+    ],
+    "axis": [
+     0,
+     0,
+     1
+    ]
+   },
+   {
+    "node": "join2",
+    "position": [
+     0.2780006091638911,
+     0.13847755810522036,
+     -0.06488318924913146
+    ],
+    "axis": [
+     0,
+     0,
+     1
+    ]
+   },
+   {
+    "node": "join3",
+    "position": [
+     0.3979562459289976,
+     0.13847755810522036,
+     0.3824810955861645
+    ],
+    "axis": [
+     6.123233995736766e-17,
+     0,
+     1
+    ]
+   },
+   {
+    "node": "join5",
+    "position": [
+     -0.2780006091638911,
+     0.13847755810522036,
+     0.13481677021529678
+    ],
+    "axis": [
+     6.123233995736766e-17,
+     0,
+     1
+    ]
+   }
+  ],
+  "ducts": [
+   {
+    "id": "runner0",
+    "segments": [
+     {
+      "id": "seg645",
+      "kind": "pipe",
+      "length": 0.10000000000004018,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.038418525635427504,
+      "yaw": 0,
+      "pitch": 0,
+      "curve": {
+       "end": [
+        0.06341681075086855,
+        1.0408340855860843e-17,
+        -0.06341681075086854
+       ],
+       "dir": [
+        -5.3028761936245346e-17,
+        -3.0616169978683824e-17,
+        -1
+       ]
+      }
+     }
+    ],
+    "from": {
+     "kind": "valve",
+     "cylinder": 0
+    },
+    "to": {
+     "kind": "node",
+     "node": "join1"
+    },
+    "headingYaw": 0,
+    "headingPitch": 0,
+    "role": "stub",
+    "fitted": true
+   },
+   {
+    "id": "runner0-log1",
+    "segments": [
+     {
+      "id": "seg596",
+      "kind": "pipe",
+      "length": 0.1363,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.038418525635427504,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "from": {
+     "kind": "node",
+     "node": "join1"
+    },
+    "to": {
+     "kind": "node",
+     "node": "merge0-1"
+    },
+    "headingYaw": -1.5707963267948966,
+    "headingPitch": 0,
+    "headingFrame": "world",
+    "role": "manifold"
+   },
+   {
+    "id": "runner1",
+    "segments": [
+     {
+      "id": "seg688",
+      "kind": "pipe",
+      "length": 0.1000000000000402,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.038418525635427504,
+      "yaw": 0,
+      "pitch": 0,
+      "curve": {
+       "end": [
+        0.06341681075086855,
+        1.0408340855860843e-17,
+        0.06341681075086854
+       ],
+       "dir": [
+        5.3028761936245346e-17,
+        3.0616169978683824e-17,
+        1
+       ]
+      }
+     }
+    ],
+    "from": {
+     "kind": "valve",
+     "cylinder": 1
+    },
+    "to": {
+     "kind": "node",
+     "node": "join2"
+    },
+    "headingYaw": 0,
+    "headingPitch": 0,
+    "role": "stub",
+    "fitted": true
+   },
+   {
+    "id": "runner1-log1",
+    "segments": [
+     {
+      "id": "seg601",
+      "kind": "pipe",
+      "length": 0.1363,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.038418525635427504,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "from": {
+     "kind": "node",
+     "node": "join2"
+    },
+    "to": {
+     "kind": "node",
+     "node": "merge1-1"
+    },
+    "headingYaw": -1.5707963267948966,
+    "headingPitch": 0,
+    "headingFrame": "world",
+    "role": "manifold"
+   },
+   {
+    "id": "runner2",
+    "segments": [
+     {
+      "id": "seg646",
+      "kind": "pipe",
+      "length": 0.10000000000004011,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.038418525635427504,
+      "yaw": 0,
+      "pitch": 0,
+      "curve": {
+       "end": [
+        0.06341681075086855,
+        1.0408340855860843e-17,
+        -0.06341681075086855
+       ],
+       "dir": [
+        -5.3028761936245346e-17,
+        -3.0616169978683824e-17,
+        -1
+       ]
+      }
+     }
+    ],
+    "from": {
+     "kind": "valve",
+     "cylinder": 2
+    },
+    "to": {
+     "kind": "node",
+     "node": "merge0-1"
+    },
+    "headingYaw": 0,
+    "headingPitch": 0,
+    "role": "stub",
+    "fitted": true
+   },
+   {
+    "id": "runner3",
+    "segments": [
+     {
+      "id": "seg689",
+      "kind": "pipe",
+      "length": 0.10000000000004018,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.038418525635427504,
+      "yaw": 0,
+      "pitch": 0,
+      "curve": {
+       "end": [
+        0.06341681075086855,
+        1.0408340855860843e-17,
+        0.06341681075086855
+       ],
+       "dir": [
+        5.3028761936245346e-17,
+        3.0616169978683824e-17,
+        1
+       ]
+      }
+     }
+    ],
+    "from": {
+     "kind": "valve",
+     "cylinder": 3
+    },
+    "to": {
+     "kind": "node",
+     "node": "merge1-1"
+    },
+    "headingYaw": 0,
+    "headingPitch": 0,
+    "role": "stub",
+    "fitted": true
+   },
+   {
+    "id": "runner4",
+    "segments": [
+     {
+      "id": "seg647",
+      "kind": "pipe",
+      "length": 0.10000000000004015,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.04998544000000001,
+      "yaw": 0,
+      "pitch": 0,
+      "curve": {
+       "end": [
+        0.06341681075086855,
+        1.0408340855860843e-17,
+        -0.06341681075086852
+       ],
+       "dir": [
+        -5.3028761936245346e-17,
+        -3.0616169978683824e-17,
+        -1
+       ]
+      }
+     },
+     {
+      "id": "seg6630",
+      "kind": "pipe",
+      "length": 0.07019322741957451,
+      "dIn": 0.04998544000000001,
+      "dOut": 0.04998544000000001,
+      "yaw": 0,
+      "pitch": 0,
+      "curve": {
+       "end": [
+        -0.05690004053557174,
+        0,
+        -3.484122625662129e-18
+       ],
+       "dir": [
+        1,
+        0,
+        0
+       ]
+      }
+     }
+    ],
+    "from": {
+     "kind": "valve",
+     "cylinder": 4
+    },
+    "to": {
+     "kind": "mouth"
+    },
+    "headingYaw": 0,
+    "headingPitch": 0,
+    "role": "stub",
+    "fitted": true
+   },
+   {
+    "id": "runner5",
+    "segments": [
+     {
+      "id": "seg690",
+      "kind": "pipe",
+      "length": 0.10000000000004015,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.04998544000000001,
+      "yaw": 0,
+      "pitch": 0,
+      "curve": {
+       "end": [
+        0.06341681075086855,
+        1.0408340855860843e-17,
+        0.0634168107508685
+       ],
+       "dir": [
+        5.3028761936245346e-17,
+        3.0616169978683824e-17,
+        1
+       ]
+      }
+     },
+     {
+      "id": "seg359",
+      "kind": "pipe",
+      "length": 0.2213430765909415,
+      "dIn": 0.04998544000000001,
+      "dOut": 0.04998544000000001,
+      "yaw": 0,
+      "pitch": 0,
+      "curve": {
+       "end": [
+        0.174764284835296,
+        0,
+        -0.1199556367651065
+       ],
+       "dir": [
+        1,
+        0,
+        0
+       ]
+      }
+     }
+    ],
+    "from": {
+     "kind": "valve",
+     "cylinder": 5
+    },
+    "to": {
+     "kind": "mouth"
+    },
+    "headingYaw": 0,
+    "headingPitch": 0,
+    "role": "stub",
+    "fitted": true
+   },
+   {
+    "id": "drawn1",
+    "segments": [
+     {
+      "id": "seg899",
+      "kind": "pipe",
+      "length": 0.3393316624682662,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.04998544000000001,
+      "yaw": 0,
+      "pitch": 0,
+      "curve": {
+       "end": [
+        0.31106428483529597,
+        0,
+        -0.1199556367651065
+       ],
+       "dir": [
+        1,
+        0,
+        0
+       ]
+      }
+     }
+    ],
+    "from": {
+     "kind": "node",
+     "node": "merge1-1"
+    },
+    "to": {
+     "kind": "mouth"
+    },
+    "headingYaw": 0,
+    "headingPitch": 0,
+    "fitted": true
+   },
+   {
+    "id": "drawn3",
+    "segments": [
+     {
+      "id": "seg1067",
+      "kind": "pipe",
+      "length": 0.07939995946442824,
+      "dIn": 0.038418525635427504,
+      "dOut": 0.04998544000000001,
+      "yaw": -6.123233995736766e-17,
+      "pitch": 0
+     }
+    ],
+    "from": {
+     "kind": "node",
+     "node": "merge0-1"
+    },
+    "to": {
+     "kind": "mouth"
+    },
+    "headingYaw": 0,
+    "headingPitch": 0,
+    "fitted": true
+   }
+  ]
+ }
+}

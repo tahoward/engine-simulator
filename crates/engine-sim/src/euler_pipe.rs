@@ -34,6 +34,8 @@ const INV_GAMMA: f64 = 1.0 / GAMMA;
 const CHOKED_PRESSURE_RATIO: f64 = 0.5404;
 const MOUTH_ISENTROPIC_EXP: f64 = (GAMMA - 1.0) / (2.0 * GAMMA);
 const TWO_OVER_GM1: f64 = 2.0 / (GAMMA - 1.0);
+/// Most Newton steps for the speed of air drawn in at a mouth: it converges in two or three.
+const MOUTH_INFLOW_ITERATIONS: usize = 6;
 
 /// Density of the air outside the pipe, kg/m^3.
 const AMBIENT_RHO: f64 = gas::P_AMB / (gas::R * gas::T_AMB);
@@ -153,6 +155,9 @@ pub struct EulerPipeOptions {
     pub heat_transfer: Option<bool>,
     /// Initial gas temperature at the port, K.
     pub initial_port_temp: Option<f64>,
+    /// False takes air drawn in at the mouth at the reservoir's pressure with its speed on top, rather
+    /// than speeding up from rest there as through a nozzle.
+    pub nozzle_inflow: Option<bool>,
 }
 
 impl EulerPipeOptions {
@@ -180,7 +185,8 @@ impl EulerPipeOptions {
             inlet_kind,
             outlet_kind,
             heat_transfer,
-            initial_port_temp
+            initial_port_temp,
+            nozzle_inflow
         );
         self
     }
@@ -305,6 +311,7 @@ pub struct EulerPipe {
     pub inlet_kind: InletKind,
     pub outlet_kind: OutletKind,
     pub heat_transfer: bool,
+    nozzle_inflow: bool,
 
     boundary_dt: f64,
     source_flow: f64,
@@ -440,6 +447,7 @@ impl EulerPipe {
             inlet_kind,
             outlet_kind,
             heat_transfer: opts.heat_transfer.unwrap_or(true),
+            nozzle_inflow: opts.nozzle_inflow.unwrap_or(true),
             boundary_dt: 0.0,
             source_flow: 0.0,
             source_scale: 1.0,
@@ -1286,8 +1294,11 @@ impl EulerPipe {
 
         let c = math::sqrt((GAMMA * p) / r);
 
-        // Supersonic outflow: impose nothing.
-        if u >= c {
+        // Supersonic outflow: impose nothing, so long as the gas leaves at no less than the air's pressure.
+        // Expanded below it, the gas meets a shock that runs back up the duct against it, which the
+        // radiation load below resolves: passed through as if nothing were there, the jet would go on
+        // pulling the duct, and every pipe behind it, towards a vacuum.
+        if u >= c && p >= self.res_p {
             let flux = hllc(r, u, p, r, u, p);
             self.set_face(n, flux);
             self.mouth_mass_flow = self.f0[n] * self.area_face[n];
@@ -1321,12 +1332,52 @@ impl EulerPipe {
         // leaving, from the reservoir for gas arriving.
         let mut r_ghost = math::max(r * math::pow(p_ghost / p, INV_GAMMA), 1e-7);
         let c_ghost = c * math::pow(p_ghost / p, MOUTH_ISENTROPIC_EXP);
-        let u_ghost = u + TWO_OVER_GM1 * (c - c_ghost);
-        if u_ghost < 0.0 {
+        let mut u_ghost = u + TWO_OVER_GM1 * (c - c_ghost);
+        let mut p_face = p_ghost;
+        if u_ghost < 0.0 && !self.nozzle_inflow {
             r_ghost = math::max(res_rho * math::pow(p_ghost / res_p, INV_GAMMA), 1e-7);
+        } else if u_ghost < 0.0 {
+            // Drawn in, the air starts at rest at the pressure the radiation load gives, and speeds up
+            // into the mouth at the expense of its own pressure, as through a nozzle: the outgoing
+            // invariant and its stagnation enthalpy set how fast, and it chokes at the speed of sound
+            // however far below it the duct's end falls. Taken in at that pressure with the speed on top,
+            // it would bring in more energy than the air outside holds, and each cycle it drew in faster
+            // would pump the exhaust further up, to tens of bar.
+            let rho0 = res_rho * math::pow(p_ghost / res_p, INV_GAMMA);
+            let c0_sq = (GAMMA * p_ghost) / rho0;
+            let head = TWO_OVER_GM1 * c0_sq;
+            // Drawn in at speed `w`, the air is at `p_ghost (1 - w^2/head)^(gamma/(gamma-1))`; the duct's
+            // gas reaches that pressure along its invariant at a velocity that falls as `w` rises. The face
+            // is where the two velocities are one, found by Newton's method on `w`, which starts at the
+            // acoustic answer and is smooth all the way to choking.
+            let at = |w: f64| {
+                let base = math::max(1.0 - (w * w) / head, 1e-12);
+                let pf = p_ghost * math::pow(base, GAMMA / (GAMMA - 1.0));
+                let s = math::pow(pf / p, MOUTH_ISENTROPIC_EXP);
+                let miss = u + TWO_OVER_GM1 * c * (1.0 - s) + w;
+                let slope = 1.0
+                    + (TWO_OVER_GM1 * c * MOUTH_ISENTROPIC_EXP * s * GAMMA * 2.0 * w) / ((GAMMA - 1.0) * head * base);
+                (pf, miss, slope)
+            };
+            let w_choked = math::sqrt((2.0 * c0_sq) / (GAMMA + 1.0));
+            let mut w = if at(w_choked).1 <= 0.0 { w_choked } else { math::min(-u_ghost, w_choked) };
+            if w < w_choked {
+                for _ in 0..MOUTH_INFLOW_ITERATIONS {
+                    let (_, miss, slope) = at(w);
+                    let next = clamp(w - miss / slope, 0.0, w_choked);
+                    if (next - w).abs() < 1e-9 * w_choked {
+                        w = next;
+                        break;
+                    }
+                    w = next;
+                }
+            }
+            p_face = math::max(at(w).0, 1e-3);
+            u_ghost = -w;
+            r_ghost = math::max(rho0 * math::pow(p_face / p_ghost, INV_GAMMA), 1e-7);
         }
 
-        let flux = hllc(r, u, p, r_ghost, u_ghost, p_ghost);
+        let flux = hllc(r, u, p, r_ghost, u_ghost, p_face);
         self.set_face(n, flux);
         self.mouth_mass_flow = self.f0[n] * self.area_face[n];
         self.mouth_flow_out = self.mouth_mass_flow / r;

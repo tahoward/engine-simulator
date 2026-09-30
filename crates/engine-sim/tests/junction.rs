@@ -585,3 +585,58 @@ fn a_hand_drawn_manifold_sounds_the_same_at_32_khz_as_at_48() {
     let (_, _, coarse) = rev_hand_drawn_three(32000.0);
     assert!((coarse / fine - 1.0).abs() < 0.25, "{coarse:.4} at 32 kHz against {fine:.4} at 48");
 }
+
+/// A V6 drawn with each bank's pipes ending in open air a few centimetres past its last junction, one of
+/// them only two cells long. Launched, the pulse through that short pipe leaves it faster than sound and
+/// expands below the air's pressure: let through as though the air could not push back, the jet would
+/// pull the whole bank to a vacuum within a few cycles and the note would stop. Against the shock it
+/// meets, the engine launches and keeps its note.
+#[test]
+fn a_short_open_ended_pipe_does_not_drain_its_bank_on_a_launch() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/drawn_v6_open_ends.json");
+    let cfg: EngineConfig = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let preset = common::engine_preset("V6, Toyota 2GR");
+    let mut sim = EngineSim::new(FS, &cfg);
+    sim.render(FS as usize / 2);
+    sim.start_launch(preset.launch.clone());
+    let block = (FS / 50.0) as usize;
+    for i in 0..(3 * 50) {
+        let level = common::rms(&sim.render(block));
+        assert!(i < 25 || level > 1e-3, "silent at {:.2} s into the launch", i as f64 / 50.0);
+    }
+    let ducts = ducts(&sim);
+    assert_eq!(recoveries(&ducts), 0);
+    assert_eq!(clamps(&ducts), 0, "junction clamps");
+}
+
+/// A V6 with all six pipes into one junction and out through a tailpipe 15 cm long, narrowing to 32 mm:
+/// four cells. At idle and revving down with the throttle shut, the cylinders draw exhaust back through
+/// their valves, and air in at the tailpipe after it. Let in at the outside air's pressure with its speed
+/// on top, each sample would draw in faster than the last, pump the exhaust up to tens of bar, and click
+/// at full scale. Drawn in as through a nozzle, from the outside air at rest, it idles and revs down
+/// without a click, from idle at a shut throttle or off the limiter.
+#[test]
+fn air_drawn_in_at_a_short_tailpipe_does_not_pump_the_exhaust_up() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/drawn_v6_short_tailpipe.json");
+    let cfg: EngineConfig = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    for (name, rev) in [("idle at a shut throttle", false), ("revving down off the limiter", true)] {
+        let mut sim = EngineSim::new(FS, &cfg);
+        let (mut prev, mut step, mut top) = (0.0_f32, 0.0_f32, 0.0_f64);
+        let block = (FS / 50.0) as usize;
+        for i in 0..(8 * 50) {
+            let t = i as f64 / 50.0;
+            sim.set_controls(if rev && (0.5..3.0).contains(&t) { 1.0 } else { 0.0 }, 0.0);
+            for v in sim.render(block) {
+                step = step.max((v - prev).abs());
+                prev = v;
+            }
+            if !rev || t > 3.0 {
+                top = ducts(&sim).iter().flat_map(|d| (0..d.n).map(|k| d.pressure_at(k))).fold(top, f64::max);
+            }
+        }
+        let ducts = ducts(&sim);
+        assert_eq!(recoveries(&ducts), 0, "{name}");
+        assert!(top < 4e5, "{name}: the exhaust reached {:.0} kPa", top / 1000.0);
+        assert!(step < 0.1, "{name}: a step of {step:.3} between samples");
+    }
+}
