@@ -329,6 +329,9 @@ pub struct EulerPipe {
     mouth_cut_state: f64,
     mouth_phi: f64,
     mouth_radius: f64,
+    /// Area of the opening the drawn pipe ends in where it is narrower than the grid's last face, m^2,
+    /// or zero where the grid reaches it.
+    nozzle_area: f64,
     /// Radiation corner, rad/s.
     pub mouth_cutoff_rad: f64,
     pub plane_wave_cutoff_rad: f64,
@@ -462,6 +465,7 @@ impl EulerPipe {
             mouth_cut_state: 0.0,
             mouth_phi: 0.0,
             mouth_radius: 0.0,
+            nozzle_area: built.nozzle_area,
             mouth_cutoff_rad: 0.0,
             plane_wave_cutoff_rad: 0.0,
             resolution_cutoff_rad: 0.0,
@@ -518,7 +522,8 @@ impl EulerPipe {
         let cross = CrossModes::new(&built.chambers, n, dx);
         p.cross_modes = if cross.count > 0 { Some(cross) } else { None };
 
-        let mouth_radius = math::max(p.dia_cell[n - 1] / 2.0, 5e-3);
+        let mouth_dia = if p.nozzle_area > 0.0 { math::sqrt((4.0 * p.nozzle_area) / PI) } else { p.dia_cell[n - 1] };
+        let mouth_radius = math::max(mouth_dia / 2.0, 5e-3);
         p.mouth_radius = mouth_radius;
         let mouth_t = pipe_temperature(init_temp, p.total_length);
         p.mouth_cutoff_rad = (2.0 * ambient_sound_speed()) / mouth_radius;
@@ -1298,7 +1303,7 @@ impl EulerPipe {
         // Expanded below it, the gas meets a shock that runs back up the duct against it, which the
         // radiation load below resolves: passed through as if nothing were there, the jet would go on
         // pulling the duct, and every pipe behind it, towards a vacuum.
-        if u >= c && p >= self.res_p {
+        if u >= c && p >= self.res_p && self.nozzle_area == 0.0 {
             let flux = hllc(r, u, p, r, u, p);
             self.set_face(n, flux);
             self.mouth_mass_flow = self.f0[n] * self.area_face[n];
@@ -1327,6 +1332,19 @@ impl EulerPipe {
         let p_minus = p_load - p_in;
 
         let p_ghost = math::max(res_p + p_plus + p_minus, 1e-3);
+
+        if self.nozzle_area > 0.0 {
+            // Past a nozzle narrower than the pipe, the air the jet meets is the air outside: the
+            // radiation load's pressure, which belongs to a pipe opening at its full bore, fades out as
+            // the nozzle closes down to half of it.
+            let open = clamp(2.0 * self.nozzle_area / self.area_face[n] - 1.0, 0.0, 1.0);
+            let (r_face, u_face, p_face) = self.nozzle_face(r, u, p, c, res_p + open * (p_ghost - res_p));
+            let flux = hllc(r, u, p, r_face, u_face, p_face);
+            self.set_face(n, flux);
+            self.mouth_mass_flow = self.f0[n] * self.area_face[n];
+            self.mouth_flow_out = self.mouth_mass_flow / r;
+            return;
+        }
 
         // Ghost velocity from the outgoing Riemann invariant; the entropy from the interior for gas
         // leaving, from the reservoir for gas arriving.
@@ -1381,6 +1399,65 @@ impl EulerPipe {
         self.set_face(n, flux);
         self.mouth_mass_flow = self.f0[n] * self.area_face[n];
         self.mouth_flow_out = self.mouth_mass_flow / r;
+    }
+
+    /// The state at the last face of a duct that ends in a nozzle, against `p_down` outside it.
+    ///
+    /// The duct's gas reaches the face along its outgoing invariant, and what crosses the face goes
+    /// through the nozzle: out of the duct, expanding from the face's stagnation state to the air
+    /// outside, choked at the speed of sound; into it, the outside air expanding from rest to the face,
+    /// choked likewise, then spreading to the pipe's bore at the face's pressure, its jet's speed lost
+    /// as it mixes but not its heat. The face pressure is the one at which the flow the duct delivers
+    /// is the flow the nozzle passes. With the nozzle as wide as the face, this is the open end's own
+    /// state.
+    fn nozzle_face(&self, r: f64, u: f64, p: f64, c: f64, p_down: f64) -> (f64, f64, f64) {
+        let area = self.area_face[self.n];
+        let nozzle = self.nozzle_area;
+        let e = (GAMMA - 1.0) / GAMMA;
+        // Velocity the duct's gas reaches at face pressure `pf`.
+        let along = |pf: f64| u + TWO_OVER_GM1 * c * (1.0 - math::pow(pf / p, MOUTH_ISENTROPIC_EXP));
+        // Mass flow through the nozzle from stagnation `p0`, `t0` to `pd` beyond it.
+        let through = |p0: f64, t0: f64, pd: f64| {
+            let pj = math::max(pd, p0 * CHOKED_PRESSURE_RATIO);
+            if pj >= p0 {
+                return 0.0;
+            }
+            let ratio = pj / p0;
+            let rho0 = p0 / (gas::R * t0);
+            nozzle * rho0 * math::pow(ratio, INV_GAMMA) * math::sqrt(2.0 * CP * t0 * (1.0 - math::pow(ratio, e)))
+        };
+
+        if along(p_down) > 0.0 {
+            // Out through the nozzle. At `p_down` the duct delivers more than the nozzle passes; at the
+            // pressure that stops its gas, less.
+            let p_stop = p * math::pow(math::max(1.0 + u / (TWO_OVER_GM1 * c), 1e-9), 1.0 / MOUTH_ISENTROPIC_EXP);
+            let state = |pf: f64| {
+                let uf = along(pf);
+                let rf = r * math::pow(pf / p, INV_GAMMA);
+                let tf = pf / (rf * gas::R);
+                let t0 = tf + (uf * uf) / (2.0 * CP);
+                let p0 = pf * math::pow(t0 / tf, 1.0 / e);
+                (rf, uf, rf * uf * area - through(p0, t0, p_down))
+            };
+            let pf = bracketed_root(|pf| state(pf).2, p_down, math::max(p_stop, p_down));
+            let (rf, uf, _) = state(pf);
+            (rf, uf, pf)
+        } else {
+            // In through the nozzle, from the air at rest at `p_down`. At `p_down` the duct draws more than
+            // the nozzle passes; at the pressure where it stops drawing, less.
+            let rho0 = self.res_rho * math::pow(p_down / self.res_p, INV_GAMMA);
+            let t0 = p_down / (rho0 * gas::R);
+            let p_still = p * math::pow(math::max(1.0 + u / (TWO_OVER_GM1 * c), 1e-9), 1.0 / MOUTH_ISENTROPIC_EXP);
+            let state = |pf: f64| {
+                let uf = math::min(along(pf), 0.0);
+                let tf = math::max(t0 - (uf * uf) / (2.0 * CP), 0.1 * t0);
+                let rf = pf / (gas::R * tf);
+                (rf, uf, -rf * uf * area - through(p_down, t0, pf))
+            };
+            let pf = bracketed_root(|pf| state(pf).2, math::min(p_still, p_down), p_down);
+            let (rf, uf, _) = state(pf);
+            (rf, uf, pf)
+        }
     }
 
     #[inline]
@@ -1642,6 +1719,44 @@ impl EulerPipe {
 // Numerics
 // ---------------------------------------------------------------------------
 
+/// The root of `f` between `a` and `b`, where it changes sign, by the Illinois method: to a part in
+/// 10^12 of the bracket, in a handful of steps for the smooth functions it is given. Where it does not
+/// change sign, the end nearer to zero.
+fn bracketed_root(f: impl Fn(f64) -> f64, a: f64, b: f64) -> f64 {
+    let (mut a, mut b) = (a, b);
+    let (mut fa, mut fb) = (f(a), f(b));
+    if fa == 0.0 || (fa > 0.0) == (fb > 0.0) {
+        return if fa.abs() <= fb.abs() { a } else { b };
+    }
+    let tol = 1e-12 * (b - a).abs();
+    let mut side = 0;
+    let mut last = f64::NAN;
+    for _ in 0..40 {
+        let x = (a * fb - b * fa) / (fb - fa);
+        let fx = f(x);
+        if fx == 0.0 || (x - last).abs() <= tol {
+            return x;
+        }
+        last = x;
+        if (fx > 0.0) == (fb > 0.0) {
+            b = x;
+            fb = fx;
+            if side == -1 {
+                fa *= 0.5;
+            }
+            side = -1;
+        } else {
+            a = x;
+            fa = fx;
+            if side == 1 {
+                fb *= 0.5;
+            }
+            side = 1;
+        }
+    }
+    (a * fb - b * fa) / (fb - fa)
+}
+
 #[inline(always)]
 fn minmod(a: f64, b: f64) -> f64 {
     if a * b <= 0.0 {
@@ -1835,6 +1950,7 @@ struct BuiltGeometry {
     chambers: Vec<ChamberPlacement>,
     launch_radius_ratio: f64,
     contraction_k: Vec<f64>,
+    nozzle_area: f64,
 }
 
 /// Loss coefficient of a contraction, referred to the velocity in the narrow pipe: Crane TP-410's
@@ -2087,6 +2203,11 @@ fn build_geometry(
 
     let contraction_k = contraction_loss_cells(&area_face, &area_cell, dx, &diameter_at, total);
 
+    // A pipe that narrows faster at its end than the grid can follow ends in an opening narrower than
+    // the last face: the mouth passes its flow through that, as a nozzle.
+    let exit_area = PI * drawn_mouth * drawn_mouth;
+    let nozzle_area = if exit_area < area_face[count] * (1.0 - 1e-9) { exit_area } else { 0.0 };
+
     BuiltGeometry {
         count,
         dx,
@@ -2099,6 +2220,7 @@ fn build_geometry(
         chambers,
         launch_radius_ratio,
         contraction_k,
+        nozzle_area,
     }
 }
 

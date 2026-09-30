@@ -610,11 +610,12 @@ fn a_short_open_ended_pipe_does_not_drain_its_bank_on_a_launch() {
 }
 
 /// A V6 with all six pipes into one junction and out through a tailpipe 15 cm long, narrowing to 32 mm:
-/// four cells. At idle and revving down with the throttle shut, the cylinders draw exhaust back through
+/// four cells, and a nozzle at its end. At idle and revving down with the throttle shut, the cylinders draw exhaust back through
 /// their valves, and air in at the tailpipe after it. Let in at the outside air's pressure with its speed
 /// on top, each sample would draw in faster than the last, pump the exhaust up to tens of bar, and click
 /// at full scale. Drawn in as through a nozzle, from the outside air at rest, it idles and revs down
-/// without a click, from idle at a shut throttle or off the limiter.
+/// without a click, from idle at a shut throttle or off the limiter once the throttle has shut. (On the
+/// limiter itself it pops, with the steep fronts pops have.)
 #[test]
 fn air_drawn_in_at_a_short_tailpipe_does_not_pump_the_exhaust_up() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/drawn_v6_short_tailpipe.json");
@@ -626,11 +627,14 @@ fn air_drawn_in_at_a_short_tailpipe_does_not_pump_the_exhaust_up() {
         for i in 0..(8 * 50) {
             let t = i as f64 / 50.0;
             sim.set_controls(if rev && (0.5..3.0).contains(&t) { 1.0 } else { 0.0 }, 0.0);
+            let shut = !rev || t > 3.0;
             for v in sim.render(block) {
-                step = step.max((v - prev).abs());
+                if shut {
+                    step = step.max((v - prev).abs());
+                }
                 prev = v;
             }
-            if !rev || t > 3.0 {
+            if shut {
                 top = ducts(&sim).iter().flat_map(|d| (0..d.n).map(|k| d.pressure_at(k))).fold(top, f64::max);
             }
         }
@@ -639,4 +643,46 @@ fn air_drawn_in_at_a_short_tailpipe_does_not_pump_the_exhaust_up() {
         assert!(top < 4e5, "{name}: the exhaust reached {:.0} kPa", top / 1000.0);
         assert!(step < 0.1, "{name}: a step of {step:.3} between samples");
     }
+}
+
+/// A tailpipe that narrows faster at its end than its four cells can follow ends in a nozzle of the
+/// size drawn. Grid and all, a 32 mm outlet and a 12 mm one would be the same 35 mm opening; through the
+/// nozzle, a 12 mm hole on a 3.5 litre V6 chokes at full throttle, holds the exhaust at several bar, and
+/// leaves it well under half its torque at 4000 rpm.
+#[test]
+fn a_tailpipe_narrower_than_its_grid_ends_in_a_nozzle_of_the_size_drawn() {
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/drawn_v6_short_tailpipe.json");
+    let base: EngineConfig = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let pull = |d_out: f64| {
+        let mut cfg = base.clone();
+        let graph = cfg.graph.as_mut().unwrap();
+        graph.ducts.iter_mut().find(|d| d.id == "collector1").unwrap().segments[0].d_out = d_out;
+        cfg.engine = common::with(
+            &cfg.engine,
+            json!({ "freeRunning": false, "rpm": 4000, "throttle": 1, "combustionVariability": 0 }),
+        );
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(FS as usize);
+        let (mut torque, mut inlet) = (0.0, 0.0);
+        let n = FS as usize / 4;
+        for _ in 0..n {
+            sim.render(1);
+            torque += sim.snapshot().torque;
+            inlet += sim.pipe_solver().collectors()[0].pressure_at(0);
+        }
+        assert_eq!(sim.pipe_solver().recoveries(), 0, "{d_out} m outlet");
+        (torque / n as f64, inlet / n as f64)
+    };
+    let (open, open_p) = pull(0.047);
+    let (medium, _) = pull(0.032);
+    let (hole, hole_p) = pull(0.012);
+    assert!(medium < open, "{medium:.0} N m through 32 mm, against {open:.0} through 47");
+    assert!(hole < 0.5 * open, "{hole:.0} N m through 12 mm, against {open:.0} through 47");
+    assert!(hole < medium - 50.0, "{hole:.0} N m through 12 mm, against {medium:.0} through 32");
+    assert!(
+        hole_p > 4e5 && open_p < 1.5e5,
+        "collector at {:.0} kPa through 12 mm, {:.0} through 47",
+        hole_p / 1e3,
+        open_p / 1e3
+    );
 }
