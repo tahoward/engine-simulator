@@ -24,6 +24,7 @@ mod math_tables;
 pub mod plenum;
 pub mod pow;
 pub mod radiation;
+pub mod shell;
 pub mod simd;
 pub mod spec;
 pub mod turbo;

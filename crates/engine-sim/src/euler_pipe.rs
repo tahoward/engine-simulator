@@ -77,7 +77,7 @@ const AMB4: f64 = gas::T_AMB * gas::T_AMB * gas::T_AMB * gas::T_AMB;
 const MEAN_FLOW_RATE: f64 = 1.0 / 0.8;
 
 /// Steel: density kg/m^3, specific heat J/(kg K).
-const WALL_RHO: f64 = 7800.0;
+pub const WALL_RHO: f64 = 7800.0;
 const WALL_CP: f64 = 490.0;
 
 /// Multiplier on the steady-flow Nusselt number, for pulsation.
@@ -272,6 +272,8 @@ pub struct EulerPipe {
     hyd_dia: Vec<f64>,
     shape_cell: Vec<f64>,
     pub cross_modes: Option<CrossModes>,
+    /// The chambers in the duct, where the grid put them.
+    pub chambers: Vec<ChamberPlacement>,
     inv_vol: Vec<f64>,
     inv_dia: Vec<f64>,
     u_mean: Vec<f64>,
@@ -414,6 +416,7 @@ impl EulerPipe {
             hyd_dia,
             shape_cell: built.shape_cell,
             cross_modes: None,
+            chambers: Vec::new(),
             inv_vol,
             inv_dia,
             u_mean: z(),
@@ -524,6 +527,7 @@ impl EulerPipe {
         }
 
         let cross = CrossModes::new(&built.chambers, n, dx);
+        p.chambers = built.chambers.clone();
         p.cross_modes = if cross.count > 0 { Some(cross) } else { None };
 
         let mouth_dia = if p.nozzle_area > 0.0 { math::sqrt((4.0 * p.nozzle_area) / PI) } else { p.dia_cell[n - 1] };
@@ -635,6 +639,11 @@ impl EulerPipe {
     pub fn read_mouth(&self) -> (f64, f64, f64) {
         let last = self.n - 1;
         (self.pressure_at(last), self.temperature_at(last), self.area_cell[last])
+    }
+
+    /// Wall thickness, m.
+    pub fn wall_thickness(&self) -> f64 {
+        self.wall_thickness
     }
 
     pub fn inlet_area(&self) -> f64 {
