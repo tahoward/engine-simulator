@@ -29,7 +29,7 @@ body {
 
 #app {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr) auto;
   height: 100vh;
 }
 
@@ -47,7 +47,10 @@ body {
   min-height: 0;
 }
 
+/* Out of flow, so the canvas's own size never feeds back into the row it fills. */
 #viewport canvas {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
@@ -324,30 +327,53 @@ button.tool-caret:hover::after,
 /* ---------- panel ---------- */
 
 #panel {
-  overflow-y: auto;
+  /* Above the stage, so a rail button's tip shows over the view. */
+  position: relative;
+  z-index: 10;
+  display: flex;
+  min-height: 0;
   border-left: 1px solid var(--line);
   background: var(--panel);
+}
+
+.panel-pages {
+  width: 300px;
+  overflow-y: auto;
   padding: 4px 0 40px;
   scrollbar-width: thin;
 }
 
-.section {
-  border-bottom: 1px solid var(--line);
+#panel.folded .panel-pages {
+  display: none;
 }
 
-.section > summary {
+.panel-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 4px;
+  border-left: 1px solid var(--line);
+}
+
+#panel.folded .panel-rail {
+  border-left: none;
+}
+
+/* The rail is at the window's right edge, so its tips open to the left. */
+.panel-rail .tool-tip {
+  left: auto;
+  right: calc(100% + 10px);
+  width: 240px;
+}
+
+.section-title {
+  margin: 0;
   padding: 11px 14px;
-  cursor: pointer;
   font-weight: 600;
   font-size: 11px;
   letter-spacing: 0.07em;
   text-transform: uppercase;
   color: var(--ink-dim);
-  user-select: none;
-}
-
-.section > summary:hover {
-  color: var(--ink);
 }
 
 .section-body {
@@ -709,12 +735,30 @@ button.tool:hover {
 @media (max-width: 900px) {
   #app {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) 45vh;
+    grid-template-rows: minmax(0, 1fr) auto;
   }
 
   #panel {
+    flex-direction: column-reverse;
     border-left: none;
     border-top: 1px solid var(--line);
+  }
+
+  .panel-pages {
+    width: auto;
+    height: 45vh;
+  }
+
+  .panel-rail {
+    flex-direction: row;
+    overflow-x: auto;
+    border-left: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* No hover to show them on a touch screen, and no room beside the rail for them. */
+  .panel-rail .tool-tip {
+    display: none;
   }
 
   #stage {

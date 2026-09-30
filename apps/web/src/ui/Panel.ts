@@ -67,7 +67,7 @@ import {
 } from '../model/spec.js';
 import { plenumVolumeOf, throttleDiaOf } from '../model/intakeSizing.js';
 import { autoLaunchSettings, type LaunchSettings } from '../model/launchSettings.js';
-import { TOOL_ICONS, toolButton } from './toolbar.js';
+import { SECTION_ICONS, TOOL_ICONS, toolButton } from './toolbar.js';
 
 export interface PanelCallbacks {
   onEngine: (partial: Partial<EngineSpec>) => void;
@@ -334,9 +334,10 @@ export class Panel {
   ) {
     this.launch = launchSettings;
     const spec = config.engine;
+    const section = sectionRail(root);
 
     // ---- Transport -------------------------------------------------------
-    const transport = section(root, 'Transport', false);
+    const transport = section('Transport', 'transport', 'Start and stop the engine, pick a preset, and save or load an engine.');
     this.startBtn = el('button', 'primary', transport) as HTMLButtonElement;
     this.startBtn.textContent = 'Start engine';
     this.startBtn.addEventListener('click', () => this.cb.onToggleAudio());
@@ -360,7 +361,7 @@ export class Panel {
       'restarts the audio, and the pipes warm up again from cold.';
 
     // ---- Operating point -------------------------------------------------
-    const op = section(root, 'Operating point', false);
+    const op = section('Operating point', 'operatingPoint', 'Throttle, load, rev limiter and flywheel.');
     const revLimit = this.slider(op, {
       label: 'Rev limiter',
       min: 2000,
@@ -414,7 +415,7 @@ export class Panel {
     });
 
     // ---- Launch ----------------------------------------------------------
-    const launch = section(root, 'Launch', false);
+    const launch = section('Launch', 'launch', 'A timed standing start through the gears, and the car and gearbox it runs through.');
     this.launchBtn = el('button', 'primary', launch) as HTMLButtonElement;
     this.launchBtn.textContent = 'Start launch';
     this.launchBtn.title =
@@ -517,7 +518,7 @@ export class Panel {
     this.resyncers.push(() => this.renderGearbox());
 
     // ---- Dyno ------------------------------------------------------------
-    const dyno = section(root, 'Dyno', true);
+    const dyno = section('Dyno', 'dyno', 'A full-throttle pull on an engine dyno, for its power and torque curves.');
     this.dynoBtn = el('button', 'primary', dyno) as HTMLButtonElement;
     this.dynoBtn.textContent = 'Start dyno pull';
     this.dynoBtn.title =
@@ -632,7 +633,7 @@ export class Panel {
     });
 
     // ---- Layout ----------------------------------------------------------
-    const layout = section(root, 'Layout', false);
+    const layout = section('Layout', 'layout', 'Cylinders, crank and firing order, headers and turbos.');
 
     const cylRow = el('div', 'row', layout);
     el('label', '', cylRow).textContent = 'Cylinders';
@@ -906,7 +907,7 @@ export class Panel {
     this.noticeEl = el('div', 'notice-toast hidden', tools.parentElement ?? tools);
 
     // ---- Engine geometry -------------------------------------------------
-    const geo = section(root, 'Engine geometry', true);
+    const geo = section('Engine geometry', 'geometry', 'Bore, stroke, rod length and compression.');
     this.slider(geo, {
       label: 'Bore',
       min: 0.05,
@@ -965,7 +966,7 @@ export class Panel {
     });
 
     // ---- Valves ----------------------------------------------------------
-    const valves = section(root, 'Valves and timing', true);
+    const valves = section('Valves and timing', 'valves', 'Valve sizes, cam timing and lift, and variable valve timing.');
     const headRow = el('div', 'row', valves);
     el('label', '', headRow).textContent = 'Valves per cylinder';
     const headSel = el('select', '', headRow) as HTMLSelectElement;
@@ -1172,7 +1173,7 @@ export class Panel {
     this.resyncers.push(() => (checkbox(linked).checked = this.config.engine.vvtLinked));
 
     // ---- Intake ------------------------------------------------------------
-    const intake = section(root, 'Intake', true);
+    const intake = section('Intake', 'intake', 'Runners, plenum and throttle body.');
     const tuned = el('div', 'readout', intake);
     let tunedKey = '';
     // The auto runner follows the rev limit and the intake valves as well as its own sliders, so this
@@ -1294,7 +1295,7 @@ export class Panel {
       'openings.';
 
     // ---- Combustion ------------------------------------------------------
-    const comb = section(root, 'Combustion', true);
+    const comb = section('Combustion', 'combustion', 'Ignition advance, burn duration and mixture.');
     this.slider(comb, {
       label: 'Ignition advance',
       min: 0,
@@ -1432,7 +1433,7 @@ export class Panel {
     });
 
     // ---- Listener --------------------------------------------------------
-    const mix = section(root, 'Listener', true);
+    const mix = section('Listener', 'listener', 'Where the microphone sits, and the mix of what it hears.');
     this.slider(mix, {
       label: 'Mic distance',
       min: 0.3,
@@ -1559,7 +1560,7 @@ export class Panel {
       'surge and the wastegates’ rattle. 100% is realistic.';
 
     // ---- View ------------------------------------------------------------
-    const viewSec = section(root, 'View', true);
+    const viewSec = section('View', 'view', 'What the 3D view shows, and how fast the simulation runs.');
     toggle(viewSec, 'Pressure colouring', this.view.pressure, (on) => {
       this.view.pressure = on;
       this.cb.onView(this.view);
@@ -2813,17 +2814,41 @@ function lockRow(row: SegmentRow): void {
     'before it, or move what it joins, and it follows.';
 }
 
-function section(root: HTMLElement, title: string, collapsed: boolean): HTMLElement {
-  const details = document.createElement('details');
-  details.className = 'section';
-  details.open = !collapsed;
-  const summary = document.createElement('summary');
-  summary.textContent = title;
-  details.appendChild(summary);
-  const body = el('div', 'section-body');
-  details.appendChild(body);
-  root.appendChild(details);
-  return body;
+/**
+ * Lays the panel out as a rail of section icons down its edge beside the section on show, and
+ * returns what adds a section: its title, its icon and its tip. The first section added is on show.
+ *
+ * One section shows at a time. Clicking the open section's icon folds the panel down to the rail,
+ * giving its width back to the view.
+ */
+function sectionRail(root: HTMLElement): (title: string, icon: keyof typeof SECTION_ICONS, tip: string) => HTMLElement {
+  const pages = el('div', 'panel-pages', root);
+  const rail = el('nav', 'panel-rail', root);
+  rail.setAttribute('aria-label', 'Panel sections');
+  let open: { page: HTMLElement; button: HTMLButtonElement } | null = null;
+  const show = (next: typeof open) => {
+    if (open) {
+      open.page.classList.add('hidden');
+      open.button.classList.remove('active');
+    }
+    open = next === open ? null : next;
+    if (open) {
+      open.page.classList.remove('hidden');
+      open.button.classList.add('active');
+      pages.scrollTop = 0;
+    }
+    root.classList.toggle('folded', !open);
+  };
+  return (title, icon, tip) => {
+    const page = el('section', 'section hidden', pages);
+    el('h2', 'section-title', page).textContent = title;
+    const body = el('div', 'section-body', page);
+    const button = toolButton(rail, SECTION_ICONS[icon], title, tip);
+    const entry = { page, button };
+    button.addEventListener('click', () => show(entry));
+    if (!open) show(entry);
+    return body;
+  };
 }
 
 /** Re-reads one control from the config; collected so a preset can refresh them all. */
