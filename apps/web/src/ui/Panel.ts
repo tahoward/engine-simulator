@@ -837,7 +837,9 @@ export class Panel {
       TOOL_ICONS.xpipe,
       'X-pipe',
       'Crosses two pipes, as an X-pipe does between a V’s two banks. Click two points along each of two ' +
-        'pipes: where the X leaves it, and where it joins it again further on. Drag the triad’s arrows to ' +
+        'pipes: where the X leaves it, and where it joins it again further on. A dot under the pointer shows ' +
+        'where a click puts one: blue on the side of a pipe, violet snapped to where a pipe starts, ends or ' +
+        'one of its segments meets the next. Drag the triad’s arrows to ' +
         'move where the two cross; a ghost shows each pipe bending in, running straight through the ' +
         'crossing and bending out onto the other pipe, and what ran between the points goes. Click a ' +
         'point’s dot to take it back. Apply or Enter builds it; Escape or right-click abandons it.',

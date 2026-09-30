@@ -276,7 +276,7 @@ export interface XPipeSetup {
  * takes back.
  */
 const XPIPE_SNAPPED = 0xc792ff;
-const XPIPE_ON_SIDE = 0xe6edf3;
+const XPIPE_ON_SIDE = 0x4fd1ff;
 const XPIPE_TAKE_BACK = 0xffd166;
 
 /** The openings' dots: picked, and not. */
@@ -1117,7 +1117,7 @@ export class PipeEditor {
     this.xpipeHover.visible = !!next;
     if (next) {
       this.xpipeHover.position.copy(next.point.point);
-      this.xpipeHover.scale.setScalar(Math.max(next.point.bore * (next.snapped ? 0.5 : 0.35), 0.009));
+      this.xpipeHover.scale.setScalar(Math.max(next.point.bore * (next.snapped ? 0.65 : 0.4), next.snapped ? 0.014 : 0.009));
       (this.xpipeHover.material as THREE.MeshBasicMaterial).color.setHex(next.snapped ? XPIPE_SNAPPED : XPIPE_ON_SIDE);
     }
     return !!takeBack || !!next;
