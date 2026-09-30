@@ -98,7 +98,7 @@ import {
   type HeaderPrimary,
   type OpeningAt,
 } from './headerTool.js';
-import { boreAt, defaultCrossing, xLegs, xPairs, type PipePoint, type XPlan } from './xpipeTool.js';
+import { boreAt, defaultCrossing, snapPoints, xLegs, xPairs, type PipePoint, type XPlan } from './xpipeTool.js';
 
 const MIN_RADIUS = 0.006;
 const MAX_RADIUS = 0.22;
@@ -269,6 +269,15 @@ export interface XPipeSetup {
   cross: THREE.Vector3;
   moved: boolean;
 }
+
+/**
+ * The X-pipe's next point, where a click would put it: snapped to where a pipe starts, ends or one of its
+ * segments meets the next, or anywhere along its side. And a point's dot under the pointer, which a click
+ * takes back.
+ */
+const XPIPE_SNAPPED = 0xc792ff;
+const XPIPE_ON_SIDE = 0xe6edf3;
+const XPIPE_TAKE_BACK = 0xffd166;
 
 /** The openings' dots: picked, and not. */
 const OPENING_PICKED = 0xff8c42;
@@ -458,6 +467,11 @@ export class PipeEditor {
   private readonly xpipeTriad = new Triad(PIPE_TRIAD_SIZE * 1.4);
   private readonly xpipeGhosts: PipeMesh[] = [];
   private readonly xpipeDots: THREE.Mesh[] = [];
+  /** Where a click would put the next point, snapped or on a pipe's side. */
+  private readonly xpipeHover = new THREE.Mesh(
+    new THREE.SphereGeometry(1, 16, 12),
+    new THREE.MeshBasicMaterial({ color: XPIPE_ON_SIDE, transparent: true, opacity: 0.9, depthTest: false }),
+  );
 
   private readonly matHover = new THREE.MeshBasicMaterial({ color: 0xffd166 });
   private readonly matSelected = new THREE.MeshBasicMaterial({ color: 0x8cff9e });
@@ -500,7 +514,9 @@ export class PipeEditor {
     this.ghostPipe.visible = false;
     this.group.add(this.ghostPipe);
     this.group.add(this.pipeTriad.group, this.turboTriad.group, this.bendTriad.group, this.bendGhost.group, this.headerTriad.group);
-    this.group.add(this.xpipeTriad.group);
+    this.group.add(this.xpipeTriad.group, this.xpipeHover);
+    this.xpipeHover.visible = false;
+    this.xpipeHover.renderOrder = 15;
     this.headerTriad.setVisible(false);
     this.xpipeTriad.setVisible(false);
     // Only its arrows: where two pipes cross has no way of its own to point.
@@ -977,6 +993,7 @@ export class PipeEditor {
     const ctx = this.context;
     const x = this.xpipe;
     if (!x || !ctx) {
+      this.xpipeHover.visible = false;
       this.xpipeTriad.setVisible(false);
       for (const g of this.xpipeGhosts) g.group.visible = false;
       for (const d of this.xpipeDots) d.visible = false;
@@ -1053,23 +1070,75 @@ export class PipeEditor {
     return best?.p ?? null;
   }
 
-  /** A click in the X-pipe tool: take back the point under it, or put one on the pipe under it. */
+  /**
+   * Where a click in the X-pipe tool would put the next point: where a pipe starts, ends or one of its
+   * segments meets the next, when one is within a few pixels, the pipe under the pointer's first if more
+   * than one is; or else on the side of the pipe under the pointer.
+   */
+  private xpipeCandidate(): { point: PipePoint; snapped: boolean } | null {
+    const ctx = this.context;
+    const x = this.xpipe;
+    if (!ctx || !x || x.points.length >= 4) return null;
+    const surface = this.surfaceUnderPointer();
+    const rect = this.dom.getBoundingClientRect();
+    let best: { d: number; p: PipePoint } | null = null;
+    for (const duct of ctx.graph.ducts) {
+      const place = ctx.placement.ducts.get(duct.id);
+      if (!place) continue;
+      for (const p of snapPoints(duct, place)) {
+        const at = p.point.clone().project(this.camera);
+        if (at.z > 1) continue;
+        // On the pipe under the pointer, a hair nearer: where pipes meet, the one pointed at is the one meant.
+        const d =
+          Math.hypot(((at.x - this.pointer.x) * rect.width) / 2, ((at.y - this.pointer.y) * rect.height) / 2) -
+          (surface?.duct === duct.id ? 1 : 0);
+        if (d <= SNAP_PIXELS && (!best || d < best.d)) best = { d, p };
+      }
+    }
+    if (best) return { point: best.p, snapped: true };
+    const duct = surface ? ctx.graph.ducts.find((d) => d.id === surface.duct) : undefined;
+    if (!surface?.dir || !duct) return null;
+    return {
+      point: { duct: duct.id, x: surface.x, point: surface.point.clone(), dir: surface.dir.clone(), bore: boreAt(duct.segments, surface.x) },
+      snapped: false,
+    };
+  }
+
+  /** Show where a click would put the next point, or light the dot it would take back, under the pointer. */
+  private hoverXPipe(): boolean {
+    const x = this.xpipe;
+    if (!x) return false;
+    const takeBack = this.xpipePointUnderPointer();
+    x.points.forEach((p, i) => {
+      const dot = this.xpipeDots[i];
+      if (dot) (dot.material as THREE.MeshBasicMaterial).color.setHex(p === takeBack ? XPIPE_TAKE_BACK : OPENING_PICKED);
+    });
+    const next = takeBack ? null : this.xpipeCandidate();
+    this.xpipeHover.visible = !!next;
+    if (next) {
+      this.xpipeHover.position.copy(next.point.point);
+      this.xpipeHover.scale.setScalar(Math.max(next.point.bore * (next.snapped ? 0.5 : 0.35), 0.009));
+      (this.xpipeHover.material as THREE.MeshBasicMaterial).color.setHex(next.snapped ? XPIPE_SNAPPED : XPIPE_ON_SIDE);
+    }
+    return !!takeBack || !!next;
+  }
+
+  /** A click in the X-pipe tool: take back the point under it, or put the next one where it shows. */
   private pickXPipePoint(): boolean {
     const x = this.xpipe;
-    const ctx = this.context;
-    if (!x || !ctx) return false;
+    if (!x) return false;
     const picked = this.xpipePointUnderPointer();
     if (picked) {
       x.points = x.points.filter((p) => p !== picked);
       this.updateXPipe();
+      this.hoverXPipe();
       return true;
     }
-    if (x.points.length >= 4) return false;
-    const surface = this.surfaceUnderPointer();
-    const duct = surface ? ctx.graph.ducts.find((d) => d.id === surface.duct) : undefined;
-    if (!surface || !surface.dir || !duct) return false;
-    x.points.push({ duct: duct.id, x: surface.x, point: surface.point.clone(), dir: surface.dir.clone(), bore: boreAt(duct.segments, surface.x) });
+    const next = this.xpipeCandidate();
+    if (!next) return false;
+    x.points.push(next.point);
     this.updateXPipe();
+    this.hoverXPipe();
     return true;
   }
 
@@ -2594,7 +2663,9 @@ export class PipeEditor {
     if (this.xpipe) {
       this.updatePointer(e);
       const onTriad = this.xpipeTriad.visible && this.xpipeTriad.hover(this.raycaster);
-      this.dom.style.cursor = onTriad ? 'grab' : this.xpipePointUnderPointer() || this.surfaceUnderPointer() ? 'pointer' : '';
+      if (onTriad) this.xpipeHover.visible = false;
+      const onPipe = !onTriad && this.hoverXPipe();
+      this.dom.style.cursor = onTriad ? 'grab' : onPipe ? 'pointer' : '';
       return;
     }
     if (this.bendTool) {
@@ -2744,6 +2815,8 @@ export class PipeEditor {
     this.headerTriad.dispose();
     for (const g of this.headerGhosts) g.dispose();
     this.xpipeTriad.dispose();
+    this.xpipeHover.geometry.dispose();
+    (this.xpipeHover.material as THREE.Material).dispose();
     for (const g of this.xpipeGhosts) g.dispose();
     for (const d of this.xpipeDots) {
       d.geometry.dispose();

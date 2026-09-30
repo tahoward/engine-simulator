@@ -11,8 +11,10 @@ import * as THREE from 'three';
 
 import { newDuctId, newNodeId, splitSegments, type ExhaustDuct, type ExhaustGraph } from '../model/exhaustGraph.js';
 import { segmentDiameter, type PipeSegment } from '../model/spec.js';
+import { lockedFrom } from '../model/turbo.js';
 import { MIN_BEND_BORES, fitCurve, headingOffsetTo } from './drawing.js';
-import { bendRadius } from './PipeMesh.js';
+import type { DuctPlacement } from './exhaustLayout.js';
+import { bendRadius, layoutPipe } from './PipeMesh.js';
 
 /** Where the ways a pipe leaving a junction in the world's terms are measured from. */
 const WORLD_X = new THREE.Vector3(1, 0, 0);
@@ -65,6 +67,33 @@ export function boreAt(segments: PipeSegment[], x: number): number {
   }
   const last = segments.at(-1);
   return last ? segmentDiameter(last, 1) : 0;
+}
+
+/**
+ * The places on a pipe a point snaps to: where it starts, where each of its segments meets the next, and where
+ * it ends, each with the way the pipe runs arriving there. Not within a bend fitted to what it joins, which is
+ * not cut, and so not its end where it has one.
+ */
+export function snapPoints(duct: ExhaustDuct, place: DuctPlacement): PipePoint[] {
+  if (duct.segments.length === 0) return [];
+  const layout = layoutPipe(duct.segments, place.origin, place.heading);
+  const locked = lockedFrom(duct);
+  const out: PipePoint[] = [
+    { duct: duct.id, x: 0, point: place.origin.clone(), dir: place.heading.clone().normalize(), bore: boreAt(duct.segments, 0) },
+  ];
+  let x = 0;
+  duct.segments.forEach((seg, i) => {
+    x += seg.length;
+    // The end of segment `i`, which a cut there keeps whole: not a fitted one.
+    if (locked !== null && i >= locked) return;
+    out.push({ duct: duct.id, x, point: layout.joints[i]!.clone(), dir: layout.jointDirections[i]!.clone(), bore: boreAt(duct.segments, x) });
+  });
+  return out;
+}
+
+/** A duct's length, m. */
+function lengthOf(segments: PipeSegment[]): number {
+  return segments.reduce((a, seg) => a + seg.length, 0);
 }
 
 /**
@@ -123,7 +152,8 @@ export function applyXPipe(graph: ExhaustGraph, plan: XPlan): string | null {
   if (ducts.some((d) => !d)) return null;
   const cuts = plan.pairs.map((p, i) => {
     const segments = ducts[i]!.segments;
-    const tail = splitSegments(segments, p.to.x)?.[1];
+    // Rejoining where the pipe ends leaves nothing of it to carry on: the leg ends where it did.
+    const tail = p.to.x >= lengthOf(segments) - 1e-6 ? [] : splitSegments(segments, p.to.x)?.[1];
     const head = p.from.x > 1e-6 ? splitSegments(segments, p.from.x)?.[0] : [];
     return head && tail ? { head, tail } : null;
   });
