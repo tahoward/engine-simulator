@@ -13,7 +13,7 @@ import { EngineMesh } from '../src/scene/EngineMesh.js';
 import { layoutGraph, type ExhaustPlacement, type ExhaustPort } from '../src/scene/exhaustLayout.js';
 import { layoutPipe } from '../src/scene/PipeMesh.js';
 import { refitBends } from '../src/scene/turboPlacement.js';
-import { applyXPipe, boreAt, defaultCrossing, xLegs, xPairs, type PipePoint, type XPlan } from '../src/scene/xpipeTool.js';
+import { applyXPipe, boreAt, defaultCrossing, snapPoints, xLegs, xPairs, type PipePoint, type XPlan } from '../src/scene/xpipeTool.js';
 
 const v8 = { ...defaultConfig().engine, cylinders: 8, vAngle: 90, crankType: 'crossplane', exhaustLayout: 'perBank' } as EngineSpec;
 const portsOf = (spec: EngineSpec): ExhaustPort[] => {
@@ -132,6 +132,50 @@ describe('the X-pipe', () => {
     const node = applyXPipe(graph, planOf(graph, layoutGraph(ports, graph), tails))!;
     const back = graphFromJson(JSON.parse(JSON.stringify(graph)))!;
     expect(junctionAt(back, node)!.through).toEqual(junctionAt(graph, node)!.through);
+  });
+
+  it('snaps to where a pipe starts, where its segments meet, and where it ends, but not into a fitted bend', () => {
+    const { graph, placement, tails } = duals();
+    const tail = graph.ducts.find((d) => d.id === tails[0])!;
+    tail.segments = [makeSegment({ length: 0.5, dIn: 0.07 }), makeSegment({ length: 1.0, dIn: 0.07 })];
+    const place = placement.ducts.get(tail.id)!;
+    const at = snapPoints(tail, place);
+    expect(at.map((p) => p.x)).toEqual([0, 0.5, 1.5]);
+    expect(at[0]!.point.distanceTo(place.origin)).toBeLessThan(1e-12);
+    const swept = layoutPipe(tail.segments, place.origin, place.heading);
+    expect(at[2]!.point.distanceTo(swept.joints.at(-1)!)).toBeLessThan(1e-12);
+
+    // A runner, its last segment the bend fitted into its merge: its start only.
+    const runner = graph.ducts.find((d) => d.from.kind === 'valve' && d.fitted)!;
+    const offered = snapPoints(runner, placement.ducts.get(runner.id)!);
+    const bendStarts = runner.segments.slice(0, -1).reduce((a, sg) => a + sg.length, 0);
+    expect(offered.every((p) => p.x <= bendStarts + 1e-9)).toBe(true);
+  });
+
+  it('crosses from where the pipes start to where they end', () => {
+    const { graph, ports, placement, tails } = duals();
+    const points = tails.flatMap((id) => {
+      const d = graph.ducts.find((x) => x.id === id)!;
+      const snaps = snapPoints(d, placement.ducts.get(id)!);
+      return [snaps[0]!, snaps.at(-1)!];
+    });
+    const picked = xPairs(points);
+    if ('error' in picked) throw new Error(picked.error);
+    const plan: XPlan = { pairs: picked.pairs, cross: defaultCrossing(picked.pairs) };
+    const node = applyXPipe(graph, plan)!;
+    expect(node).not.toBeNull();
+    expect(validateGraph(graph, 8)).toEqual([]);
+    refitBends(graph, ports, v8);
+    const after = layoutGraph(ports, graph);
+    for (const pair of plan.pairs) {
+      // Nothing of the pipe before the bend in, and nothing after the bend out: each leg ends where it did.
+      expect(graph.ducts.find((d) => d.id === pair.duct)!.segments).toHaveLength(1);
+      const leg = graph.ducts.find((d) => d.id.startsWith(`${pair.duct}-`))!;
+      expect(leg.segments).toHaveLength(1);
+      expect(leg.to).toEqual({ kind: 'mouth' });
+      const at = after.ducts.get(leg.id)!;
+      expect(layoutPipe(leg.segments, at.origin, at.heading).joints.at(-1)!.distanceTo(pair.to.point)).toBeLessThan(1e-3);
+    }
   });
 
   it('says when a bend turns tighter than a pipe can be bent', () => {
