@@ -255,6 +255,9 @@ pub struct EulerPipe {
     pub n: usize,
     pub dx: f64,
     pub total_length: f64,
+    /// Length of pipe between the last chamber's outlet and the mouth, m: all of it where there is no
+    /// chamber.
+    pub free_run: f64,
     /// Leading cells belonging to the head port rather than the user's pipe.
     pub port_cells: usize,
     pub sample_rate: f64,
@@ -399,6 +402,7 @@ impl EulerPipe {
             n,
             dx,
             total_length: built.length,
+            free_run: built.length - built.chambers.last().map_or(0.0, |c| c.x_out),
             port_cells: built.port_cells,
             sample_rate,
             rho: z(),

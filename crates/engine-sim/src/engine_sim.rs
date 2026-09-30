@@ -27,7 +27,7 @@ use crate::intake::{IntakeRunners, RunnerIo};
 use crate::listener::{Listener, ListenerGeometry};
 use crate::math::{self, PI, clamp};
 use crate::plenum::{IntakePlenum, throttle_dia_of};
-use crate::radiation::FarField;
+use crate::radiation::{FarField, Steepening};
 use crate::spec::{
     BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout, FUEL_CUT_RPM,
     FUEL_CUT_THROTTLE, FUEL_RESUME_RPM, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment,
@@ -39,7 +39,7 @@ use crate::turbo::Turbo;
 use crate::valve::{valve_flow_area, valve_lift};
 
 /// Pressure, Pa, that maps to digital full scale.
-const PA_PER_FULLSCALE: f64 = 250.0;
+const PA_PER_FULLSCALE: f64 = 300.0;
 
 /// Fastest a cam phaser turns, crank degrees per second.
 const PHASER_RATE: f64 = 250.0;
@@ -210,6 +210,7 @@ pub struct EngineSim {
     wg: ExhaustSystem,
     cyls: Vec<Cylinder>,
     far_fields: Vec<FarField>,
+    steepening: Vec<Steepening>,
     throat_noise: Vec<Noise>,
     clack: Vec<Resonator>,
     slap: Vec<Resonator>,
@@ -231,8 +232,8 @@ pub struct EngineSim {
     listener: Listener,
     mouth_delays: Vec<Delay>,
     mouth_gains: Vec<f64>,
-    /// The intake's own mouth, the throttle or the compressor inlet, and its path to the ear relative
-    /// to the nearest exhaust mouth's.
+    /// The throttle's mouth, on an engine without a turbo, and its path to the ear relative to the
+    /// nearest exhaust mouth's.
     intake_far_field: FarField,
     intake_delay: Delay,
     intake_gain: f64,
@@ -348,6 +349,7 @@ impl EngineSim {
             wg,
             cyls: Vec::new(),
             far_fields: Vec::new(),
+            steepening: Vec::new(),
             throat_noise: Vec::new(),
             clack: Vec::new(),
             slap: Vec::new(),
@@ -497,17 +499,22 @@ impl EngineSim {
         });
     }
 
-    /// One far field per mouth, tuned to that mouth. Keeps existing filters' state.
+    /// One far field and one steepening run per mouth, tuned to that mouth. Keeps existing filters'
+    /// state.
     fn refresh_far_fields(&mut self) {
         let count = self.wg.mouth_count().max(1);
         while self.far_fields.len() < count {
             let m = self.far_fields.len();
             self.far_fields.push(FarField::new(self.sample_rate, self.wg.mouth_cutoff_rad_of(m)));
+            self.steepening.push(Steepening::new(self.sample_rate));
         }
         self.far_fields.truncate(count);
+        self.steepening.truncate(count);
         for m in 0..count {
-            let (c, b) = (self.wg.mouth_cutoff_rad_of(m), self.wg.band_limit_rad_of(m));
+            let (c, b) = (self.wg.mouth_cutoff_rad_of(m), self.wg.plane_wave_cutoff_rad_of(m));
             self.far_fields[m].set_cutoff(c, b);
+            let run = self.wg.radiating_duct(m).free_run;
+            self.steepening[m].set_duct(run, self.wg.resolution_cutoff_rad_of(m));
         }
     }
 
@@ -714,6 +721,9 @@ impl EngineSim {
         self.refresh_far_fields();
         for f in self.far_fields.iter_mut() {
             f.reset();
+        }
+        for s in self.steepening.iter_mut() {
+            s.reset();
         }
         self.refresh_mouth_paths();
         self.rebuild_ramp = 0.0;
@@ -1405,21 +1415,24 @@ impl EngineSim {
         let flows = &self.wg.result.mouth_flows;
         let mut exhaust_pa = 0.0;
         if flows.len() == 1 {
-            exhaust_pa = self.far_fields[0].process(flows[0]);
+            let (_, t, a) = self.wg.radiating_duct(0).read_mouth();
+            let q = self.steepening[0].process(flows[0], a, t);
+            exhaust_pa = self.far_fields[0].process(q);
         } else {
             for m in 0..flows.len() {
-                let delayed = self.mouth_delays[m].process(flows[m]);
+                let (_, t, a) = self.wg.radiating_duct(m).read_mouth();
+                let q = self.steepening[m].process(flows[m], a, t);
+                let delayed = self.mouth_delays[m].process(q);
                 exhaust_pa += self.far_fields[m].process(delayed) * self.mouth_gains[m];
             }
         }
-        // The intake's mouth breathes in what the engine draws: through the compressors on a turbocharged
-        // engine, through the throttle on one without.
-        let drawn_in = match &self.turbo {
-            Some(turbo) => turbo.compressor_flow(),
-            None => throttle_flow,
-        };
-        let intake_pa = self.intake_far_field.process(-drawn_in / density(gas::P_AMB, gas::T_AMB));
-        let intake_pa = self.intake_delay.process(intake_pa) * self.intake_gain;
+        // The throttle's mouth breathes in what the engine draws. A turbocharged engine draws through its
+        // compressors instead, whose inlets the turbo radiates itself.
+        let mut intake_pa = 0.0;
+        if self.turbo.is_none() {
+            intake_pa = self.intake_far_field.process(-throttle_flow / density(gas::P_AMB, gas::T_AMB));
+            intake_pa = self.intake_delay.process(intake_pa) * self.intake_gain;
+        }
 
         let mut pa = if self.turbo.is_some() {
             self.listener.process(exhaust_pa + intake_pa + direct_pa + turbo_pa)
