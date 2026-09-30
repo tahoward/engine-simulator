@@ -26,14 +26,14 @@ use crate::exhaust_system::ExhaustSystem;
 use crate::intake::{IntakeRunners, RunnerIo};
 use crate::listener::{Listener, ListenerGeometry};
 use crate::math::{self, PI, clamp};
-use crate::plenum::IntakePlenum;
+use crate::plenum::{IntakePlenum, throttle_dia_of};
 use crate::radiation::FarField;
 use crate::spec::{
     BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout, FUEL_CUT_RPM,
     FUEL_CUT_THROTTLE, FUEL_RESUME_RPM, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment,
-    REV_LIMIT_HYSTERESIS_RPM, RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, displacement,
-    exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_fraction_at, full_load_torque, gas, intake_runner_of,
-    load_torque_of, physical_bank_count,
+    REV_LIMIT_HYSTERESIS_RPM, RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, density,
+    displacement, exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_fraction_at, full_load_torque, gas,
+    intake_runner_of, load_torque_of, physical_bank_count,
 };
 use crate::turbo::Turbo;
 use crate::valve::{valve_flow_area, valve_lift};
@@ -112,6 +112,10 @@ const SLAP_PA_AT_1M: f64 = 3.5;
 
 /// RMS turbulent fluctuation of the plane-wave volume velocity, as a fraction of the mean valve flow.
 const TURBULENCE_INTENSITY: f64 = 0.1;
+
+/// How far ahead of the exhaust mouths the intake draws its air, m, along the line the mouths lie
+/// across: the length of a car from its tailpipe to its engine bay.
+const INTAKE_OFFSET_M: f64 = 3.0;
 
 /// The engine the structure-borne frequencies were set against: the default single.
 const REFERENCE_DISPLACEMENT_M3: f64 = 4.977e-4;
@@ -227,6 +231,11 @@ pub struct EngineSim {
     listener: Listener,
     mouth_delays: Vec<Delay>,
     mouth_gains: Vec<f64>,
+    /// The intake's own mouth, the throttle or the compressor inlet, and its path to the ear relative
+    /// to the nearest exhaust mouth's.
+    intake_far_field: FarField,
+    intake_delay: Delay,
+    intake_gain: f64,
     breathing: Vec<f64>,
     timing: Vec<f64>,
     last_valve_mdot: Vec<f64>,
@@ -357,6 +366,9 @@ impl EngineSim {
             structure_lp2: 0.0,
             listener: Listener::new(sample_rate),
             mouth_delays: Vec::new(),
+            intake_far_field: FarField::new(sample_rate, 0.0),
+            intake_delay: Delay::new(((12.0 / ambient_sound_speed()) * sample_rate).ceil()),
+            intake_gain: 0.0,
             mouth_gains: vec![0.0; 1],
             breathing: Vec::new(),
             timing: Vec::new(),
@@ -961,6 +973,13 @@ impl EngineSim {
             self.mouth_delays[m].set_delay(((ranges[m] - nearest) / c) * self.sample_rate);
             self.mouth_gains[m] = nearest / ranges[m];
         }
+
+        // The intake, the engine's length ahead of the mouths, and the listener behind them.
+        let intake_range = math::hypot(&[lx + INTAKE_OFFSET_M, ly]);
+        self.intake_delay.set_delay((math::max(intake_range - nearest, 0.0) / c) * self.sample_rate);
+        self.intake_gain = nearest / intake_range;
+        let radius = throttle_dia_of(&self.spec.spec) / 2.0;
+        self.intake_far_field.set_cutoff((2.0 * c) / radius, (1.8412 * c) / radius);
     }
 
     /// The cylinders, phased on one shared crank, each with its own noise seed.
@@ -1393,10 +1412,19 @@ impl EngineSim {
                 exhaust_pa += self.far_fields[m].process(delayed) * self.mouth_gains[m];
             }
         }
+        // The intake's mouth breathes in what the engine draws: through the compressors on a turbocharged
+        // engine, through the throttle on one without.
+        let drawn_in = match &self.turbo {
+            Some(turbo) => turbo.compressor_flow(),
+            None => throttle_flow,
+        };
+        let intake_pa = self.intake_far_field.process(-drawn_in / density(gas::P_AMB, gas::T_AMB));
+        let intake_pa = self.intake_delay.process(intake_pa) * self.intake_gain;
+
         let mut pa = if self.turbo.is_some() {
-            self.listener.process(exhaust_pa + direct_pa + turbo_pa)
+            self.listener.process(exhaust_pa + intake_pa + direct_pa + turbo_pa)
         } else {
-            self.listener.process(exhaust_pa + direct_pa)
+            self.listener.process(exhaust_pa + intake_pa + direct_pa)
         };
 
         if self.rebuild_ramp < 1.0 {
