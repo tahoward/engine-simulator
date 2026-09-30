@@ -28,6 +28,7 @@ use crate::listener::{Listener, ListenerGeometry};
 use crate::math::{self, PI, clamp};
 use crate::plenum::{IntakePlenum, throttle_dia_of};
 use crate::radiation::{FarField, Steepening};
+use crate::shell::ChamberShell;
 use crate::spec::{
     BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout, FUEL_CUT_RPM,
     FUEL_CUT_THROTTLE, FUEL_RESUME_RPM, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment,
@@ -211,6 +212,8 @@ pub struct EngineSim {
     cyls: Vec<Cylinder>,
     far_fields: Vec<FarField>,
     steepening: Vec<Steepening>,
+    /// Every chamber's shell, ringing with the gas inside it.
+    shells: Vec<ChamberShell>,
     throat_noise: Vec<Noise>,
     clack: Vec<Resonator>,
     slap: Vec<Resonator>,
@@ -350,6 +353,7 @@ impl EngineSim {
             cyls: Vec::new(),
             far_fields: Vec::new(),
             steepening: Vec::new(),
+            shells: Vec::new(),
             throat_noise: Vec::new(),
             clack: Vec::new(),
             slap: Vec::new(),
@@ -499,8 +503,8 @@ impl EngineSim {
         });
     }
 
-    /// One far field and one steepening run per mouth, tuned to that mouth. Keeps existing filters'
-    /// state.
+    /// One far field and one steepening run per mouth, tuned to that mouth, keeping existing filters'
+    /// state; and every chamber's shell, afresh.
     fn refresh_far_fields(&mut self) {
         let count = self.wg.mouth_count().max(1);
         while self.far_fields.len() < count {
@@ -515,6 +519,12 @@ impl EngineSim {
             self.far_fields[m].set_cutoff(c, b);
             let run = self.wg.radiating_duct(m).free_run;
             self.steepening[m].set_duct(run, self.wg.resolution_cutoff_rad_of(m));
+        }
+        self.shells.clear();
+        for (d, duct) in self.wg.ducts.iter().enumerate() {
+            for c in &duct.chambers {
+                self.shells.push(ChamberShell::new(d, c, duct.dx, duct.n, duct.wall_thickness(), self.sample_rate));
+            }
         }
     }
 
@@ -1432,6 +1442,10 @@ impl EngineSim {
         if self.turbo.is_none() {
             intake_pa = self.intake_far_field.process(-throttle_flow / density(gas::P_AMB, gas::T_AMB));
             intake_pa = self.intake_delay.process(intake_pa) * self.intake_gain;
+        }
+
+        for shell in self.shells.iter_mut() {
+            exhaust_pa += shell.process(&self.wg.ducts[shell.duct()]);
         }
 
         let mut pa = if self.turbo.is_some() {
