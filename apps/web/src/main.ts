@@ -886,7 +886,6 @@ audio.onSnapshot((s) => {
     if (i >= 0) pipeMeshes[i]?.update(reversed.has(id) ? cells.slice().reverse() : cells, scale);
     at += n;
   });
-  scope.onSnapshot(s);
   launchSheet.onSnapshot(s.launch);
   panel.updateReadouts(s);
   hudEl.textContent =

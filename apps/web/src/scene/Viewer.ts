@@ -24,6 +24,7 @@ export class Viewer {
   private disposed = false;
   private lastFrameMs = 0;
   private elapsedS = 0;
+  private readonly resizeObserver = new ResizeObserver(() => this.resize());
 
   constructor(private readonly container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
@@ -53,7 +54,8 @@ export class Viewer {
     this.addLights();
 
     this.resize();
-    window.addEventListener('resize', this.resize);
+    // The container, not the window: folding the panel resizes the view without resizing the window.
+    this.resizeObserver.observe(this.container);
   }
 
   /**
@@ -145,7 +147,7 @@ export class Viewer {
     this.disposed = true;
     this.running = false;
     this.renderer.setAnimationLoop(null);
-    window.removeEventListener('resize', this.resize);
+    this.resizeObserver.disconnect();
     this.renderer.dispose();
     this.container.removeChild(this.renderer.domElement);
   }
