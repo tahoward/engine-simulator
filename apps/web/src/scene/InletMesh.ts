@@ -127,7 +127,6 @@ export class InletMesh {
   /** The plenum's and the runners' casting, which the pressure view colours. */
   private readonly castTinted = new THREE.MeshStandardMaterial({ ...CAST, vertexColors: true });
   private readonly clamp = new THREE.MeshStandardMaterial(CLAMP);
-  private readonly throat = new THREE.MeshBasicMaterial({ color: 0x08090b, side: THREE.DoubleSide });
   private readonly plate = new THREE.MeshStandardMaterial({ ...CAST, color: 0xc9ced4, side: THREE.DoubleSide });
   private butterfly: THREE.Object3D | null = null;
   private tube: THREE.Mesh | null = null;
@@ -381,13 +380,6 @@ export class InletMesh {
     rim.position.copy(l.mouth);
     rim.lookAt(l.mouth.clone().add(l.snorkel.getTangentAt(1)));
     this.tract.add(rim);
-    // The dark of the throat, a little way in, so the mouth reads as open rather than lit inside.
-    const back = l.snorkel.getTangentAt(0.93);
-    const throat = new THREE.Mesh(new THREE.CircleGeometry(1, 32), this.throat);
-    throat.scale.set(round * Math.sqrt(aspect) * 1.02, (round / Math.sqrt(aspect)) * 1.02, 1);
-    throat.position.copy(l.snorkel.getPointAt(0.93));
-    throat.lookAt(throat.position.clone().add(back));
-    this.tract.add(throat);
   }
 
   /**
@@ -494,7 +486,7 @@ export class InletMesh {
 
   dispose(): void {
     this.clear();
-    for (const m of [this.plastic, this.tinted, this.rubber, this.cast, this.castTinted, this.clamp, this.plate, this.throat]) {
+    for (const m of [this.plastic, this.tinted, this.rubber, this.cast, this.castTinted, this.clamp, this.plate]) {
       m.dispose();
     }
     this.specks.geometry.dispose();
