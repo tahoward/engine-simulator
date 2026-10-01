@@ -67,8 +67,8 @@ export function soundSources(graph: ExhaustGraph, placement: ExhaustPlacement, s
 
   const shell = engineShell(spec);
   const casing: Vec3 = [0, (shell.top + shell.bottom) / 2, 0];
-  // The throttle, above the front of the engine: in the valley of a V, and on the other side of an inline
-  // engine's head from its exhaust.
+  // The snorkel's mouth, which the inlet tract is not drawn to place: above the front of the engine, in the
+  // valley of a V, and on the other side of an inline engine's head from its exhaust.
   const exhaustSide = Math.sign(exhaustPortOf(spec, 0).direction[0]) || 1;
   const intakeX = physicalBankCount(spec) > 1 ? 0 : -exhaustSide * shell.width * 0.6;
   const intake: Vec3 = [intakeX, shell.top, -shell.length / 2 - 0.1];

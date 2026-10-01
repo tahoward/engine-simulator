@@ -101,6 +101,9 @@ fn impulse_response(geom: Geom, n: usize) -> Vec<f32> {
 #[test]
 fn combustion_scatter_can_be_switched_off_for_a_deterministic_engine() {
     let mut s = sim(json!({ "combustionVariability": 0, "throatNoise": 0, "mechNoise": 0 }), 1);
+    // The air through the inlet tract takes a couple of seconds to settle from rest, and until it has
+    // each cycle draws a little differently from the last.
+    s.render(FS_N);
     let works = indicated_work(&mut s, 8);
     assert!(cov(&works) < 0.002, "cov {}", cov(&works));
 }

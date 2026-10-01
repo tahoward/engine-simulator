@@ -8,7 +8,9 @@ Where the model is simplified, and by how much.
   creates are real, but the sharpest edge of an exhaust pulse is blunter than in reality.
 - **The intake runners are simplified.** Each is one straight duct, solved like the exhaust but
   with some things left out:
-  - The runners' pressure is not radiated, so there is no intake roar.
+  - They all draw from one plenum, and the plenum is one well-mixed volume, with no waves of its
+    own. Their pulses reach the air only through it and the inlet tract, as on a real engine with a
+    plenum; there are no individual throttle bodies, with each runner open to the air.
   - What their waves lose to turbulence, the bend into the port and the valve seat is not worked out
     one loss at a time: it is one factor, five times the boundary-layer loss of a smooth tube, chosen
     so a wave dies away over a few cycles as it does in a real runner.
@@ -58,6 +60,11 @@ Where the model is simplified, and by how much.
   about a hundred times larger, so it stays suppressed. It is not zero.
 - **Engine body noise is simplified.** It uses four lumped modes, not a vibration model of a
   real casting, radiating equally every way from the engine's middle.
+- **The inlet tract is a fixed shape.** It is a straight snorkel, a round airbox and a duct at the
+  throttle's bore, sized by **Airbox volume**, **Snorkel length** and **Snorkel bore**, not drawn. Its
+  mean flow loss is left out rather than solved (see [Acoustics](acoustics.md#the-intakes-sound)), and so
+  is a filter element's. The solver resolves it only up to about 2 kHz on 35 mm cells, so the throttle's
+  hiss stops there, where a real one goes on up.
 - **Every source radiates equally in every direction.** Each tailpipe, the intake, the casing and the
   turbos are heard from where they are drawn, but none has a direction pattern: a real open pipe beams
   its treble along its axis. The intake is placed above the front of the engine, where its throttle

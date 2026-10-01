@@ -67,7 +67,7 @@ import {
   speedOfSound,
   totalPipeLength,
 } from '../model/spec.js';
-import { plenumVolumeOf, throttleDiaOf } from '../model/intakeSizing.js';
+import { airboxVolumeOf, plenumVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
 import { autoLaunchSettings, type LaunchSettings } from '../model/launchSettings.js';
 import { SECTION_ICONS, TOOL_ICONS, toolButton } from './toolbar.js';
 
@@ -1325,6 +1325,44 @@ export class Panel {
       'At 0 it is sized so the engine can breathe at full throttle and 7000 rpm, with the air at ' +
       '25 m/s through it. Smaller chokes the top end; larger makes the throttle touchier at small ' +
       'openings.';
+    this.slider(intake, {
+      label: 'Airbox volume',
+      min: 0,
+      max: 0.05,
+      step: 0.0005,
+      value: spec.airboxVolume,
+      sync: () => this.config.engine.airboxVolume,
+      format: (v) =>
+        v > 0 ? `${(v * 1000).toFixed(1)} L` : `auto (${(airboxVolumeOf(this.config.engine) * 1000).toFixed(1)} L)`,
+      onInput: (v) => this.cb.onEngine({ airboxVolume: v }),
+    }).row.title =
+      'The box the throttle draws its air from, fed by the snorkel. The runners\u2019 pulses ring in it ' +
+      'and leave by the snorkel as the intake\u2019s note, and it muffles the hiss of the air past the ' +
+      'throttle. At 0 it is four times the engine\u2019s displacement. A turbocharged engine has none.';
+    this.slider(intake, {
+      label: 'Snorkel length',
+      min: 0.05,
+      max: 1.2,
+      step: 0.01,
+      value: spec.snorkelLength,
+      sync: () => this.config.engine.snorkelLength,
+      unit: 'm',
+      format: (v) => `${(v * 1000).toFixed(0)} mm`,
+      onInput: (v) => this.cb.onEngine({ snorkelLength: v }),
+    }).row.title =
+      'The pipe from the airbox to the open mouth the engine draws its air through. Longer tunes the ' +
+      'tract lower: its air bounces on the airbox like a bottle\u2019s when you blow across it.';
+    this.slider(intake, {
+      label: 'Snorkel bore',
+      min: 0,
+      max: 0.15,
+      step: 0.001,
+      value: spec.snorkelDia,
+      sync: () => this.config.engine.snorkelDia,
+      format: (v) =>
+        v > 0 ? `${(v * 1000).toFixed(0)} mm` : `auto (${(snorkelDiaOf(this.config.engine) * 1000).toFixed(0)} mm)`,
+      onInput: (v) => this.cb.onEngine({ snorkelDia: v }),
+    }).row.title = 'At 0 it is a little wider than the throttle. Narrower tunes the tract lower.';
 
     // ---- Combustion ------------------------------------------------------
     const comb = section('Combustion', 'combustion', 'Idle speed, rev limiter, ignition advance, burn duration and mixture.');

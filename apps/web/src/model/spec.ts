@@ -400,6 +400,20 @@ export interface EngineSpec {
    */
   plenumVolume: number;
   /**
+   * Volume of the airbox the throttle draws from, m^3. 0 or less sizes it at four times the engine's
+   * displacement; see `airboxVolumeOf`.
+   *
+   * The airbox and the snorkel feeding it are the inlet tract, solved like the exhaust. The runners'
+   * pulses travel up it from the throttle, ring in it and leave the snorkel's mouth as the intake's
+   * note, and the jet past the throttle plate hisses through it. A turbocharged engine draws through
+   * its compressors instead, and has none.
+   */
+  airboxVolume: number;
+  /** Length of the snorkel from the airbox to its open mouth, m. Longer tunes the tract lower. */
+  snorkelLength: number;
+  /** The snorkel's bore, m. 0 or less makes it a little wider than the throttle; see `snorkelDiaOf`. */
+  snorkelDia: number;
+  /**
    * Length of each intake runner, from the valve seat to the plenum, m: the port and the manifold
    * runner together. 0 or less sizes it for the engine; see `intakeRunnerOf`.
    *
@@ -602,7 +616,7 @@ export interface EngineConfig {
 export interface SoundSources {
   /** Each tailpipe's outlet, by the duct the solver radiates it from. */
   mouths: Array<{ duct: string; position: [number, number, number] }>;
-  /** Where the engine draws its air. */
+  /** Where the engine draws its air: its snorkel's mouth. */
   intake?: [number, number, number];
   /** The middle of the engine, where its casing radiates from. */
   engine?: [number, number, number];
@@ -1251,6 +1265,9 @@ export const DEFAULT_ENGINE: EngineSpec = {
   // A fixed figure here would be a single-cylinder's, and wrong for everything else.
   throttleDia: 0,
   plenumVolume: 0,
+  airboxVolume: 0,
+  snorkelLength: 0.3,
+  snorkelDia: 0,
   intakeRunnerLength: 0,
   intakeRunnerDia: 0,
   intakeRunnerShortLength: 0,

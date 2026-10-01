@@ -305,6 +305,42 @@ measured locally in a valve jet, for the same averaging reason.
 [`crates/engine-sim/tests/timbre.rs`](https://github.com/tahoward/engine-simulator/blob/main/crates/engine-sim/tests/timbre.rs)
 guards all of this.
 
+## The intake's sound
+
+On an engine without a turbo, the air reaches the throttle through an **inlet tract**: a snorkel open
+to the air, an airbox, and a short duct at the throttle's bore, solved with the same gas dynamics as
+the exhaust. Its mouth radiates the way a tailpipe's does, through its own far field, and is heard
+from above the front of the engine, where its snorkel is taken to open.
+
+**The engine's note through it.** The runners empty and refill the plenum at the firing frequency,
+so the throttle's flow pulses. The pulses travel up the tract, ring in the airbox and the snorkel,
+and leave its mouth: on the F20C at 6000 rpm, the flow out of the mouth at the firing frequency stands
+52 dB above the band between it and its second harmonic. The tract's lowest resonance is the airbox's
+air bouncing on the column in the snorkel, a Helmholtz resonator, so a longer snorkel tunes it lower:
+on the F20C's airbox, from 100 Hz with a 0.15 m snorkel to 53 Hz with a 0.6 m one. What the tract does
+to the pressure at the throttle comes back to it, so a snorkel tuned near the engine's speed helps it
+breathe there.
+
+**The air rushing in.** Past the throttle plate the air is a jet, and its turbulence is broadband
+noise peaking at the jet's Strouhal frequency, `0.2·U/d`, for a jet of speed `U` through a gap `d`
+wide: the plate's open area spread round its edge. Nearly shut, the gap is a sliver and the jet near
+sonic, so it hisses high; wide open, the air is slow through the whole bore and it rushes low. On the
+F20C at 3000 rpm, the noise at the snorkel's mouth is centred near 300 Hz at 5% throttle and near 70 Hz
+wide open, after the airbox has muffled it. It is 10% of the flow through the throttle, the same as the
+exhaust valves' throat turbulence, and **Throat noise** scales both. It is injected at the throttle,
+so it reaches the air through the airbox and snorkel, coloured by them, as the exhaust valves' noise
+reaches the tailpipe.
+
+**How the throttle meets the tract.** The throttle draws from the tract's closed end. The solver can
+bring a flow that large to rest against a closed end only by drawing the end cell several kPa below
+the pressure beside it, where a real duct carries its air through the throttle with almost no loss:
+taken at face value, that would cost the LT6 6% of its torque at 6300 rpm. So the throttle sees the
+atmosphere's pressure plus the swing at the tract's end about its mean, tracked over 0.5 s: the
+tract's waves, and none of its numerical loss. There is no filter element, and no loss for one.
+
+A turbocharged engine draws through its compressors instead, whose inlets the turbo radiates itself
+(see below), and has no tract.
+
 ## Heat transfer every sample
 
 Gas-to-wall heat transfer is applied every audio sample. Only the costly [Nusselt](glossary.md#nusselt-reynolds-and-prandtl-numbers) calculation and

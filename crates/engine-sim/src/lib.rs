@@ -17,6 +17,7 @@ pub mod euler_pipe;
 pub mod exhaust_graph;
 pub mod exhaust_system;
 pub mod geometry;
+pub mod inlet;
 pub mod intake;
 pub mod listener;
 pub mod math;

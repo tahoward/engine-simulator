@@ -730,6 +730,10 @@ fn parse_args() -> HashMap<String, String> {
             exit(0);
         }
         let key = a.strip_prefix("--").unwrap_or_else(|| fail(&format!("unexpected argument {a:?}\n\n{USAGE}")));
+        if let Some((key, value)) = key.split_once('=') {
+            out.insert(key.to_string(), value.to_string());
+            continue;
+        }
         let value = match it.peek() {
             Some(v) if !v.starts_with("--") => it.next().unwrap(),
             _ => String::new(),
