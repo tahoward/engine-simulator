@@ -493,9 +493,12 @@ impl EngineSim {
             self.charge_p = gas::P_AMB;
             self.charge_t = gas::T_AMB;
         } else {
+            // The charge pipes on the inlet tract's grid, which a turbocharged engine has no use for.
+            let opts = EulerPipeOptions { cell_size: Some(self.requested_cell_size()), ..self.build_options(None) };
+            let spec = &self.spec.spec;
             match &mut self.turbo {
-                Some(t) => t.configure(spec, &settings),
-                None => self.turbo = Some(Turbo::new(spec, &settings, self.sample_rate)),
+                Some(t) => t.configure(spec, &settings, &opts),
+                None => self.turbo = Some(Turbo::new(spec, &settings, self.sample_rate, &opts)),
             }
         }
         self.load_torque_nm = load_torque_of(&self.spec.spec, self.turbo.is_some());

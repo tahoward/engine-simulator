@@ -271,28 +271,62 @@ fn too_small_run_out_of_air_at_the_top_end() {
     assert!(at_7900 < 0.99 * at_7000, "power at 7900 {at_7900} against 7000 {at_7000}");
 }
 
-/// A blow-off valve vents the charge when the throttle shuts, so the compressor never runs backwards.
+/// Times the compressor's flow turns backwards in `flow`.
+fn reversals(flow: &[f64]) -> usize {
+    flow.windows(2).filter(|w| w[0] >= 0.0 && w[1] < 0.0).count()
+}
+
+/// A blow-off valve vents the charge when the throttle shuts. The pressure wave the throttle sends back
+/// up the charge pipe as it slams shut reaches the compressor before the valve has lifted, and pushes
+/// the flow back through it the once; from then on the valve lets the charge go, and it never surges.
 #[test]
 fn a_blow_off_valve_vents_the_charge_when_the_throttle_shuts() {
     let (sim, flow) = lift_off(json!({ "blowOff": "atmospheric" }));
-    assert!(flow.iter().all(|&m| m > 0.0), "the compressor never surges");
+    assert!(reversals(&flow) <= 1, "{} reversals", reversals(&flow));
+    let settled = FS as usize / 20;
+    assert!(flow[settled..].iter().all(|&m| m > 0.0), "the compressor never surges once the valve is open");
     assert!(sim.turbo().unwrap().blow_off() > 0.9, "the valve is open on the vacuum");
     assert!(boost(&sim) < 0.2, "the boost is let go: {}", boost(&sim));
 }
 
 /// With nowhere for the charge to go, the compressor stalls and recovers over and over: a surge,
-/// cycling at a few tens of hertz, which is the flutter.
+/// cycling at a few tens of hertz, which is the flutter. Each time the flow falls past the surge line
+/// a rotating stall builds in the wheel, and each time it recovers the stall dies away.
 #[test]
 fn without_a_blow_off_valve_the_compressor_surges() {
-    let (_, flow) = lift_off(json!({ "blowOff": "none" }));
-    let mut reversals = 0;
-    for w in flow.windows(2) {
-        if w[0] >= 0.0 && w[1] < 0.0 {
-            reversals += 1;
-        }
+    let mut sim = rb26(json!({ "throttle": 1, "rpm": 4000, "blowOff": "none" }));
+    sim.render(3 * FS as usize);
+    let steady = sim.turbo().unwrap().stall();
+    assert!(steady < 0.01, "no stall on boost: {steady}");
+    sim.set_controls(0.0, 0.0);
+    let (mut flow, mut stall) = (Vec::new(), Vec::new());
+    for _ in 0..FS as usize / 2 {
+        sim.render(1);
+        flow.push(sim.turbo().unwrap().compressor_flow());
+        stall.push(sim.turbo().unwrap().stall());
     }
-    let hz = reversals as f64 / 0.5;
-    assert!(hz > 5.0 && hz < 60.0, "{reversals} surge cycles in half a second");
+    let hz = reversals(&flow) as f64 / 0.5;
+    assert!(hz > 5.0 && hz < 60.0, "{} surge cycles in half a second", reversals(&flow));
+    let most = stall.iter().cloned().fold(0.0, f64::max);
+    assert!(most > 0.5, "the wheel stalls: {most}");
+    let least = stall[FS as usize / 20..].iter().cloned().fold(1.0, f64::min);
+    assert!(least < 0.05, "and recovers between surges: {least}");
+}
+
+/// The throttle shutting is felt at the compressor only once its pressure wave has run back up the
+/// charge pipe: for the first few milliseconds the compressor goes on delivering as before.
+#[test]
+fn the_throttle_shutting_reaches_the_compressor_as_a_wave() {
+    let (_, flow) = lift_off(json!({ "blowOff": "none" }));
+    let before = flow[0];
+    let unaware = (0.004 * FS) as usize;
+    assert!(
+        flow[..unaware].iter().all(|&m| (m - before).abs() < 0.03 * before),
+        "unchanged for 4 ms: {:?}",
+        &flow[..unaware]
+    );
+    let reached = flow.iter().position(|&m| m < 0.5 * before).unwrap() as f64 / FS;
+    assert!(reached < 0.012, "the flow falls once the wave arrives, after {reached} s");
 }
 
 /// On boost, what the compressor radiates from its inlet has its strongest tone at the blade-pass
