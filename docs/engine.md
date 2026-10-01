@@ -110,6 +110,11 @@ full-throttle torque rises and falls by 5-8% every 1500 rpm or so as the runner'
 in and out of step with the cycle. The exhaust's damping is fitted to hot gas in steel pipes and is
 two and a half times the runners'.
 
+**The air comes in through an airbox.** Without a turbo, the throttle draws from an inlet tract: a
+snorkel open to the air and an airbox, solved like the exhaust. The runners' pulses reach the air
+through it, as the intake's note, and the jet past the throttle plate hisses through it. See
+[Acoustics](acoustics.md#the-intakes-sound).
+
 ## Cam profile switching
 
 A cam's lobe is a compromise. A wild one, open long and far, fills the cylinder at the top end, where

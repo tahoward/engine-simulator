@@ -138,6 +138,11 @@ impl IntakePlenum {
         geometric * (CD_CLOSED + (CD_OPEN - CD_CLOSED) * open)
     }
 
+    /// Effective throttle flow area, m^2, as the plate is set.
+    pub fn area(&self) -> f64 {
+        self.area
+    }
+
     /// Advance by `dt`, drawing through the throttle from air at `p_up` (Pa) and `t_up` (K): the
     /// atmosphere, or a turbocharger's charge air. `valve_flow` is the net mass flow to the cylinders,
     /// kg/s, positive out of the plenum; `backflow`, 0 or more, is the part of it flowing back in, at

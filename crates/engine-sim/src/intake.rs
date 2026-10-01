@@ -268,7 +268,7 @@ const RUNNER_LOSS_FACTOR: f64 = 5.0;
 
 /// Acoustic damping of a runner, 1/s: Kirchhoff's boundary-layer loss for a wide tube at `hz`, its
 /// quarter-wave resonance, as `k = 2 c alpha`, scaled by `RUNNER_LOSS_FACTOR`.
-fn runner_damping(radius: f64, hz: f64) -> f64 {
+pub(crate) fn runner_damping(radius: f64, hz: f64) -> f64 {
     const AIR_VISCOSITY: f64 = 1.82e-5;
     const AIR_PRANDTL: f64 = 0.71;
     let c = speed_of_sound(gas::T_AMB, gas::GAMMA_AIR);

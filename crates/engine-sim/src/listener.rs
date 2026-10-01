@@ -22,7 +22,7 @@ pub struct SoundSources {
     /// Each tailpipe's outlet, by the duct that ends there.
     #[serde(default)]
     pub mouths: Vec<MouthPlace>,
-    /// Where the engine draws its air.
+    /// Where the engine draws its air: its snorkel's mouth.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intake: Option<Vec3>,
     /// The middle of the engine, where its casing radiates from.

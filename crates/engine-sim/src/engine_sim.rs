@@ -23,6 +23,7 @@ use crate::euler_pipe::{
 };
 use crate::exhaust_graph::{ExhaustGraph, compile_exhaust, node_order, validate_graph};
 use crate::exhaust_system::ExhaustSystem;
+use crate::inlet::{InletTract, airbox_volume_of, snorkel_dia_of};
 use crate::intake::{IntakeRunners, RunnerIo};
 use crate::listener::{Listener, SoundSources, Vec3};
 use crate::math::{self, PI, clamp};
@@ -168,6 +169,11 @@ const STRUCTURE_PA_PER_GPA_S: f64 = 0.55;
 /// Per-cylinder valve-timing spread at `cylinder_spread = 1`, crank degrees peak.
 const CAM_SPREAD_DEG: f64 = 2.2;
 
+/// What the inlet tract is built from: the throttle's bore, the airbox and the snorkel.
+fn inlet_key(spec: &EngineSpec) -> [f64; 4] {
+    [throttle_dia_of(spec), airbox_volume_of(spec), spec.snorkel_length, snorkel_dia_of(spec)]
+}
+
 /// The sources heard after the mouths, in the order of their paths to the ear.
 #[derive(Clone, Copy)]
 enum Source {
@@ -255,7 +261,8 @@ pub struct EngineSim {
     listener: Listener,
     sources: SoundSources,
     ear: Option<Vec3>,
-    /// The throttle's mouth, on an engine without a turbo.
+    /// The air's way in to the throttle, and its snorkel's mouth, on an engine without a turbo.
+    inlet: Option<InletTract>,
     intake_far_field: FarField,
     breathing: Vec<f64>,
     timing: Vec<f64>,
@@ -390,6 +397,7 @@ impl EngineSim {
             listener: Listener::new(sample_rate),
             sources: config.sources.clone().unwrap_or_default(),
             ear: config.listener,
+            inlet: None,
             intake_far_field: FarField::new(sample_rate, 0.0),
             breathing: Vec::new(),
             timing: Vec::new(),
@@ -636,6 +644,7 @@ impl EngineSim {
         let prev_wall_thickness = prev.pipe_wall_thickness;
         let prev_runner: RunnerSize = intake_runner_of(prev);
         let prev_short_runner = prev.intake_runner_short_length;
+        let prev_inlet = inlet_key(prev);
         let prev_layout = layout_key(prev);
         let prev_phase = firing_plan(prev).offsets;
         let was_high = self.high_cam_spec.is_some() && self.on_high_cam;
@@ -663,6 +672,16 @@ impl EngineSim {
             || spec.port_length != prev_port_length
             || exhaust_port_diameter(spec) != prev_port_dia
             || spec.pipe_wall_thickness != prev_wall_thickness;
+        if !intake_changed && inlet_key(spec) != prev_inlet {
+            // The tract alone: the runners and the exhaust keep their gas.
+            let opts = EulerPipeOptions {
+                cell_size: Some(self.requested_cell_size()),
+                ..self.build_options(Some(self.wg.export_wall()))
+            };
+            self.inlet = Some(InletTract::new(&self.spec.spec, self.sample_rate, &opts));
+            self.refresh_intake_far_field();
+        }
+        let spec = &self.spec.spec;
         if intake_changed || exhaust_changed {
             if layout_key(spec) != prev_layout {
                 self.launch = None;
@@ -780,6 +799,7 @@ impl EngineSim {
         let switch = spec.intake_switch_rpm;
         self.intake_long = long;
         self.intake_short = short;
+        self.inlet = Some(InletTract::new(&self.spec.spec, sample_rate, &opts));
         let rpm = (self.omega_mean * 60.0) / (2.0 * PI);
         self.on_short_runners = self.intake_short.is_some() && rpm >= switch;
     }
@@ -871,6 +891,11 @@ impl EngineSim {
     }
 
     /// The intake runners the cylinders breathe through now.
+    /// The air's way in to the throttle, on an engine without a turbo.
+    pub fn inlet(&self) -> Option<&InletTract> {
+        if self.turbo.is_none() { self.inlet.as_ref() } else { None }
+    }
+
     pub fn intake(&self) -> &IntakeRunners {
         if self.on_short_runners { self.intake_short.as_ref().unwrap() } else { &self.intake_long }
     }
@@ -1026,9 +1051,23 @@ impl EngineSim {
         });
         self.listener.set_geometry(ear, &places, ground, self.spec.spec.ground_reflection, snap);
 
-        let c = ambient_sound_speed();
-        let radius = throttle_dia_of(&self.spec.spec) / 2.0;
-        self.intake_far_field.set_cutoff((2.0 * c) / radius, (1.8412 * c) / radius);
+        self.refresh_intake_far_field();
+    }
+
+    /// The snorkel's mouth radiates as a tailpipe's does, up to the tract's own band limit.
+    fn refresh_intake_far_field(&mut self) {
+        match &self.inlet {
+            Some(inlet) => {
+                let p = &inlet.pipe;
+                self.intake_far_field
+                    .set_cutoff(p.mouth_cutoff_rad, math::min(p.plane_wave_cutoff_rad, p.resolution_cutoff_rad));
+            }
+            None => {
+                let c = ambient_sound_speed();
+                let radius = throttle_dia_of(&self.spec.spec) / 2.0;
+                self.intake_far_field.set_cutoff((2.0 * c) / radius, (1.8412 * c) / radius);
+            }
+        }
     }
 
     /// The path `source` takes to the ear, after the mouths'.
@@ -1398,16 +1437,19 @@ impl EngineSim {
                 back_fuel += f * intake.fuel[b];
             }
         }
-        let throttle_flow = self.plenum.step(
-            dt,
-            self.charge_p,
-            self.charge_t,
-            drawn,
-            back,
-            if back > 0.0 { back_t / back } else { t_plenum },
-            if back > 0.0 { back_burned / back } else { 0.0 },
-            if back > 0.0 { back_fuel / back } else { 0.0 },
-        );
+        let back_t = if back > 0.0 { back_t / back } else { t_plenum };
+        let back_burned = if back > 0.0 { back_burned / back } else { 0.0 };
+        let back_fuel = if back > 0.0 { back_fuel / back } else { 0.0 };
+        let throttle_flow = match &mut self.inlet {
+            Some(inlet) if self.turbo.is_none() => {
+                let p_up = inlet.upstream_pressure();
+                let flow = self.plenum.step(dt, p_up, gas::T_AMB, drawn, back, back_t, back_burned, back_fuel);
+                let (area, bore) = (self.plenum.area(), throttle_dia_of(&self.spec.spec));
+                inlet.advance(dt, flow, area, bore, self.spec.spec.throat_noise);
+                flow
+            }
+            _ => self.plenum.step(dt, self.charge_p, self.charge_t, drawn, back, back_t, back_burned, back_fuel),
+        };
 
         // --- Turbocharger ---
         let mut turbo_pa = 0.0;
@@ -1471,7 +1513,11 @@ impl EngineSim {
         // The throttle's mouth breathes in what the engine draws. A turbocharged engine draws through its
         // compressors instead, whose inlets the turbo radiates itself.
         if self.turbo.is_none() {
-            let intake_pa = self.intake_far_field.process(-throttle_flow / density(gas::P_AMB, gas::T_AMB));
+            let drawn_in = match &self.inlet {
+                Some(inlet) => inlet.mouth_flow,
+                None => -throttle_flow / density(gas::P_AMB, gas::T_AMB),
+            };
+            let intake_pa = self.intake_far_field.process(drawn_in);
             pa += self.listener.process(self.path_of(Source::Intake), intake_pa);
         }
         pa += self.listener.process(self.path_of(Source::Casing), direct_pa);

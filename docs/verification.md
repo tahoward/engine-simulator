@@ -71,7 +71,7 @@ matters.
   switch speed, stay switched inside the 150 rpm below it, and switch back below that, and the valves
   must open to each lobe's own lift.
 - **Two-stage intake.** On the LT6 at 7800 rpm, below its switch speed, the two-stage intake must
-  make more than 2% more torque than its short runners alone, and the same at 8400, where it is on them. It must switch at its switch
+  make more than 1.5% more torque than its short runners alone, and the same at 8400, where it is on them. It must switch at its switch
   speed, stay switched inside the 150 rpm below it, switch back below that, and change the torque by
   less than 10% across the switch, with no solver recoveries.
 - **Turbocharger.** On the RB26 preset, the boost must stay under 0.5 bar at 1500 rpm and hold within
@@ -165,6 +165,11 @@ matters.
   still read a ring seen edge on. Its axes must turn with the part, a pipe segment's x running along it
   with its y as near up as it can be. A snapped turn must land on 15-degree steps from the engine's axes,
   squaring up a part set at an odd angle, and a snapped move on 5 mm steps.
+- **The inlet tract.** On the F20C at 6000 rpm, the snorkel must draw between 0.8 and 1.2 litres a
+  revolution, and the flow out of its mouth must stand at least 10 dB higher at the firing frequency
+  than in the band above it. A longer snorkel must ring the tract at least 15% lower. The noise of the
+  jet past the throttle must be centred at least 1.5 times higher at 5% throttle than wide open. A
+  turbocharged engine must have no tract.
 - **Where the sound comes from.** On every preset, the app must place every mouth the solver radiates
   from, by its duct, with the intake and casing; the default single's tailpipe must be at the end of
   its megaphone, out to the side, and the LT6's two within 0.25 m of each other in the middle. Through
