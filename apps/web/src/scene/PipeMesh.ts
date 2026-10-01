@@ -603,7 +603,15 @@ export class PipeMesh {
  * flicker frame to frame.
  */
 export class PressureScale {
-  private scale = 8000;
+  private scale: number;
+
+  /** @param floor The least the scale falls to, Pa, and `start` what it starts at. */
+  constructor(
+    private readonly floor = 1500,
+    start = 8000,
+  ) {
+    this.scale = start;
+  }
 
   /** Take a snapshot's pressures, Pa, and return the scale to colour them on. */
   track(pressure: Float32Array): number {
@@ -614,7 +622,7 @@ export class PressureScale {
     }
     // Rise fast, fall slowly, with a floor so an idling muffled engine still shows
     // something rather than amplifying numerical dust into a light show.
-    this.scale = peak > this.scale ? peak : Math.max(1500, this.scale * 0.985 + peak * 0.015);
+    this.scale = peak > this.scale ? peak : Math.max(this.floor, this.scale * 0.985 + peak * 0.015);
     return this.scale;
   }
 }

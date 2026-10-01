@@ -411,6 +411,15 @@ pub struct EngineSnapshot {
     /// Gauge pressure in every cell of the inlet tract, Pa, from the throttle out to the snorkel's mouth:
     /// the throttle's as it sees it. Empty on an engine with a turbo.
     pub inlet_pressure: Vec<f32>,
+    /// Air speed in every cell of the inlet tract, m/s, the same way: positive out towards the snorkel's
+    /// mouth, so negative as the engine draws.
+    pub inlet_velocity: Vec<f32>,
+    /// Gauge pressure in the plenum, Pa: below zero, the manifold's vacuum.
+    pub plenum_pressure: f64,
+    /// Gauge pressure in every cell of every intake runner, Pa, in cylinder order, each from its valve
+    /// end, taking `runner_cells` values in turn.
+    pub runner_pressure: Vec<f32>,
+    pub runner_cells: Vec<u32>,
     pub peak: f64,
     pub pipe_cells: f64,
     pub substeps: f64,

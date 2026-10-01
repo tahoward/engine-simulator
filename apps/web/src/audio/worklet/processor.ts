@@ -128,6 +128,8 @@ class EngineProcessor extends AudioWorkletProcessor {
         snapshot.pipePressure.buffer as ArrayBuffer,
         snapshot.ductPressure.buffer as ArrayBuffer,
         snapshot.inletPressure.buffer as ArrayBuffer,
+        snapshot.inletVelocity.buffer as ArrayBuffer,
+        snapshot.runnerPressure.buffer as ArrayBuffer,
       ]);
     }
 
