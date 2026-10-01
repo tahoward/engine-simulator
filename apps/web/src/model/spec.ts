@@ -693,6 +693,16 @@ export interface EngineSnapshot {
    * Empty on an engine with a turbo, which has none.
    */
   inletPressure: Float32Array;
+  /** Air speed in every cell of the inlet tract, m/s, the same way: positive out towards the snorkel's mouth. */
+  inletVelocity: Float32Array;
+  /** Gauge pressure in the plenum, Pa: below zero, the manifold's vacuum. */
+  plenumPressure: number;
+  /**
+   * Gauge pressure in every cell of every intake runner, Pa, in cylinder order, each from its valve end,
+   * taking `runnerCells` values in turn.
+   */
+  runnerPressure: Float32Array;
+  runnerCells: number[];
   /** Peak output sample magnitude since the last snapshot, for a level meter. */
   peak: number;
   /**

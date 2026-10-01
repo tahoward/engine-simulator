@@ -1597,6 +1597,12 @@ impl EngineSim {
             half_mile_kmh: d.half.map(|m| m.speed * 3.6),
             points: d.take_points(),
         });
+        let (mut runner_pressure, mut runner_cells) = (Vec::new(), Vec::new());
+        for r in &self.intake().runners {
+            let start = runner_pressure.len();
+            r.push_cell_pressures(&mut runner_pressure);
+            runner_cells.push((runner_pressure.len() - start) as u32);
+        }
         let snap = EngineSnapshot {
             crank_angle: first.crank_angle,
             rpm: self.rpm(),
@@ -1619,6 +1625,14 @@ impl EngineSim {
             duct_cells: self.duct_cells.clone(),
             duct_ids: self.wg.duct_ids.clone(),
             inlet_pressure: self.inlet_pressures(),
+            inlet_velocity: self.inlet().map_or(Vec::new(), |inlet| {
+                let mut out = Vec::with_capacity(inlet.pipe.n);
+                inlet.pipe.push_cell_velocities(&mut out);
+                out
+            }),
+            plenum_pressure: self.plenum.pressure() - gas::P_AMB,
+            runner_pressure,
+            runner_cells,
             peak: self.peak,
             pipe_cells: (self.wg.cells() + self.intake().cells()) as f64,
             substeps: self.substeps as f64,

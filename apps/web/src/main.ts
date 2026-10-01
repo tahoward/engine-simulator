@@ -899,7 +899,7 @@ audio.onSnapshot((s) => {
     if (i >= 0) pipeMeshes[i]?.update(reversed.has(id) ? cells.slice().reverse() : cells, scale);
     at += n;
   });
-  inletMesh.paint(s.inletPressure, scale);
+  inletMesh.show(s);
   launchSheet.onSnapshot(s.launch);
   panel.updateReadouts(s);
   hudEl.textContent =
@@ -940,6 +940,8 @@ viewer.onFrame(() => {
 
 viewer.onFrame((dt) => {
   inletMesh.setThrottle(config.engine.throttle);
+  // The air through the intake moves at the simulation's pace, stopped while the sound is.
+  inletMesh.flow(audio.running ? dt * timeScale : 0);
   if (displayRpm > 0) displayAngle = (displayAngle + displayRpm * 6 * dt * timeScale) % 720;
   // Combustion glow: a short flash after the burn begins.
   if (latest) {
