@@ -79,22 +79,29 @@ function fill(g: THREE.BufferGeometry, rgb: THREE.Color): void {
  * half-height of, at each fraction `u` along it. The frame is kept level: across is the curve's direction
  * crossed with up, which suits a tract that runs about level.
  */
-function sweep(curve: THREE.Curve<THREE.Vector3>, size: (u: number) => [number, number]): THREE.BufferGeometry {
+function sweep(
+  curve: THREE.Curve<THREE.Vector3>,
+  size: (u: number) => [number, number],
+  bend = false,
+): THREE.BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
   const index: number[] = [];
   const up = new THREE.Vector3(0, 1, 0);
+  // A round tube bending through the vertical, as a runner turning down into its port does, is carried
+  // round its bend without twisting: the frame a bent pipe has.
+  const frames = bend ? curve.computeFrenetFrames(ALONG, false) : null;
   let was = new THREE.Vector3(1, 0, 0);
   for (let i = 0; i <= ALONG; i++) {
     const u = i / ALONG;
     const at = curve.getPointAt(u);
     const t = curve.getTangentAt(u).normalize();
-    const across = new THREE.Vector3().crossVectors(t, up);
+    const across = frames ? frames.normals[i]!.clone() : new THREE.Vector3().crossVectors(t, up);
     // Running straight up or down, across is kept as it last was, so the tube does not twist there.
     if (across.lengthSq() < 1e-6) across.copy(was);
     across.normalize();
     was = across.clone();
-    const lift = new THREE.Vector3().crossVectors(across, t).normalize();
+    const lift = frames ? frames.binormals[i]!.clone().normalize() : new THREE.Vector3().crossVectors(across, t).normalize();
     const [a, b] = size(u);
     for (let j = 0; j <= AROUND; j++) {
       const th = (j / AROUND) * Math.PI * 2;
@@ -124,16 +131,16 @@ function sweep(curve: THREE.Curve<THREE.Vector3>, size: (u: number) => [number, 
 /**
  * The plenum's section, centred on the origin, `width` by `height`, as points round it anticlockwise:
  * square-shouldered down past the throttle body's centre, then narrowing to `base` of its width at the
- * bottom, its corners rounded by `round`. A `base` of 1 is a rounded rectangle. `sides` gives, for its
- * right (+x) and left (-x) sides, the two points its straight upright edge runs between, in the order the
- * points go round: up the right side, down the left.
+ * bottom, its corners rounded by `round`. A `base` of 1 is a rounded rectangle. `faces` gives, for each of
+ * its straight faces a runner can leave by, the two points the face runs between, in the order the points
+ * go round: the upright sides, and a tapered section's sloping flanks below them.
  */
 function plenumSection(
   width: number,
   height: number,
   base: number,
   round: number,
-): { points: THREE.Vector2[]; sides: Record<1 | -1, [number, number]> } {
+): { points: THREE.Vector2[]; faces: Partial<Record<Face, [number, number]>> } {
   // The corners on the outline itself: each is rounded off by cutting `round` back along both its edges.
   const [w, h] = [width / 2, height / 2];
   const foot = (width / 2) * base;
@@ -171,18 +178,47 @@ function plenumSection(
     }
     last.push(points.length - 1);
   });
-  // The right side runs up from the last corner to the first; the left down from the second to the third.
-  return { points, sides: { 1: [last[corners.length - 1]!, first[0]!], [-1]: [last[1]!, first[2]!] } };
+  // The right side runs up from the last corner to the first; the left down from the second to the third;
+  // a tapered section's left flank on down to the fourth, its right one up from the fifth, and the
+  // underside between them, or a box's along its bottom.
+  const faces: Partial<Record<Face, [number, number]>> = {
+    right: [last[corners.length - 1]!, first[0]!],
+    left: [last[1]!, first[2]!],
+  };
+  if (base < 1) {
+    faces.leftFlank = [last[2]!, first[3]!];
+    faces.bottom = [last[3]!, first[4]!];
+    faces.rightFlank = [last[4]!, first[5]!];
+  } else {
+    faces.bottom = [last[2]!, first[3]!];
+  }
+  return { points, faces };
 }
 
-/** A runner's opening in the plenum's side: which side, and where along and up it, in the plenum's frame. */
+/** A straight face of the plenum a runner can leave by: an upright side, or a tapered section's flank. */
+type Face = 'right' | 'left' | 'rightFlank' | 'leftFlank' | 'bottom';
+
+/**
+ * A runner's opening in the plenum: the face it is in, and the runner's axis through it, in the plenum's
+ * section, from where it starts at the inside face, and how far along the plenum it is.
+ */
 interface Opening {
-  side: 1 | -1;
-  y: number;
+  face: Face;
+  start: THREE.Vector2;
+  direction: THREE.Vector2;
   z: number;
   /** Its radius in the wall's inside face and in its outside one, m: the runner's flare where each is. */
   inside: number;
   outside: number;
+}
+
+/** Where along a face, from its first point, the line from `start` along `direction` crosses it, m. */
+function alongFace(p: THREE.Vector2, q: THREE.Vector2, start: THREE.Vector2, direction: THREE.Vector2): number {
+  const e = q.clone().sub(p);
+  // p + e s = start + direction t, for s.
+  const det = e.x * -direction.y - e.y * -direction.x;
+  const d = start.clone().sub(p);
+  return ((d.x * -direction.y - d.y * -direction.x) / det) * e.length();
 }
 
 /**
@@ -201,7 +237,9 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
     Math.max(PLENUM_ROUNDING - PLENUM_WALL, 0.002),
   );
   const n = outer.points.length;
-  const open = ([1, -1] as const).filter((side) => openings.some((o) => o.side === side));
+  const open = (['right', 'left', 'rightFlank', 'leftFlank', 'bottom'] as const).filter((face) =>
+    openings.some((o) => o.face === face),
+  );
   const parts: THREE.BufferGeometry[] = [];
   const extrude = (shape: THREE.Shape) => {
     const g = new THREE.ExtrudeGeometry(shape, { depth: size.z, bevelEnabled: false, curveSegments: 1 });
@@ -209,17 +247,18 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
     parts.push(g.toNonIndexed());
   };
 
-  // The shell round the section: whole, or in pieces between the sides runners leave by.
+  // The shell round the section: whole, or in pieces between the faces runners leave by.
   if (open.length === 0) {
     const shell = new THREE.Shape(outer.points);
     shell.holes.push(new THREE.Path(inner.points));
     extrude(shell);
   } else {
-    // Each piece runs anticlockwise from where the outline leaves one open side to where it reaches the next.
-    const ends = open.map((side) => outer.sides[side]);
+    // Each piece runs anticlockwise from where the outline leaves one open face to where it reaches the next.
+    const ends = open.map((face) => outer.faces[face]!);
     ends.sort((p, q) => p[0] - q[0]);
     ends.forEach(([, from], k) => {
       const to = ends[(k + 1) % ends.length]![0];
+      if (to === from) return;
       const run: number[] = [];
       for (let i = from; ; i = (i + 1) % n) {
         run.push(i);
@@ -227,28 +266,31 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
       }
       extrude(new THREE.Shape([...run.map((i) => outer.points[i]!), ...[...run].reverse().map((i) => inner.points[i]!)]));
     });
-    // Each open side, out and in: a plate across its upright edge with each runner's opening through it.
-    for (const side of open) {
+    // Each open face, out and in: a plate across it with each runner's opening through it, where the runner's
+    // axis crosses it.
+    for (const face of open) {
       for (const section of [outer, inner]) {
-        const [p, q] = section.sides[side].map((i) => section.points[i]!);
-        const [low, high] = [Math.min(p!.y, q!.y), Math.max(p!.y, q!.y)];
+        const [p, q] = section.faces[face]!.map((i) => section.points[i]!);
+        const length = p!.distanceTo(q!);
         const plate = new THREE.Shape([
-          new THREE.Vector2(-size.z / 2, low),
-          new THREE.Vector2(size.z / 2, low),
-          new THREE.Vector2(size.z / 2, high),
-          new THREE.Vector2(-size.z / 2, high),
+          new THREE.Vector2(-size.z / 2, 0),
+          new THREE.Vector2(size.z / 2, 0),
+          new THREE.Vector2(size.z / 2, length),
+          new THREE.Vector2(-size.z / 2, length),
         ]);
-        for (const o of openings.filter((o) => o.side === side)) {
+        for (const o of openings.filter((o) => o.face === face)) {
           const hole = new THREE.Path();
-          hole.absarc(o.z, o.y, section === outer ? o.outside : o.inside, 0, Math.PI * 2, true);
+          const at = alongFace(p!, q!, o.start, o.direction);
+          hole.absarc(o.z, at, section === outer ? o.outside : o.inside, 0, Math.PI * 2, true);
           plate.holes.push(hole);
         }
-        // Drawn in its own plane, along z and up y, then stood on the side.
+        // Drawn in its own plane, along z and along the face, then laid on the face.
+        const e = q!.clone().sub(p!).normalize();
         const g = new THREE.ShapeGeometry(plate, 24).toNonIndexed();
         g.applyMatrix4(
           new THREE.Matrix4()
-            .makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0))
-            .setPosition(p!.x, 0, 0),
+            .makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(e.x, e.y, 0), new THREE.Vector3(e.y, -e.x, 0))
+            .setPosition(p!.x, p!.y, 0),
         );
         parts.push(g);
       }
@@ -436,18 +478,26 @@ export class InletMesh {
   /** The plenum, its runners and the throttle body. */
   private buildEngineSide(l: InletLayout): void {
     const { centre, size } = l.plenum;
-    // Each runner flares by `RUNNER_FLARE`, or as much as its side of the plenum has room for.
+    // Each runner flares by `RUNNER_FLARE`, or as much as the face of the plenum it leaves by has room for.
     const section = plenumSection(size.x, size.y, l.plenum.base, PLENUM_ROUNDING);
+    const faceOf = (r: (typeof l.runners)[number]): Face => {
+      const right = r.from.x >= centre.x;
+      if (r.exit === 'bottom') return 'bottom';
+      if (r.exit === 'flank') return right ? 'rightFlank' : 'leftFlank';
+      return right ? 'right' : 'left';
+    };
+    const start = (r: (typeof l.runners)[number]) => new THREE.Vector2(r.from.x - centre.x, r.from.y - centre.y);
+    const direction = (r: (typeof l.runners)[number]) => new THREE.Vector2(r.leaving.x, r.leaving.y).normalize();
     const flares = l.runners.map((r) => {
-      const side = r.from.x >= centre.x ? 1 : -1;
-      const [low, high] = section.sides[side].map((i) => section.points[i]!.y).sort((a, b) => a - b);
-      const y = r.from.y - centre.y;
-      const room = Math.min(y - low!, high! - y) - 0.002;
+      const [p, q] = section.faces[faceOf(r)]!.map((i) => section.points[i]!);
+      const at = alongFace(p!, q!, start(r), direction(r));
+      const room = Math.min(at, p!.distanceTo(q!) - at) - 0.002;
       return Math.max(0, Math.min(RUNNER_FLARE, room / r.radius - 1));
     });
     const openings: Opening[] = l.runners.map((r, k) => ({
-      side: r.from.x >= centre.x ? 1 : -1,
-      y: r.from.y - centre.y,
+      face: faceOf(r),
+      start: start(r),
+      direction: direction(r),
       z: r.from.z - centre.z,
       inside: runnerRadius(r.radius, 0, flares[k]!),
       outside: runnerRadius(r.radius, PLENUM_WALL, flares[k]!),
@@ -476,6 +526,7 @@ export class InletMesh {
     this.group.add(boss);
     this.plenum = [plenum, boss];
 
+
     for (const [k, r] of l.runners.entries()) {
       const curve = new THREE.CubicBezierCurve3(
         r.from,
@@ -485,10 +536,14 @@ export class InletMesh {
       );
       // Flaring into the plenum where it leaves it.
       const length = curve.getLength();
-      const tube = sweep(curve, (u) => {
-        const radius = runnerRadius(r.radius, u * length, flares[k]!);
-        return [radius, radius];
-      });
+      const tube = sweep(
+        curve,
+        (u) => {
+          const radius = runnerRadius(r.radius, u * length, flares[k]!);
+          return [radius, radius];
+        },
+        true,
+      );
       tube.computeVertexNormals();
       const runner = new THREE.Mesh(colourable(tube), this.pipeMetal);
       this.group.add(runner);

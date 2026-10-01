@@ -78,6 +78,25 @@ export function deckHeight(spec: EngineSpec): number {
 }
 
 /**
+ * Where a vee's intake camshafts run, in the drawn engine's frame: how far either side of the middle their
+ * centres are, m, and how far out from them the lobes reach at full lift. A pushrod engine's rocker arms
+ * stand in, over the inner valves' tips. What a plenum between the banks has to fit between.
+ */
+export function intakeCamsOf(spec: EngineSpec): { x: number; y: number; reach: number } {
+  const turn = (spec.vAngle / 2) * (Math.PI / 180);
+  const base = camBaseRadius(spec);
+  const lift = Math.max(spec.maxLift, spec.camSwitchRpm > 0 ? spec.highMaxLift : 0);
+  // Bank 0's intake valves lean in towards the valley, their tops, and the cam over them.
+  const along = spec.bore * STEM_LENGTH + (spec.pushrods ? 0.01 : BUCKET_HEIGHT + base);
+  const [x, y] = [spec.bore * 0.24 + Math.sin(VALVE_TILT) * along, deckHeight(spec) + Math.cos(VALVE_TILT) * along];
+  return {
+    x: Math.abs(x * Math.cos(turn) - y * Math.sin(turn)),
+    y: x * Math.sin(turn) + y * Math.cos(turn),
+    reach: spec.pushrods ? 0.03 : base + lift,
+  };
+}
+
+/**
  * How far the valvetrain reaches along a bank's axis from the crank, m: over the noses of an overhead cam's
  * lobes, or the rocker arms on top of a pushrod engine's heads.
  */
