@@ -15,7 +15,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 import type { EngineSnapshot, EngineSpec } from '../model/spec.js';
-import { PLENUM_ROUNDING, THROTTLE_WALL, inletLayout, type InletLayout } from './inletLayout.js';
+import { PLENUM_ROUNDING, PLENUM_WALL, THROTTLE_WALL, inletLayout, type InletLayout } from './inletLayout.js';
 import { pressureColor } from './PipeMesh.js';
 
 const PLASTIC = { color: 0x2c2f35, metalness: 0.05, roughness: 0.62 };
@@ -107,17 +107,22 @@ function sweep(curve: THREE.Curve<THREE.Vector3>, size: (u: number) => [number, 
   return g;
 }
 
-/** How thick the plenum's casting is, m. */
-const PLENUM_WALL = 0.005;
-
 /**
- * The plenum's section, centred on the origin, `width` by `height`: square-shouldered down past the throttle
- * body's centre, then narrowing to `base` of its width at the bottom, its corners rounded by `round`. A
- * `base` of 1 is a rounded rectangle.
+ * The plenum's section, centred on the origin, `width` by `height`, as points round it anticlockwise:
+ * square-shouldered down past the throttle body's centre, then narrowing to `base` of its width at the
+ * bottom, its corners rounded by `round`. A `base` of 1 is a rounded rectangle. `sides` gives, for its
+ * right (+x) and left (-x) sides, the two points its straight upright edge runs between, the first below
+ * the second.
  */
-function plenumSection(width: number, height: number, base: number, round: number): THREE.Shape {
-  const [w, h] = [width / 2 - round, height / 2 - round];
-  const foot = (width / 2) * base - round;
+function plenumSection(
+  width: number,
+  height: number,
+  base: number,
+  round: number,
+): { points: THREE.Vector2[]; sides: Record<1 | -1, [number, number]> } {
+  // The corners on the outline itself: each is rounded off by cutting `round` back along both its edges.
+  const [w, h] = [width / 2, height / 2];
+  const foot = (width / 2) * base;
   const corners: [number, number][] =
     base >= 1
       ? [
@@ -134,43 +139,116 @@ function plenumSection(width: number, height: number, base: number, round: numbe
           [foot, -h],
           [w, -h * 0.3],
         ];
-  const shape = new THREE.Shape();
+  const points: THREE.Vector2[] = [];
+  const first: number[] = [];
+  const last: number[] = [];
   corners.forEach(([x, y], i) => {
     const [px, py] = corners[(i + corners.length - 1) % corners.length]!;
     const [nx, ny] = corners[(i + 1) % corners.length]!;
-    const a = new THREE.Vector2(x, y).addScaledVector(new THREE.Vector2(x - px, y - py).normalize(), -round);
-    const b = new THREE.Vector2(x, y).addScaledVector(new THREE.Vector2(nx - x, ny - y).normalize(), round);
-    if (i === 0) shape.moveTo(a.x, a.y);
-    else shape.lineTo(a.x, a.y);
-    shape.quadraticCurveTo(x, y, b.x, b.y);
+    const c = new THREE.Vector2(x, y);
+    const a = c.clone().addScaledVector(new THREE.Vector2(x - px, y - py).normalize(), -round);
+    const b = c.clone().addScaledVector(new THREE.Vector2(nx - x, ny - y).normalize(), round);
+    first.push(points.length);
+    for (let k = 0; k <= 8; k++) {
+      const t = k / 8;
+      points.push(
+        a.clone().multiplyScalar((1 - t) * (1 - t)).addScaledVector(c, 2 * (1 - t) * t).addScaledVector(b, t * t),
+      );
+    }
+    last.push(points.length - 1);
   });
-  shape.closePath();
-  return shape;
+  // The right side runs up from the last corner to the first; the left down from the second to the third.
+  return { points, sides: { 1: [last[corners.length - 1]!, first[0]!], [-1]: [first[2]!, last[1]!] } };
+}
+
+/** A runner's opening in the plenum's side: which side, and where along and up it, in the plenum's frame. */
+interface Opening {
+  side: 1 | -1;
+  y: number;
+  z: number;
+  radius: number;
 }
 
 /**
  * The plenum as a hollow casting, centred on the origin, `size` along x, y and z: a shell `PLENUM_WALL`
  * thick round its section, run along z, closed at the back, and at the front by a plate with the throttle
- * body's bore, `bore` across, through it at the section's middle. Its rounded edges shade smoothly, as a
- * pipe's curve does, and its square ones stay sharp.
+ * body's bore, `bore` across, through it at the section's middle. Where runners leave it, the upright side
+ * they leave by is a plate of its own, inside and out, with an opening for each, so the runners can be seen
+ * into from inside. Its rounded edges shade smoothly, as a pipe's curve does, and its square ones stay sharp.
  */
-function plenumGeometry(size: THREE.Vector3, base: number, bore: number): THREE.BufferGeometry {
-  const outer = () => plenumSection(size.x, size.y, base, PLENUM_ROUNDING);
-  const sleeve = outer();
-  sleeve.holes.push(
-    plenumSection(size.x - 2 * PLENUM_WALL, size.y - 2 * PLENUM_WALL, base, Math.max(PLENUM_ROUNDING - PLENUM_WALL, 0.002)),
+function plenumGeometry(size: THREE.Vector3, base: number, bore: number, openings: Opening[]): THREE.BufferGeometry {
+  const outer = plenumSection(size.x, size.y, base, PLENUM_ROUNDING);
+  const inner = plenumSection(
+    size.x - 2 * PLENUM_WALL,
+    size.y - 2 * PLENUM_WALL,
+    base,
+    Math.max(PLENUM_ROUNDING - PLENUM_WALL, 0.002),
   );
-  const body = new THREE.ExtrudeGeometry(sleeve, { depth: size.z, bevelEnabled: false, curveSegments: 8 });
-  body.translate(0, 0, -size.z / 2);
-  const back = new THREE.ShapeGeometry(outer(), 8).toNonIndexed();
+  const n = outer.points.length;
+  const open = ([1, -1] as const).filter((side) => openings.some((o) => o.side === side));
+  const parts: THREE.BufferGeometry[] = [];
+  const extrude = (shape: THREE.Shape) => {
+    const g = new THREE.ExtrudeGeometry(shape, { depth: size.z, bevelEnabled: false, curveSegments: 1 });
+    g.translate(0, 0, -size.z / 2);
+    parts.push(g.toNonIndexed());
+  };
+
+  // The shell round the section: whole, or in pieces between the sides runners leave by.
+  if (open.length === 0) {
+    const shell = new THREE.Shape(outer.points);
+    shell.holes.push(new THREE.Path(inner.points));
+    extrude(shell);
+  } else {
+    // Each piece runs anticlockwise from the top of one open side to the bottom of the next.
+    const ends = open.map((side) => outer.sides[side]);
+    ends.sort((p, q) => p[1] - q[1]);
+    ends.forEach(([, from], k) => {
+      const to = ends[(k + 1) % ends.length]![0];
+      const run: number[] = [];
+      for (let i = from; ; i = (i + 1) % n) {
+        run.push(i);
+        if (i === to) break;
+      }
+      extrude(new THREE.Shape([...run.map((i) => outer.points[i]!), ...[...run].reverse().map((i) => inner.points[i]!)]));
+    });
+    // Each open side, out and in: a plate across its upright edge with each runner's opening through it.
+    for (const side of open) {
+      for (const section of [outer, inner]) {
+        const [below, above] = section.sides[side].map((i) => section.points[i]!);
+        const plate = new THREE.Shape([
+          new THREE.Vector2(-size.z / 2, below!.y),
+          new THREE.Vector2(size.z / 2, below!.y),
+          new THREE.Vector2(size.z / 2, above!.y),
+          new THREE.Vector2(-size.z / 2, above!.y),
+        ]);
+        for (const o of openings.filter((o) => o.side === side)) {
+          const hole = new THREE.Path();
+          hole.absarc(o.z, o.y, o.radius, 0, Math.PI * 2, true);
+          plate.holes.push(hole);
+        }
+        // Drawn in its own plane, along z and up y, then stood on the side.
+        const g = new THREE.ShapeGeometry(plate, 24).toNonIndexed();
+        g.applyMatrix4(
+          new THREE.Matrix4()
+            .makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0))
+            .setPosition(below!.x, 0, 0),
+        );
+        parts.push(g);
+      }
+    }
+  }
+
+  const back = new THREE.ShapeGeometry(new THREE.Shape(outer.points), 8).toNonIndexed();
   back.translate(0, 0, size.z / 2);
-  const plate = outer();
+  parts.push(back);
+  const plate = new THREE.Shape(outer.points);
   const hole = new THREE.Path();
   hole.absarc(0, 0, bore / 2, 0, Math.PI * 2, true);
   plate.holes.push(hole);
   const front = new THREE.ShapeGeometry(plate, 24).toNonIndexed();
   front.translate(0, 0, -size.z / 2);
-  return toCreasedNormals(mergeGeometries([body.toNonIndexed(), back, front]), Math.PI / 5);
+  parts.push(front);
+  return toCreasedNormals(mergeGeometries(parts), Math.PI / 5);
 }
 
 /** A band round a tube at `u` along `curve`: a hose clamp. */
@@ -341,7 +419,16 @@ export class InletMesh {
   /** The plenum, its runners and the throttle body. */
   private buildEngineSide(l: InletLayout): void {
     const { centre, size } = l.plenum;
-    const plenum = new THREE.Mesh(colourable(plenumGeometry(size, l.plenum.base, l.throttle.bore)), this.pipeMetal);
+    const openings: Opening[] = l.runners.map((r) => ({
+      side: r.from.x >= centre.x ? 1 : -1,
+      y: r.from.y - centre.y,
+      z: r.from.z - centre.z,
+      radius: r.radius,
+    }));
+    const plenum = new THREE.Mesh(
+      colourable(plenumGeometry(size, l.plenum.base, l.throttle.bore, openings)),
+      this.pipeMetal,
+    );
     plenum.position.copy(centre);
     this.group.add(plenum);
     // The boss on its front face the throttle body bolts to, cast with it, standing a little proud.
