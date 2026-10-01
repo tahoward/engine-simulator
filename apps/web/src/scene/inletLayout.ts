@@ -88,8 +88,8 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   const intakeSide = vee ? 1 : -exhaustSide;
 
   // The plenum: across the valley of a V or a boxer, or along the intake side of an inline head. Its
-  // footprint holds the plenum's volume at its height, within what the engine leaves room for.
-  // Its front face takes the throttle body, wall and all, inside its rounded edges.
+  // footprint holds the plenum's volume at its height, within what the engine leaves room for, and its
+  // front face takes the throttle body, wall and all, inside its rounded edges.
   const bore = throttleDiaOf(spec);
   const face = bore + 2 * THROTTLE_WALL + 2 * PLENUM_ROUNDING + 0.01;
   const length = shell.length * 0.85;
@@ -108,7 +108,8 @@ export function inletLayout(spec: EngineSpec): InletLayout {
       for (let b = 0; b < spec.cylinders; b++) {
         const port = intakePortOf(spec, b);
         const out = Math.sign(port.position.x) || 1;
-        const from = new THREE.Vector3((out * width) / 2 - out * 0.01, centre.y - height * 0.1, port.position.z);
+        // From well inside the plenum, so it passes clean through the wall, tapered or not.
+        const from = new THREE.Vector3((out * width) / 4, centre.y, port.position.z);
         const reach = from.distanceTo(port.position) * 0.45;
         runners.push({
           from,
@@ -121,17 +122,16 @@ export function inletLayout(spec: EngineSpec): InletLayout {
     }
   } else {
     const x = intakeSide * (shell.width / 2 + 0.08 + width / 2);
-    centre = new THREE.Vector3(x, shell.top * 0.7, 0);
+    centre = new THREE.Vector3(x, shell.top * 0.62, 0);
+    // Straight and level out of the plenum's side into each port, as an inline engine's short runners run:
+    // each from the plenum's middle, so it passes clean through the wall wherever it meets it.
+    const portY = shell.top * 0.62;
     for (let b = 0; b < spec.cylinders; b++) {
       const z = cylinderZ(spec, b);
-      const out = -intakeSide;
-      runners.push({
-        from: new THREE.Vector3(x - intakeSide * (width / 2), centre.y + height * 0.15, z),
-        to: new THREE.Vector3(intakeSide * shell.width * 0.45, shell.top * 0.62, z),
-        leaving: new THREE.Vector3(out * 0.05, 0.04, 0),
-        arriving: new THREE.Vector3(out * 0.05, -0.03, 0),
-        radius,
-      });
+      const from = new THREE.Vector3(x, portY, z);
+      const to = new THREE.Vector3(intakeSide * shell.width * 0.45, portY, z);
+      const third = to.clone().sub(from).divideScalar(3);
+      runners.push({ from, to, leaving: third, arriving: third, radius });
     }
   }
   const plenum = { centre, size: new THREE.Vector3(width, height, length), base: vee ? 0.55 : 1 };
@@ -157,9 +157,10 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   const side = run;
   const across = new THREE.Vector3(run, 0, 0);
   const heads = shell.top * Math.cos(shell.straddle);
-  const boxY = Math.max(centre.y + plenum.size.y / 2, heads) + boxHeight / 2 + 0.03;
+  const boxY = Math.max(centre.y + height / 2, heads) + boxHeight / 2 + 0.03;
   const boxZ = front + depth / 2;
-  const inletX = vee ? -chamber.length / 2 : centre.x - run * 0.02;
+  // On a V it starts just short of the throttle body, so the tube stays short however big the airbox.
+  const inletX = vee ? -Math.min(chamber.length / 2, 0.06) : centre.x - run * 0.02;
   const inlet = new THREE.Vector3(inletX, boxY, boxZ);
   const airbox = {
     centre: inlet.clone().addScaledVector(across, chamber.length / 2),
