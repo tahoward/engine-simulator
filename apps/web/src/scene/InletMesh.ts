@@ -111,8 +111,8 @@ function sweep(curve: THREE.Curve<THREE.Vector3>, size: (u: number) => [number, 
  * The plenum's section, centred on the origin, `width` by `height`, as points round it anticlockwise:
  * square-shouldered down past the throttle body's centre, then narrowing to `base` of its width at the
  * bottom, its corners rounded by `round`. A `base` of 1 is a rounded rectangle. `sides` gives, for its
- * right (+x) and left (-x) sides, the two points its straight upright edge runs between, the first below
- * the second.
+ * right (+x) and left (-x) sides, the two points its straight upright edge runs between, in the order the
+ * points go round: up the right side, down the left.
  */
 function plenumSection(
   width: number,
@@ -158,7 +158,7 @@ function plenumSection(
     last.push(points.length - 1);
   });
   // The right side runs up from the last corner to the first; the left down from the second to the third.
-  return { points, sides: { 1: [last[corners.length - 1]!, first[0]!], [-1]: [first[2]!, last[1]!] } };
+  return { points, sides: { 1: [last[corners.length - 1]!, first[0]!], [-1]: [last[1]!, first[2]!] } };
 }
 
 /** A runner's opening in the plenum's side: which side, and where along and up it, in the plenum's frame. */
@@ -199,9 +199,9 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
     shell.holes.push(new THREE.Path(inner.points));
     extrude(shell);
   } else {
-    // Each piece runs anticlockwise from the top of one open side to the bottom of the next.
+    // Each piece runs anticlockwise from where the outline leaves one open side to where it reaches the next.
     const ends = open.map((side) => outer.sides[side]);
-    ends.sort((p, q) => p[1] - q[1]);
+    ends.sort((p, q) => p[0] - q[0]);
     ends.forEach(([, from], k) => {
       const to = ends[(k + 1) % ends.length]![0];
       const run: number[] = [];
@@ -214,12 +214,13 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
     // Each open side, out and in: a plate across its upright edge with each runner's opening through it.
     for (const side of open) {
       for (const section of [outer, inner]) {
-        const [below, above] = section.sides[side].map((i) => section.points[i]!);
+        const [p, q] = section.sides[side].map((i) => section.points[i]!);
+        const [low, high] = [Math.min(p!.y, q!.y), Math.max(p!.y, q!.y)];
         const plate = new THREE.Shape([
-          new THREE.Vector2(-size.z / 2, below!.y),
-          new THREE.Vector2(size.z / 2, below!.y),
-          new THREE.Vector2(size.z / 2, above!.y),
-          new THREE.Vector2(-size.z / 2, above!.y),
+          new THREE.Vector2(-size.z / 2, low),
+          new THREE.Vector2(size.z / 2, low),
+          new THREE.Vector2(size.z / 2, high),
+          new THREE.Vector2(-size.z / 2, high),
         ]);
         for (const o of openings.filter((o) => o.side === side)) {
           const hole = new THREE.Path();
@@ -231,7 +232,7 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
         g.applyMatrix4(
           new THREE.Matrix4()
             .makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0))
-            .setPosition(below!.x, 0, 0),
+            .setPosition(p!.x, 0, 0),
         );
         parts.push(g);
       }
