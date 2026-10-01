@@ -7,11 +7,12 @@
  * bore.
  */
 
-import { type EngineSpec, displacement } from './spec.js';
+import { type EngineSpec, type PipeSegment, displacement, makeSegment } from './spec.js';
 
 const PLENUM_VOLUME_RATIO = 1.5;
 const AIRBOX_VOLUME_RATIO = 4;
 const SNORKEL_BORE_RATIO = 1.1;
+const THROTTLE_DUCT_LENGTH = 0.45;
 const THROTTLE_DESIGN_VELOCITY = 25;
 const THROTTLE_DESIGN_RPM = 7000;
 
@@ -42,4 +43,21 @@ export function airboxVolumeOf(spec: EngineSpec): number {
 export function snorkelDiaOf(spec: EngineSpec): number {
   if (spec.snorkelDia > 0) return spec.snorkelDia;
   return SNORKEL_BORE_RATIO * throttleDiaOf(spec);
+}
+
+/**
+ * The inlet tract from the throttle out to the snorkel's mouth, as the simulation builds it (`inlet_segments`
+ * in `inlet.rs`): a duct at the throttle's bore, the airbox, a round can about as long as it is wide, and the
+ * snorkel.
+ */
+export function inletSegments(spec: EngineSpec): PipeSegment[] {
+  const throttle = throttleDiaOf(spec);
+  const volume = airboxVolumeOf(spec);
+  const length = Math.min(Math.max(Math.cbrt(volume) * 1.5, 0.15), 0.6);
+  const body = Math.max(Math.sqrt((4 * volume) / (Math.PI * length)), throttle * 1.5);
+  return [
+    makeSegment({ kind: 'pipe', length: THROTTLE_DUCT_LENGTH, dIn: throttle, dOut: throttle }),
+    makeSegment({ kind: 'chamber', length, dIn: throttle, dOut: body }),
+    makeSegment({ kind: 'pipe', length: Math.max(spec.snorkelLength, 0.02), dIn: snorkelDiaOf(spec), dOut: snorkelDiaOf(spec) }),
+  ];
 }

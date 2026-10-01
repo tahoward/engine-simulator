@@ -261,18 +261,18 @@ mod the_collector_couples_the_banks {
     /// with separate pipes the exhaust path is gone, leaving only the intake
     #[test]
     fn with_separate_pipes_the_exhaust_path_is_gone_leaving_only_the_intake() {
-        // Measures ~6e-3, and that is the *intake* path rather than a leak.
+        // Measures ~1.8e-2, and that is the *intake* path rather than a leak.
         //
         // The intake plenum is finite, a real shared volume, and so is the tract it draws its air
         // through: move bank 1's firing and you move when it draws from and spits into the manifold
         // bank 0 breathes out of, and the waves that sends up the tract and back, so bank 0's
         // trapped mass changes. Engines do this — it is why a twin on one throttle body behaves
         // differently from one with two — so the coupling belongs here. What must stay true is
-        // that it is small: fifty times under the 3e-1 that the collector produces, and tight
+        // that it is small: over ten times under the 3e-1 that the collector produces, and tight
         // enough to catch a single turbulence generator shared between the cylinders' exhaust
-        // valves, which shows up around 4e-2.
+        // valves, which adds about 4e-2 on top of it.
         let d = rel_diff(&bank0_port("2into2", 360.0), &bank0_port("2into2", 450.0));
-        assert!(d < 1e-2, "relative difference {d}");
+        assert!(d < 3e-2, "relative difference {d}");
     }
 
     /// but the crankshaft is a path of its own

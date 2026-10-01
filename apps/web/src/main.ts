@@ -41,6 +41,7 @@ import {
 } from './scene/headerTool.js';
 import { applyXPipe } from './scene/xpipeTool.js';
 import { seatGraph, soundSources } from './scene/soundSources.js';
+import { InletMesh } from './scene/InletMesh.js';
 import {
   matchLength,
   moveJunction,
@@ -72,6 +73,7 @@ import {
   placeLoosePipe,
   removeDuct,
   reversedDucts,
+  solverGraph,
   siblingRunners,
   type DuctDirections,
   type ExhaustGraph,
@@ -126,6 +128,20 @@ const engineMesh = new EngineMesh(config.engine);
 const pipeMeshes: PipeMesh[] = [];
 /** The pressure scale every duct is coloured on. */
 const pipeScale = new PressureScale();
+/** The intake: the plenum, the throttle body, and the tract to the snorkel's mouth. Not editable in the view. */
+const inletMesh = new InletMesh();
+viewer.scene.add(inletMesh.group);
+
+/**
+ * Draw the inlet tract as the simulation builds it, on an engine without a turbo: one with a turbo draws
+ * through its compressors instead, and has none.
+ */
+function rebuildInlet(): void {
+  const solved = solverGraph(config.graph!);
+  const fedTurbo = (solved.turbos ?? []).some((t) => solved.ducts.some((d) => d.to.kind === 'node' && d.to.node === t.node));
+  inletMesh.rebuild(config.engine);
+  inletMesh.setTractVisible(!fedTurbo);
+}
 /**
  * Which duct the drag handles are attached to.
  *
@@ -426,6 +442,7 @@ const panel = new Panel(panelEl, toolsEl, config, {
       panel.rebuildPipeList();
     }
     if (touchesGeometry(partial)) rebuildPipeGeometry();
+    rebuildInlet();
     saveConfig();
   },
   onPipe: () => {
@@ -744,6 +761,7 @@ function rebuildPipeGeometry(): void {
   const placement = layoutGraph(ports, graph, turboPorts);
   if (!editor.dragging) stablePlacement = placement;
   sendSources(soundSources(graph, placement, config.engine));
+  rebuildInlet();
 
   graph.ducts.forEach((duct, i) => {
     const place = placement.ducts.get(duct.id);
@@ -830,6 +848,7 @@ function sceneBounds(): THREE.Box3 {
   const box = new THREE.Box3();
   for (const m of pipeMeshes) box.union(m.boundingBox());
   for (const m of jointMeshes) box.union(m.boundingBox());
+  box.union(inletMesh.boundingBox());
   box.expandByPoint(new THREE.Vector3(0, -0.12, 0));
   box.expandByPoint(new THREE.Vector3(0, engineMesh.exhaustPort(0).position.y + 0.1, 0));
   return box;
@@ -839,6 +858,7 @@ function applyView(v: ViewOptions): void {
   for (const m of pipeMeshes) {
     m.setPressureVisible(v.pressure);
   }
+  inletMesh.setPressureVisible(v.pressure);
   editor.setHandlesVisible(v.handles);
   timeScale = v.speed;
   audio.setTimeScale(v.speed);
@@ -879,6 +899,7 @@ audio.onSnapshot((s) => {
     if (i >= 0) pipeMeshes[i]?.update(reversed.has(id) ? cells.slice().reverse() : cells, scale);
     at += n;
   });
+  inletMesh.paint(s.inletPressure, scale);
   launchSheet.onSnapshot(s.launch);
   panel.updateReadouts(s);
   hudEl.textContent =
@@ -918,6 +939,7 @@ viewer.onFrame(() => {
 });
 
 viewer.onFrame((dt) => {
+  inletMesh.setThrottle(config.engine.throttle);
   if (displayRpm > 0) displayAngle = (displayAngle + displayRpm * 6 * dt * timeScale) % 720;
   // Combustion glow: a short flash after the burn begins.
   if (latest) {

@@ -1543,6 +1543,18 @@ impl EngineSim {
         out
     }
 
+    /// Gauge pressure along the inlet tract, Pa, throttle first. The throttle's own cell shows the swing
+    /// the throttle draws from, not the depth the solver draws that cell down to (see `inlet`).
+    fn inlet_pressures(&self) -> Vec<f32> {
+        let Some(inlet) = self.inlet() else { return Vec::new() };
+        let mut out = Vec::with_capacity(inlet.pipe.n);
+        inlet.pipe.push_cell_pressures(&mut out);
+        if let Some(first) = out.first_mut() {
+            *first = (inlet.upstream_pressure() - gas::P_AMB) as f32;
+        }
+        out
+    }
+
     /// A snapshot for the renderer. Resets the peak meter.
     pub fn snapshot(&mut self) -> EngineSnapshot {
         self.wg.sample_pressure(&mut self.tap_buffer);
@@ -1606,6 +1618,7 @@ impl EngineSim {
             duct_pressure: self.duct_pressure.clone(),
             duct_cells: self.duct_cells.clone(),
             duct_ids: self.wg.duct_ids.clone(),
+            inlet_pressure: self.inlet_pressures(),
             peak: self.peak,
             pipe_cells: (self.wg.cells() + self.intake().cells()) as f64,
             substeps: self.substeps as f64,
