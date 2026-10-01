@@ -595,10 +595,17 @@ impl EngineSim {
     /// speed it closes, so the throttle alone sets the speed; below it, it opens further against a load,
     /// up to its limit, past which the engine stalls. Only for a free-running engine with the ignition on:
     /// one held at a speed has no use for it. `throttle` is the plate's opening this sample.
+    ///
+    /// With the ignition off it stays where it was, as a stepper motor, or a drive-by-wire throttle's own
+    /// motor, does when its power goes: air goes on leaking into the plenum through it, and the manifold's
+    /// vacuum bleeds away as the engine coasts to rest, rather than through the plate's clearance alone.
     fn update_idle_valve(&mut self, dt: f64, throttle: f64) {
         let spec = &self.spec.spec;
-        if !(spec.free_running && self.ignition && spec.idle_rpm > 0.0) {
+        if !(spec.free_running && spec.idle_rpm > 0.0) {
             self.plenum.set_bypass(spec, 0.0);
+            return;
+        }
+        if !self.ignition {
             return;
         }
         let rpm = (self.omega_display * 60.0) / (2.0 * PI);

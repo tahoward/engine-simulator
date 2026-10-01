@@ -165,6 +165,8 @@ matters.
   still read a ring seen edge on. Its axes must turn with the part, a pipe segment's x running along it
   with its y as near up as it can be. A snapped turn must land on 15-degree steps from the engine's axes,
   squaring up a part set at an odd angle, and a snapped move on 5 mm steps.
+- **Switching off.** Idling with the throttle shut, the F20C's manifold must be more than 50 kPa below
+  the atmosphere, and switched off, back within 1.5 kPa of it less than 2.5 s after the crank stops.
 - **The inlet tract.** On the F20C at 6000 rpm, the snorkel must draw between 0.8 and 1.2 litres a
   revolution, and the flow out of its mouth must stand at least 10 dB higher at the firing frequency
   than in the band above it. A longer snorkel must ring the tract at least 15% lower. The noise of the

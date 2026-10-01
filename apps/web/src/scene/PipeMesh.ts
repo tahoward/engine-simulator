@@ -613,8 +613,11 @@ export class PressureScale {
     this.scale = start;
   }
 
-  /** Take a snapshot's pressures, Pa, and return the scale to colour them on. */
-  track(pressure: Float32Array): number {
+  /**
+   * Take a snapshot's pressures, Pa, and return the scale to colour them on. With `hold`, it only rises, so
+   * a pressure dying away fades on it rather than being followed down.
+   */
+  track(pressure: Float32Array, hold = false): number {
     let peak = 0;
     for (const v of pressure) {
       const a = Math.abs(v);
@@ -622,7 +625,8 @@ export class PressureScale {
     }
     // Rise fast, fall slowly, with a floor so an idling muffled engine still shows
     // something rather than amplifying numerical dust into a light show.
-    this.scale = peak > this.scale ? peak : Math.max(this.floor, this.scale * 0.985 + peak * 0.015);
+    if (hold) this.scale = Math.max(this.scale, peak);
+    else this.scale = peak > this.scale ? peak : Math.max(this.floor, this.scale * 0.985 + peak * 0.015);
     return this.scale;
   }
 }

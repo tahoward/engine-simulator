@@ -110,6 +110,12 @@ full-throttle torque rises and falls by 5-8% every 1500 rpm or so as the runner'
 in and out of step with the cycle. The exhaust's damping is fitted to hot gas in steel pipes and is
 two and a half times the runners'.
 
+**Switched off, the vacuum bleeds away.** With the throttle shut, an idle air valve round the plate
+holds the idle speed. When the ignition goes off it stays where it was, as a stepper motor or a
+drive-by-wire throttle's own motor does without power, so air goes on leaking into the plenum through
+it while the engine coasts to rest. On the F20C, the manifold is back within 1.5 kPa of the atmosphere
+about two seconds after the crank stops, where through the plate's clearance alone it would take ten.
+
 **The air comes in through an airbox.** Without a turbo, the throttle draws from an inlet tract: a
 snorkel open to the air and an airbox, solved like the exhaust. The runners' pulses reach the air
 through it, as the intake's note, and the jet past the throttle plate hisses through it. See
