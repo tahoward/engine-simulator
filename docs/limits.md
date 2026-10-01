@@ -60,8 +60,12 @@ Where the model is simplified, and by how much.
   about a hundred times larger, so it stays suppressed. It is not zero.
 - **Engine body noise is simplified.** It uses four lumped modes, not a vibration model of a
   real casting, radiating equally every way from the engine's middle.
-- **The inlet tract is a fixed shape.** It is a straight snorkel, a round airbox and a duct at the
-  throttle's bore, sized by **Airbox volume**, **Snorkel length** and **Snorkel bore**, not drawn. Its
+- **The inlet tract is a fixed shape.** It is a snorkel, an airbox and a tube at the throttle's bore,
+  sized by **Airbox volume**, **Snorkel length** and **Snorkel bore**. The view draws it routed the same
+  way on every engine, to an airbox across the front, and it cannot be moved or edited there. The
+  solver's airbox is round, the drawn one a box of the same volume. The plenum and runners are drawn
+  where an engine of that layout has them, sized from the plenum's volume and the runners' bore, not
+  from any real manifold. Its
   mean flow loss is left out rather than solved (see [Acoustics](acoustics.md#the-intakes-sound)), and so
   is a filter element's. The solver resolves it only up to about 2 kHz on 35 mm cells, so the throttle's
   hiss stops there, where a real one goes on up.

@@ -169,7 +169,9 @@ matters.
   revolution, and the flow out of its mouth must stand at least 10 dB higher at the firing frequency
   than in the band above it. A longer snorkel must ring the tract at least 15% lower. The noise of the
   jet past the throttle must be centred at least 1.5 times higher at 5% throttle than wide open. A
-  turbocharged engine must have no tract.
+  turbocharged engine must have no tract. On every preset, the intake must be heard from the mouth of
+  the tract the view draws, in front of the engine, and the Wasm build's snapshot must carry one
+  pressure for each of the tract's cells, and none on a turbocharged engine.
 - **Where the sound comes from.** On every preset, the app must place every mouth the solver radiates
   from, by its duct, with the intake and casing; the default single's tailpipe must be at the end of
   its megaphone, out to the side, and the LT6's two within 0.25 m of each other in the middle. Through

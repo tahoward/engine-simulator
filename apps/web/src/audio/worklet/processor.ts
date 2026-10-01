@@ -127,6 +127,7 @@ class EngineProcessor extends AudioWorkletProcessor {
       this.port.postMessage(msg, [
         snapshot.pipePressure.buffer as ArrayBuffer,
         snapshot.ductPressure.buffer as ArrayBuffer,
+        snapshot.inletPressure.buffer as ArrayBuffer,
       ]);
     }
 

@@ -688,6 +688,11 @@ export interface EngineSnapshot {
    * loose pipes and adds a turbo's exit, so the ids say which pipe is which.
    */
   ductIds: string[];
+  /**
+   * Gauge pressure in every cell of the inlet tract, Pa, from the throttle out to the snorkel's mouth.
+   * Empty on an engine with a turbo, which has none.
+   */
+  inletPressure: Float32Array;
   /** Peak output sample magnitude since the last snapshot, for a level meter. */
   peak: number;
   /**

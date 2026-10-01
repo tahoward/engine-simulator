@@ -630,7 +630,7 @@ export class PressureScale {
  * The ramp runs on the square root of the pressure, so a wave a tenth the size of the peak still
  * shows a third of the way to full colour, and it is laid out in sRGB, where equal steps look equal.
  */
-function pressureColor(t: number, out: THREE.Color): void {
+export function pressureColor(t: number, out: THREE.Color): void {
   const c = Math.max(-1, Math.min(1, t));
   const m = Math.sqrt(Math.abs(c));
   const stops = c >= 0 ? HOT : COLD;

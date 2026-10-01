@@ -8,10 +8,11 @@ import * as THREE from 'three';
 
 import { compileExhaust, reversedDucts, solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
 import { engineShell, exhaustPortOf, type Vec3 } from '../model/geometry.js';
-import { physicalBankCount, type EngineConfig, type EngineSpec, type SoundSources } from '../model/spec.js';
+import { type EngineConfig, type EngineSpec, type SoundSources } from '../model/spec.js';
 import { turboPortsOf } from '../model/turbo.js';
 import { seatEngineTurbos } from './engineTurbos.js';
 import { layoutGraph, type ExhaustPlacement, type ExhaustPort } from './exhaustLayout.js';
+import { inletLayout } from './inletLayout.js';
 import { seatLengthwaysHeaders } from './headerTool.js';
 import { layoutPipe } from './PipeMesh.js';
 import { refitBends, seatHeaders, seatManifolds, seatTurbos } from './turboPlacement.js';
@@ -67,11 +68,7 @@ export function soundSources(graph: ExhaustGraph, placement: ExhaustPlacement, s
 
   const shell = engineShell(spec);
   const casing: Vec3 = [0, (shell.top + shell.bottom) / 2, 0];
-  // The snorkel's mouth, which the inlet tract is not drawn to place: above the front of the engine, in the
-  // valley of a V, and on the other side of an inline engine's head from its exhaust.
-  const exhaustSide = Math.sign(exhaustPortOf(spec, 0).direction[0]) || 1;
-  const intakeX = physicalBankCount(spec) > 1 ? 0 : -exhaustSide * shell.width * 0.6;
-  const intake: Vec3 = [intakeX, shell.top, -shell.length / 2 - 0.1];
+  const intake = vec3(inletLayout(spec).mouth);
 
   const placed = (graph.turbos ?? []).flatMap((t) => (t.position ? [t.position] : []));
   const turbo: Vec3 | undefined =

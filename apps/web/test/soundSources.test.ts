@@ -4,6 +4,8 @@ import { presetConfig } from '../bench/presetConfig.js';
 import { Sim } from '../src/audio/worklet/sim.js';
 import { solverGraph, compileExhaust } from '../src/model/exhaustGraph.js';
 import { ENGINE_PRESETS, defaultConfig } from '../src/model/spec.js';
+import { inletSegments } from '../src/model/intakeSizing.js';
+import { inletLayout } from '../src/scene/inletLayout.js';
 import { configSources } from '../src/scene/soundSources.js';
 
 describe('where the engine makes its sound', () => {
@@ -48,5 +50,36 @@ describe('where the engine makes its sound', () => {
     };
     expect(rms(1) / rms(2)).toBeGreaterThan(1.85);
     expect(rms(1) / rms(2)).toBeLessThan(2.15);
+  });
+});
+
+describe('the inlet tract as drawn', () => {
+  it('runs forwards from the engine, as long as the solver’s tract, and the intake is heard from its mouth', () => {
+    for (const preset of ENGINE_PRESETS) {
+      const cfg = presetConfig(preset);
+      const at = inletLayout(cfg.engine);
+      const { intake } = configSources(cfg);
+      expect(intake, preset.name).toEqual([at.mouth.x, at.mouth.y, at.mouth.z]);
+      expect(at.tube.getLength(), preset.name).toBeCloseTo(at.segments[0]!.length, 2);
+      expect(at.snorkel.getLength(), preset.name).toBeCloseTo(at.segments[2]!.length, 2);
+      // In front of the engine, its mouth further forward than the airbox.
+      expect(at.airbox.centre.z, preset.name).toBeLessThan(at.throttle.centre.z);
+      expect(at.mouth.z, preset.name).toBeLessThan(at.airbox.centre.z);
+    }
+  });
+
+  it('is the tract the simulation solves, and a turbocharged engine has none', () => {
+    const snapshot = (name: string) => {
+      const cfg = presetConfig(ENGINE_PRESETS.find((p) => p.name.includes(name))!);
+      const sim = new Sim(48000, cfg);
+      sim.renderInto(new Float32Array(4800));
+      return { cfg, snap: sim.snapshot() };
+    };
+    const { cfg, snap } = snapshot('F20C');
+    const length = inletSegments(cfg.engine).reduce((sum, s) => sum + s.length, 0);
+    // One value a cell, the solver's cells a little under its 35 mm cell size.
+    expect(snap.inletPressure.length).toBeGreaterThan(length / 0.04);
+    expect(snap.inletPressure.length).toBeLessThan(length / 0.03 + 2);
+    expect(snapshot('RB26').snap.inletPressure.length).toBe(0);
   });
 });

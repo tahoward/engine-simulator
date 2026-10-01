@@ -43,9 +43,10 @@ interface StreamInfo {
 }
 
 /** The snapshot as the simulation serialises it, before its sample arrays become typed arrays. */
-type RawSnapshot = Omit<EngineSnapshot, 'pipePressure' | 'ductPressure' | 'launch'> & {
+type RawSnapshot = Omit<EngineSnapshot, 'pipePressure' | 'ductPressure' | 'inletPressure' | 'launch'> & {
   pipePressure: number[];
   ductPressure: number[];
+  inletPressure: number[];
   launch: (Omit<NonNullable<EngineSnapshot['launch']>, 'points'> & { points: number[] }) | null;
 };
 
@@ -242,6 +243,7 @@ export class NativeEngine implements EngineHost {
       ...raw,
       pipePressure: Float32Array.from(raw.pipePressure),
       ductPressure: Float32Array.from(raw.ductPressure),
+      inletPressure: Float32Array.from(raw.inletPressure),
       launch: raw.launch && { ...raw.launch, points: Float32Array.from(raw.launch.points) },
     };
     const waveAt = 8 + jsonLength + ((4 - (jsonLength % 4)) % 4);

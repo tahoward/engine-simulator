@@ -408,6 +408,9 @@ pub struct EngineSnapshot {
     pub duct_cells: Vec<u32>,
     /// Each duct's id, in the same order.
     pub duct_ids: Vec<String>,
+    /// Gauge pressure in every cell of the inlet tract, Pa, from the throttle out to the snorkel's mouth:
+    /// the throttle's as it sees it. Empty on an engine with a turbo.
+    pub inlet_pressure: Vec<f32>,
     pub peak: f64,
     pub pipe_cells: f64,
     pub substeps: f64,
