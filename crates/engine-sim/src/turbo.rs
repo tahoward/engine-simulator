@@ -3,34 +3,51 @@
 //! that vents it when the throttle shuts. And the sounds all of that makes.
 //!
 //! ```text
-//!   exhaust junction -> turbine (in the gas dynamics) --- shaft --- compressor <- inlet (radiates)
+//!   exhaust junction -> turbine (in the gas dynamics) --- shaft --- compressor <- inlet duct (inertia, radiates)
 //!                          |                                             |
-//!                      wastegate                            compressor duct (inertia)
-//!                                                                        |
-//!   plenum <- throttle <------------- charge air (intercooler) <---------+---> blow-off valve
+//!                      wastegate                                         | charge pipe (gas dynamics)
+//!                                                                        v
+//!   plenum <- throttle <- throttle body <- cold pipe <- intercooler <- hot pipe
+//!                              |
+//!                        blow-off valve
 //! ```
 //!
 //! The turbine is solved in the exhaust, at a junction, by `ExhaustSystem`: this sets its flow
-//! constants from the wastegate each sample, and is driven by the power it reports. Everything else is
-//! lumped, one state per part, stepped once per audio sample. The compressor is a Moore-Greitzer
-//! characteristic with the inertia of the air in its duct, which is what makes it surge when the
-//! throttle shuts on boost with nowhere for the air to go.
+//! constants from the wastegate each sample, and is driven by the power it reports. Each compressor
+//! blows down a charge pipe, through its intercooler, into the throttle body, solved with the same gas
+//! dynamics as the exhaust, so the charge air's pressure waves travel and reflect between the
+//! compressor and the throttle. The shaft, the wastegate, the throttle body and the blow-off valve are
+//! lumped, one state each, stepped once per audio sample.
+//!
+//! The compressor is Moore and Greitzer's model: a cubic characteristic, the inertia of the air in the
+//! duct drawing into it, and the amplitude of a rotating stall, which grows to the left of the surge
+//! line and lowers the pressure the wheel makes. The pressure the wheel makes lags its characteristic
+//! by a few revolutions, as the flow through its blades takes that long to settle. Left of the surge
+//! line, where the pressure falls as the flow falls, the wheel feeds the charge pipe's lowest resonance
+//! rather than damping it: with the throttle shut on boost and nowhere for the air to go, the flow
+//! swings back and forth through the wheel, at a frequency the charge pipe sets. That is a surge.
 //!
 //! What the turbo radiates comes from its flows: the compressor inlet's, carrying the blades' whine
 //! and a stalled wheel's turbulence, and the blow-off valve's, with its jet's noise by Lighthill's law.
 //!
-//! Several turbos all blow into the one charge air, each through its own intercooler, with its own
-//! blow-off valve on it. Each can be set on its own, or left on the engine's settings. Turbos on the same settings are
-//! identical and in parallel, so one lumped shaft stands for them; a turbo set differently has its own
-//! shaft, compressor and wastegate, turned by its own turbine. The sound gives each turbo its own
-//! voice, a little apart in speed as two real ones are.
+//! Several turbos all blow into the one throttle body, each down its own charge pipe and through its
+//! own intercooler, with its own blow-off valve. Each can be set on its own, or left on the engine's
+//! settings. Turbos on the same settings are identical and in parallel, so one lumped shaft and one
+//! charge pipe stand for them; a turbo set differently has its own shaft, compressor, charge pipe and
+//! wastegate, turned by its own turbine. The sound gives each turbo its own voice, a little apart in
+//! speed as two real ones are.
 
 use crate::dsp::{Impact, Noise, Resonator};
+use crate::euler_pipe::{DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, OutletKind, ValveState};
 use crate::exhaust_graph::TurboSettings;
 use crate::exhaust_system::{TurbineResult, TurbineSetting};
+use crate::intake::runner_damping;
 use crate::math::{self, PI, clamp};
 use crate::radiation::FarField;
-use crate::spec::{BlowOff, EngineSpec, displacement, gas, gas_energy, gas_enthalpy, gas_temperature};
+use crate::spec::{
+    BlowOff, EngineSpec, PipeSegment, SegmentKind, SegmentPartial, displacement, gas, gas_energy, gas_enthalpy,
+    gas_temperature, make_segment, speed_of_sound,
+};
 use crate::valve::orifice_mass_flow;
 
 /// Ratio of specific heats and specific heat at constant pressure of the air, J/(kg*K).
@@ -67,14 +84,36 @@ const ETA_FLOOR: f64 = 0.45;
 const CHOKE_CEILING: f64 = 1.1;
 
 /// The compressor's characteristic, `f(phi)` for flow `phi` as a fraction of its choke flow at its
-/// speed: a Moore-Greitzer cubic, `F0 + H (1 + 1.5 y - 0.5 y^3)` with `y = phi / W - 1`. It has its
-/// peak pressure rise, 1, at `phi = 2 W`, the surge line, at 44% of the choke flow as on a typical
-/// map; to the left of that the pressure falls with falling flow, which is what makes the compression
-/// system unstable there. It falls to zero, the choke, at `phi = 1`, and shut off the wheel still
-/// makes 89% of its peak.
+/// speed: a Moore-Greitzer cubic, `F0 + H (1 + 1.5 y (1 - J/2) - 0.5 y^3)` with `y = phi / W - 1` and
+/// `J` the squared amplitude of a rotating stall. Unstalled, it has its peak pressure rise, 1, at
+/// `phi = 2 W`, the surge line, at 44% of the choke flow as on a typical map; to the left of that the
+/// pressure falls with falling flow, which is what makes the compression system unstable there. It
+/// falls to zero, the choke, at `phi = 1`, and shut off the wheel still makes 89% of its peak. Fully
+/// stalled, it makes up to 6% less in between.
 const MG_F0: f64 = 0.889;
 const MG_H: f64 = 0.0556;
 const MG_W: f64 = 0.22;
+
+/// On a real map the surge line bends toward less flow on the lower speed lines, which are flatter and
+/// wider than the top one. Here it is at `2 W` of the choke flow at full speed and above, and falls in
+/// a straight line with the speed to this share of that at no speed: the flow is taken to the power
+/// that puts the surge line at `2 W`, which leaves no flow and the choke where they are.
+const SURGE_LINE_AT_REST: f64 = 0.4;
+
+/// Rotor revolutions the pressure the wheel makes takes to follow its characteristic: the time the
+/// flow through its blades takes to settle. No longer than `COMPRESSOR_LAG_MAX`, s: a wheel turning
+/// slowly has little pressure rise to lag.
+const COMPRESSOR_LAG_REVS: f64 = 2.0;
+const COMPRESSOR_LAG_MAX: f64 = 1e-3;
+
+/// Moore and Greitzer's rotating stall: its squared amplitude `J` grows as
+/// `dJ/dt = J (1 - y^2 - J/4) / tau`, toward `4 (1 - y^2)` between no flow and the surge line, and dies
+/// away outside it. `tau` is this many rotor revolutions, from their growth rate
+/// `3 a H / ((1 + m a) W)` per radian of the rotor with their typical `a = 1/3.5`, `m = 1.75` and
+/// `H / W = 0.72`: from a small disturbance a stall cell is fully grown within a few revolutions. `J`
+/// never falls below `STALL_SEED`, the disturbances there always are for a stall to grow from.
+const STALL_GROWTH_REVS: f64 = 0.4;
+const STALL_SEED: f64 = 1e-3;
 
 /// Peak pressure rise at full speed as a multiple of the boost target: the headroom the wastegate
 /// has to take away.
@@ -129,11 +168,24 @@ const BLOW_OFF_SPAN: f64 = 0.15e5;
 const BLOW_OFF_AREA_RATIO: f64 = 0.8;
 
 /// Charge-air volume, compressor to throttle through the intercooler, as a multiple of total swept
-/// volume.
+/// volume, and the throttle body's share of it, as a multiple of the swept volume too. The rest is
+/// the charge pipes and the intercoolers.
 const CHARGE_VOLUME_RATIO: f64 = 2.0;
-/// Helmholtz frequency of the charge-air volume on the compressor duct, Hz: sets the duct's
-/// inertia, and so how fast a surge cycles.
-const HELMHOLTZ_HZ: f64 = 18.0;
+const THROTTLE_BODY_VOLUME_RATIO: f64 = 0.2;
+/// Each charge pipe: from the compressor to the intercooler, the intercooler's core, and from it to
+/// the throttle body, m. The pipe's bore is this multiple of its inducer's area, and the intercooler
+/// holds what is left of the charge volume, but no less than a pipe as long.
+const HOT_PIPE_LENGTH: f64 = 0.5;
+const INTERCOOLER_LENGTH: f64 = 0.6;
+const COLD_PIPE_LENGTH: f64 = 0.8;
+const CHARGE_PIPE_AREA_RATIO: f64 = 1.5;
+/// Shortest cell the charge pipes are solved on, m. What they carry is the surge, the throttle's
+/// pressure waves and the engine's pulses, all well below the 900 Hz or so these resolve, so they are
+/// solved on fewer cells than the exhaust.
+const CHARGE_PIPE_CELL: f64 = 0.08;
+/// The duct the compressor draws through, from the air filter through the wheel's passages, m: its
+/// air's inertia, at the inducer's area.
+const COMPRESSOR_DUCT_LENGTH: f64 = 0.4;
 /// Loss coefficient of the flow through a compressor too slow to do any work, windmilling.
 const WINDMILL_LOSS: f64 = 1.0;
 
@@ -168,8 +220,8 @@ const LIGHTHILL_K: f64 = 5e-5;
 /// How much of a recirculating blow-off valve's jet noise gets out through the intake's ducting.
 const RECIRCULATING_TRANSMISSION: f64 = 0.1;
 
-/// The turbulence a stalled compressor sheds into its inlet, as a share of its flow at that speed:
-/// what the flutter is made of. Stall starts at the surge line and is fully developed at no flow.
+/// The turbulence a fully stalled compressor sheds into its inlet, as a share of its flow at that
+/// speed: what the flutter is made of. It goes as the stall's amplitude.
 const STALL_INTENSITY: f64 = 0.06;
 
 /// Wastegate flap rattle at 1 m, Pa, per 10 kPa of pulse across it, and how far open it can be and
@@ -198,6 +250,9 @@ struct RotorSizing {
     inducer_area: f64,
     /// Their compressor ducts' area over length, all together, m.
     duct_a_over_l: f64,
+    /// Bore of their charge pipes, all together, and of their intercoolers, m.
+    pipe_dia: f64,
+    intercooler_dia: f64,
     boost_target: f64,
     /// Their intercoolers' effectiveness, and their blow-off valves and those valves' bore, all
     /// together, m^2.
@@ -206,10 +261,11 @@ struct RotorSizing {
     blow_off_area: f64,
 }
 
-/// Everything the turbos share that follows from the spec: the charge air they all blow into.
+/// Everything the turbos share that follows from the spec: the throttle body they all blow into.
 #[derive(Clone, Copy, Debug)]
 struct ChargeSizing {
-    charge_volume: f64,
+    /// The throttle body's volume, m^3.
+    volume: f64,
     /// Bore of all the blow-off valves together, and inducer area of all the compressors, m^2.
     blow_off_area: f64,
     inducer_area: f64,
@@ -276,7 +332,9 @@ fn rotor_sizing(spec: &EngineSpec, settings: TurboSettings, members: usize, coun
         turbine_k,
         wastegate_k: WASTEGATE_CAPACITY * turbine_k,
         inducer_area: inducer_area * n,
-        duct_a_over_l: 0.0,
+        duct_a_over_l: (inducer_area * n) / COMPRESSOR_DUCT_LENGTH,
+        pipe_dia: math::sqrt((4.0 * CHARGE_PIPE_AREA_RATIO * inducer_area * n) / PI),
+        intercooler_dia: 0.0,
         boost_target,
         intercooler: clamp(settings.intercooler, 0.0, 1.0),
         blow_off: settings.blow_off,
@@ -297,28 +355,89 @@ fn groups(settings: &[TurboSettings]) -> Vec<(TurboSettings, Vec<usize>)> {
     out
 }
 
-/// Every set of identical turbos, as `groups` has them, and the charge air they all share. Each set's
-/// compressor ducts into the charge air are as wide as their inducers are a share of them all, so
-/// together they have the charge volume's Helmholtz frequency.
+/// Every set of identical turbos, as `groups` has them, and the throttle body they all share. Each
+/// set's intercoolers hold as much of the charge volume as their inducers are a share of them all.
 fn sizing(spec: &EngineSpec, groups: &[(TurboSettings, Vec<usize>)]) -> (ChargeSizing, Vec<RotorSizing>) {
     let count = groups.iter().map(|(_, m)| m.len()).sum();
     let mut rotors: Vec<RotorSizing> =
         groups.iter().map(|(s, members)| rotor_sizing(spec, *s, members.len(), count)).collect();
     let inducer_area: f64 = rotors.iter().map(|r| r.inducer_area).sum();
     let swept = displacement(spec) * math::max(spec.cylinders as f64, 1.0);
-    let charge_volume = math::max(CHARGE_VOLUME_RATIO * swept, 1e-4);
-    let c = math::sqrt(GAMMA_AIR * gas::R * gas::T_AMB);
-    let k = (2.0 * PI * HELMHOLTZ_HZ) / c;
+    let volume = math::max(THROTTLE_BODY_VOLUME_RATIO * swept, 1e-5);
+    let piped = math::max((CHARGE_VOLUME_RATIO - THROTTLE_BODY_VOLUME_RATIO) * swept, 1e-4);
     for r in rotors.iter_mut() {
-        r.duct_a_over_l = k * k * charge_volume * (r.inducer_area / math::max(inducer_area, 1e-12));
+        let share = piped * (r.inducer_area / math::max(inducer_area, 1e-12));
+        let pipe_area = (PI * r.pipe_dia * r.pipe_dia) / 4.0;
+        let core = math::max(share - pipe_area * (HOT_PIPE_LENGTH + COLD_PIPE_LENGTH), pipe_area * INTERCOOLER_LENGTH);
+        r.intercooler_dia = math::sqrt((4.0 * core) / (PI * INTERCOOLER_LENGTH));
     }
     let charge = ChargeSizing {
-        charge_volume,
+        volume,
         blow_off_area: BLOW_OFF_AREA_RATIO * inducer_area,
         inducer_area,
         noise: math::max(spec.turbo_noise, 0.0),
     };
     (charge, rotors)
+}
+
+/// The charge pipe from a set's compressors to the throttle body, compressor end first: the hot pipe,
+/// the intercooler and the cold pipe.
+fn charge_segments(pipe_dia: f64, intercooler_dia: f64) -> Vec<PipeSegment> {
+    let pipe = |length: f64| {
+        make_segment(SegmentPartial {
+            kind: Some(SegmentKind::Pipe),
+            length: Some(length),
+            d_in: Some(pipe_dia),
+            ..Default::default()
+        })
+    };
+    vec![
+        pipe(HOT_PIPE_LENGTH),
+        make_segment(SegmentPartial {
+            kind: Some(SegmentKind::Chamber),
+            length: Some(INTERCOOLER_LENGTH),
+            d_in: Some(pipe_dia),
+            d_out: Some(intercooler_dia),
+            ..Default::default()
+        }),
+        pipe(COLD_PIPE_LENGTH),
+    ]
+}
+
+/// A set's charge pipe, its gas still at the atmosphere's: the compressor meets its first end, and its
+/// last opens into the throttle body.
+fn charge_pipe(size: &RotorSizing, sample_rate: f64, opts: &EulerPipeOptions) -> EulerPipe {
+    let segments = charge_segments(size.pipe_dia, size.intercooler_dia);
+    let length: f64 = segments.iter().map(|s| s.length).sum();
+    let c = speed_of_sound(gas::T_AMB, GAMMA_AIR);
+    let pipe_opts = EulerPipeOptions {
+        inlet_kind: Some(InletKind::Junction),
+        outlet_kind: Some(OutletKind::Mouth),
+        heat_transfer: Some(false),
+        initial_port_temp: Some(gas::T_AMB),
+        // The throttle body's air taken in at its own pressure, as the intake runners take the plenum's.
+        nozzle_inflow: Some(false),
+        linear_damping: Some(runner_damping(size.pipe_dia / 2.0, c / (4.0 * length))),
+        port: None,
+        inherit_wall: None,
+        cell_size: Some(math::max(opts.cell_size.unwrap_or(0.0), CHARGE_PIPE_CELL)),
+        ..opts.clone()
+    };
+    let mut pipe = EulerPipe::new(&segments, sample_rate, gas::T_AMB, &pipe_opts);
+    // The intercooler's core is a bank of narrow tubes, not an open can: nothing resonates across it.
+    pipe.cross_modes = None;
+    pipe
+}
+
+/// The gauge pressure, Pa, at which the face at a charge pipe's compressor end passes `m`, kg/s, into
+/// it from gas at `t`, K: the acoustic estimate, then one Newton step on the flow it actually passes.
+fn face_gauge(pipe: &mut EulerPipe, st: &EndState, m: f64, t: f64) -> f64 {
+    let area = pipe.face_area(0);
+    let rho = math::max(st.rho, 1e-3);
+    let mut g = 2.0 * st.toward + (st.rho_c * m) / (rho * area);
+    let passed = pipe.probe_junction(DuctEnd::Inlet, g, t, st);
+    g += ((m - passed) * st.c) / area;
+    g
 }
 
 /// Work the turbine takes from each kg of gas through it, J/kg, with its wheel's tip at `tip_speed`
@@ -397,16 +516,31 @@ impl JetNoise {
     }
 }
 
-/// A set of identical turbos, in parallel on the same settings, so one lumped shaft, compressor duct and
-/// wastegate stands for them all; the sound gives each its own voice.
+/// A set of identical turbos, in parallel on the same settings, so one lumped shaft, compressor duct,
+/// charge pipe and wastegate stands for them all; the sound gives each its own voice.
 struct Rotor {
     size: RotorSizing,
     /// Which turbos, in the order of the exhaust's turbines.
     members: Vec<usize>,
     /// Shaft speed, rad/s.
     omega: f64,
-    /// Flow through the compressor duct, kg/s, positive toward the engine.
+    /// Flow through the compressor duct, kg/s, positive toward the engine: as it is now, and its mean
+    /// over the last sample.
+    duct_flow: f64,
     compressor_flow: f64,
+    /// The pressure rise the wheel makes, lagging its characteristic, Pa; and the squared amplitude of
+    /// its rotating stall, `J`.
+    rise: f64,
+    stall: f64,
+    /// The power the flow is taken to on the present speed line: see `SURGE_LINE_AT_REST`.
+    bend: f64,
+    /// Temperature of the air the compressor delivers into its charge pipe, past the intercooler, K.
+    delivery_t: f64,
+    /// The charge pipe from the compressor to the throttle body, and what flowed out of it into the
+    /// throttle body over the last sample: mass, kg/s, and enthalpy, W.
+    pipe: EulerPipe,
+    delivered: f64,
+    delivered_h: f64,
     wastegate: f64,
     /// Their blow-off valves' opening, 0..1, and the flow out of them last sample, kg/s.
     blow_off: f64,
@@ -431,11 +565,19 @@ struct Rotor {
 }
 
 impl Rotor {
-    fn new(size: RotorSizing, members: Vec<usize>, sample_rate: f64) -> Rotor {
+    fn new(size: RotorSizing, members: Vec<usize>, sample_rate: f64, opts: &EulerPipeOptions) -> Rotor {
         Rotor {
             size,
             omega: 0.03 * size.full_speed,
+            duct_flow: 0.0,
             compressor_flow: 0.0,
+            rise: 0.0,
+            stall: STALL_SEED,
+            bend: 1.0,
+            delivery_t: gas::T_AMB,
+            pipe: charge_pipe(&size, sample_rate, opts),
+            delivered: 0.0,
+            delivered_h: 0.0,
             wastegate: 0.0,
             blow_off: 0.0,
             vent: 0.0,
@@ -469,25 +611,75 @@ impl Rotor {
         ETA_COMPRESSOR * math::max(1.0 - ETA_FALLOFF * d * d, ETA_FLOOR)
     }
 
-    /// Pressure rise across the compressor, Pa, at flow `m` (kg/s), and the part of it the wheel does
-    /// work for: all of it but the loss of the air forced through its passages, which the flow pays.
-    fn compressor_rise(&self, m: f64) -> (f64, f64) {
+    /// The pressure rise the wheel's blades settle to at flow `m`, kg/s, in a rotating stall of squared
+    /// amplitude `j`, Pa: its characteristic. Backwards through the wheel, its shut-off pressure.
+    fn characteristic(&self, m: f64, j: f64) -> f64 {
         let s = self.omega / self.size.full_speed;
-        let s2 = s * s;
+        let peak = self.size.peak_rise * s * s;
+        if m <= 0.0 {
+            return peak * (MG_F0 + 0.75 * MG_H * j);
+        }
+        let y = self.flow_coefficient(m) / MG_W - 1.0;
+        peak * (MG_F0 + MG_H * (1.0 + 1.5 * y * (1.0 - 0.5 * j) - 0.5 * y * y * y))
+    }
+
+    /// The flow `m`, kg/s, 0 or more, as the characteristic takes it: as a share of the choke flow on the
+    /// present speed line, bent so the surge line there falls at `2 W`.
+    fn flow_coefficient(&self, m: f64) -> f64 {
+        let phi = math::min(m / self.choke_at(self.omega / self.size.full_speed), 5.0);
+        math::pow(phi, self.bend)
+    }
+
+    /// Set `bend` for the present shaft speed.
+    fn bend_surge_line(&mut self) {
+        let s = clamp(self.omega / self.size.full_speed, 0.0, 1.0);
+        let surge = 2.0 * MG_W * (SURGE_LINE_AT_REST + (1.0 - SURGE_LINE_AT_REST) * s);
+        self.bend = math::log(2.0 * MG_W) / math::log(surge);
+    }
+
+    /// The loss of air forced through the wheel's passages at flow `m`, kg/s, where the wheel does no
+    /// work on it, Pa, with the sign of the flow.
+    fn passage_loss(&self, m: f64) -> f64 {
         let rho = gas::P_AMB / (gas::R * gas::T_AMB);
         let a = self.size.inducer_area;
-        let loss = (WINDMILL_LOSS * m * m.abs()) / (2.0 * rho * a * a);
-        if m <= 0.0 {
-            // Backwards through the wheel: its shut-off pressure, plus the loss of forcing air the
-            // wrong way through the passages, which resists the reversed flow.
-            let shut_off = self.size.peak_rise * s2 * MG_F0;
-            return (shut_off - loss, shut_off);
-        }
-        let phi = math::min(m / self.choke_at(s), 5.0);
-        let y = phi / MG_W - 1.0;
-        let mg = self.size.peak_rise * s2 * (MG_F0 + MG_H * (1.0 + 1.5 * y - 0.5 * y * y * y));
-        // Past its choke the wheel does no more work and is only a restriction.
-        (math::max(mg, -loss), math::max(mg, 0.0))
+        (WINDMILL_LOSS * m * m.abs()) / (2.0 * rho * a * a)
+    }
+
+    /// Pressure rise across the compressor, Pa, at flow `m` (kg/s), with the wheel making `rise`. Past
+    /// its choke the wheel does no more work and is only a restriction; backwards, the loss of forcing
+    /// air the wrong way through its passages resists the reversed flow.
+    fn net_rise(&self, m: f64, rise: f64) -> f64 {
+        let loss = self.passage_loss(m);
+        if m <= 0.0 { rise - loss } else { math::max(rise, -loss) }
+    }
+
+    /// The pressure rise the wheel does work for at flow `m`, kg/s, Pa: its characteristic unstalled,
+    /// as a stall spends the same work for less pressure. Past its choke it does none.
+    fn wheel_rise(&self, m: f64) -> f64 {
+        math::max(self.characteristic(m, 0.0), 0.0)
+    }
+
+    /// Advance the compressor by `h`, s, its charge pipe having taken `m`, kg/s, at `p_face`, Pa: the
+    /// wheel's pressure rise following its characteristic, the stall growing or dying away, and the
+    /// duct's air accelerated by the rise against the pipe.
+    fn advance_compressor(&mut self, h: f64, m: f64, p_face: f64) {
+        let full = self.size.full_speed;
+        let revs = math::max(self.omega, MIN_SPEED_FRACTION * full) / (2.0 * PI);
+        let tau = math::min(COMPRESSOR_LAG_REVS / revs, COMPRESSOR_LAG_MAX);
+        let settled = self.characteristic(m, self.stall);
+        let target = if m > 0.0 { math::max(settled, -self.passage_loss(m)) } else { settled };
+        self.rise += (1.0 - math::exp(-h / tau)) * (target - self.rise);
+
+        let y = if m > 0.0 { self.flow_coefficient(m) } else { m / self.choke_at(self.omega / full) } / MG_W - 1.0;
+        let growth = (1.0 - y * y - 0.25 * self.stall) * (revs / STALL_GROWTH_REVS);
+        self.stall = clamp(self.stall * math::exp(math::max(growth * h, -50.0)), STALL_SEED, 4.0);
+
+        self.duct_flow = m + h * self.size.duct_a_over_l * (gas::P_AMB + self.net_rise(m, self.rise) - p_face);
+    }
+
+    /// The stall's amplitude, 0 unstalled to 1 fully stalled.
+    fn stall_amplitude(&self) -> f64 {
+        0.5 * math::sqrt(math::max(self.stall - STALL_SEED, 0.0))
     }
 }
 
@@ -499,7 +691,7 @@ pub struct Turbo {
     rotor_of: Vec<usize>,
     /// Each turbine's setting this sample, handed to the exhaust.
     settings: Vec<TurbineSetting>,
-    /// Charge-air volume's gas: mass, kg, and sensible internal energy, J.
+    /// The throttle body's gas: mass, kg, and sensible internal energy, J.
     mass: f64,
     energy: f64,
     /// Seconds since a compressor's flow last ran backwards.
@@ -515,18 +707,23 @@ pub struct Turbo {
 }
 
 impl Turbo {
-    /// One turbo for each of `settings`, in the order the exhaust has their turbines in.
-    pub fn new(spec: &EngineSpec, settings: &[TurboSettings], sample_rate: f64) -> Turbo {
+    /// One turbo for each of `settings`, in the order the exhaust has their turbines in. Their charge
+    /// pipes are solved on `opts`.
+    pub fn new(spec: &EngineSpec, settings: &[TurboSettings], sample_rate: f64, opts: &EulerPipeOptions) -> Turbo {
         let groups = groups(settings);
         let (charge, sizes) = sizing(spec, &groups);
-        let mass = (gas::P_AMB * charge.charge_volume) / (gas::R * gas::T_AMB);
+        let mass = (gas::P_AMB * charge.volume) / (gas::R * gas::T_AMB);
         let c = math::sqrt(GAMMA_AIR * gas::R * gas::T_AMB);
         let inlet_radius = math::max(math::sqrt(charge.inducer_area / PI), 0.01);
         let vent_radius = math::max(math::sqrt(charge.blow_off_area / PI), 0.005);
         Turbo {
             sample_rate,
             rotor_of: rotor_of(&groups, settings.len()),
-            rotors: sizes.into_iter().zip(groups).map(|(size, (_, m))| Rotor::new(size, m, sample_rate)).collect(),
+            rotors: sizes
+                .into_iter()
+                .zip(groups)
+                .map(|(size, (_, m))| Rotor::new(size, m, sample_rate, opts))
+                .collect(),
             settings: Vec::with_capacity(settings.len()),
             mass,
             energy: mass * gas_energy(gas::T_AMB),
@@ -539,22 +736,28 @@ impl Turbo {
         }
     }
 
-    /// Resize for `spec` and one turbo for each of `settings`, keeping the charge air and each turbo's
-    /// shaft speed and wastegate: a turbo added starts as a new one does.
-    pub fn configure(&mut self, spec: &EngineSpec, settings: &[TurboSettings]) {
+    /// Resize for `spec` and one turbo for each of `settings`, their charge pipes solved on `opts`,
+    /// keeping the charge air and each turbo's shaft speed, compressor and wastegate: a turbo added
+    /// starts as a new one does.
+    pub fn configure(&mut self, spec: &EngineSpec, settings: &[TurboSettings], opts: &EulerPipeOptions) {
         let groups = groups(settings);
         let (charge, sizes) = sizing(spec, &groups);
-        let scale = charge.charge_volume / self.charge.charge_volume;
+        let scale = charge.volume / self.charge.volume;
         self.mass *= scale;
         self.energy *= scale;
         let old = std::mem::take(&mut self.rotors);
         for (size, (_, members)) in sizes.into_iter().zip(groups.iter()) {
             let n = members.len() as f64;
             let prev = self.rotor_of.get(members[0]).map(|&r| &old[r]);
-            let mut r = Rotor::new(size, members.clone(), self.sample_rate);
+            let mut r = Rotor::new(size, members.clone(), self.sample_rate, opts);
             if let Some(p) = prev {
                 r.omega = clamp(p.omega, 0.0, 1.2 * size.full_speed);
+                r.duct_flow = p.duct_flow * (n / p.size.count);
                 r.compressor_flow = p.compressor_flow * (n / p.size.count);
+                r.rise = p.rise;
+                r.stall = p.stall;
+                r.delivery_t = p.delivery_t;
+                r.pipe.resample_from(&p.pipe);
                 r.wastegate = p.wastegate;
                 r.blow_off = p.blow_off;
                 r.drive = p.drive;
@@ -579,7 +782,7 @@ impl Turbo {
     }
 
     pub fn charge_pressure(&self) -> f64 {
-        (math::max(self.mass, 1e-9) * gas::R * self.charge_temp()) / self.charge.charge_volume
+        (math::max(self.mass, 1e-9) * gas::R * self.charge_temp()) / self.charge.volume
     }
 
     /// Boost, gauge, Pa.
@@ -630,6 +833,11 @@ impl Turbo {
     /// Opening of turbo `i`'s blow-off valve, 0..1.
     pub fn blow_off_of(&self, i: usize) -> f64 {
         self.rotors[self.rotor_of[i]].blow_off
+    }
+
+    /// Mean amplitude of the compressors' rotating stall, 0 unstalled to 1 fully stalled.
+    pub fn stall(&self) -> f64 {
+        self.mean(|r| r.stall_amplitude())
     }
 
     /// Whether a compressor has run backwards in the last tenth of a second.
@@ -752,13 +960,45 @@ impl Turbo {
             r.wastegate += (dt / WASTEGATE_TAU) * (wg_target - r.wastegate);
             r.wastegate = clamp(r.wastegate, 0.0, 1.0);
 
-            // --- Compressor: its duct's air accelerated by the pressure rise against the charge ---
-            let (rise, wheel_rise) = r.compressor_rise(r.compressor_flow);
-            r.compressor_flow += dt * size.duct_a_over_l * (gas::P_AMB + rise - p2);
+            // --- Compressor and its charge pipe: each substep, the face of the pipe passes what the duct
+            // delivers, and the wheel and the duct's air answer the pressure there ---
+            r.bend_surge_line();
+            let rho2 = p2 / (gas::R * t2);
+            r.pipe.set_reservoir(p2, rho2, math::sqrt((gas::GAMMA_EXH * p2) / rho2));
+            let substeps = r.pipe.substeps_for(dt);
+            let h = dt / substeps as f64;
+            let (mut flow, mut delivered, mut delivered_h) = (0.0, 0.0, 0.0);
+            let still = ValveState::default();
+            for _ in 0..substeps {
+                let pipe = &mut r.pipe;
+                pipe.begin_step(h);
+                let st = pipe.end_state(DuctEnd::Inlet);
+                let g = face_gauge(pipe, &st, r.duct_flow, r.delivery_t);
+                let m = pipe.apply_junction(DuctEnd::Inlet, g, r.delivery_t, &st);
+                pipe.apply_own_boundaries(h);
+                let out = pipe.mouth_mass_flow;
+                delivered += out;
+                delivered_h += out * if out >= 0.0 { gas_enthalpy(pipe.read_mouth().1) } else { h2 };
+                pipe.set_end_step(h, 0.0);
+                pipe.end_step_set(&still);
+                pipe.after_step(h);
+                flow += m;
+                r.advance_compressor(h, m, gas::P_AMB + g);
+            }
+            let inv = 1.0 / substeps as f64;
+            if r.pipe.recover_if_broken() {
+                (flow, delivered, delivered_h) = (0.0, 0.0, 0.0);
+                r.duct_flow = 0.0;
+            }
+            r.compressor_flow = flow * inv;
+            r.delivered = delivered * inv;
+            r.delivered_h = delivered_h * inv;
             let m_c = r.compressor_flow;
-            let pr = (gas::P_AMB + wheel_rise) / gas::P_AMB;
+            let pr = (gas::P_AMB + r.wheel_rise(m_c)) / gas::P_AMB;
             let heating = (math::pow(pr, (GAMMA_AIR - 1.0) / GAMMA_AIR) - 1.0) / r.compressor_efficiency(m_c);
             let p_compressor = m_c.abs() * CP_AIR * gas::T_AMB * heating;
+            let t_out = gas::T_AMB * (1.0 + heating);
+            r.delivery_t = t_out - size.intercooler * (t_out - gas::T_AMB);
             reversed |= m_c < 0.0;
 
             // --- Shaft ---
@@ -767,14 +1007,9 @@ impl Turbo {
             r.omega += (dt * (turbine.power - p_compressor - drag)) / (size.inertia * omega);
             r.omega = clamp(r.omega, 0.0, 2.0 * size.full_speed);
 
-            // --- What it blows into the charge air, through the intercooler ---
-            m_in += m_c;
-            h_in += if m_c >= 0.0 {
-                let t_out = gas::T_AMB * (1.0 + heating);
-                m_c * gas_enthalpy(t_out - size.intercooler * (t_out - gas::T_AMB))
-            } else {
-                m_c * h2
-            };
+            // --- What its charge pipe delivers into the throttle body ---
+            m_in += r.delivered;
+            h_in += r.delivered_h;
         }
         if reversed {
             self.since_reverse = 0.0;
@@ -796,12 +1031,12 @@ impl Turbo {
             vent += r.vent;
         }
 
-        // --- Charge air: in from the compressors, out through the throttle ---
+        // --- The throttle body: in from the charge pipes, out through the throttle ---
         let out = throttle_flow + vent;
         let h_out = throttle_flow * h2;
         self.energy += (h_in - h_out - vent * h2) * dt;
         self.mass += (m_in - out) * dt;
-        let floor = 0.2 * (gas::P_AMB * charge.charge_volume) / (gas::R * gas::T_AMB);
+        let floor = 0.2 * (gas::P_AMB * charge.volume) / (gas::R * gas::T_AMB);
         if self.mass < floor || !self.mass.is_finite() || !self.energy.is_finite() {
             self.mass = math::max(if self.mass.is_finite() { self.mass } else { floor }, floor);
             self.energy = self.mass * gas_energy(gas::T_AMB);
@@ -854,10 +1089,8 @@ impl Turbo {
             }
             whine *= (WHINE_DEPTH * s * s) / size.count;
 
-            // --- Stall: left of the surge line the wheel's flow breaks up, around a few shaft orders ---
-            let phi = m_c / r.choke_at(s);
-            let surge_line = 2.0 * MG_W;
-            let stall = if s > 0.1 { clamp((surge_line - phi) / surge_line, 0.0, 1.0) } else { 0.0 };
+            // --- Stall: in a rotating stall the wheel's flow breaks up, around a few shaft orders ---
+            let stall = if s > 0.1 { r.stall_amplitude() } else { 0.0 };
             let stall_hz = clamp(shaft_hz, 50.0, 0.2 * sample_rate);
             let c_lp = 1.0 - math::exp((-2.0 * PI * 3.0 * stall_hz) / sample_rate);
             let c_hp = 1.0 - math::exp((-2.0 * PI * 0.3 * stall_hz) / sample_rate);
