@@ -21,6 +21,7 @@ import {
   type EngineConfig,
   type EngineSnapshot,
   type EngineSpec,
+  type SoundSources,
 } from './model/spec.js';
 import { EngineMesh } from './scene/EngineMesh.js';
 import { PipeEditor } from './scene/PipeEditor.js';
@@ -33,22 +34,18 @@ import { launchSettingsJson, readLaunchSettings } from './model/launchSettings.j
 import { detachDuct, removePipe, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
 import {
   applyHeader,
-  seatLengthwaysHeaders,
   bankCylinders,
   bankMirror,
   defaultMerge,
   runnerBore,
 } from './scene/headerTool.js';
 import { applyXPipe } from './scene/xpipeTool.js';
-import { seatEngineTurbos } from './scene/engineTurbos.js';
+import { seatGraph, soundSources } from './scene/soundSources.js';
 import {
   matchLength,
   moveJunction,
   moveTurbo,
   refitBends,
-  seatHeaders,
-  seatManifolds,
-  seatTurbos,
   turboHeight,
 } from './scene/turboPlacement.js';
 import {
@@ -728,14 +725,8 @@ function rebuildPipeGeometry(): void {
   const cylinders = engineMesh.bankCount;
   const graph = config.graph!;
 
-  // Seated first: building a compiled manifold or header can add pipes.
   const ports = Array.from({ length: cylinders }, (_, b) => engineMesh.exhaustPort(b));
-  seatManifolds(graph, ports);
-  seatLengthwaysHeaders(graph, ports, config.engine);
-  seatHeaders(graph, ports);
-  seatEngineTurbos(graph, ports, config.engine);
-  seatTurbos(graph, ports, config.engine);
-  refitBends(graph, ports, config.engine);
+  seatGraph(graph, ports, config.engine);
 
   // One mesh per duct, and a mark for each junction of two or more pipes.
   while (pipeMeshes.length < graph.ducts.length) {
@@ -752,6 +743,7 @@ function rebuildPipeGeometry(): void {
   const turboPorts = turboPortsOf(graph, config.engine);
   const placement = layoutGraph(ports, graph, turboPorts);
   if (!editor.dragging) stablePlacement = placement;
+  sendSources(soundSources(graph, placement, config.engine));
 
   graph.ducts.forEach((duct, i) => {
     const place = placement.ducts.get(duct.id);
@@ -894,6 +886,35 @@ audio.onSnapshot((s) => {
     `${Math.round(s.cylTemp)} K · wall ${Math.round(s.wallTemp)} K · ` +
     `${s.pipeCells} cells × ${s.substeps}`;
   settleWhenStill(s);
+});
+
+/** The sources last sent, as JSON, so an unchanged layout is not sent again. */
+let sentSources = '';
+
+/** Tell the simulation where the engine makes its sound, if that has changed. */
+function sendSources(sources: SoundSources): void {
+  const json = JSON.stringify(sources);
+  if (json === sentSources) return;
+  sentSources = json;
+  audio.setSources(sources);
+}
+
+/** Where the ear was last put, and when, ms. */
+let sentEar = new THREE.Vector3(Infinity, 0, 0);
+let sentEarAt = 0;
+
+/** How far the camera must move, m, and how long after the last move, ms, before the ear follows it. */
+const EAR_STEP = 0.01;
+const EAR_INTERVAL = 33;
+
+// The listener is the camera: wherever the view is looking from is where the engine is heard from.
+viewer.onFrame(() => {
+  const now = performance.now();
+  const at = viewer.camera.position;
+  if (at.distanceTo(sentEar) < EAR_STEP || now - sentEarAt < EAR_INTERVAL) return;
+  sentEar = at.clone();
+  sentEarAt = now;
+  audio.setListener([at.x, at.y, at.z]);
 });
 
 viewer.onFrame((dt) => {

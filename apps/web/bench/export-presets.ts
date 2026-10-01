@@ -17,6 +17,7 @@ import {
   fittedExhaust,
   presetLaunch,
 } from '../src/model/spec.js';
+import { configSources } from '../src/scene/soundSources.js';
 import { presetConfig } from './presetConfig.js';
 
 // Run from `bench/dist`, four levels below the repository root.
@@ -25,6 +26,8 @@ const outPath = `${root}crates/engine-sim/tests/fixtures/presets.json`;
 
 const engines = ENGINE_PRESETS.map((preset) => {
   const cfg = presetConfig(preset);
+  // Where the app draws its sources, so the tests hear it from where it is drawn.
+  cfg.sources = configSources(cfg);
   return {
     name: preset.name,
     engine: preset.engine,
@@ -34,9 +37,12 @@ const engines = ENGINE_PRESETS.map((preset) => {
   };
 });
 
+const base = defaultConfig();
+base.sources = configSources(base);
+
 const out = {
   defaultEngine: DEFAULT_ENGINE,
-  defaultConfig: defaultConfig(),
+  defaultConfig: base,
   defaultCollector: defaultCollector(),
   enginePresets: engines,
   pipePresets: PIPE_PRESETS.map((p) => ({ name: p.name, description: p.description, segments: p.build() })),

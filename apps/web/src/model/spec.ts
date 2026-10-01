@@ -20,6 +20,7 @@
 import type { ExhaustGraph } from './exhaustGraph.js';
 import nissanRb26Exhaust from './exhausts/nissan-rb26.json';
 import toyota2grExhaust from './exhausts/toyota-2gr.json';
+import chevroletLt6Exhaust from './exhausts/chevrolet-lt6.json';
 
 /** Shape of one length of exhaust plumbing. */
 export type SegmentKind =
@@ -528,26 +529,8 @@ export interface EngineSpec {
    * tuning. Radiation off oxidised steel matters as much as convection here.
    */
   airSpeed: number;
-  /** Horizontal distance from the exhaust mouth to the listener, m. */
-  micDistance: number;
-  /** Listener ear height above the ground, m. */
-  micHeight: number;
-  /** Height of the exhaust mouth above the ground, m. */
+  /** Height of the lowest exhaust mouth above the ground, m: where the ground is, under the scene. */
   exhaustHeight: number;
-  /**
-   * Lateral spacing between adjacent exhaust mouths, m.
-   *
-   * Only matters with more than one tailpipe, and then it matters a great deal. Mouths at the
-   * *same* point sum coherently, and the two banks of a flatplane V8 fire in exact antiphase, so
-   * their strongest component — each bank's own firing order — annihilates completely. Measured
-   * with the mouths coincident, that component comes out 43 dB below where it belongs and the
-   * engine jumps an octave to the doubled order. Real tailpipes sit a metre or more apart, which
-   * at 187 Hz is most of a wavelength, so they cannot cancel like that.
-   *
-   * Typical: 0.15 m for open headers side by side, 0.5 m for twin tailpipes on a bike, 1.2-1.6 m
-   * for a V8 exiting each side of a car.
-   */
-  mouthSpacing: number;
   /**
    * Cylinder-to-cylinder breathing spread, 0..1 (1 = realistic).
    *
@@ -605,6 +588,26 @@ export interface EngineConfig {
    * drawn. Absent means the graph is compiled from them on demand.
    */
   graph?: ExhaustGraph;
+  /** Where the engine makes its sound, as drawn (`soundSources`). */
+  sources?: SoundSources;
+  /** Where the listener's ear is, m, in the scene's frame: the camera. Absent, it stands by default. */
+  listener?: [number, number, number];
+}
+
+/**
+ * Where the engine makes its sound, in the scene's frame, m: x across the crank, y up, z along it, rearwards.
+ * The simulation hears each from where it is, along its own path to the listener and its own reflection
+ * off the ground.
+ */
+export interface SoundSources {
+  /** Each tailpipe's outlet, by the duct the solver radiates it from. */
+  mouths: Array<{ duct: string; position: [number, number, number] }>;
+  /** Where the engine draws its air. */
+  intake?: [number, number, number];
+  /** The middle of the engine, where its casing radiates from. */
+  engine?: [number, number, number];
+  /** Where the turbochargers are. */
+  turbo?: [number, number, number];
 }
 
 /** Per-cylinder state, so the renderer can animate each bank. */
@@ -1273,11 +1276,8 @@ export const DEFAULT_ENGINE: EngineSpec = {
   pipeCellSize: 0.035,
   pipeWallThickness: 0.0012,
   airSpeed: 0,
-  micDistance: 1.5,
-  micHeight: 1.2,
   exhaustHeight: 0.35,
-  mouthSpacing: 0.4,
-  cylinderSpread: 1,
+  cylinderSpread: 0.3,
   groundReflection: 0.7,
   outputGain: 0.77,
   mechNoise: 0.45,
@@ -1946,8 +1946,6 @@ export function presetLaunch(spec: EngineSpec, boosted: boolean, car: Car | null
  */
 const PRESET_KEEPS = [
   'freeRunning',
-  'micDistance',
-  'micHeight',
   'exhaustHeight',
   'groundReflection',
   'airSpeed',
@@ -2096,7 +2094,6 @@ const TOYOTA_2GR: Partial<EngineSpec> = {
   // Its fuel cut.
   revLimit: 6600,
   flywheelInertia: 0.5,
-  mouthSpacing: 1.0,
   pipeCellSize: 0.035,
   // The 3.5 litre 2GR-FE: 94.0 x 83.0 mm, 10.8:1.
   bore: 0.094,
@@ -2159,7 +2156,6 @@ const BOXER_SIX: Partial<EngineSpec> = {
   // A 997 Carrera 3.6's.
   revLimit: 7300,
   flywheelInertia: 0.35,
-  mouthSpacing: 0.9,
   pipeCellSize: 0.035,
   bore: 0.097,
   stroke: 0.0815,
@@ -2301,7 +2297,6 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       ...IDLING,
       // Desmodromic valves, so no float to guard against: a Ducati twin's 9000.
       revLimit: 9000,
-      mouthSpacing: 0.45,
       flywheelInertia: 0.22,
       outputGain: 0.81,
     },
@@ -2530,7 +2525,6 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       headerRun: 'lengthways',
       ...IDLING,
       revLimit: 6600,
-      mouthSpacing: 1.3,
       // The crank, flexplate and dual clutch's input: the gearbox has no flywheel of its own.
       flywheelInertia: 0.4,
       pipeCellSize: 0.035,
@@ -2577,7 +2571,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: true,
     },
     description:
-      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its cam, short runners and headers are tuned for the top end, where it makes about 665 hp at 8200 rpm against the real engine’s 670 at 8400. Below that its variable cam timing and long runners, also estimates, give back the mid-range: 623 N·m at 6000 against 624 at 6300.',
+      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Its tailpipes exit together in the middle, as the Z06’s do. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its cam, short runners and headers are tuned for the top end, where it makes about 665 hp at 8200 rpm against the real engine’s 670 at 8400. Below that its variable cam timing and long runners, also estimates, give back the mid-range: 623 N·m at 6000 against 624 at 6300.',
     engine: {
       cylinders: 8,
       vAngle: 90,
@@ -2587,7 +2581,6 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       headerRun: 'lengthways',
       ...IDLING,
       revLimit: 8600,
-      mouthSpacing: 0.6,
       flywheelInertia: 0.45,
       pipeCellSize: 0.035,
       bore: 0.10425,
@@ -2634,6 +2627,9 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.076, dOut: 0.19 }),
       makeSegment({ kind: 'pipe', length: 0.35, dIn: 0.07 }),
     ],
+    // Drawn from them: each bank's collector turned in under the car to the Z06's centre exit, its
+    // tailpipes 0.21 m apart.
+    graph: () => structuredClone(chevroletLt6Exhaust) as ExhaustGraph,
   },
   {
     name: 'Boxer four',

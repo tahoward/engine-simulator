@@ -4,7 +4,7 @@
  */
 
 import type { ExhaustGraph } from '../model/exhaustGraph.js';
-import type { LaunchConfig, EngineSnapshot, EngineSpec } from '../model/spec.js';
+import type { LaunchConfig, EngineSnapshot, EngineSpec, SoundSources } from '../model/spec.js';
 
 export type SnapshotListener = (snapshot: EngineSnapshot) => void;
 /** Called with `true` when the audio stops keeping up with real time, and `false` when it recovers. */
@@ -33,6 +33,13 @@ export interface EngineHost {
   setEngine(partial: Partial<EngineSpec>): void;
   /** Replace the exhaust graph; `null` compiles one from the layout. */
   setGraph(graph: ExhaustGraph | null): void;
+  /** Where the engine makes its sound, as drawn. Safe to call before the audio has started. */
+  setSources(sources: SoundSources): void;
+  /**
+   * Put the listener's ear at `position`, m, in the scene's frame; `null` puts it where it stands by
+   * default. Cheap enough to call every frame the camera moves. Safe to call before the audio has started.
+   */
+  setListener(position: [number, number, number] | null): void;
   /** Start a launch through `config`, or with `null` end the one in progress. */
   launch(config: LaunchConfig | null): void;
   /**

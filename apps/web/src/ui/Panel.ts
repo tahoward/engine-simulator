@@ -1491,29 +1491,7 @@ export class Panel {
     });
 
     // ---- Listener --------------------------------------------------------
-    const mix = section('Listener', 'listener', 'Where the microphone sits, and the mix of what it hears.');
-    this.slider(mix, {
-      label: 'Mic distance',
-      min: 0.3,
-      max: 12,
-      step: 0.1,
-      value: spec.micDistance,
-      sync: () => this.config.engine.micDistance,
-      unit: 'm',
-      format: (v) => `${v.toFixed(1)} m`,
-      onInput: (v) => this.cb.onEngine({ micDistance: v }),
-    });
-    this.slider(mix, {
-      label: 'Ear height',
-      min: 0.05,
-      max: 3,
-      step: 0.05,
-      value: spec.micHeight,
-      sync: () => this.config.engine.micHeight,
-      unit: 'm',
-      format: (v) => `${v.toFixed(2)} m`,
-      onInput: (v) => this.cb.onEngine({ micHeight: v }),
-    });
+    const mix = section('Listener', 'listener', 'You hear the engine from where the camera is: move the view to move your ear. Below are the ground under it and the mix of what it hears.');
     this.slider(mix, {
       label: 'Exhaust height',
       min: 0.05,
@@ -1525,23 +1503,6 @@ export class Panel {
       format: (v) => `${v.toFixed(2)} m`,
       onInput: (v) => this.cb.onEngine({ exhaustHeight: v }),
     });
-    const spacingRow = this.slider(mix, {
-      label: 'Mouth spacing',
-      min: 0,
-      max: 2.5,
-      step: 0.05,
-      value: spec.mouthSpacing,
-      sync: () => this.config.engine.mouthSpacing,
-      unit: 'm',
-      format: (v) => (v < 0.03 ? 'coincident' : `${v.toFixed(2)} m`),
-      onInput: (v) => this.cb.onEngine({ mouthSpacing: v }),
-    });
-    spacingRow.row.title =
-      'How far apart the tailpipes are. Only does anything with more than one of them, and then ' +
-      'it matters a great deal: set it to zero and the mouths sum at a single point, where the ' +
-      'two banks of a flatplane V8 fire in antiphase and annihilate their own firing order — ' +
-      '44 dB of it — jumping the engine an octave. Real pipes are a metre or so apart.';
-
     const spreadRow = this.slider(mix, {
       label: 'Cylinder spread',
       min: 0,
@@ -1556,8 +1517,8 @@ export class Panel {
       'How unequally the cylinders breathe, as a spread in the pressure each intake runner opens ' +
       'onto. No two cylinders of ' +
       'a real engine are matched, and that is what stops the firing orders cancelling perfectly. ' +
-      'At zero an inline four is a pure tone on one frequency with no rumble under it; at 4% the ' +
-      'low orders sit 35 dB down, where real engines measure 20 to 35.';
+      'At zero an inline four is a pure tone on one frequency with no rumble under it; at the ' +
+      'default 1.2% its low orders sit about 37 dB down, and at 4% about 25.';
 
     this.slider(mix, {
       label: 'Ground reflection',

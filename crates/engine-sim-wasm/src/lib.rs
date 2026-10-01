@@ -14,6 +14,7 @@
 //! `sim_error`.
 
 use engine_sim::exhaust_graph::ExhaustGraph;
+use engine_sim::listener::SoundSources;
 use engine_sim::{EngineConfig, EngineSim, LaunchConfig};
 
 pub struct Handle {
@@ -96,6 +97,28 @@ pub unsafe extern "C" fn sim_set_graph(h: *mut Handle, ptr: *mut u8, len: usize)
     let bytes = unsafe { take(ptr, len) };
     let r = parse::<Option<ExhaustGraph>>(&bytes).map(|g| h.sim.set_graph(g));
     h.result(r)
+}
+
+/// Where the engine makes its sound: a `SoundSources`.
+///
+/// # Safety
+/// `h` from `sim_new`; `ptr` and `len` from `alloc`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sim_set_sources(h: *mut Handle, ptr: *mut u8, len: usize) -> i32 {
+    let h = unsafe { &mut *h };
+    let bytes = unsafe { take(ptr, len) };
+    let r = parse::<SoundSources>(&bytes).map(|s| h.sim.set_sources(s));
+    h.result(r)
+}
+
+/// Put the listener's ear at `x`, `y`, `z`, m; any of them NaN puts it where it stands by default.
+///
+/// # Safety
+/// `h` from `sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sim_set_listener(h: *mut Handle, x: f64, y: f64, z: f64) {
+    let ear = if x.is_nan() || y.is_nan() || z.is_nan() { None } else { Some([x, y, z]) };
+    unsafe { &mut *h }.sim.set_listener(ear);
 }
 
 /// Start a launch from standstill through a `LaunchConfig`'s gearbox.

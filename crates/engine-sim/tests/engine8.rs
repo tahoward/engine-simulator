@@ -10,13 +10,14 @@
 mod common;
 
 use common::{FS, band_energy, hann, magnitude_spectrum};
-use engine_sim::EngineSim;
 use engine_sim::engine_sim::spread_of;
-use engine_sim::exhaust_graph::compile_collector_layout;
+use engine_sim::exhaust_graph::{compile_collector_layout, radiating_ducts};
+use engine_sim::listener::{MouthPlace, SoundSources};
 use engine_sim::spec::{
     EngineSpec, ExhaustLayout, PipeSegment, SegmentKind, SegmentPartial, collector_groups, crank_pins,
     exhaust_layout_of, firing_plan, gas, make_segment,
 };
+use engine_sim::{EngineConfig, EngineSim};
 use serde_json::{Value, json};
 use std::collections::BTreeSet;
 
@@ -54,6 +55,13 @@ fn pipe(length: f64, d_in: f64) -> PipeSegment {
 /// A sim on 0.4 m runners into 0.8 m collectors, with `extra` over `base` over the defaults, run
 /// for `seconds`.
 fn build_with(base: Value, over: Value, seconds: usize) -> EngineSim {
+    let mut sim = EngineSim::new(FS, &config_with(base, over));
+    sim.render(FS_N * seconds);
+    sim
+}
+
+/// `build_with`'s config, before it runs.
+fn config_with(base: Value, over: Value) -> EngineConfig {
     let mut cfg = common::default_config();
     cfg.engine = common::with(&common::with(&cfg.engine, base), over);
     cfg.pipe = vec![pipe(0.4, 0.042)];
@@ -65,9 +73,9 @@ fn build_with(base: Value, over: Value, seconds: usize) -> EngineSim {
     // the same length. The default compiled exhaust is a manifold along each bank, whose paths
     // differ by design.
     cfg.graph = Some(compile_collector_layout(&cfg.engine, &cfg.pipe, &cfg.collector));
-    let mut sim = EngineSim::new(FS, &cfg);
-    sim.render(FS_N * seconds);
-    sim
+    // Its own mouths, not the default engine's: those are placed by `spaced` where a test needs them.
+    cfg.sources = None;
+    cfg
 }
 
 /// A running engine: full throttle at a pinned 4000 rpm on 35 mm cells.
@@ -542,6 +550,23 @@ fn render(over: Value, seconds: usize) -> Vec<f64> {
     magnitude_spectrum(&hann(&sim.render(SPECTRUM_N)), SPECTRUM_N)
 }
 
+/// `render`, with the mouths in a row across the car `spacing` apart, a metre behind the crank.
+fn render_spaced(over: Value, spacing: f64, seconds: usize) -> Vec<f64> {
+    let mut cfg = config_with(json!({ "throttle": 1, "freeRunning": false, "pipeCellSize": 0.035 }), over);
+    let graph = cfg.graph.clone().unwrap();
+    let ids: Vec<String> = radiating_ducts(&graph).into_iter().map(|d| graph.ducts[d].id.clone()).collect();
+    let middle = (ids.len() as f64 - 1.0) / 2.0;
+    let mouths = ids
+        .into_iter()
+        .enumerate()
+        .map(|(k, duct)| MouthPlace { duct, position: [(k as f64 - middle) * spacing, 0.0, 1.0] })
+        .collect();
+    cfg.sources = Some(SoundSources { mouths, ..Default::default() });
+    let mut sim = EngineSim::new(FS, &cfg);
+    sim.render(FS_N * seconds);
+    magnitude_spectrum(&hann(&sim.render(SPECTRUM_N)), SPECTRUM_N)
+}
+
 fn flatplane_v8(extra: Value) -> Value {
     merge(
         json!({ "cylinders": 8, "vAngle": 90, "crankType": "flatplane", "exhaustLayout": "perBank", "rpm": 5600 }),
@@ -559,8 +584,8 @@ fn flatplane_v8(extra: Value) -> Value {
 #[test]
 fn separate_mouths_must_not_annihilate_the_bank_firing_order() {
     let bank_order_hz = (5600.0 / 120.0) * 4.0; // four firings per bank per cycle
-    let coincident = render(flatplane_v8(json!({ "mouthSpacing": 0 })), 1);
-    let spread = render(flatplane_v8(json!({ "mouthSpacing": 1.3 })), 1);
+    let coincident = render_spaced(flatplane_v8(json!({})), 0.0, 1);
+    let spread = render_spaced(flatplane_v8(json!({})), 1.3, 1);
     let at = |mag: &[f64]| band_energy(mag, FS, SPECTRUM_N, bank_order_hz, 4.0);
     // Measures about 85x on this geometry (19 dB) and four orders of magnitude on the shipped
     // preset, the difference being where the bank order falls relative to the pipe's resonances.
@@ -576,23 +601,12 @@ fn and_the_spacing_has_to_be_off_the_mouths_own_axis_to_do_anything() {
     // This test pins the consequence: sweeping the spacing must actually change the output.
     let bank_order_hz = (5600.0 / 120.0) * 4.0;
     let at = |mag: &[f64]| band_energy(mag, FS, SPECTRUM_N, bank_order_hz, 6.0);
-    let near = at(&render(flatplane_v8(json!({ "mouthSpacing": 0.3 })), 1));
-    let far = at(&render(flatplane_v8(json!({ "mouthSpacing": 1.3 })), 1));
+    let near = at(&render_spaced(flatplane_v8(json!({})), 0.3, 1));
+    let far = at(&render_spaced(flatplane_v8(json!({})), 1.3, 1));
     // Measured at the bank order rather than broadband, because that is where the path differences
     // do their work; a whole-spectrum metric also moves when anything else changes, and with merge
     // noise in the mix it sits marginally either side of any sensible threshold.
     assert!(near.max(far) / near.min(far) > 3.0, "near {near} vs far {far}");
-}
-
-/// One mouth is unaffected by spacing, as it must be.
-#[test]
-fn one_mouth_is_unaffected_by_spacing_as_it_must_be() {
-    let base = json!({ "cylinders": 4, "exhaustLayout": "merged", "rpm": 3400 });
-    let a = render(merge(base.clone(), json!({ "mouthSpacing": 0 })), 1);
-    let b = render(merge(base, json!({ "mouthSpacing": 2 })), 1);
-    for i in 0..a.len() {
-        assert!((b[i] - a[i]).abs() < 0.5e-12, "bin {i}: {} vs {}", b[i], a[i]);
-    }
 }
 
 /// Unequal cylinder breathing restores the low orders.

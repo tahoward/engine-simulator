@@ -14,7 +14,7 @@
 import { Channel, invoke } from '@tauri-apps/api/core';
 
 import { solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
-import type { LaunchConfig, EngineConfig, EngineSnapshot, EngineSpec } from '../model/spec.js';
+import type { LaunchConfig, EngineConfig, EngineSnapshot, EngineSpec, SoundSources } from '../model/spec.js';
 import type { EngineHost, LagListener, SnapshotListener } from './EngineHost.js';
 import { CONTROL_PARAMS } from './worklet/controls.js';
 
@@ -26,6 +26,8 @@ const SMOOTHING = 0.6;
 type Command =
   | { type: 'engine'; engine: Partial<EngineSpec> }
   | { type: 'graph'; graph: ExhaustGraph | null }
+  | { type: 'sources'; sources: SoundSources }
+  | { type: 'listener'; position: [number, number, number] | null }
   | { type: 'launch'; config: LaunchConfig | null }
   | { type: 'snapshotRate'; hz: number }
   | { type: 'timeScale'; scale: number }
@@ -146,6 +148,17 @@ export class NativeEngine implements EngineHost {
     const solved = graph ? solverGraph(graph) : null;
     this.config.graph = solved ?? undefined;
     void this.send({ type: 'graph', graph: solved });
+  }
+
+  setSources(sources: SoundSources): void {
+    this.config.sources = sources;
+    void this.send({ type: 'sources', sources });
+  }
+
+  setListener(position: [number, number, number] | null): void {
+    if (position) this.config.listener = position;
+    else delete this.config.listener;
+    void this.send({ type: 'listener', position });
   }
 
   launch(config: LaunchConfig | null): void {

@@ -165,6 +165,10 @@ matters.
   still read a ring seen edge on. Its axes must turn with the part, a pipe segment's x running along it
   with its y as near up as it can be. A snapped turn must land on 15-degree steps from the engine's axes,
   squaring up a part set at an odd angle, and a snapped move on 5 mm steps.
+- **Where the sound comes from.** On every preset, the app must place every mouth the solver radiates
+  from, by its duct, with the intake and casing; the default single's tailpipe must be at the end of
+  its megaphone, out to the side, and the LT6's two within 0.25 m of each other in the middle. Through
+  the Wasm build, a listener twice as far away must hear the engine half as loud.
 - **Headers.** On the LT6 at 8400 rpm, equal-length headers must fill the cylinder more than 1.5
   points past a manifold along the ports.
 - **Port injection.** With the fuel cut, neither the manifold nor a runner may hold more than a
@@ -204,7 +208,10 @@ matters.
   within each cycle *and*, held at a set speed as a dynamometer holds it, keep that average
   speed to 1% at every throttle.
   Reciprocating inertia must add up to zero work over a cycle. The ground reflection must
-  cancel at the frequencies the path-length difference predicts. Cycle-to-cycle *correlation*
+  cancel at the frequencies the path-length difference predicts. Twice as far from the engine, the
+  ear must hear it half as loud, to within 7.5%. Moving the ear mid-run must not step the output by
+  more than 1.5 times as much from one sample to the next as the steady note does, so a turn of the
+  view does not click. A mouth the sources do not place must still be heard. Cycle-to-cycle *correlation*
   is deliberately not used: it ignores amplitude, so turning scatter on only moves it
   0.991 → 0.967, where the RMS difference goes 14% → 28%.
 - **The twin.** The firing interval must follow `360 + vAngle`, and the override must break
@@ -251,6 +258,67 @@ In the web app, `npm test` replays the same file through the Wasm build, through
 AudioWorklet uses. That is what keeps the web app and the desktop app sounding the same: both builds
 must produce these samples exactly. The rest of `npm test` covers the interface: the pipe editor, the
 exhaust layout drawn in 3D, and the drawn engine.
+
+## Against a recording
+
+The tests check the physics piece by piece. To check the sound as a whole against a real engine, the
+`compare` example holds a preset at one speed and throttle and sets its sound against a recording:
+
+```
+cargo run --release -p engine-sim --example compare -- \
+    --preset F20C --rpm 6000 --throttle 1 \
+    --reference s2000_6000.wav --ref-start 1.5 --ref-seconds 4
+```
+
+Both sounds are reduced to two views, each normalised so the recording's gain and distance drop out:
+
+- **Engine orders.** The level of every half order up to 3 kHz, in dB against the firing order.
+  This shows whether the right harmonics are there, and in the right balance.
+- **Third-octave bands.** Band levels from 25 Hz to 16 kHz, in dB against their total. This shows
+  the tonal balance, including broadband noise between the orders.
+
+It also prints each sound's spectral tilt, in dB per octave from 100 Hz to 8 kHz, and its spectral
+centroid, along with the RMS and mean absolute difference over each view. `--csv` writes the tables
+and `--wav` writes the simulation's render.
+
+The recording's speed is refined from `--rpm` by finding where the firing order's first eight
+harmonics are strongest, within 7%, so a tachometer reading a few percent out does not misplace every
+order. `--ref-rpm-fixed` turns this off.
+
+### A dyno pull
+
+With `--sweep`, the recording is a pull rather than a hold, and `--rpm` is its speed where the part
+used starts:
+
+```
+cargo run --release -p engine-sim --example compare -- \
+    --preset LT6 --sweep --rpm 2100 \
+    --reference z06_dyno.wav --ref-start 36.3 --ref-seconds 10.6
+```
+
+The recording is cut into 0.17 s frames, and its speed is tracked from frame to frame: found within 7%
+of `--rpm` in the first, then within 3% of the frame before, and median-filtered over five frames.
+The speed it found is printed once a second, so it can be checked against a spectrogram. Seeded at the
+wrong speed, it follows the wrong lines. The simulation is then pulled on its dyno over the same range
+at the same average rate.
+
+Each frame's orders are taken at its own speed, so frames pool by order. The two sounds are compared
+over each band of speed, 500 rpm wide by default (`--bin`): each band's overall level against the
+pull's mean, the RMS difference of its orders and of its third-octave bands, and its tilt and
+centroid. Then they are compared over the whole pull, with the same tables as a hold.
+
+Fed its own pull, rendered with `--wav`, as the recording, the simulation matches itself to 0.3 dB in
+its orders and 0.1 dB in its bands. The tracked speed is within 0.2% of the crank's through the
+middle of the pull and within 2% at its ends.
+
+The recording must be WAV (PCM 16, 24 or 32-bit, or float) at any sample rate. Stereo is mixed to
+mono. A useful recording is steady: a dyno or a held throttle at one speed for a few seconds, out of
+the wind, with the speed and throttle written down. By default the simulated listener stands 1.5 m
+from the middle of the tailpipes, 45 degrees off the car's rear axis, with the ear 1.2 m above the
+ground, and the ground reflection puts notches in the spectrum that depend on those distances. So
+place the microphone the same way, or put the simulation's ear where the microphone was with
+`--listener x,y,z`, in metres in the drawn engine's frame: x across the crank, y up from it, z along
+it, rearwards. A recording from inside the car has no counterpart in the simulation.
 
 ## Sources
 

@@ -84,6 +84,7 @@ And for the simulation:
 | ----------------------------------------------------- | ------------------------------------------------------------------- |
 | `cargo test --release -p engine-sim`                  | Runs the physics tests and the reference renders. See [Verification](verification.md). |
 | `cargo run --release -p engine-sim --example bench`   | Measures how much real time each preset needs in the native build.  |
+| `cargo run --release -p engine-sim --example compare -- --help` | Compares a preset's sound with a recording of the real engine. See [Verification](verification.md#against-a-recording). |
 
 After changing the simulation, run `npm run build:sim`, so the web app runs the change too, and
 commit the rebuilt `simWasm.ts` with it.

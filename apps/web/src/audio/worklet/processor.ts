@@ -9,7 +9,7 @@
  * and would put the acoustics at the mercy of garbage collection and rendering hitches.
  */
 
-import type { LaunchConfig, EngineConfig, EngineSnapshot, EngineSpec } from '../../model/spec.js';
+import type { LaunchConfig, EngineConfig, EngineSnapshot, EngineSpec, SoundSources } from '../../model/spec.js';
 import type { ExhaustGraph } from '../../model/exhaustGraph.js';
 import { CONTROL_PARAMS } from './controls.js';
 import { Sim } from './sim.js';
@@ -18,6 +18,8 @@ import { Sim } from './sim.js';
 export type ToWorklet =
   | { type: 'engine'; engine: Partial<EngineSpec> }
   | { type: 'graph'; graph: ExhaustGraph | null }
+  | { type: 'sources'; sources: SoundSources }
+  | { type: 'listener'; position: [number, number, number] | null }
   | { type: 'snapshotRate'; hz: number }
   | { type: 'timeScale'; scale: number }
   | { type: 'ignition'; on: boolean }
@@ -61,6 +63,12 @@ class EngineProcessor extends AudioWorkletProcessor {
             // A drawn exhaust: a new set of ducts on the audio thread, a one-off cost paid only when
             // the user edits, with a short ramp hiding the discontinuity.
             this.sim.setGraph(msg.graph);
+            break;
+          case 'sources':
+            this.sim.setSources(msg.sources);
+            break;
+          case 'listener':
+            this.sim.setListener(msg.position);
             break;
           case 'launch':
             // `null` ends the run in progress.

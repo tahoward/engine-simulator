@@ -11,7 +11,7 @@ mod common;
 use common::{FS, magnitude_spectrum, rms};
 use engine_sim::EngineSim;
 use engine_sim::cylinder::{Cylinder, SpecInstance};
-use engine_sim::listener::{Listener, ListenerGeometry};
+use engine_sim::listener::{Listener, MouthPlace, SoundSources};
 use engine_sim::spec::{CrankGeometry, SegmentPartial, crank_at, cylinder_volume, gas, make_segment};
 use serde_json::json;
 use std::f64::consts::PI;
@@ -71,11 +71,28 @@ fn rpm_range(s: &mut EngineSim, n: usize) -> (f64, f64) {
     (lo, hi)
 }
 
-/// The impulse response of a listener at `geom`, `n` samples long.
-fn impulse_response(geom: ListenerGeometry, n: usize) -> Vec<f32> {
+/// A source and an ear `distance` apart across the ground, m, at their heights, over ground that
+/// reflects `reflection`.
+#[derive(Clone, Copy)]
+struct Geom {
+    distance: f64,
+    mic_height: f64,
+    source_height: f64,
+    reflection: f64,
+}
+
+/// A listener at `geom`, its one path settled there.
+fn listener_at(geom: Geom) -> Listener {
     let mut l = Listener::new(FS);
-    l.set_geometry(geom);
-    (0..n).map(|i| l.process(if i == 0 { 1.0 } else { 0.0 }) as f32).collect()
+    let ear = [geom.distance, geom.mic_height, 0.0];
+    l.set_geometry(ear, &[[0.0, geom.source_height, 0.0]], 0.0, geom.reflection, true);
+    l
+}
+
+/// The impulse response of a listener at `geom`, `n` samples long.
+fn impulse_response(geom: Geom, n: usize) -> Vec<f32> {
+    let mut l = listener_at(geom);
+    (0..n).map(|i| l.process(0, if i == 0 { 1.0 } else { 0.0 }) as f32).collect()
 }
 
 // --- no two cycles are alike ---
@@ -198,7 +215,7 @@ fn does_no_net_work_over_a_cycle_so_it_cannot_change_the_mean_speed() {
 /// The ground reflection combs the spectrum where geometry says it should.
 #[test]
 fn the_ground_reflection_combs_the_spectrum_where_geometry_says_it_should() {
-    let geom = ListenerGeometry { distance: 1.5, mic_height: 1.2, source_height: 0.35, reflection: 1.0 };
+    let geom = Geom { distance: 1.5, mic_height: 1.2, source_height: 0.35, reflection: 1.0 };
 
     // Impulse in, so the response is the two-path filter itself.
     let n = 8192;
@@ -221,7 +238,7 @@ fn the_ground_reflection_combs_the_spectrum_where_geometry_says_it_should() {
 fn moving_the_listener_changes_the_colouration() {
     let response = |mic_height: f64| {
         let n = 4096;
-        let geom = ListenerGeometry { distance: 1.5, mic_height, source_height: 0.35, reflection: 0.8 };
+        let geom = Geom { distance: 1.5, mic_height, source_height: 0.35, reflection: 0.8 };
         magnitude_spectrum(&impulse_response(geom, n), n)
     };
     let a = response(0.4);
@@ -234,11 +251,10 @@ fn moving_the_listener_changes_the_colouration() {
 #[test]
 fn a_hard_surface_reflects_more_than_a_soft_one() {
     let energy = |reflection: f64| {
-        let mut l = Listener::new(FS);
-        l.set_geometry(ListenerGeometry { distance: 2.0, mic_height: 1.2, source_height: 0.35, reflection });
+        let mut l = listener_at(Geom { distance: 2.0, mic_height: 1.2, source_height: 0.35, reflection });
         let mut e = 0.0;
         for i in 0..4096 {
-            let y = l.process(if i == 0 { 1.0 } else { 0.0 });
+            let y = l.process(0, if i == 0 { 1.0 } else { 0.0 });
             e += y * y;
         }
         e
@@ -251,7 +267,7 @@ fn a_hard_surface_reflects_more_than_a_soft_one() {
 fn distance_still_attenuates_and_dulls_as_well_as_quietens() {
     let measure = |distance: f64| {
         let n = 4096;
-        let geom = ListenerGeometry { distance, mic_height: 1.2, source_height: 0.35, reflection: 0.7 };
+        let geom = Geom { distance, mic_height: 1.2, source_height: 0.35, reflection: 0.7 };
         let mag = magnitude_spectrum(&impulse_response(geom, n), n);
         let bin_hz = FS / n as f64;
         let band = |lo: f64, hi: f64| {
@@ -323,8 +339,6 @@ fn mechanical_noise_sits_well_below_an_open_exhaust() {
 fn stays_finite_with_degenerate_listener_geometry() {
     let mut s = sim(
         json!({
-            "micDistance": 0.05,
-            "micHeight": 0,
             "exhaustHeight": 0,
             "groundReflection": 1,
             "recipMass": 5,
@@ -332,11 +346,63 @@ fn stays_finite_with_degenerate_listener_geometry() {
         }),
         1,
     );
+    // The ear on the casing, below the ground.
+    s.set_listener(Some([0.0, -5.0, 0.0]));
     let buf = s.render(FS_N);
     for &v in &buf {
         assert!(v.is_finite());
         assert!(v.abs() <= 1.0);
     }
+}
+
+/// The default single, every source of it at `at`, heard from `ear` over ground that reflects nothing.
+fn heard_from(at: [f64; 3], ear: [f64; 3]) -> EngineSim {
+    let mut cfg = common::default_config();
+    cfg.engine.rpm = 3200.0;
+    cfg.engine = common::with(&cfg.engine, json!({ "groundReflection": 0, "combustionVariability": 0 }));
+    let mut s = EngineSim::new(FS, &cfg);
+    let duct = s.pipe_solver().mouth_duct_id(0).unwrap().to_string();
+    s.set_sources(SoundSources {
+        mouths: vec![MouthPlace { duct, position: at }],
+        intake: Some(at),
+        engine: Some(at),
+        turbo: Some(at),
+    });
+    s.set_listener(Some(ear));
+    s.render(FS_N * 2);
+    s
+}
+
+/// Twice as far from the engine, the ear hears it half as loud.
+#[test]
+fn twice_as_far_from_the_engine_the_ear_hears_it_half_as_loud() {
+    let at = [0.3, 0.2, 1.4];
+    let near = rms(&heard_from(at, [at[0] + 1.0, at[1], at[2]]).render(FS_N));
+    let far = rms(&heard_from(at, [at[0] + 2.0, at[1], at[2]]).render(FS_N));
+    // Air absorption takes a little more of the treble over the longer path.
+    assert!((near / far - 2.0).abs() < 0.15, "near {near} far {far}");
+}
+
+/// The ear can be moved without a click: the paths glide to their new lengths.
+#[test]
+fn the_ear_can_be_moved_without_a_click() {
+    let at = [0.0, 0.0, 1.0];
+    let mut s = heard_from(at, [1.0, 1.0, 2.0]);
+    let steps = |buf: &[f32]| buf.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0f32, f32::max);
+    let steady = steps(&s.render(FS_N / 2));
+    s.set_listener(Some([-2.0, 0.5, 3.5]));
+    let moving = steps(&s.render(FS_N / 10));
+    assert!(moving < steady * 1.5, "steps {moving} moving against {steady} steady");
+}
+
+/// A mouth the sources do not name is still heard, from behind the engine.
+#[test]
+fn a_mouth_the_sources_do_not_name_is_still_heard() {
+    let mut cfg = common::default_config();
+    cfg.sources = Some(SoundSources::default());
+    let mut s = EngineSim::new(FS, &cfg);
+    s.render(FS_N);
+    assert!(rms(&s.render(FS_N / 2)) > 1e-3);
 }
 
 // --- the basics still hold ---

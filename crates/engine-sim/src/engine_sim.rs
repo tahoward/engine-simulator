@@ -16,7 +16,7 @@
 use crate::afterfire::Afterfire;
 use crate::cylinder::{AdvanceIo, CrackleSpark, CylState, Cylinder, SpecInstance};
 use crate::drivetrain::{LaunchPhase, LaunchRun};
-use crate::dsp::{Delay, Impact, Noise, Resonator, soft_clip, wrap_cycle};
+use crate::dsp::{Impact, Noise, Resonator, soft_clip, wrap_cycle};
 use crate::euler_pipe::{
     DEFAULT_CFL, DEFAULT_MAX_CELLS, EulerPipeOptions, HeadPort, ValveState, duct_cell_count, duct_grid_length,
     single_step_dx,
@@ -24,7 +24,7 @@ use crate::euler_pipe::{
 use crate::exhaust_graph::{ExhaustGraph, compile_exhaust, node_order, validate_graph};
 use crate::exhaust_system::ExhaustSystem;
 use crate::intake::{IntakeRunners, RunnerIo};
-use crate::listener::{Listener, ListenerGeometry};
+use crate::listener::{Listener, SoundSources, Vec3};
 use crate::math::{self, PI, clamp};
 use crate::plenum::{IntakePlenum, throttle_dia_of};
 use crate::radiation::{FarField, Steepening};
@@ -114,9 +114,18 @@ const SLAP_PA_AT_1M: f64 = 3.5;
 /// RMS turbulent fluctuation of the plane-wave volume velocity, as a fraction of the mean valve flow.
 const TURBULENCE_INTENSITY: f64 = 0.1;
 
-/// How far ahead of the exhaust mouths the intake draws its air, m, along the line the mouths lie
-/// across: the length of a car from its tailpipe to its engine bay.
-const INTAKE_OFFSET_M: f64 = 3.0;
+/// Where a mouth the sources do not place goes: in a row across the car, this far apart, this far
+/// behind the crank's middle, m.
+const UNPLACED_MOUTH_SPACING: f64 = 0.4;
+const UNPLACED_MOUTH_REAR: f64 = 1.0;
+
+/// Where the intake draws its air when the sources do not say, m: above the front of the engine.
+const UNPLACED_INTAKE: Vec3 = [0.0, 0.3, -0.4];
+
+/// Where the ear is when no listener is given: this far from the middle of the mouths, at 45 degrees
+/// off the car's rear axis, and this high above the ground, m.
+const DEFAULT_EAR_DISTANCE: f64 = 1.5;
+const DEFAULT_EAR_HEIGHT: f64 = 1.2;
 
 /// The engine the structure-borne frequencies were set against: the default single.
 const REFERENCE_DISPLACEMENT_M3: f64 = 4.977e-4;
@@ -158,6 +167,15 @@ const STRUCTURE_PA_PER_GPA_S: f64 = 0.55;
 
 /// Per-cylinder valve-timing spread at `cylinder_spread = 1`, crank degrees peak.
 const CAM_SPREAD_DEG: f64 = 2.2;
+
+/// The sources heard after the mouths, in the order of their paths to the ear.
+#[derive(Clone, Copy)]
+enum Source {
+    Shells,
+    Intake,
+    Casing,
+    Turbo,
+}
 
 /// Time constant, s, of the mean-torque tracker and of the rpm readout's smoothing.
 const IRREGULARITY_TAU: f64 = 0.12;
@@ -232,14 +250,13 @@ pub struct EngineSim {
     structure_lp_c: f64,
     structure_lp1: f64,
     structure_lp2: f64,
+    /// Every source's path to the ear: the mouths in order, then the muffler shells, the intake, the
+    /// casing and the turbos (`Source`).
     listener: Listener,
-    mouth_delays: Vec<Delay>,
-    mouth_gains: Vec<f64>,
-    /// The throttle's mouth, on an engine without a turbo, and its path to the ear relative to the
-    /// nearest exhaust mouth's.
+    sources: SoundSources,
+    ear: Option<Vec3>,
+    /// The throttle's mouth, on an engine without a turbo.
     intake_far_field: FarField,
-    intake_delay: Delay,
-    intake_gain: f64,
     breathing: Vec<f64>,
     timing: Vec<f64>,
     last_valve_mdot: Vec<f64>,
@@ -371,11 +388,9 @@ impl EngineSim {
             structure_lp1: 0.0,
             structure_lp2: 0.0,
             listener: Listener::new(sample_rate),
-            mouth_delays: Vec::new(),
+            sources: config.sources.clone().unwrap_or_default(),
+            ear: config.listener,
             intake_far_field: FarField::new(sample_rate, 0.0),
-            intake_delay: Delay::new(((12.0 / ambient_sound_speed()) * sample_rate).ceil()),
-            intake_gain: 0.0,
-            mouth_gains: vec![0.0; 1],
             breathing: Vec::new(),
             timing: Vec::new(),
             last_valve_mdot: Vec::new(),
@@ -449,12 +464,11 @@ impl EngineSim {
         sim.build_intake();
         sim.structure = STRUCTURAL_MODES.iter().map(|&(hz, q)| Resonator::new(hz, q, sample_rate)).collect();
         sim.tune_structure();
-        sim.set_listener_geometry();
         sim.omega_mean = (math::min(sim.spec.spec.rpm, sim.spec.spec.rev_limit) * 2.0 * PI) / 60.0;
         sim.omega = sim.omega_mean;
         sim.omega_display = sim.omega_mean;
         sim.refresh_far_fields();
-        sim.refresh_mouth_paths();
+        sim.refresh_paths(true);
         sim.refresh_turbo();
         sim
     }
@@ -491,16 +505,6 @@ impl EngineSim {
         self.afterfire.set_charge(self.full_charge_kg, fuel_fraction_at(1.0));
         self.displacement_m3 = displacement(spec) * spec.cylinders as f64;
         self.load_torque_nm = load_torque_of(spec, self.turbo.is_some());
-    }
-
-    fn set_listener_geometry(&mut self) {
-        let spec = &self.spec.spec;
-        self.listener.set_geometry(ListenerGeometry {
-            distance: spec.mic_distance,
-            mic_height: spec.mic_height,
-            source_height: spec.exhaust_height,
-            reflection: spec.ground_reflection,
-        });
     }
 
     /// One far field and one steepening run per mouth, tuned to that mouth, keeping existing filters'
@@ -641,8 +645,7 @@ impl EngineSim {
         if !self.spec.spec.free_running && !self.integrating_crank() {
             self.omega_mean = (self.spec.spec.rpm * 2.0 * PI) / 60.0;
         }
-        self.set_listener_geometry();
-        self.refresh_mouth_paths();
+        self.refresh_paths(false);
         self.wg.set_turbulence(self.spec.spec.throat_noise);
         self.plenum.set_geometry(&self.spec.spec);
         self.refresh_turbo();
@@ -735,7 +738,7 @@ impl EngineSim {
         for s in self.steepening.iter_mut() {
             s.reset();
         }
-        self.refresh_mouth_paths();
+        self.refresh_paths(false);
         self.rebuild_ramp = 0.0;
         self.refresh_turbo();
     }
@@ -967,39 +970,70 @@ impl EngineSim {
         }
     }
 
-    /// Each mouth's path to the ear: the mouths in a line, the listener off to one side, and each
-    /// mouth's extra delay and spreading loss relative to the nearest.
-    fn refresh_mouth_paths(&mut self) {
+    /// Where the engine makes its sound, as drawn: each tailpipe's outlet, the intake, the casing and
+    /// the turbos. A mouth it does not place stands in a row across the car with the others it does not
+    /// place, `UNPLACED_MOUTH_SPACING` apart, behind the engine; an intake it does not place is above
+    /// the front of the engine, and a casing or turbo at the crank's middle.
+    pub fn set_sources(&mut self, sources: SoundSources) {
+        self.sources = sources;
+        self.refresh_paths(false);
+    }
+
+    /// Put the listener's ear at `ear`, m, in the frame the sources are in; with `None`,
+    /// `DEFAULT_EAR_DISTANCE` from the middle of the mouths, at 45 degrees off the car's rear axis and
+    /// `DEFAULT_EAR_HEIGHT` above the ground. The paths glide to it.
+    pub fn set_listener(&mut self, ear: Option<Vec3>) {
+        self.ear = ear;
+        self.refresh_paths(false);
+    }
+
+    /// Every source's path to the ear, from where the sources are and where the ear is. The ground is
+    /// `exhaust_height` below the lowest mouth.
+    fn refresh_paths(&mut self, snap: bool) {
         let count = self.wg.mouth_count().max(1);
+        let unplaced: Vec<usize> = (0..count)
+            .filter(|&m| !self.sources.mouths.iter().any(|p| Some(p.duct.as_str()) == self.wg.mouth_duct_id(m)))
+            .collect();
+        let mut places: Vec<Vec3> = (0..count)
+            .map(|m| {
+                let id = self.wg.mouth_duct_id(m);
+                match self.sources.mouths.iter().find(|p| Some(p.duct.as_str()) == id) {
+                    Some(p) => p.position,
+                    None => {
+                        let k = unplaced.iter().position(|&u| u == m).unwrap_or(0) as f64;
+                        let lateral = (k - (unplaced.len() as f64 - 1.0) / 2.0) * UNPLACED_MOUTH_SPACING;
+                        [lateral, 0.0, UNPLACED_MOUTH_REAR]
+                    }
+                }
+            })
+            .collect();
+        let n = count as f64;
+        let middle = [
+            places.iter().map(|p| p[0]).sum::<f64>() / n,
+            places.iter().map(|p| p[1]).sum::<f64>() / n,
+            places.iter().map(|p| p[2]).sum::<f64>() / n,
+        ];
+        let ground = places.iter().map(|p| p[1]).fold(f64::INFINITY, f64::min) - self.spec.spec.exhaust_height;
+        let casing = self.sources.engine.unwrap_or([0.0; 3]);
+        // The muffler shells radiate from along the exhaust: from the middle of its mouths.
+        places.push(middle);
+        places.push(self.sources.intake.unwrap_or(UNPLACED_INTAKE));
+        places.push(casing);
+        places.push(self.sources.turbo.unwrap_or(casing));
+        let ear = self.ear.unwrap_or_else(|| {
+            let lean = DEFAULT_EAR_DISTANCE * math::sin(PI / 4.0);
+            [middle[0] + lean, ground + DEFAULT_EAR_HEIGHT, middle[2] + lean]
+        });
+        self.listener.set_geometry(ear, &places, ground, self.spec.spec.ground_reflection, snap);
+
         let c = ambient_sound_speed();
-        let spacing = math::max(self.spec.spec.mouth_spacing, 0.0);
-        let distance = math::max(self.spec.spec.mic_distance, 0.15);
-        const AZIMUTH: f64 = PI / 4.0;
-        let lx = distance * math::cos(AZIMUTH);
-        let ly = distance * math::sin(AZIMUTH);
-
-        let mut ranges = vec![0.0; count];
-        let mut nearest = f64::INFINITY;
-        for m in 0..count {
-            let lateral = (m as f64 - (count as f64 - 1.0) / 2.0) * spacing;
-            ranges[m] = math::hypot(&[lx - lateral, ly]);
-            nearest = math::min(nearest, ranges[m]);
-        }
-        if self.mouth_delays.len() != count {
-            self.mouth_delays = (0..count).map(|_| Delay::new(((4.0 / c) * self.sample_rate).ceil())).collect();
-            self.mouth_gains = vec![0.0; count];
-        }
-        for m in 0..count {
-            self.mouth_delays[m].set_delay(((ranges[m] - nearest) / c) * self.sample_rate);
-            self.mouth_gains[m] = nearest / ranges[m];
-        }
-
-        // The intake, the engine's length ahead of the mouths, and the listener behind them.
-        let intake_range = math::hypot(&[lx + INTAKE_OFFSET_M, ly]);
-        self.intake_delay.set_delay((math::max(intake_range - nearest, 0.0) / c) * self.sample_rate);
-        self.intake_gain = nearest / intake_range;
         let radius = throttle_dia_of(&self.spec.spec) / 2.0;
         self.intake_far_field.set_cutoff((2.0 * c) / radius, (1.8412 * c) / radius);
+    }
+
+    /// The path `source` takes to the ear, after the mouths'.
+    fn path_of(&self, source: Source) -> usize {
+        self.wg.mouth_count().max(1) + source as usize
     }
 
     /// The cylinders, phased on one shared crank, each with its own noise seed.
@@ -1423,36 +1457,27 @@ impl EngineSim {
 
         // --- Radiate ---
         let flows = &self.wg.result.mouth_flows;
-        let mut exhaust_pa = 0.0;
-        if flows.len() == 1 {
-            let (_, t, a) = self.wg.radiating_duct(0).read_mouth();
-            let q = self.steepening[0].process(flows[0], a, t);
-            exhaust_pa = self.far_fields[0].process(q);
-        } else {
-            for m in 0..flows.len() {
-                let (_, t, a) = self.wg.radiating_duct(m).read_mouth();
-                let q = self.steepening[m].process(flows[m], a, t);
-                let delayed = self.mouth_delays[m].process(q);
-                exhaust_pa += self.far_fields[m].process(delayed) * self.mouth_gains[m];
-            }
+        let mut pa = 0.0;
+        for m in 0..flows.len() {
+            let (_, t, a) = self.wg.radiating_duct(m).read_mouth();
+            let q = self.steepening[m].process(flows[m], a, t);
+            pa += self.listener.process(m, self.far_fields[m].process(q));
         }
+        let mut shells_pa = 0.0;
+        for shell in self.shells.iter_mut() {
+            shells_pa += shell.process(&self.wg.ducts[shell.duct()]);
+        }
+        pa += self.listener.process(self.path_of(Source::Shells), shells_pa);
         // The throttle's mouth breathes in what the engine draws. A turbocharged engine draws through its
         // compressors instead, whose inlets the turbo radiates itself.
-        let mut intake_pa = 0.0;
         if self.turbo.is_none() {
-            intake_pa = self.intake_far_field.process(-throttle_flow / density(gas::P_AMB, gas::T_AMB));
-            intake_pa = self.intake_delay.process(intake_pa) * self.intake_gain;
+            let intake_pa = self.intake_far_field.process(-throttle_flow / density(gas::P_AMB, gas::T_AMB));
+            pa += self.listener.process(self.path_of(Source::Intake), intake_pa);
         }
-
-        for shell in self.shells.iter_mut() {
-            exhaust_pa += shell.process(&self.wg.ducts[shell.duct()]);
+        pa += self.listener.process(self.path_of(Source::Casing), direct_pa);
+        if self.turbo.is_some() {
+            pa += self.listener.process(self.path_of(Source::Turbo), turbo_pa);
         }
-
-        let mut pa = if self.turbo.is_some() {
-            self.listener.process(exhaust_pa + intake_pa + direct_pa + turbo_pa)
-        } else {
-            self.listener.process(exhaust_pa + intake_pa + direct_pa)
-        };
 
         if self.rebuild_ramp < 1.0 {
             self.rebuild_ramp = math::min(1.0, self.rebuild_ramp + self.rebuild_ramp_step);

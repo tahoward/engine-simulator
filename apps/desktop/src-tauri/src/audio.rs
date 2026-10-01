@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use engine_sim::exhaust_graph::ExhaustGraph;
+use engine_sim::listener::SoundSources;
 use engine_sim::{EngineConfig, EngineSim, LaunchConfig};
 use serde::{Deserialize, Serialize};
 
@@ -56,6 +57,14 @@ pub enum Command {
     },
     Launch {
         config: Option<LaunchConfig>,
+    },
+    /// Where the engine makes its sound.
+    Sources {
+        sources: SoundSources,
+    },
+    /// Where the listener's ear is, m; `None` where it stands by default.
+    Listener {
+        position: Option<[f64; 3]>,
     },
     SnapshotRate {
         hz: f64,
@@ -404,6 +413,8 @@ fn apply(sim: &mut EngineSim, command: Command, snapshot_interval: &mut usize, s
             }
         }
         Command::Graph { graph } => sim.set_graph(graph),
+        Command::Sources { sources } => sim.set_sources(sources),
+        Command::Listener { position } => sim.set_listener(position),
         Command::Launch { config } => match config {
             Some(c) => sim.start_launch(c),
             None => sim.stop_launch(),
@@ -497,5 +508,11 @@ mod tests {
         assert!(matches!(c, Command::Engine { .. }));
         let c: Command = serde_json::from_str(r#"{"type":"timeScale","scale":0.01}"#).unwrap();
         assert!(matches!(c, Command::TimeScale { scale } if scale == 0.01));
+        let c: Command =
+            serde_json::from_str(r#"{"type":"sources","sources":{"mouths":[{"duct":"a","position":[0,0,1]}]}}"#)
+                .unwrap();
+        assert!(matches!(c, Command::Sources { sources } if sources.mouths.len() == 1));
+        let c: Command = serde_json::from_str(r#"{"type":"listener","position":[1,1.2,2]}"#).unwrap();
+        assert!(matches!(c, Command::Listener { position: Some(p) } if p == [1.0, 1.2, 2.0]));
     }
 }

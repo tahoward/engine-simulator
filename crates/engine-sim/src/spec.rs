@@ -19,6 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::exhaust_graph::ExhaustGraph;
+use crate::listener::{SoundSources, Vec3};
 use crate::math::{self, PI};
 
 /// Shape of one length of exhaust plumbing.
@@ -208,10 +209,7 @@ pub struct EngineSpec {
     pub pipe_cell_size: f64,
     pub pipe_wall_thickness: f64,
     pub air_speed: f64,
-    pub mic_distance: f64,
-    pub mic_height: f64,
     pub exhaust_height: f64,
-    pub mouth_spacing: f64,
     pub cylinder_spread: f64,
     pub ground_reflection: f64,
     pub output_gain: f64,
@@ -293,11 +291,8 @@ impl Default for EngineSpec {
             pipe_cell_size: 0.035,
             pipe_wall_thickness: 0.0012,
             air_speed: 0.0,
-            mic_distance: 1.5,
-            mic_height: 1.2,
             exhaust_height: 0.35,
-            mouth_spacing: 0.4,
-            cylinder_spread: 1.0,
+            cylinder_spread: 0.3,
             ground_reflection: 0.7,
             output_gain: 0.77,
             mech_noise: 0.45,
@@ -332,6 +327,13 @@ pub struct EngineConfig {
     /// The duct graph the exhaust is built from. Authoritative when present.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub graph: Option<ExhaustGraph>,
+    /// Where the engine makes its sound, as drawn. Without it, or for a mouth it does not place, see
+    /// `EngineSim::set_sources`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sources: Option<SoundSources>,
+    /// Where the listener's ear is, m, in the same frame. Without it, see `EngineSim::set_listener`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub listener: Option<Vec3>,
 }
 
 /// Per-cylinder state, so the renderer can animate each bank.

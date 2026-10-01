@@ -57,13 +57,13 @@ Where the model is simplified, and by how much.
   solver has a small [second-order](glossary.md#order-of-accuracy) error that grows at about 1.4 /s. Normal damping is 150 /s,
   about a hundred times larger, so it stays suppressed. It is not zero.
 - **Engine body noise is simplified.** It uses four lumped modes, not a vibration model of a
-  real casting. It also comes from the same point as the exhaust, not from its own position
-  with its own direction pattern.
-- **Tailpipe positions are partly simplified.** Mouths are spaced along a line, each with its
-  own delay, distance loss and far-field radiation. But they share one ground reflection and one
-  air-absorption path, and are assumed to be at the same height. That is close, since tailpipes
-  usually sit at about one height. The listener's angle is fixed at 45 degrees and is not a
-  control.
+  real casting, radiating equally every way from the engine's middle.
+- **Every source radiates equally in every direction.** Each tailpipe, the intake, the casing and the
+  turbos are heard from where they are drawn, but none has a direction pattern: a real open pipe beams
+  its treble along its axis. The intake is placed above the front of the engine, where its throttle
+  would be, not from a drawn airbox, and the muffler shells' sound comes from the middle of the
+  tailpipes rather than from each can. The ground is flat and lies one height below the lowest
+  tailpipe; there is no car body to shade or reflect anything.
 - **A few constants are tuned, not derived.** The linear acoustic damping coefficient is fitted
   to measured duct decay rates. It is the one openly empirical constant in the acoustics. The
   only others chosen by ear are the two structure-borne noise levels and the turbulence

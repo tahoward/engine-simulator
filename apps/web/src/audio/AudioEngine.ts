@@ -6,7 +6,7 @@
  */
 
 import { solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
-import type { LaunchConfig, EngineConfig, EngineSpec } from '../model/spec.js';
+import type { LaunchConfig, EngineConfig, EngineSpec, SoundSources } from '../model/spec.js';
 import { CONTROL_PARAMS } from './worklet/controls.js';
 import type { FromWorklet, ToWorklet } from './worklet/processor.js';
 
@@ -60,6 +60,8 @@ export class AudioEngine implements EngineHost {
       // Without it the worklet compiles its own exhaust from the layout at start, and a drawn one
       // restored from the URL would be on screen but not in the sound until the next edit.
       ...(config.graph ? { graph: structuredClone(solverGraph(config.graph)) } : {}),
+      ...(config.sources ? { sources: structuredClone(config.sources) } : {}),
+      ...(config.listener ? { listener: [...config.listener] } : {}),
     };
   }
 
@@ -261,6 +263,17 @@ export class AudioEngine implements EngineHost {
     const solved = graph ? solverGraph(graph) : null;
     this.config.graph = solved ?? undefined;
     this.post({ type: 'graph', graph: solved });
+  }
+
+  setSources(sources: SoundSources): void {
+    this.config.sources = sources;
+    this.post({ type: 'sources', sources });
+  }
+
+  setListener(position: [number, number, number] | null): void {
+    if (position) this.config.listener = position;
+    else delete this.config.listener;
+    this.post({ type: 'listener', position });
   }
 
   /** Start a launch through `config`, or with `null` end the one in progress. */
