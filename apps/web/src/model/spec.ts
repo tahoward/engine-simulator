@@ -299,6 +299,13 @@ export interface EngineSpec {
    * intake's advance, intake and exhaust lobes together, and the exhaust's map is ignored.
    */
   vvtLinked: boolean;
+  /**
+   * The valvetrain as drawn: one camshaft in the block, in the valley of a V, working the valves through
+   * tappets, pushrods and rocker arms, rather than a cam over each row of valves pressing on them through
+   * buckets. The tappets and rocker arms are drawn, the pushrods between them not. Drawn only: the
+   * simulation follows the valves' lift and does not model what drives it.
+   */
+  pushrods: boolean;
 
   // --- Combustion ---
   /**
@@ -1265,6 +1272,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
   vvtLowRpm: 2000,
   vvtHighRpm: 6000,
   vvtLinked: false,
+  pushrods: false,
 
   ignition: 695, // 25 deg BTDC
   burnDuration: 55,
@@ -2304,6 +2312,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       ...IDLING,
       // Long-stroke and pushrod: a Harley stops pulling not far past 5500.
       revLimit: 5600,
+      pushrods: true,
       flywheelInertia: 0.4,
       // Its own, independent of the default the single uses.
       outputGain: 0.55,
@@ -2549,6 +2558,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     description:
       'The 6.2 litre small-block in the mid-engine Corvette: pushrods, two big valves a cylinder, 11.5:1 and a cam that closes the intake late, which only pays off because its long intake runners ram the charge in. Tubular headers into a silencer each side. It makes about 640 N·m and 495 hp here, as the real engine makes 637 and 495.',
     engine: {
+      pushrods: true,
       cylinders: 8,
       vAngle: 90,
       crankType: 'crossplane',

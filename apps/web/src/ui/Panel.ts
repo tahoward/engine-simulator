@@ -1203,6 +1203,12 @@ export class Panel {
       'exhaust lobes with it, and the exhaust settings do nothing. At idle and light load every cam ' +
       'sits at rest, for a steady idle.';
     this.resyncers.push(() => (checkbox(linked).checked = this.config.engine.vvtLinked));
+    const pushrods = toggle(valves, 'Pushrods', spec.pushrods, (on) => this.cb.onEngine({ pushrods: on }));
+    pushrods.title =
+      'How the valves are worked, as drawn: one camshaft in the block, in the valley of a V, through ' +
+      'tappets and rocker arms, or with it off a cam over each row of valves. The simulation ' +
+      'follows the valves\u2019 lift either way.';
+    this.resyncers.push(() => (checkbox(pushrods).checked = this.config.engine.pushrods));
 
     // ---- Intake ------------------------------------------------------------
     const intake = section('Intake', 'intake', 'Runners, plenum and throttle body.');
