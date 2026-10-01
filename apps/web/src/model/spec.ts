@@ -1661,8 +1661,11 @@ export function cylinderSpacing(spec: EngineSpec): number {
   // need not clear each other's bores: half the pitch keeps each bank's own cylinders the usual distance
   // apart, and the opposed pairs just offset, as a real flat engine's are.
   if (isBoxer(spec)) return spec.bore * 0.75;
-  // Wide enough that a cylinder staggered along its throw (`rodStagger`) clears the next throw's too.
-  return Math.max(spec.bore * 1.45, 2 * rodStagger(spec));
+  // Wide enough that a cylinder staggered along its throw (`rodStagger`) clears the next throw's too, and
+  // that a throw's pins, as wide as its stagger twice over, leave room between it and the next for a web
+  // either side of a main journal.
+  const stagger = rodStagger(spec);
+  return stagger > ROD_STAGGER ? Math.max(spec.bore * 1.45, 2 * stagger + THROW_ROOM) : spec.bore * 1.45;
 }
 
 /**
@@ -1672,13 +1675,23 @@ export function cylinderSpacing(spec: EngineSpec): number {
  */
 export const ROD_STAGGER = 0.016;
 
+/** What lies between one throw's pins and the next's along the crank, m: a web each side of a main journal. */
+const THROW_ROOM = 0.05;
+
+/**
+ * How thick the web between a split pin's two offset pins is along the crank, m: it adds to their
+ * stagger, so each pin keeps a rod's width of its own.
+ */
+export const SPLIT_WEB = 0.005;
+
 /** How far apart a V's pistons have to stay, m, side to side or along the crank. */
 const PISTON_GAP = 0.004;
 
 const staggers = new Map<string, number>();
 
 /**
- * How far apart along the crank the cylinders sharing a throw sit, m: `ROD_STAGGER`, or in a V too narrow
+ * How far apart along the crank the cylinders sharing a throw sit, m: `ROD_STAGGER`, and `SPLIT_WEB` more
+ * on a split pin, for the web between its two pins; or in a V too narrow
  * for the two banks' pistons to pass each other at the bottom of their strokes, as far again as keeps
  * them clear, as a VR engine's banks are staggered.
  *
@@ -1697,6 +1710,8 @@ export function rodStagger(spec: EngineSpec): number {
       })),
     );
   if (pairs.length === 0) return ROD_STAGGER;
+  const split = pairs.some(([p, q]) => Math.abs(p!.pin - q!.pin) > 1e-9);
+  const least = ROD_STAGGER + (split ? SPLIT_WEB : 0);
   const key = `${spec.bore} ${spec.stroke} ${spec.rodLength} ${spec.vAngle} ${pairs.map((p) => p.map((c) => c.pin).join(',')).join(';')}`;
   const known = staggers.get(key);
   if (known !== undefined) return known;
@@ -1741,7 +1756,7 @@ export function rodStagger(spec: EngineSpec): number {
       }
       return false;
     });
-  let stagger = ROD_STAGGER;
+  let stagger = least;
   while (stagger < 4 * spec.bore && touch(stagger)) stagger += 0.001;
   staggers.set(key, stagger);
   return stagger;

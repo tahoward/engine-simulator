@@ -15,6 +15,7 @@ import {
   crankPins,
   mainBearingsAfter,
   ROD_STAGGER,
+  SPLIT_WEB,
   defaultConfig,
   firingPlan,
   makeSegment,
@@ -24,6 +25,7 @@ import {
 import { Sim } from '../src/audio/worklet/sim.js';
 import { compileCollectorLayout } from '../src/model/exhaustGraph.js';
 import { EngineMesh } from '../src/scene/EngineMesh.js';
+import { crankPinRadius } from '../src/model/geometry.js';
 
 const FS = 48000;
 
@@ -149,7 +151,7 @@ describe('the drawn mechanism', () => {
         // Flat: only as thick as a web, not tipped out of the plane the crank turns in.
         expect(zMax - zMin).toBeLessThan(0.012);
         // Round the pin on one side, and reaching further out on the other, opposite it.
-        expect(towards).toBeCloseTo(a + 0.022, 6);
+        expect(towards).toBeCloseTo(a + crankPinRadius(s) + 0.0085, 6);
         expect(away).toBeCloseTo(1.5 * a, 6);
       }
     }
@@ -220,8 +222,8 @@ describe('the drawn mechanism', () => {
       link.geometry.computeBoundingBox();
       const box = link.geometry.boundingBox!;
       // The pair's pins are half a turn apart, one up and one down: it spans both bosses.
-      expect(box.max.y).toBeCloseTo(a + 0.022, 3);
-      expect(box.min.y).toBeCloseTo(-(a + 0.022), 3);
+      expect(box.max.y).toBeCloseTo(a + crankPinRadius(s) + 0.0085, 3);
+      expect(box.min.y).toBeCloseTo(-(a + crankPinRadius(s) + 0.0085), 3);
       expect(box.max.z - box.min.z).toBeGreaterThan(0.004);
     }
   });
@@ -286,6 +288,38 @@ describe('the drawn mechanism', () => {
           expect(mesh.pose(i).rodLength, `${s.cylinders}cyl #${i}`).toBeCloseTo(s.rodLength, 9);
         }
       }
+    }
+  });
+
+  it('keeps every main journal however narrow the V, its throws spread to make room', () => {
+    for (const vAngle of [15, 20, 30, 45, 60, 90]) {
+      for (const over of [{ ...V8, vAngle }, { cylinders: 6 as const, vAngle }, { cylinders: 2 as const, vAngle }]) {
+        const s = spec(over);
+        let count = 0;
+        new EngineMesh(s).group.traverse((o) => {
+          if (o instanceof THREE.Mesh && o.name === 'main journal') count++;
+        });
+        expect(count, `${s.cylinders} at ${vAngle}°`).toBe(mainBearingsAfter(s).filter(Boolean).length + 2);
+      }
+    }
+  });
+
+  it('joins a split pin’s two offset pins with a thin web, set apart by it', () => {
+    const s = spec({ cylinders: 6 as const, vAngle: 60 });
+    const mesh = new EngineMesh(s);
+    const webs: THREE.Mesh[] = [];
+    mesh.group.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.name === 'split web') webs.push(o);
+    });
+    expect(webs).toHaveLength(3);
+    for (const web of webs) {
+      web.geometry.computeBoundingBox();
+      const box = web.geometry.boundingBox!;
+      expect(box.max.z - box.min.z).toBeCloseTo(SPLIT_WEB + 0.001, 6);
+    }
+    for (const pin of crankPins(s)) {
+      const [first, second] = pin.cylinders.map((c) => mesh.pose(c).z);
+      expect(second! - first!).toBeCloseTo(ROD_STAGGER + SPLIT_WEB, 12);
     }
   });
 
@@ -414,7 +448,7 @@ describe('the drawn mechanism', () => {
     ['an oversquare 60° twin', { cylinders: 2, vAngle: 60, bore: 0.11, stroke: 0.06, rodLength: 0.11 }],
     ['an oversquare 90° V8', { ...V8, bore: 0.11, stroke: 0.06, rodLength: 0.105 }],
     ['a narrow V8', { ...V8, vAngle: 30 }],
-    ['a split-pin V6', { cylinders: 6, vAngle: 60, crankType: 'split', bore: 0.1, stroke: 0.07 }],
+    ['a split-pin V6', { cylinders: 6, vAngle: 60, bore: 0.1, stroke: 0.07 }],
   ] as Array<[string, Partial<EngineSpec>]>)('keeps the two banks’ pistons apart through the cycle: %s', (_n, over) => {
     const s = spec(over);
     const mesh = new EngineMesh(s);
@@ -430,7 +464,7 @@ describe('the drawn mechanism', () => {
       );
       mesh.group.updateMatrixWorld(true);
       // Which holds only if those crank angles agree with where the crank puts each pin.
-      for (const c of cyls as unknown as Array<{ rod: THREE.Mesh }>) expect(c.rod.scale.y).toBeCloseTo(s.rodLength, 6);
+      cyls.forEach((_c, i) => expect(mesh.pose(i).rodLength).toBeCloseTo(s.rodLength, 6));
       for (const a of cyls) {
         for (const b of cyls) {
           if (a === b || Math.abs(a.rotation - b.rotation) < 1e-9) continue;

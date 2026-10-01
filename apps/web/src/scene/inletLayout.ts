@@ -10,7 +10,7 @@
 
 import * as THREE from 'three';
 
-import { engineShell, exhaustPortOf, intakeCamsOf, intakePortOf, valvetrainTop } from '../model/geometry.js';
+import { engineShell, exhaustPortOf, intakeCamsOf, intakePortOf, sharedHead, valvetrainTop } from '../model/geometry.js';
 import { airboxVolumeOf, inletSegments, plenumVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
 import { cylinderZ, intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
 
@@ -82,7 +82,8 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   const shell = engineShell(spec);
   const segments = inletSegments(spec);
   const front = -shell.length / 2;
-  const vee = physicalBankCount(spec) > 1;
+  // Under a shared head the intake ports are all out of one side of it, as an inline engine's are.
+  const vee = physicalBankCount(spec) > 1 && !sharedHead(spec);
   const exhaustSide = Math.sign(exhaustPortOf(spec, 0).direction[0]) || 1;
   const intakeSide = vee ? 1 : -exhaustSide;
 
@@ -197,7 +198,7 @@ export function inletLayout(spec: EngineSpec): InletLayout {
       }
     }
   } else {
-    const x = intakeSide * (shell.width / 2 + 0.08 + width / 2);
+    const x = portOf(spec, 0).position.x + intakeSide * (0.08 + width / 2);
     // Straight and level out of the plenum's side into each intake port, at the height the exhaust leaves
     // the other side of the head: each from the plenum's inside wall, so it meets the wall with no gap and
     // leaves the plenum's cavity clear behind the throttle body.

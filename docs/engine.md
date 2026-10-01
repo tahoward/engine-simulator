@@ -529,7 +529,20 @@ that interval. That is what the firing-offset override is for.
 
 **Cylinders sharing a pin sit a rod's width apart along the crank** (`ROD_STAGGER`, 16 mm), so their
 rods run side by side on it, and so one bank of a V sits a little ahead of the other, as on a real
-one. A split pin puts each of the two on its own pin, the same distance apart. Everything placed
+one. A split pin puts each of the two on its own pin, with a thin web between the two pins, so they sit
+that much further apart (`SPLIT_WEB`, 5 mm). In a V too narrow, or
+with bores too big for their stroke, for the two banks' pistons to pass each other at the bottom of
+their strokes, the two sit further apart, as far as keeps the pistons as drawn 4 mm clear through the
+whole cycle (`rodStagger`), as a VR engine's banks are staggered, and the throws far enough apart for
+the next pair to clear too, and for a main journal between their pins. The 45° twin's short rods make it one of these.
+
+**A V too narrow for an intake in its valley shares one head between its banks** (`sharedHead`), as a
+VR engine does: below the angle where the two banks' intake ports would meet in the valley even on top
+of the heads, or where their overhead intake cams leave no room for a runner between them, about 30–40°
+for the presets. Every cylinder's exhaust valves and port are then on bank 0's outer side and its intake
+valves and port on bank 1's, so the exhaust comes off one side of the engine and the plenum sits beside
+the other, as an inline engine's do, and the two banks' cams in the middle of the head take turns along
+it between the staggered cylinders. Everything placed
 along the crank follows `cylinderZ`: the cylinders, and the exhaust ports, so an 8-into-1's two
 downpipes differ in length by a few millimetres.
 
