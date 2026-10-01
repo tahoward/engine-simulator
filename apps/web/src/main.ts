@@ -1032,6 +1032,7 @@ function settleWhenStill(s: EngineSnapshot): void {
     displayRpm = 0;
     const ambient = new Float32Array(1);
     for (const m of pipeMeshes) m.update(ambient, 1);
+    inletMesh.settle();
   });
 }
 
