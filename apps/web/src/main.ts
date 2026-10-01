@@ -885,9 +885,17 @@ audio.onSnapshot((s) => {
   // authoritative value. Snapping straight to it makes the piston strobe.
   const err = shortestAngle(s.crankAngle - displayAngle);
   displayAngle += err * 0.25;
-  // Each duct shows its own cells, all on one scale so their colours compare. A duct the solver has
-  // that is not drawn, a turbo's exit, is passed over.
-  const scale = pipeScale.track(s.ductPressure);
+  // Each duct shows its own cells, and the intake its own, all on one scale so a colour is the same
+  // pressure anywhere: the runners' waves are tens of kPa at full throttle, as the exhaust's are, and the
+  // plenum's vacuum as much at a small one. With the engine off the scale is held, so what is left dies
+  // away on it rather than being followed down. A duct the solver has that is not drawn, a turbo's exit,
+  // is passed over.
+  const all = new Float32Array(s.ductPressure.length + s.inletPressure.length + s.runnerPressure.length + 1);
+  all.set(s.ductPressure);
+  all.set(s.inletPressure, s.ductPressure.length);
+  all.set(s.runnerPressure, s.ductPressure.length + s.inletPressure.length);
+  all[all.length - 1] = s.plenumPressure;
+  const scale = pipeScale.track(all, !engineOn);
   // A pipe the solver has turned round has its cells from its far end, so they are read back.
   const ducts = config.graph!.ducts;
   const reversed = reversedDucts(config.graph!);
@@ -899,7 +907,7 @@ audio.onSnapshot((s) => {
     if (i >= 0) pipeMeshes[i]?.update(reversed.has(id) ? cells.slice().reverse() : cells, scale);
     at += n;
   });
-  inletMesh.show(s, !engineOn);
+  inletMesh.show(s, scale);
   launchSheet.onSnapshot(s.launch);
   panel.updateReadouts(s);
   hudEl.textContent =

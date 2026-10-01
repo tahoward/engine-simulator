@@ -316,8 +316,10 @@ the plenum's front, its butterfly turning with the throttle; a rubber tube with 
 hose clamps, looping up into an airbox across the top of the engine's front; and a snorkel from the
 airbox's far end, turning forwards, flattened and flaring at its mouth just ahead of the engine. The airbox holds the solver's volume over the solver's
 length, and the tube and the snorkel are drawn as long as the solver's and at its bores, the snorkel
-flattened with its area kept. The pressure view colours the tube, the airbox and the snorkel by their
-cells, on the same scale as the exhaust's.
+flattened with its area kept. The pressure view colours the plenum by its pressure and an inline
+engine's runners by their cells, on the exhaust's scale, so a colour is the same pressure anywhere in the
+engine; the tube, the airbox and the snorkel stay black, and the air drawn through them shows as specks
+moving at its speed.
 
 **The engine's note through it.** The runners empty and refill the plenum at the firing frequency,
 so the throttle's flow pulses. The pulses travel up the tract, ring in the airbox and the snorkel,

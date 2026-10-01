@@ -3,10 +3,9 @@
  * the throttle, a black rubber tube with a bellows coupler and hose clamps, a black plastic airbox with its
  * lid's seam and clips, and a flattened snorkel flaring at its mouth. Where each goes is `inletLayout`.
  *
- * In the pressure view every part the simulation solves takes the colour of its gauge pressure, on one
- * scale for the whole intake, apart from the exhaust's: the intake's swings are smaller, and on the
- * exhaust's scale its tract would not show. The tube, the airbox and the snorkel show their cells; the plenum its pressure, deep in
- * vacuum at a small throttle; and an inline engine's runners their cells. And the air itself is shown
+ * In the pressure view the plenum and an inline engine's runners take the colour of their gauge pressure,
+ * on the same scale as the exhaust, so a colour is the same pressure anywhere in the engine: the plenum
+ * deep in vacuum at a small throttle. The tube, the airbox and the snorkel stay their own black. And the air itself is shown
  * moving through the tract, as specks carried at the solver's speed in each cell, slowed by `FLOW_SLOWDOWN`
  * so the eye can follow them: drawn in steadily at full throttle, and stopped and sent back by every wave.
  */
@@ -16,7 +15,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 
 import type { EngineSnapshot, EngineSpec } from '../model/spec.js';
 import { inletLayout, type InletLayout } from './inletLayout.js';
-import { PressureScale, pressureColor } from './PipeMesh.js';
+import { pressureColor } from './PipeMesh.js';
 
 const PLASTIC = { color: 0x2c2f35, metalness: 0.05, roughness: 0.62 };
 const RUBBER = { color: 0x1f2125, metalness: 0.0, roughness: 0.85 };
@@ -47,15 +46,18 @@ function colourable<T extends THREE.BufferGeometry>(g: T): T {
   return g;
 }
 
-/** Fill `g`'s vertex colours with `rgb`, or white with `null`. */
-function fill(g: THREE.BufferGeometry, rgb: THREE.Color | null): void {
+/** The exhaust pipes' metal, as `PipeMesh` paints it into their vertex colours. */
+const PIPE_METAL = new THREE.Color(0.55, 0.58, 0.62);
+
+/** Fill `g`'s vertex colours with `rgb`. */
+function fill(g: THREE.BufferGeometry, rgb: THREE.Color): void {
   const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
   if (!c) return;
   const arr = c.array as Float32Array;
   for (let k = 0; k < arr.length; k += 3) {
-    arr[k] = rgb ? rgb.r : 1;
-    arr[k + 1] = rgb ? rgb.g : 1;
-    arr[k + 2] = rgb ? rgb.b : 1;
+    arr[k] = rgb.r;
+    arr[k + 1] = rgb.g;
+    arr[k + 2] = rgb.b;
   }
   c.needsUpdate = true;
 }
@@ -68,7 +70,6 @@ function fill(g: THREE.BufferGeometry, rgb: THREE.Color | null): void {
 function sweep(curve: THREE.Curve<THREE.Vector3>, size: (u: number) => [number, number]): THREE.BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
-  const colors: number[] = [];
   const index: number[] = [];
   const up = new THREE.Vector3(0, 1, 0);
   for (let i = 0; i <= ALONG; i++) {
@@ -89,7 +90,6 @@ function sweep(curve: THREE.Curve<THREE.Vector3>, size: (u: number) => [number, 
       // The normal of an ellipse at that point, turned into the frame.
       const n = across.clone().multiplyScalar(c / a).addScaledVector(lift, s / b).normalize();
       normals.push(n.x, n.y, n.z);
-      colors.push(1, 1, 1);
     }
   }
   for (let i = 0; i < ALONG; i++) {
@@ -102,7 +102,6 @@ function sweep(curve: THREE.Curve<THREE.Vector3>, size: (u: number) => [number, 
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
   g.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-  g.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
   g.setIndex(index);
   return g;
 }
@@ -119,24 +118,18 @@ export class InletMesh {
   readonly group = new THREE.Group();
   /** The parts only an engine without a turbo has: the tube, the airbox and the snorkel. */
   private readonly tract = new THREE.Group();
-  private readonly plastic = new THREE.MeshStandardMaterial(PLASTIC);
-  /** The airbox's and the snorkel's plastic, which the pressure view colours. */
-  private readonly tinted = new THREE.MeshStandardMaterial({ ...PLASTIC, vertexColors: true, side: THREE.DoubleSide });
-  private readonly rubber = new THREE.MeshStandardMaterial({ ...RUBBER, vertexColors: true, side: THREE.DoubleSide });
+  private readonly plastic = new THREE.MeshStandardMaterial({ ...PLASTIC, side: THREE.DoubleSide });
+  private readonly rubber = new THREE.MeshStandardMaterial({ ...RUBBER, side: THREE.DoubleSide });
   private readonly cast = new THREE.MeshStandardMaterial({ ...CAST, side: THREE.DoubleSide });
-  /** The plenum's and the runners' casting, which the pressure view colours. */
-  private readonly castTinted = new THREE.MeshStandardMaterial({ ...CAST, vertexColors: true });
+  /** The plenum's and the runners' metal, the exhaust pipes', which the pressure view colours. */
+  private readonly pipeMetal = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.38 });
   private readonly clamp = new THREE.MeshStandardMaterial(CLAMP);
   private readonly plate = new THREE.MeshStandardMaterial({ ...CAST, color: 0xc9ced4, side: THREE.DoubleSide });
   private butterfly: THREE.Object3D | null = null;
-  private tube: THREE.Mesh | null = null;
-  private box: THREE.Mesh | null = null;
-  private snorkel: THREE.Mesh | null = null;
   private plenum: THREE.Mesh | null = null;
   private runners: THREE.Mesh[] = [];
   private layout: InletLayout | null = null;
   private showPressure = false;
-  private readonly scale = new PressureScale(300, 1500);
   /** The specks: where each is along the tract, 0 at the throttle to 1 at the mouth, and across it. */
   private readonly specks = new THREE.Points(
     new THREE.BufferGeometry(),
@@ -173,29 +166,19 @@ export class InletMesh {
   }
 
   /**
-   * Each part as it is made, or with the pressure shown the exhaust's finish on all of them: white under its
-   * colour, and dull, so a pressure looks the same on the plenum, the airbox and a pipe.
+   * The plenum and the runners in the exhaust pipes' finish (`PipeMesh`): polished metal, or with the pressure
+   * shown dull, so a pressure looks the same on them as on a pipe.
    */
   private setFinish(): void {
-    for (const [m, look] of [
-      [this.tinted, PLASTIC],
-      [this.rubber, RUBBER],
-      [this.castTinted, CAST],
-    ] as const) {
-      m.color.set(this.showPressure ? 0xffffff : look.color);
-      m.metalness = this.showPressure ? 0.15 : look.metalness;
-      m.roughness = this.showPressure ? 0.55 : look.roughness;
-    }
+    this.pipeMetal.metalness = this.showPressure ? 0.15 : 0.55;
+    this.pipeMetal.roughness = this.showPressure ? 0.55 : 0.38;
   }
 
-  /**
-   * Show a snapshot's pressures and air speeds, in the pressure view. With `hold`, as the engine is off, the
-   * scale is held where it is, so the plenum's vacuum fades as the air leaks back past the throttle.
-   */
-  show(s: EngineSnapshot, hold = false): void {
+  /** Show a snapshot's pressures, on `scale`, Pa, the exhaust's, and its air speeds, in the pressure view. */
+  show(s: EngineSnapshot, scale: number): void {
     this.velocity = s.inletVelocity;
     if (!this.showPressure) return;
-    this.paint(s, hold);
+    this.paint(s, scale);
   }
 
   /** The engine at rest: every part at the atmosphere's pressure, and the air still. */
@@ -204,7 +187,7 @@ export class InletMesh {
     if (!this.showPressure) return;
     const ambient = new THREE.Color();
     pressureColor(0, ambient);
-    for (const m of [this.tube, this.box, this.snorkel, this.plenum, ...this.runners]) {
+    for (const m of [this.plenum, ...this.runners]) {
       if (m) fill(m.geometry, ambient);
     }
   }
@@ -286,7 +269,7 @@ export class InletMesh {
     const { centre, size } = l.plenum;
     const plenum = new THREE.Mesh(
       colourable(new RoundedBoxGeometry(size.x, size.y, size.z, 4, Math.min(size.x, size.y) * 0.3)),
-      this.castTinted,
+      this.pipeMetal,
     );
     plenum.position.copy(centre);
     this.group.add(plenum);
@@ -300,7 +283,7 @@ export class InletMesh {
         r.to.clone().addScaledVector(out, -0.05).add(new THREE.Vector3(0, 0.03, 0)),
         r.to,
       );
-      const runner = new THREE.Mesh(colourable(new THREE.TubeGeometry(curve, 24, r.radius, 16, false)), this.castTinted);
+      const runner = new THREE.Mesh(colourable(new THREE.TubeGeometry(curve, 24, r.radius, 16, false)), this.pipeMetal);
       this.group.add(runner);
       this.runners.push(runner);
     }
@@ -338,7 +321,7 @@ export class InletMesh {
     const r = l.tubeRadius + WALL;
     const tubeLength = l.tube.getLength();
     const ribs = BELLOWS / tubeLength;
-    this.tube = new THREE.Mesh(
+    const tube = new THREE.Mesh(
       sweep(l.tube, (u) => {
         const s = u * tubeLength;
         const rib = u < ribs && s > 0.02 ? 0.0045 * Math.max(0, Math.sin((s / RIB_PITCH) * Math.PI * 2)) : 0;
@@ -346,7 +329,7 @@ export class InletMesh {
       }),
       this.rubber,
     );
-    this.tract.add(this.tube);
+    this.tract.add(tube);
     this.tract.add(band(l.tube, 0.012, r + 0.0015, this.clamp));
     this.tract.add(band(l.tube, Math.min(ribs + 0.02, 0.5), r + 0.0015, this.clamp));
     this.tract.add(band(l.tube, 0.985, r + 0.0015, this.clamp));
@@ -357,14 +340,15 @@ export class InletMesh {
     maf.lookAt(maf.position.clone().add(l.tube.getTangentAt(0.7)));
     this.tract.add(maf);
 
-    // The airbox: a rounded plastic box, its lid's seam a lip round it, clipped down front and back.
+    // The airbox: a rounded black plastic box, its lid's seam a lip round it, clipped down front and back.
+    // It stays black in the pressure view: its cells would show only as their mean.
     const { centre, size } = l.airbox;
-    this.box = new THREE.Mesh(
-      colourable(new RoundedBoxGeometry(size.x, size.y, size.z, 5, Math.min(size.y, size.z) * 0.18)),
-      this.tinted,
+    const box = new THREE.Mesh(
+      new RoundedBoxGeometry(size.x, size.y, size.z, 5, Math.min(size.y, size.z) * 0.18),
+      this.plastic,
     );
-    this.box.position.copy(centre);
-    this.tract.add(this.box);
+    box.position.copy(centre);
+    this.tract.add(box);
     const seamY = centre.y + size.y * 0.15;
     const lip = new THREE.Mesh(new RoundedBoxGeometry(size.x + 0.01, 0.008, size.z + 0.01, 2, 0.003), this.plastic);
     lip.position.set(centre.x, seamY, centre.z);
@@ -392,7 +376,7 @@ export class InletMesh {
     const round = Math.sqrt(l.snorkelArea / Math.PI);
     const aspect = 1.8;
     const snorkelLength = l.snorkel.getLength();
-    this.snorkel = new THREE.Mesh(
+    const snorkel = new THREE.Mesh(
       sweep(l.snorkel, (u) => {
         const fromMouth = (1 - u) * snorkelLength;
         const flare = fromMouth < 0.04 ? 1 + 0.35 * (1 - fromMouth / 0.04) ** 2 : 1;
@@ -401,9 +385,9 @@ export class InletMesh {
         const high = (round * round) / wide;
         return [wide * flare + WALL, high * flare + WALL];
       }),
-      this.tinted,
+      this.plastic,
     );
-    this.tract.add(this.snorkel);
+    this.tract.add(snorkel);
     // A rolled lip round the mouth, the flare's edge.
     const [wide, high] = [round * Math.sqrt(aspect) * 1.35 + WALL, (round / Math.sqrt(aspect)) * 1.35 + WALL];
     const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.0035 / Math.min(wide, high), 8, 48), this.plastic);
@@ -413,25 +397,13 @@ export class InletMesh {
     this.tract.add(rim);
   }
 
-  /**
-   * Colour every part by a snapshot's gauge pressures, on the intake's own scale; with `null`, plain. The
-   * tube, the airbox and the snorkel each take the cells of the stretch of the solver's tract they are.
-   */
-  private paint(snap: EngineSnapshot | null, hold = false): void {
+  /** Colour the plenum and the runners by a snapshot's gauge pressures on `scale`, Pa; with `null`, plain. */
+  private paint(snap: EngineSnapshot | null, scale = 1): void {
     if (!this.layout) return;
-    const parts = [this.tube, this.box, this.snorkel, this.plenum, ...this.runners];
-    const cells = snap?.inletPressure;
     if (!snap || !this.showPressure) {
-      for (const m of parts) if (m) fill(m.geometry, null);
+      for (const m of [this.plenum, ...this.runners]) if (m) fill(m.geometry, PIPE_METAL);
       return;
     }
-    // One scale for every part, so none is pinned at the end of the ramp and their colours compare: the
-    // runners' waves are tens of kPa at full throttle, the plenum's vacuum as much at a small one.
-    const all = new Float32Array((cells?.length ?? 0) + snap.runnerPressure.length + 1);
-    if (cells) all.set(cells);
-    all.set(snap.runnerPressure, cells?.length ?? 0);
-    all[all.length - 1] = snap.plenumPressure;
-    const scale = this.scale.track(all, hold);
     const rgb = new THREE.Color();
     if (this.plenum) {
       pressureColor(snap.plenumPressure / scale, rgb);
@@ -459,38 +431,6 @@ export class InletMesh {
       }
       c.needsUpdate = true;
     });
-    if (!cells || cells.length === 0) return;
-
-    const segs = this.layout.segments;
-    const total = segs.reduce((s, x) => s + x.length, 0);
-    const edges = [0, segs[0]!.length / total, (segs[0]!.length + segs[1]!.length) / total, 1];
-    const cellAt = (f: number) => cells[Math.min(cells.length - 1, Math.max(0, Math.floor(f * cells.length)))]!;
-    const along = (mesh: THREE.Mesh | null, from: number, to: number) => {
-      const c = mesh?.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
-      if (!c) return;
-      const arr = c.array as Float32Array;
-      for (let i = 0; i <= ALONG; i++) {
-        pressureColor(cellAt(from + (to - from) * (i / ALONG)) / scale, rgb);
-        for (let j = 0; j <= AROUND; j++) {
-          const k = (i * (AROUND + 1) + j) * 3;
-          arr[k] = rgb.r;
-          arr[k + 1] = rgb.g;
-          arr[k + 2] = rgb.b;
-        }
-      }
-      c.needsUpdate = true;
-    };
-    along(this.tube, edges[0]!, edges[1]!);
-    along(this.snorkel, edges[2]!, edges[3]!);
-    // The airbox as one: the mean of its cells.
-    if (this.box) {
-      const first = Math.floor(edges[1]! * cells.length);
-      const last = Math.max(first + 1, Math.floor(edges[2]! * cells.length));
-      let sum = 0;
-      for (let i = first; i < last; i++) sum += cells[i]!;
-      pressureColor(sum / (last - first) / scale, rgb);
-      fill(this.box.geometry, rgb);
-    }
   }
 
   boundingBox(): THREE.Box3 {
@@ -512,14 +452,11 @@ export class InletMesh {
     this.butterfly = null;
     this.plenum = null;
     this.runners = [];
-    this.tube = null;
-    this.box = null;
-    this.snorkel = null;
   }
 
   dispose(): void {
     this.clear();
-    for (const m of [this.plastic, this.tinted, this.rubber, this.cast, this.castTinted, this.clamp, this.plate]) {
+    for (const m of [this.plastic, this.rubber, this.cast, this.pipeMetal, this.clamp, this.plate]) {
       m.dispose();
     }
     this.specks.geometry.dispose();
