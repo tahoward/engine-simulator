@@ -32,7 +32,7 @@ use crate::spec::{EngineSpec, PipeSegment, SegmentKind, SegmentPartial, displace
 const AIRBOX_VOLUME_RATIO: f64 = 4.0;
 
 /// The duct from the airbox to the throttle, m.
-const THROTTLE_DUCT_LENGTH: f64 = 0.45;
+const THROTTLE_DUCT_LENGTH: f64 = 0.35;
 
 /// The snorkel's bore as a multiple of the throttle's, when not given.
 const SNORKEL_BORE_RATIO: f64 = 1.1;

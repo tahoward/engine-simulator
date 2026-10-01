@@ -5,6 +5,7 @@ import { Sim } from '../src/audio/worklet/sim.js';
 import { solverGraph, compileExhaust } from '../src/model/exhaustGraph.js';
 import { ENGINE_PRESETS, defaultConfig } from '../src/model/spec.js';
 import { inletSegments } from '../src/model/intakeSizing.js';
+import { engineShell } from '../src/model/geometry.js';
 import { inletLayout } from '../src/scene/inletLayout.js';
 import { configSources } from '../src/scene/soundSources.js';
 
@@ -54,7 +55,7 @@ describe('where the engine makes its sound', () => {
 });
 
 describe('the inlet tract as drawn', () => {
-  it('runs forwards from the engine, as long as the solver’s tract, and the intake is heard from its mouth', () => {
+  it('sits on the engine, as long as the solver’s tract, and the intake is heard from its mouth', () => {
     for (const preset of ENGINE_PRESETS) {
       const cfg = presetConfig(preset);
       const at = inletLayout(cfg.engine);
@@ -62,8 +63,9 @@ describe('the inlet tract as drawn', () => {
       expect(intake, preset.name).toEqual([at.mouth.x, at.mouth.y, at.mouth.z]);
       expect(at.tube.getLength(), preset.name).toBeCloseTo(at.segments[0]!.length, 2);
       expect(at.snorkel.getLength(), preset.name).toBeCloseTo(at.segments[2]!.length, 2);
-      // In front of the engine, its mouth further forward than the airbox.
-      expect(at.airbox.centre.z, preset.name).toBeLessThan(at.throttle.centre.z);
+      // The airbox over the engine rather than out in front of it, the snorkel's mouth ahead of it.
+      const half = engineShell(cfg.engine).length / 2;
+      expect(Math.abs(at.airbox.centre.z), preset.name).toBeLessThan(half);
       expect(at.mouth.z, preset.name).toBeLessThan(at.airbox.centre.z);
     }
   });

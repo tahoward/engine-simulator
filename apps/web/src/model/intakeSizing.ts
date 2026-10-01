@@ -12,7 +12,7 @@ import { type EngineSpec, type PipeSegment, displacement, makeSegment } from './
 const PLENUM_VOLUME_RATIO = 1.5;
 const AIRBOX_VOLUME_RATIO = 4;
 const SNORKEL_BORE_RATIO = 1.1;
-const THROTTLE_DUCT_LENGTH = 0.45;
+const THROTTLE_DUCT_LENGTH = 0.35;
 const THROTTLE_DESIGN_VELOCITY = 25;
 const THROTTLE_DESIGN_RPM = 7000;
 

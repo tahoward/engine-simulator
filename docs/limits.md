@@ -62,7 +62,8 @@ Where the model is simplified, and by how much.
   real casting, radiating equally every way from the engine's middle.
 - **The inlet tract is a fixed shape.** It is a snorkel, an airbox and a tube at the throttle's bore,
   sized by **Airbox volume**, **Snorkel length** and **Snorkel bore**. The view draws it routed the same
-  way on every engine, to an airbox across the front, and it cannot be moved or edited there. The
+  way on every engine, to an airbox on top of the engine's front, and it cannot be moved or edited
+  there. The
   solver's airbox is round, the drawn one a box of the same volume. The plenum and runners are drawn
   where an engine of that layout has them, sized from the plenum's volume and the runners' bore, not
   from any real manifold. Its
