@@ -10,7 +10,7 @@
 
 import * as THREE from 'three';
 
-import { engineShell, exhaustPortOf, intakeCamsOf, valvetrainTop } from '../model/geometry.js';
+import { engineShell, exhaustPortOf, intakeCamsOf, intakePortOf, valvetrainTop } from '../model/geometry.js';
 import { airboxVolumeOf, inletSegments, plenumVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
 import { cylinderZ, intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
 
@@ -26,16 +26,10 @@ export interface Runner {
   exit: 'side' | 'flank' | 'bottom';
 }
 
-/**
- * Cylinder `b`'s intake port: its exhaust port mirrored across the cylinder, on the other side of the head,
- * opening the other way.
- */
-function intakePortOf(spec: EngineSpec, b: number): { position: THREE.Vector3; direction: THREE.Vector3 } {
-  const ex = exhaustPortOf(spec, b);
-  const d = new THREE.Vector3(...ex.direction).normalize();
-  const p = new THREE.Vector3(...ex.position);
-  const across = p.x * d.x + p.y * d.y;
-  return { position: p.addScaledVector(d, -2 * across), direction: d.negate() };
+/** Cylinder `b`'s intake port (`intakePortOf`), as vectors. */
+function portOf(spec: EngineSpec, b: number): { position: THREE.Vector3; direction: THREE.Vector3 } {
+  const port = intakePortOf(spec, b);
+  return { position: new THREE.Vector3(...port.position), direction: new THREE.Vector3(...port.direction).normalize() };
 }
 
 export interface InletLayout {
@@ -111,7 +105,7 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   let base = vee ? 0.55 : 1;
   if (vee) {
     const valley = Math.max(shell.top * Math.cos(shell.straddle) * 0.8, shell.crankcase.radius + 0.02);
-    const ports = Array.from({ length: spec.cylinders }, (_, b) => intakePortOf(spec, b));
+    const ports = Array.from({ length: spec.cylinders }, (_, b) => portOf(spec, b));
     if (spec.vAngle < 150) {
       // A V's intake ports are on the valley side of its heads, and its runners leave by the plenum's sloping
       // flanks, already heading down and out to them: the plenum sits low, those flanks just clear above the
@@ -207,10 +201,10 @@ export function inletLayout(spec: EngineSpec): InletLayout {
     // Straight and level out of the plenum's side into each intake port, at the height the exhaust leaves
     // the other side of the head: each from the plenum's inside wall, so it meets the wall with no gap and
     // leaves the plenum's cavity clear behind the throttle body.
-    const portY = intakePortOf(spec, 0).position.y;
+    const portY = portOf(spec, 0).position.y;
     centre = new THREE.Vector3(x, portY, 0);
     for (let b = 0; b < spec.cylinders; b++) {
-      const port = intakePortOf(spec, b).position;
+      const port = portOf(spec, b).position;
       const from = new THREE.Vector3(x - intakeSide * (width / 2 - PLENUM_WALL), port.y, port.z);
       const third = port.clone().sub(from).divideScalar(3);
       runners.push({ from, to: port, leaving: third, arriving: third, radius, exit: 'side' });

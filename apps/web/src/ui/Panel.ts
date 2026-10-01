@@ -1009,7 +1009,8 @@ export class Panel {
     this.resyncers.push(() => (headSel.value = headOf(this.config.engine)));
     headSel.addEventListener('change', () => {
       const count = headSel.value === '4' ? 2 : 1;
-      this.cb.onEngine({ exValveCount: count, inValveCount: count });
+      // Pushrods work two valves a cylinder: four take overhead cams.
+      this.cb.onEngine({ exValveCount: count, inValveCount: count, ...(count > 1 ? { pushrods: false } : {}) });
     });
     headRow.title =
       'Two small valves open more of the cylinder than one big one: at the same lift, √2 as much ' +
@@ -1203,11 +1204,14 @@ export class Panel {
       'exhaust lobes with it, and the exhaust settings do nothing. At idle and light load every cam ' +
       'sits at rest, for a steady idle.';
     this.resyncers.push(() => (checkbox(linked).checked = this.config.engine.vvtLinked));
-    const pushrods = toggle(valves, 'Pushrods', spec.pushrods, (on) => this.cb.onEngine({ pushrods: on }));
+    const pushrods = toggle(valves, 'Pushrods', spec.pushrods, (on) =>
+      this.cb.onEngine({ pushrods: on, ...(on ? { exValveCount: 1, inValveCount: 1 } : {}) }),
+    );
     pushrods.title =
       'How the valves are worked, as drawn: one camshaft in the block, in the valley of a V, through ' +
-      'tappets and rocker arms, or with it off a cam over each row of valves. The simulation ' +
-      'follows the valves\u2019 lift either way.';
+      'tappets and rocker arms, or with it off a cam over each row of valves. Pushrods work two valves ' +
+      'a cylinder, in a row along the head, so turning them on makes it a two-valve head, and choosing ' +
+      'four valves turns them off. The simulation follows the valves\u2019 lift either way.';
     this.resyncers.push(() => (checkbox(pushrods).checked = this.config.engine.pushrods));
 
     // ---- Intake ------------------------------------------------------------

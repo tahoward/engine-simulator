@@ -41,8 +41,11 @@ import {
   STEM_LENGTH,
   VALVE_TILT,
   camBaseRadius,
+  ROCKER_RATIO,
+  blockCamOf,
   engineShell,
   exhaustPortOf,
+  intakePortLocal,
 } from '../model/geometry.js';
 import { valveLift } from '../model/cam.js';
 
@@ -84,10 +87,16 @@ interface Rocker {
   tip: THREE.Vector3;
   pivot: THREE.Vector3;
   stem: THREE.Vector3;
+  /** Where the arm's far end is at rest, in the cylinder's frame. */
+  cup: THREE.Vector3;
   lifter: THREE.Mesh;
   /** Where the tappet sits at rest, and the way the lobe lifts it, in the engine's frame. */
   lifterAt: THREE.Vector3;
   up: THREE.Vector3;
+  /** The pushrod from the tappet to the arm's far end, in the engine's frame, and the cylinder's turn and z. */
+  rod: THREE.Mesh;
+  rotation: number;
+  z: number;
 }
 
 /**
@@ -108,8 +117,6 @@ interface Finger {
 /** How far a finger rocker's shaft sits from the valve, square to the stem, m. */
 const FINGER_REACH = 0.036;
 
-/** How much further a pushrod engine's rocker arm moves the valve than its tappet moves. */
-const ROCKER_RATIO = 1.5;
 
 /** How wide each cam lobe is along its shaft, m. */
 const LOBE_WIDTH = 0.011;
@@ -234,7 +241,7 @@ export class EngineMesh {
          * parallel twin, whose two firing banks are one physical bank under one head.
          */
         const exhaustSide = physicalBankCount(this.spec) > 1 && physicalBank(this.spec, cyl) === 0 ? -1 : 1;
-        this.cyls[cyl] = this.buildCylinder(bank, cylinderZ(this.spec, cyl), pins[pin]!.angles[k]!, exhaustSide);
+        this.cyls[cyl] = this.buildCylinder(bank, cylinderZ(this.spec, cyl), pins[pin]!.angles[k]!, exhaustSide, pin % 2 === 1);
       });
     }
 
@@ -353,6 +360,7 @@ export class EngineMesh {
     z: number,
     pinAngleDeg: number,
     exhaustSide: number,
+    flipped: boolean,
   ): CylinderMesh {
     const s = this.spec;
     const rotation = bank === 0 ? 0 : -(s.vAngle * Math.PI) / 180;
@@ -391,8 +399,12 @@ export class EngineMesh {
     group.add(piston);
 
     // --- valves, and what opens them ---
-    const exValves = this.buildValves(s.exValveDia, s.exValveCount, exhaustSide, true);
-    const inValves = this.buildValves(s.inValveDia, s.inValveCount, -exhaustSide, false);
+    const [exValves, inValves] = s.pushrods
+      ? this.buildValveRow(flipped)
+      : [
+          this.buildValves(s.exValveDia, s.exValveCount, exhaustSide, true),
+          this.buildValves(s.inValveDia, s.inValveCount, -exhaustSide, false),
+        ];
     group.add(...exValves, ...inValves);
     const lobes: Lobe[] = [];
     const rockers: Rocker[] = [];
@@ -402,7 +414,7 @@ export class EngineMesh {
         [exValves, true],
         [inValves, false],
       ] as const) {
-        for (const v of valves) rockers.push(this.buildRocker(group, v, rotation, z, exhaust, lobes));
+        for (const v of valves) rockers.push(this.buildRocker(group, v, bank, rotation, z, exhaust, lobes));
       }
     } else {
       lobes.push(...this.buildOverheadCam(group, exValves, exhaustSide, true, fingers));
@@ -569,15 +581,16 @@ export class EngineMesh {
   }
 
   /**
-   * A pushrod engine's rocker arm over `valve`, in the cylinder's frame, and the tappet and lobe on the
-   * block's cam that work it, in the engine's: the arm on a pivot beside the valve's tip, towards the cam
-   * for an intake valve and away from it for an exhaust valve, its far end `ROCKER_RATIO` times nearer the
-   * pivot, so the valve moves that much more than the tappet does. The tappet sits on the lobe under where the arm's far end would take a pushrod. `rotation` and
-   * `z` place the cylinder; its lobe goes into `lobes`.
+   * A pushrod engine's rocker arm over `valve`, in the cylinder's frame, and the pushrod, tappet and lobe
+   * on the block's cam that work it, in the engine's: the arm reaches from the valve's tip across to over
+   * the cam, so the pushrod comes straight up the bank to it, parallel to the cylinder; its pivot is
+   * `ROCKER_RATIO` times further from the tip than from that far end, so the valve moves that much more
+   * than the tappet does. `rotation` and `z` place the cylinder; its lobe goes into `lobes`.
    */
   private buildRocker(
     group: THREE.Group,
     valve: THREE.Group,
+    bank: number,
     rotation: number,
     z: number,
     exhaust: boolean,
@@ -585,28 +598,31 @@ export class EngineMesh {
   ): Rocker {
     const s = this.spec;
     const steel = new THREE.MeshStandardMaterial(STEEL);
-    const cam = this.blockCamCentre();
+    const cam = this.blockCamCentre(bank);
     // The cam as the cylinder sees it, so the arm can reach towards it.
     const camInCylinder = cam.clone().applyAxisAngle(AXIS_Z, -rotation);
-    // An intake valve's arm reaches in towards the cam; an exhaust valve's, on the head's outer side, out
-    // away from it.
-    const inward = Math.sign(camInCylinder.x) || 1;
-    const toward = new THREE.Vector3(exhaust ? -inward : inward, 0, 0);
+    // Every arm reaches in towards the cam, the valves in a row along the head.
+    const toward = new THREE.Vector3(Math.sign(camInCylinder.x - valve.position.x) || 1, 0, 0);
     const stem = new THREE.Vector3(0, 1, 0).applyAxisAngle(AXIS_Z, valve.rotation.z);
     const tip = valve.position.clone().addScaledVector(stem, s.bore * STEM_LENGTH);
     // Square to the stem, level with the tip at half lift: so the arm is at right angles to the stem half
-    // way open, and tilts as little either side of it as it can, as a rocker is set up.
+    // way open, and tilts as little either side of it as it can, as a rocker is set up. Its far end over
+    // the cam's centre, across the bank.
     const square = toward.clone().addScaledVector(stem, -toward.dot(stem)).normalize();
-    const pivot = tip.clone().addScaledVector(stem, -s.maxLift / 2).addScaledVector(square, 0.024);
+    const span = Math.max(Math.abs(camInCylinder.x - tip.x), 0.03);
+    const pivot = tip
+      .clone()
+      .addScaledVector(stem, -s.maxLift / 2)
+      .addScaledVector(square, span / (1 + 1 / ROCKER_RATIO));
     const cup = pivot.clone().add(pivot.clone().sub(tip).divideScalar(ROCKER_RATIO));
 
     // The arm: a bar from the cup to the tip, turning on the pivot.
     const arm = new THREE.Group();
     arm.position.copy(pivot);
-    const span = cup.clone().sub(tip);
-    const bar = new THREE.Mesh(new RoundedBoxGeometry(span.length() + 0.012, 0.007, 0.011, 2, 0.002), steel);
+    const reach = cup.clone().sub(tip);
+    const bar = new THREE.Mesh(new RoundedBoxGeometry(reach.length() + 0.012, 0.007, 0.011, 2, 0.002), steel);
     bar.position.copy(cup.clone().add(tip).multiplyScalar(0.5).sub(pivot));
-    bar.rotation.z = Math.atan2(span.y, span.x);
+    bar.rotation.z = Math.atan2(reach.y, reach.x);
     arm.add(bar);
     const stud = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.016, 10), steel);
     stud.rotation.x = Math.PI / 2;
@@ -629,36 +645,52 @@ export class EngineMesh {
     this.blockCam.add(lobe);
     lobes.push({ mesh: lobe, exhaust });
 
-    return { arm, exhaust, tip, pivot, stem, lifter, lifterAt, up };
+    // The pushrod, its length set as it moves (`poseRocker`).
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, 1, 10), steel);
+    this.blockCam.add(rod);
+
+    const rocker = { arm, exhaust, tip, pivot, stem, cup, lifter, lifterAt, up, rod, rotation, z: cupAt.z };
+    this.poseRocker(rocker, 0);
+    return rocker;
   }
 
   /**
-   * Where a pushrod engine's camshaft runs, in the engine's frame: in the valley of a V, just above the
-   * crankcase, or beside the crank on an inline engine's intake side.
+   * Where a pushrod engine's camshaft for `bank` runs, in the engine's frame (`blockCamOf`).
    */
-  private blockCamCentre(): THREE.Vector3 {
-    const s = this.spec;
-    const shell = engineShell(s);
-    const d = shell.crankcase.radius + camBaseRadius(s) + 0.012;
-    if (physicalBankCount(s) > 1) {
-      const half = ((s.vAngle / 2) * Math.PI) / 180;
-      return new THREE.Vector3(Math.sin(half) * d, Math.cos(half) * d, 0);
-    }
-    return new THREE.Vector3(-0.8 * d, 0.6 * d, 0);
+  private blockCamCentre(bank: number): THREE.Vector3 {
+    const [x, y] = blockCamOf(this.spec, bank);
+    return new THREE.Vector3(x, y, 0);
   }
 
-  /** The block cam's shaft, along the whole engine. */
+  /** The block cams' shafts, along the whole engine: one, or one a bank. */
   private buildBlockCamShaft(): void {
     if (!this.spec.pushrods) return;
     const shell = engineShell(this.spec);
-    const centre = this.blockCamCentre();
-    const shaft = new THREE.Mesh(
-      new THREE.CylinderGeometry(camBaseRadius(this.spec) * 0.55, camBaseRadius(this.spec) * 0.55, shell.length, 20),
-      new THREE.MeshStandardMaterial(STEEL),
-    );
-    shaft.rotation.x = Math.PI / 2;
-    shaft.position.copy(centre);
-    this.blockCam.add(shaft);
+    const centres = [this.blockCamCentre(0), this.blockCamCentre(1)];
+    for (const centre of centres[0]!.distanceTo(centres[1]!) < 1e-9 ? [centres[0]!] : centres) {
+      const shaft = new THREE.Mesh(
+        new THREE.CylinderGeometry(camBaseRadius(this.spec) * 0.55, camBaseRadius(this.spec) * 0.55, shell.length, 20),
+        new THREE.MeshStandardMaterial(STEEL),
+      );
+      shaft.rotation.x = Math.PI / 2;
+      shaft.position.copy(centre);
+      this.blockCam.add(shaft);
+    }
+  }
+
+  /**
+   * A pushrod head's two valves, exhaust and intake: in a row along the head over the cylinder's middle,
+   * their stems straight up out of it, so both arms reach across from their tips to the cam's side. Each cylinder has them the other way round from the next, `flipped`, so neighbours' like
+   * valves sit side by side, as their ports pair up.
+   */
+  private buildValveRow(flipped: boolean): [THREE.Group[], THREE.Group[]] {
+    const s = this.spec;
+    const apart = (s.exValveDia + s.inValveDia) / 4 + 0.001;
+    const ex = (flipped ? 1 : -1) * apart;
+    return [
+      [this.buildValve(s.exValveDia, 0, true, ex, 0)],
+      [this.buildValve(s.inValveDia, 0, false, -ex, 0)],
+    ];
   }
 
   /** One side's valves: one on the cylinder's mid-plane, or a pair either side of it along the crank. */
@@ -671,7 +703,11 @@ export class EngineMesh {
     return out;
   }
 
-  private buildValve(dia: number, sign: number, exhaust: boolean, z: number): THREE.Group {
+  /**
+   * A valve leaning out towards `sign`, or upright where `sign` is 0, at `x` across the cylinder (by default
+   * on that side) and `z` along it.
+   */
+  private buildValve(dia: number, sign: number, exhaust: boolean, z: number, x = sign * this.spec.bore * 0.24): THREE.Group {
     const s = this.spec;
     const group = new THREE.Group();
 
@@ -710,15 +746,15 @@ export class EngineMesh {
     group.add(spring);
 
     group.rotation.z = -sign * this.valveTilt;
-    group.position.set(sign * s.bore * 0.24, this.deckY, z);
+    group.position.set(x, this.deckY, z);
+    group.userData.x = x;
     group.userData.z = z;
     return group;
   }
 
   /**
    * The intake port, where its runner meets the head: a flange round the runner, square to it, on the
-   * other side of the head from the exhaust and at the same height, where `intakePortOf` in the intake's
-   * layout puts it.
+   * other side of the head from the exhaust, where `intakePortLocal` puts it.
    */
   private buildIntakePort(side: number): THREE.Group {
     const s = this.spec;
@@ -733,8 +769,9 @@ export class EngineMesh {
         new THREE.MeshBasicMaterial({ color: INTAKE_OPENING, side: THREE.DoubleSide }),
       ),
     );
-    port.rotation.y = Math.PI / 2;
-    port.position.set(side * s.bore * 1.15, this.deckY + s.bore * 0.52 * 0.45, 0);
+    const { position, direction } = intakePortLocal(s, side);
+    port.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(direction[0], direction[1], 0));
+    port.position.set(position[0], position[1], 0);
     return port;
   }
 
@@ -861,8 +898,8 @@ export class EngineMesh {
       const inLift = high
         ? valveLift(snap.crankAngle, s.highIvo + inn, s.highIvc + inn, s.highMaxLift)
         : valveLift(snap.crankAngle, s.ivo + inn, s.ivc + inn, s.maxLift);
-      for (const v of mesh.exValves) this.poseValve(v, mesh.exhaustSide, exLift);
-      for (const v of mesh.inValves) this.poseValve(v, -mesh.exhaustSide, inLift);
+      for (const v of mesh.exValves) this.poseValve(v, exLift);
+      for (const v of mesh.inValves) this.poseValve(v, inLift);
       // The cams turn at half the crank's speed, each lobe set round by its cam's phaser.
       for (const lobe of mesh.lobes) {
         lobe.mesh.rotation.z = (-(snap.crankAngle - (lobe.exhaust ? ex : inn)) * Math.PI) / 360;
@@ -892,10 +929,10 @@ export class EngineMesh {
    * the same angle, so the sideways part cannot disagree with the tilt. With its sign the wrong way round
    * a valve leaning out at the top would slide outward as it opened instead of inward, off its own axis.
    */
-  private poseValve(group: THREE.Group, sign: number, lift: number): void {
+  private poseValve(group: THREE.Group, lift: number): void {
     const stem = new THREE.Vector3(0, 1, 0).applyAxisAngle(AXIS_Z, group.rotation.z);
     group.position
-      .set(sign * this.spec.bore * 0.24, this.deckY, group.userData.z as number)
+      .set(group.userData.x as number, this.deckY, group.userData.z as number)
       .addScaledVector(stem, -lift);
   }
 
@@ -909,6 +946,14 @@ export class EngineMesh {
     r.arm.rotation.z = Math.atan2(now.y, now.x) - Math.atan2(rest.y, rest.x);
     const rise = lift / ROCKER_RATIO;
     r.lifter.position.copy(r.lifterAt).addScaledVector(r.up, rise);
+    // The pushrod from the tappet's top to the arm's far end, where it is now.
+    const foot = r.lifter.position.clone().addScaledVector(r.up, 0.0125);
+    const head = r.cup.clone().sub(r.pivot).applyAxisAngle(AXIS_Z, r.arm.rotation.z).add(r.pivot).applyAxisAngle(AXIS_Z, r.rotation);
+    head.z = r.z;
+    const along = head.clone().sub(foot);
+    r.rod.position.copy(foot).addScaledVector(along, 0.5);
+    r.rod.quaternion.setFromUnitVectors(AXIS_Y, along.clone().normalize());
+    r.rod.scale.y = along.length();
   }
 
   /**

@@ -21,7 +21,7 @@ interface Cylinder {
   exValves: THREE.Group[];
   inValves: THREE.Group[];
   lobes: Lobe[];
-  rockers: Array<{ lifter: THREE.Mesh; up: THREE.Vector3; exhaust: boolean }>;
+  rockers: Array<{ lifter: THREE.Mesh; up: THREE.Vector3; exhaust: boolean; tip: THREE.Vector3; pivot: THREE.Vector3; cup: THREE.Vector3 }>;
   fingers: Array<{ arm: THREE.Group; exhaust: boolean; middle: boolean; pin: THREE.Mesh | null }>;
 }
 
@@ -97,6 +97,35 @@ describe('the cams', () => {
       }
     }
     expect(worst).toBeLessThan(2e-4);
+  });
+
+  it('stand a pushrod head’s two valves upright in a row along it, both arms reaching to the cam’s side', () => {
+    const cyls = (new EngineMesh(engine('LT2')) as unknown as { cyls: Cylinder[] }).cyls;
+    cyls.forEach((cyl, k) => {
+      const [ex, inlet] = [cyl.exValves, cyl.inValves];
+      expect(ex).toHaveLength(1);
+      expect(inlet).toHaveLength(1);
+      for (const v of [...ex, ...inlet]) {
+        expect(v.rotation.z).toBeCloseTo(0, 12);
+        expect(v.position.x).toBeCloseTo(0, 9);
+      }
+      // Neighbours the other way round, so their like valves sit together.
+      expect(Math.sign(ex[0]!.position.z - inlet[0]!.position.z), `cylinder ${k}`).not.toBe(0);
+      const [a, b] = cyl.rockers.map((r) => Math.sign(r.pivot.x - r.tip.x));
+      expect(a).toBe(b);
+    });
+  });
+
+  it('run every pushrod up outside its bore, however narrow the V', () => {
+    for (const name of ['LT2', '45°']) {
+      for (const vAngle of [15, 30, 45, 60, 90, 120]) {
+        const spec = { ...engine(name), vAngle };
+        const cyls = (new EngineMesh(spec) as unknown as { cyls: Cylinder[] }).cyls;
+        for (const cyl of cyls) {
+          for (const r of cyl.rockers) expect(Math.abs(r.cup.x), `${name} at ${vAngle}°`).toBeGreaterThan(spec.bore / 2 + 0.0035);
+        }
+      }
+    }
   });
 
   it('carry a high-speed lobe for each side of a head with cam profile switching', () => {

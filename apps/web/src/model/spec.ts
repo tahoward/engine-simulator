@@ -302,8 +302,10 @@ export interface EngineSpec {
   /**
    * The valvetrain as drawn: one camshaft in the block, in the valley of a V, working the valves through
    * tappets, pushrods and rocker arms, rather than a cam over each row of valves pressing on them through
-   * buckets. The tappets and rocker arms are drawn, the pushrods between them not. Drawn only: the
-   * simulation follows the valves' lift and does not model what drives it.
+   * buckets. Only with one intake and one exhaust valve, upright in a row along the head, so both rocker
+   * arms reach across to over the cam and their pushrods come straight up the bank, parallel to the
+   * cylinders.
+   * Drawn only: the simulation follows the valves' lift and does not model what drives it.
    */
   pushrods: boolean;
 
