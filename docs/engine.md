@@ -400,11 +400,18 @@ centre, the piston's highest point). So it is loud under load and almost gone wh
 this mechanical noise sits about 18 dB below an open header. That is why you only hear it once a
 muffler has quietened the exhaust.
 
-**The listener is outdoors.** Sound reaches you directly and also bounces off the ground. The
-bounce arrives later and duller, and mixing it with the direct sound cancels some frequencies.
-At 1.5 m, the first cancelled frequency is near 400 Hz, right in the middle of the engine note.
-Air also absorbs high frequencies, so a distant engine sounds muffled, not just quieter. All of
-this changes when you change ear height, exhaust height or the ground reflection.
+**You hear the engine from where the camera is.** Each place the engine makes its sound is heard
+from where it is drawn: every tailpipe's outlet, the intake above the front of the engine, the
+casing from the engine's middle, and the turbos from where they sit. Each has its own path to the
+camera, so its own delay and its own loss with distance, and moving the view moves your ear. The
+paths glide to their new lengths over 50 ms as the camera moves, so a turn of the view does not
+click. Nearer than 0.25 m, a source gets no louder.
+
+The ground lies `exhaustHeight` below the lowest tailpipe, and each source's sound also bounces off
+it. The bounce arrives later and duller, and mixing it with the direct sound cancels some
+frequencies: 1.5 m from a tailpipe, the first cancelled frequency is near 400 Hz, right in the
+middle of the engine note. Air also absorbs high frequencies, so a distant engine sounds muffled,
+not just quieter.
 
 
 ## More cylinders
@@ -482,16 +489,23 @@ the same rpm (a single at 12,000 rpm against a V8 at 1500), and more cylinders s
 In a real engine the cancellation is strong but never perfect, because nothing is perfectly
 symmetrical. Two parts of the model keep it that way:
 
-- **Each tailpipe is heard from its own place.** `mouthSpacing` spaces the pipe outlets apart, and
-  each gets its own travel delay and distance loss to the listener. Real tailpipes are about a metre
-  apart, which at 187 Hz is most of a wavelength. Without this, a flatplane V8's two banks, which
-  fire exactly out of step, would cancel each other's firing order and the engine would jump up an
-  octave. The listener stands off to one side, at 45 degrees. Outlets placed symmetrically in front
-  of the listener would all be the same distance away, and the spacing would change nothing.
+- **Each tailpipe is heard from its own place.** Every outlet is heard from where it is drawn, with
+  its own travel delay and distance loss to the listener. Tailpipes exiting either side of a car are
+  about a metre apart, which at 187 Hz is most of a wavelength. If they were heard from one point, a
+  flatplane V8's two banks, which fire exactly out of step, would cancel each other's firing order and
+  the engine would jump up an octave. Heard from straight behind, outlets placed symmetrically are the
+  same distance away and cancel like that anyway; heard from off to one side, they do not. A car whose
+  tailpipes exit together in the middle, as the Corvette Z06's four do, has its outlets close enough
+  that the two banks' firing orders mostly cancel from anywhere behind it, and the LT6 preset draws its
+  collectors turned in to a centre exit, 0.21 m apart. A dyno recording of the Z06 shows the same: its
+  firing order dominates, and the banks' own firing order sits about 10 dB below it.
 - **No two cylinders breathe quite alike.** `cylinderSpread` varies the runner pressure each
   cylinder sees by a few percent, standing in for unequal runner lengths, valve seats and fuelling.
-  The low orders sit at about −35 dB for a four and −23 dB for a V8, within the 20 to 35 dB range of
-  real engines, so there is a rumble under the firing note. Pressure is varied rather than intake
+  At the default, 0.3, it varies the pressure by up to 1.2% and the cam timing by up to 0.7°. The
+  LT6's odd orders then sit 17 to 29 dB below its firing order, close to the 20 to 26 dB of a dyno
+  recording of the Z06 (see [Verification](verification.md#against-a-recording)), so there is a
+  rumble under the firing note. An inline four on equal-length runners comes out a little cleaner,
+  at about −37 dB, and the full spread of 1 puts it at −25 dB. Pressure is varied rather than intake
   valve area because it changes how much gas is trapped; valve area only changes how fast the
   cylinder fills.
 

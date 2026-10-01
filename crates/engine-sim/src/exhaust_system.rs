@@ -952,6 +952,13 @@ impl ExhaustSystem {
         self.ducts[self.radiating[m]].resolution_cutoff_rad
     }
 
+    /// The id of the duct radiating from mouth `m`, as the graph names it.
+    pub fn mouth_duct_id(&self, m: usize) -> Option<&str> {
+        let d = *self.radiating.get(m)?;
+        let g = self.by_graph.iter().position(|&p| p == d)?;
+        self.duct_ids.get(g).map(String::as_str)
+    }
+
     /// The duct radiating from mouth `m`.
     pub fn radiating_duct(&self, m: usize) -> &EulerPipe {
         &self.ducts[self.radiating[m]]

@@ -200,6 +200,26 @@ impl Delay {
         self.write = (self.write + 1) % len;
         a + (b - a) * frac
     }
+
+    /// Write `x` without reading, for `tap` to read back.
+    #[inline]
+    pub fn push(&mut self, x: f64) {
+        self.buf[self.write] = x as f32;
+        self.write = (self.write + 1) % self.buf.len();
+    }
+
+    /// What was pushed `samples` before the newest sample, interpolated.
+    #[inline]
+    pub fn tap(&self, samples: f64) -> f64 {
+        let n = self.buf.len() as i64;
+        let read = (self.write as f64 - 1.0) - math::clamp(samples, 0.0, self.buf.len() as f64 - 2.0);
+        let i = read.floor();
+        let frac = read - i;
+        let i = i as i64;
+        let a = self.buf[i.rem_euclid(n) as usize] as f64;
+        let b = self.buf[(i + 1).rem_euclid(n) as usize] as f64;
+        a + (b - a) * frac
+    }
 }
 
 /// Gentle saturation on the master output: a cubic knee joining the clamp at 1.5.

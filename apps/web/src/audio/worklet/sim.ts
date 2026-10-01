@@ -10,7 +10,7 @@
  */
 
 import type { ExhaustGraph } from '../../model/exhaustGraph.js';
-import type { LaunchConfig, EngineConfig, EngineSnapshot, EngineSpec } from '../../model/spec.js';
+import type { LaunchConfig, EngineConfig, EngineSnapshot, EngineSpec, SoundSources } from '../../model/spec.js';
 import { SIM_WASM_BASE64 } from './simWasm.js';
 
 interface Exports {
@@ -20,6 +20,8 @@ interface Exports {
   sim_free(h: number): void;
   sim_set_engine(h: number, ptr: number, len: number): number;
   sim_set_graph(h: number, ptr: number, len: number): number;
+  sim_set_sources(h: number, ptr: number, len: number): number;
+  sim_set_listener(h: number, x: number, y: number, z: number): void;
   sim_start_launch(h: number, ptr: number, len: number): number;
   sim_stop_launch(h: number): void;
   sim_set_controls(h: number, throttle: number, load: number): void;
@@ -169,6 +171,18 @@ export class Sim {
   setGraph(graph: ExhaustGraph | null): void {
     const [ptr, len] = this.write(JSON.stringify(graph));
     this.check(this.ex.sim_set_graph(this.handle, ptr, len), 'setGraph');
+  }
+
+  /** Where the engine makes its sound, as drawn. */
+  setSources(sources: SoundSources): void {
+    const [ptr, len] = this.write(JSON.stringify(sources));
+    this.check(this.ex.sim_set_sources(this.handle, ptr, len), 'setSources');
+  }
+
+  /** Put the listener's ear at `position`, m; `null` where it stands by default. Passes numbers, not JSON. */
+  setListener(position: [number, number, number] | null): void {
+    const [x, y, z] = position ?? [NaN, NaN, NaN];
+    this.ex.sim_set_listener(this.handle, x, y, z);
   }
 
   startLaunch(config: LaunchConfig): void {
