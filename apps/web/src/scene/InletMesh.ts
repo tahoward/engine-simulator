@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 
 import type { EngineSnapshot, EngineSpec } from '../model/spec.js';
-import { inletLayout, type InletLayout } from './inletLayout.js';
+import { PLENUM_ROUNDING, THROTTLE_WALL, inletLayout, type InletLayout } from './inletLayout.js';
 import { pressureColor } from './PipeMesh.js';
 
 const PLASTIC = { color: 0x2c2f35, metalness: 0.05, roughness: 0.62 };
@@ -106,6 +106,52 @@ function sweep(curve: THREE.Curve<THREE.Vector3>, size: (u: number) => [number, 
   return g;
 }
 
+/**
+ * The plenum, centred on the origin, `size` along x, y and z: its section square-shouldered down past the
+ * throttle body's centre, then narrowing to `base` of its width at the bottom, with rounded corners, run
+ * along z with rounded ends. A `base` of 1 is a rounded box.
+ */
+function plenumGeometry(size: THREE.Vector3, base: number): THREE.BufferGeometry {
+  if (base >= 1) return new RoundedBoxGeometry(size.x, size.y, size.z, 4, PLENUM_ROUNDING);
+  const r = PLENUM_ROUNDING;
+  const [w, h] = [size.x / 2 - r, size.y / 2 - r];
+  const waist = -h * 0.3;
+  const foot = (size.x / 2) * base - r;
+  // Round the corners where the section turns at each of its points.
+  const corners: [number, number][] = [
+    [w, h],
+    [-w, h],
+    [-w, waist],
+    [-foot, -h],
+    [foot, -h],
+    [w, waist],
+  ];
+  const shape = new THREE.Shape();
+  corners.forEach(([x, y], i) => {
+    const [px, py] = corners[(i + corners.length - 1) % corners.length]!;
+    const [nx, ny] = corners[(i + 1) % corners.length]!;
+    const into = new THREE.Vector2(x - px, y - py).normalize();
+    const out = new THREE.Vector2(nx - x, ny - y).normalize();
+    const a = new THREE.Vector2(x, y).addScaledVector(into, -r);
+    const b = new THREE.Vector2(x, y).addScaledVector(out, r);
+    if (i === 0) shape.moveTo(a.x, a.y);
+    else shape.lineTo(a.x, a.y);
+    shape.quadraticCurveTo(x, y, b.x, b.y);
+  });
+  shape.closePath();
+  const g = new THREE.ExtrudeGeometry(shape, {
+    depth: size.z - 2 * r,
+    bevelEnabled: true,
+    bevelThickness: r,
+    bevelSize: r,
+    bevelSegments: 4,
+    curveSegments: 6,
+  });
+  g.translate(0, 0, -(size.z - 2 * r) / 2);
+  g.computeVertexNormals();
+  return g;
+}
+
 /** A band round a tube at `u` along `curve`: a hose clamp. */
 function band(curve: THREE.Curve<THREE.Vector3>, u: number, radius: number, material: THREE.Material): THREE.Mesh {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(radius, 0.0028, 8, 40), material);
@@ -126,7 +172,8 @@ export class InletMesh {
   private readonly clamp = new THREE.MeshStandardMaterial(CLAMP);
   private readonly plate = new THREE.MeshStandardMaterial({ ...CAST, color: 0xc9ced4, side: THREE.DoubleSide });
   private butterfly: THREE.Object3D | null = null;
-  private plenum: THREE.Mesh | null = null;
+  /** The plenum and the boss on its face, which take its colour. */
+  private plenum: THREE.Mesh[] = [];
   private runners: THREE.Mesh[] = [];
   private layout: InletLayout | null = null;
   private showPressure = false;
@@ -187,9 +234,7 @@ export class InletMesh {
     if (!this.showPressure) return;
     const ambient = new THREE.Color();
     pressureColor(0, ambient);
-    for (const m of [this.plenum, ...this.runners]) {
-      if (m) fill(m.geometry, ambient);
-    }
+    for (const m of [...this.plenum, ...this.runners]) fill(m.geometry, ambient);
   }
 
   /**
@@ -267,20 +312,26 @@ export class InletMesh {
   /** The plenum, its runners and the throttle body. */
   private buildEngineSide(l: InletLayout): void {
     const { centre, size } = l.plenum;
-    const plenum = new THREE.Mesh(
-      colourable(new RoundedBoxGeometry(size.x, size.y, size.z, 4, Math.min(size.x, size.y) * 0.3)),
-      this.pipeMetal,
-    );
+    const plenum = new THREE.Mesh(colourable(plenumGeometry(size, l.plenum.base)), this.pipeMetal);
     plenum.position.copy(centre);
     this.group.add(plenum);
-    this.plenum = plenum;
+    // The boss on its front face the throttle body bolts to, cast with it, standing a little proud.
+    const { bore } = l.throttle;
+    const front = centre.z - size.z / 2;
+    const boss = new THREE.Mesh(
+      colourable(new THREE.CylinderGeometry(bore / 2 + THROTTLE_WALL + 0.007, bore / 2 + THROTTLE_WALL + 0.009, 0.03, 40)),
+      this.pipeMetal,
+    );
+    boss.rotation.x = Math.PI / 2;
+    boss.position.set(l.throttle.centre.x, l.throttle.centre.y, front - 0.005);
+    this.group.add(boss);
+    this.plenum = [plenum, boss];
 
     for (const r of l.runners) {
-      const out = new THREE.Vector3(Math.sign(r.to.x - r.from.x), 0, 0);
       const curve = new THREE.CubicBezierCurve3(
         r.from,
-        r.from.clone().addScaledVector(out, 0.05).add(new THREE.Vector3(0, 0.04, 0)),
-        r.to.clone().addScaledVector(out, -0.05).add(new THREE.Vector3(0, 0.03, 0)),
+        r.from.clone().add(r.leaving),
+        r.to.clone().sub(r.arriving),
         r.to,
       );
       const runner = new THREE.Mesh(colourable(new THREE.TubeGeometry(curve, 24, r.radius, 16, false)), this.pipeMetal);
@@ -289,10 +340,13 @@ export class InletMesh {
     }
 
     // The throttle body: a cast barrel with a flange each end, a shaft across, and the butterfly on it.
-    const { bore, length } = l.throttle;
+    const { length } = l.throttle;
     const body = new THREE.Group();
     body.position.copy(l.throttle.centre);
-    const barrel = new THREE.Mesh(new THREE.CylinderGeometry(bore / 2 + 0.006, bore / 2 + 0.006, length, 32, 1, true), this.cast);
+    const barrel = new THREE.Mesh(
+      new THREE.CylinderGeometry(bore / 2 + THROTTLE_WALL, bore / 2 + THROTTLE_WALL, length, 32, 1, true),
+      this.cast,
+    );
     barrel.rotation.x = Math.PI / 2;
     body.add(barrel);
     for (const end of [-1, 1]) {
@@ -401,14 +455,12 @@ export class InletMesh {
   private paint(snap: EngineSnapshot | null, scale = 1): void {
     if (!this.layout) return;
     if (!snap || !this.showPressure) {
-      for (const m of [this.plenum, ...this.runners]) if (m) fill(m.geometry, PIPE_METAL);
+      for (const m of [...this.plenum, ...this.runners]) fill(m.geometry, PIPE_METAL);
       return;
     }
     const rgb = new THREE.Color();
-    if (this.plenum) {
-      pressureColor(snap.plenumPressure / scale, rgb);
-      fill(this.plenum.geometry, rgb);
-    }
+    pressureColor(snap.plenumPressure / scale, rgb);
+    for (const m of this.plenum) fill(m.geometry, rgb);
     // A runner's cells from its valve; drawn from the plenum, so read back.
     let at = 0;
     snap.runnerCells.forEach((n, b) => {
@@ -450,7 +502,7 @@ export class InletMesh {
     drop(this.tract);
     drop(this.group);
     this.butterfly = null;
-    this.plenum = null;
+    this.plenum = [];
     this.runners = [];
   }
 
