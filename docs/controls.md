@@ -134,7 +134,7 @@ speeding up its own flywheel, and the curve comes out close to what the engine m
   throttle and 7000 rpm.
 - **Airbox volume**, **Snorkel length** and **Snorkel bore** shape the inlet tract the throttle draws
   its air through, and so the intake's note and its hiss. The view draws it, with the plenum, the
-  throttle body and its butterfly, in front of and on the engine. At 0
+  throttle body and its butterfly, on top of the engine. At 0
   the airbox is four times the engine's displacement and the snorkel a little wider than the throttle. A
   turbocharged engine has none.
 

@@ -1,7 +1,7 @@
 /**
  * Where the intake's parts are drawn: the plenum on the engine, the throttle body on its front, the tube
- * from it forwards to an airbox across the front of the engine, and the snorkel from the airbox to the
- * grille. Pure geometry, so what is drawn and where the intake is heard from (`soundSources`) agree.
+ * from it up into an airbox across the top of the engine's front, and the snorkel from the airbox forwards
+ * to just ahead of the engine. Pure geometry, so what is drawn and where the intake is heard from (`soundSources`) agree.
  *
  * The tube, the airbox and the snorkel are the inlet tract the simulation solves (`inletSegments`): the
  * airbox holds the solver's volume over its length, and the tube and snorkel have the solver's bores.
@@ -99,47 +99,50 @@ export function inletLayout(spec: EngineSpec): InletLayout {
     length: throttleLength,
   };
 
-  // The airbox across the front of the engine, a little lower than the throttle, its length the solver's
-  // chamber, its section holding the solver's volume, half again as deep as it is high.
+  // The airbox across the top of the engine's front, clear above the plenum and the heads: its length the
+  // solver's chamber, its section holding the solver's volume, half again as deep as it is high. It runs
+  // from the end the tube enters towards the engine's middle, or across a V from one side.
   const chamber = segments[1]!;
   const area = airboxVolumeOf(spec) / chamber.length;
   const height = Math.sqrt(area / 1.5);
   const depth = height * 1.5;
-  const side = intakeSide;
-  const across = new THREE.Vector3(side, 0, 0);
   const start = new THREE.Vector3(centre.x, centre.y, plenumFront - throttleLength);
-
-  // The tube: forwards out of the throttle body, then round into the airbox's end, the airbox set as far
-  // ahead as makes the tube the solver's length.
-  const tubeAt = (ahead: number) => {
-    const inlet = new THREE.Vector3(centre.x + side * 0.1, centre.y - 0.04, Math.min(start.z, front) - ahead);
-    const curve = new THREE.CubicBezierCurve3(
-      start,
-      start.clone().add(new THREE.Vector3(0, 0, -0.16)),
-      inlet.clone().addScaledVector(across, -0.14),
-      inlet,
-    );
-    return { inlet, curve };
-  };
-  const ahead = fit((a) => tubeAt(a).curve.getLength(), segments[0]!.length, depth / 2 + 0.02, 2);
-  const { inlet, curve: tube } = tubeAt(ahead);
+  const run = vee ? 1 : -intakeSide;
+  const side = run;
+  const across = new THREE.Vector3(run, 0, 0);
+  const heads = shell.top * Math.cos(shell.straddle);
+  const boxY = Math.max(centre.y + PLENUM_HEIGHT / 2, heads) + height / 2 + 0.03;
+  const boxZ = front + depth / 2;
+  const inletX = vee ? -chamber.length / 2 : centre.x - run * 0.02;
+  const inlet = new THREE.Vector3(inletX, boxY, boxZ);
   const airbox = {
     centre: inlet.clone().addScaledVector(across, chamber.length / 2),
     size: new THREE.Vector3(chamber.length, height, depth),
   };
 
-  // The snorkel: out of the airbox's far end, round to face forwards, its mouth towards the grille, as long
-  // as the solver's.
+  // The tube: forwards out of the throttle body, then up and round into the airbox's end, its bends as
+  // full as make it the solver's length.
+  const tubeAt = (k: number) =>
+    new THREE.CubicBezierCurve3(
+      start,
+      start.clone().add(new THREE.Vector3(0, 0, -k)),
+      inlet.clone().addScaledVector(across, -k),
+      inlet,
+    );
+  const tube = tubeAt(fit((k) => tubeAt(k).getLength(), segments[0]!.length, 0.02, 0.5));
+
+  // The snorkel: out of the airbox's far end, round to face forwards, its mouth just ahead of the engine,
+  // as long as the solver's.
   const outlet = inlet.clone().addScaledVector(across, chamber.length);
   const snorkelAt = (reach: number) => {
     const mouth = outlet
       .clone()
-      .addScaledVector(across, reach * 0.3)
-      .add(new THREE.Vector3(0, -0.02, -(reach * 0.75 + depth / 2)));
+      .addScaledVector(across, Math.min(reach * 0.25, 0.06))
+      .add(new THREE.Vector3(0, -0.01, -(depth / 2 + reach * 0.8)));
     const curve = new THREE.CubicBezierCurve3(
       outlet,
-      outlet.clone().addScaledVector(across, reach * 0.35),
-      mouth.clone().add(new THREE.Vector3(0, 0, reach * 0.35)),
+      outlet.clone().addScaledVector(across, Math.min(reach * 0.3, 0.08)),
+      mouth.clone().add(new THREE.Vector3(0, 0, reach * 0.3)),
       mouth,
     );
     return { mouth, curve };

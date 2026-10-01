@@ -308,13 +308,13 @@ guards all of this.
 ## The intake's sound
 
 On an engine without a turbo, the air reaches the throttle through an **inlet tract**: a snorkel open
-to the air, an airbox, and a 0.45 m tube at the throttle's bore, solved with the same gas dynamics as
+to the air, an airbox, and a 0.35 m tube at the throttle's bore, solved with the same gas dynamics as
 the exhaust. Its mouth radiates the way a tailpipe's does, through its own far field, and is heard
 from where it is drawn. The view draws it as a car has it: a plenum in the valley of a V, or beside an
 inline engine's head on the side away from its exhaust, with a runner to each port; a throttle body on
 the plenum's front, its butterfly turning with the throttle; a rubber tube with a bellows coupler and
-hose clamps, forwards and round to an airbox across the front of the engine; and a snorkel from the
-airbox, flattened and flaring at its mouth. The airbox holds the solver's volume over the solver's
+hose clamps, looping up into an airbox across the top of the engine's front; and a snorkel from the
+airbox's far end, turning forwards, flattened and flaring at its mouth just ahead of the engine. The airbox holds the solver's volume over the solver's
 length, and the tube and the snorkel are drawn as long as the solver's and at its bores, the snorkel
 flattened with its area kept. The pressure view colours the tube, the airbox and the snorkel by their
 cells, on the same scale as the exhaust's.
@@ -322,9 +322,9 @@ cells, on the same scale as the exhaust's.
 **The engine's note through it.** The runners empty and refill the plenum at the firing frequency,
 so the throttle's flow pulses. The pulses travel up the tract, ring in the airbox and the snorkel,
 and leave its mouth: on the F20C at 6000 rpm, the flow out of the mouth at the firing frequency stands
-68 dB above the band between it and its second harmonic. The tract's lowest resonance is the airbox's
+43 dB above the band between it and its second harmonic. The tract's lowest resonance is the airbox's
 air bouncing on the column in the snorkel, a Helmholtz resonator, so a longer snorkel tunes it lower:
-on the F20C's airbox, from 91 Hz with a 0.15 m snorkel to 50 Hz with a 0.6 m one. What the tract does
+on the F20C's airbox, from 94 Hz with a 0.15 m snorkel to 50 Hz with a 0.6 m one. What the tract does
 to the pressure at the throttle comes back to it, so a snorkel tuned near the engine's speed helps it
 breathe there.
 
@@ -332,7 +332,7 @@ breathe there.
 noise peaking at the jet's Strouhal frequency, `0.2·U/d`, for a jet of speed `U` through a gap `d`
 wide: the plate's open area spread round its edge. Nearly shut, the gap is a sliver and the jet near
 sonic, so it hisses high; wide open, the air is slow through the whole bore and it rushes low. On the
-F20C at 3000 rpm, the noise at the snorkel's mouth is centred near 360 Hz at 5% throttle and near 60 Hz
+F20C at 3000 rpm, the noise at the snorkel's mouth is centred near 300 Hz at 5% throttle and near 60 Hz
 wide open, after the airbox has muffled it. It is 10% of the flow through the throttle, the same as the
 exhaust valves' throat turbulence, and **Throat noise** scales both. It is injected at the throttle,
 so it reaches the air through the airbox and snorkel, coloured by them, as the exhaust valves' noise
