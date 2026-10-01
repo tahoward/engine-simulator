@@ -48,14 +48,14 @@ function colourable<T extends THREE.BufferGeometry>(g: T): T {
 }
 
 /** Fill `g`'s vertex colours with `rgb`, or white with `null`. */
-function fill(g: THREE.BufferGeometry, rgb: THREE.Color | null, lift = 1): void {
+function fill(g: THREE.BufferGeometry, rgb: THREE.Color | null): void {
   const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
   if (!c) return;
   const arr = c.array as Float32Array;
   for (let k = 0; k < arr.length; k += 3) {
-    arr[k] = rgb ? rgb.r * lift : 1;
-    arr[k + 1] = rgb ? rgb.g * lift : 1;
-    arr[k + 2] = rgb ? rgb.b * lift : 1;
+    arr[k] = rgb ? rgb.r : 1;
+    arr[k + 1] = rgb ? rgb.g : 1;
+    arr[k + 2] = rgb ? rgb.b : 1;
   }
   c.needsUpdate = true;
 }
@@ -168,7 +168,24 @@ export class InletMesh {
   setPressureVisible(on: boolean): void {
     this.showPressure = on;
     this.specks.visible = on;
+    this.setFinish();
     if (!on) this.paint(null);
+  }
+
+  /**
+   * Each part as it is made, or with the pressure shown the exhaust's finish on all of them: white under its
+   * colour, and dull, so a pressure looks the same on the plenum, the airbox and a pipe.
+   */
+  private setFinish(): void {
+    for (const [m, look] of [
+      [this.tinted, PLASTIC],
+      [this.rubber, RUBBER],
+      [this.castTinted, CAST],
+    ] as const) {
+      m.color.set(this.showPressure ? 0xffffff : look.color);
+      m.metalness = this.showPressure ? 0.15 : look.metalness;
+      m.roughness = this.showPressure ? 0.55 : look.roughness;
+    }
   }
 
   /** Show a snapshot's pressures and air speeds, in the pressure view. */
@@ -176,6 +193,17 @@ export class InletMesh {
     this.velocity = s.inletVelocity;
     if (!this.showPressure) return;
     this.paint(s);
+  }
+
+  /** The engine at rest: every part at the atmosphere's pressure, and the air still. */
+  settle(): void {
+    this.velocity = new Float32Array(0);
+    if (!this.showPressure) return;
+    const ambient = new THREE.Color();
+    pressureColor(0, ambient);
+    for (const m of [this.tube, this.box, this.snorkel, this.plenum, ...this.runners]) {
+      if (m) fill(m.geometry, ambient);
+    }
   }
 
   /**
@@ -398,11 +426,9 @@ export class InletMesh {
     // throttle, would drown them, and shows at the top of the scale instead.
     const scale = this.scale.track(cells && cells.length > 0 ? cells : snap.runnerPressure);
     const rgb = new THREE.Color();
-    // Lighter than the ramp, so the dark plastic shows its colour.
-    const lift = 1.6;
     if (this.plenum) {
       pressureColor(snap.plenumPressure / scale, rgb);
-      fill(this.plenum.geometry, rgb, 1.3);
+      fill(this.plenum.geometry, rgb);
     }
     // A runner's cells from its valve; drawn from the plenum, so read back.
     let at = 0;
@@ -419,9 +445,9 @@ export class InletMesh {
         pressureColor(own[Math.min(n - 1, Math.floor((1 - i / (rings - 1)) * (n - 1)))]! / scale, rgb);
         for (let j = 0; j < per; j++) {
           const k = (i * per + j) * 3;
-          arr[k] = rgb.r * 1.3;
-          arr[k + 1] = rgb.g * 1.3;
-          arr[k + 2] = rgb.b * 1.3;
+          arr[k] = rgb.r;
+          arr[k + 1] = rgb.g;
+          arr[k + 2] = rgb.b;
         }
       }
       c.needsUpdate = true;
@@ -440,9 +466,9 @@ export class InletMesh {
         pressureColor(cellAt(from + (to - from) * (i / ALONG)) / scale, rgb);
         for (let j = 0; j <= AROUND; j++) {
           const k = (i * (AROUND + 1) + j) * 3;
-          arr[k] = rgb.r * lift;
-          arr[k + 1] = rgb.g * lift;
-          arr[k + 2] = rgb.b * lift;
+          arr[k] = rgb.r;
+          arr[k + 1] = rgb.g;
+          arr[k + 2] = rgb.b;
         }
       }
       c.needsUpdate = true;
@@ -456,7 +482,7 @@ export class InletMesh {
       let sum = 0;
       for (let i = first; i < last; i++) sum += cells[i]!;
       pressureColor(sum / (last - first) / scale, rgb);
-      fill(this.box.geometry, rgb, lift);
+      fill(this.box.geometry, rgb);
     }
   }
 
