@@ -31,6 +31,17 @@ const AROUND = 28;
 const BELLOWS = 0.09;
 const RIB_PITCH = 0.012;
 
+/** How much wider a runner flares where it meets the plenum, as a fraction of its bore, and over how many
+ * of its radii, like a cast fillet outside and a bellmouth in. */
+const RUNNER_FLARE = 0.5;
+const RUNNER_FLARE_RADII = 1.4;
+
+/** A runner's radius `s` m from where it leaves the plenum's inside wall, flaring by `flare` of its bore. */
+function runnerRadius(radius: number, s: number, flare: number): number {
+  const reach = RUNNER_FLARE_RADII * radius;
+  return s >= reach ? radius : radius * (1 + flare * (1 - s / reach) ** 2);
+}
+
 /** Wall thickness of the rubber tube and the snorkel, m: how far they stand out of their bore. */
 const WALL = 0.004;
 
@@ -73,13 +84,16 @@ function sweep(curve: THREE.Curve<THREE.Vector3>, size: (u: number) => [number, 
   const normals: number[] = [];
   const index: number[] = [];
   const up = new THREE.Vector3(0, 1, 0);
+  let was = new THREE.Vector3(1, 0, 0);
   for (let i = 0; i <= ALONG; i++) {
     const u = i / ALONG;
     const at = curve.getPointAt(u);
     const t = curve.getTangentAt(u).normalize();
     const across = new THREE.Vector3().crossVectors(t, up);
-    if (across.lengthSq() < 1e-8) across.set(1, 0, 0);
+    // Running straight up or down, across is kept as it last was, so the tube does not twist there.
+    if (across.lengthSq() < 1e-6) across.copy(was);
     across.normalize();
+    was = across.clone();
     const lift = new THREE.Vector3().crossVectors(across, t).normalize();
     const [a, b] = size(u);
     for (let j = 0; j <= AROUND; j++) {
@@ -166,7 +180,9 @@ interface Opening {
   side: 1 | -1;
   y: number;
   z: number;
-  radius: number;
+  /** Its radius in the wall's inside face and in its outside one, m: the runner's flare where each is. */
+  inside: number;
+  outside: number;
 }
 
 /**
@@ -224,7 +240,7 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
         ]);
         for (const o of openings.filter((o) => o.side === side)) {
           const hole = new THREE.Path();
-          hole.absarc(o.z, o.y, o.radius, 0, Math.PI * 2, true);
+          hole.absarc(o.z, o.y, section === outer ? o.outside : o.inside, 0, Math.PI * 2, true);
           plate.holes.push(hole);
         }
         // Drawn in its own plane, along z and up y, then stood on the side.
@@ -420,11 +436,21 @@ export class InletMesh {
   /** The plenum, its runners and the throttle body. */
   private buildEngineSide(l: InletLayout): void {
     const { centre, size } = l.plenum;
-    const openings: Opening[] = l.runners.map((r) => ({
+    // Each runner flares by `RUNNER_FLARE`, or as much as its side of the plenum has room for.
+    const section = plenumSection(size.x, size.y, l.plenum.base, PLENUM_ROUNDING);
+    const flares = l.runners.map((r) => {
+      const side = r.from.x >= centre.x ? 1 : -1;
+      const [low, high] = section.sides[side].map((i) => section.points[i]!.y).sort((a, b) => a - b);
+      const y = r.from.y - centre.y;
+      const room = Math.min(y - low!, high! - y) - 0.002;
+      return Math.max(0, Math.min(RUNNER_FLARE, room / r.radius - 1));
+    });
+    const openings: Opening[] = l.runners.map((r, k) => ({
       side: r.from.x >= centre.x ? 1 : -1,
       y: r.from.y - centre.y,
       z: r.from.z - centre.z,
-      radius: r.radius,
+      inside: runnerRadius(r.radius, 0, flares[k]!),
+      outside: runnerRadius(r.radius, PLENUM_WALL, flares[k]!),
     }));
     const plenum = new THREE.Mesh(
       colourable(plenumGeometry(size, l.plenum.base, l.throttle.bore, openings)),
@@ -450,14 +476,21 @@ export class InletMesh {
     this.group.add(boss);
     this.plenum = [plenum, boss];
 
-    for (const r of l.runners) {
+    for (const [k, r] of l.runners.entries()) {
       const curve = new THREE.CubicBezierCurve3(
         r.from,
         r.from.clone().add(r.leaving),
         r.to.clone().sub(r.arriving),
         r.to,
       );
-      const runner = new THREE.Mesh(colourable(new THREE.TubeGeometry(curve, 24, r.radius, 40, false)), this.pipeMetal);
+      // Flaring into the plenum where it leaves it.
+      const length = curve.getLength();
+      const tube = sweep(curve, (u) => {
+        const radius = runnerRadius(r.radius, u * length, flares[k]!);
+        return [radius, radius];
+      });
+      tube.computeVertexNormals();
+      const runner = new THREE.Mesh(colourable(tube), this.pipeMetal);
       this.group.add(runner);
       this.runners.push(runner);
     }
@@ -593,8 +626,8 @@ export class InletMesh {
       if (!runner || n === 0) return;
       const c = runner.geometry.getAttribute('color') as THREE.BufferAttribute;
       const arr = c.array as Float32Array;
-      const rings = 25;
-      const per = arr.length / 3 / rings;
+      const rings = ALONG + 1;
+      const per = AROUND + 1;
       for (let i = 0; i < rings; i++) {
         pressureColor(own[Math.min(n - 1, Math.floor((1 - i / (rings - 1)) * (n - 1)))]! / scale, rgb);
         for (let j = 0; j < per; j++) {
