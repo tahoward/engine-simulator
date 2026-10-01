@@ -12,7 +12,7 @@ import * as THREE from 'three';
 
 import { engineShell, exhaustPortOf, valvetrainTop } from '../model/geometry.js';
 import { airboxVolumeOf, inletSegments, plenumVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
-import { cylinderZ, intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
+import { intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
 
 export interface Runner {
   /** Where it leaves the plenum, and where it meets the head. */
@@ -122,16 +122,16 @@ export function inletLayout(spec: EngineSpec): InletLayout {
     }
   } else {
     const x = intakeSide * (shell.width / 2 + 0.08 + width / 2);
-    centre = new THREE.Vector3(x, shell.top * 0.62, 0);
-    // Straight and level out of the plenum's side into each port, as an inline engine's short runners run:
-    // each from the plenum's middle, so it passes clean through the wall wherever it meets it.
-    const portY = shell.top * 0.62;
+    // Straight and level out of the plenum's side into each intake port, at the height the exhaust leaves
+    // the other side of the head: each from the plenum's middle, so it passes clean through the wall
+    // wherever it meets it.
+    const portY = intakePortOf(spec, 0).position.y;
+    centre = new THREE.Vector3(x, portY, 0);
     for (let b = 0; b < spec.cylinders; b++) {
-      const z = cylinderZ(spec, b);
-      const from = new THREE.Vector3(x, portY, z);
-      const to = new THREE.Vector3(intakeSide * shell.width * 0.45, portY, z);
-      const third = to.clone().sub(from).divideScalar(3);
-      runners.push({ from, to, leaving: third, arriving: third, radius });
+      const port = intakePortOf(spec, b).position;
+      const from = new THREE.Vector3(x, port.y, port.z);
+      const third = port.clone().sub(from).divideScalar(3);
+      runners.push({ from, to: port, leaving: third, arriving: third, radius });
     }
   }
   const plenum = { centre, size: new THREE.Vector3(width, height, length), base: vee ? 0.55 : 1 };
