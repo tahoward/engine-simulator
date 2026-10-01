@@ -76,6 +76,8 @@ export function readConfig(raw: unknown, base: EngineConfig): { config: EngineCo
     base.engine.load = Math.min(Math.max(loadTorque / fullLoadTorque(base.engine, isTurbocharged(graphFromJson(parsed.graph) ?? undefined)), 0), 1.5);
   }
   delete (base.engine as { loadTorque?: unknown }).loadTorque;
+  // Pushrods work two valves a cylinder: a head with more has overhead cams.
+  if (base.engine.exValveCount > 1 || base.engine.inValveCount > 1) base.engine.pushrods = false;
   base.engine.freeRunning = true;
 
   if (Array.isArray(parsed.pipe) && parsed.pipe.length > 0) {

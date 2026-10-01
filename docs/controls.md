@@ -116,8 +116,10 @@ speeding up its own flywheel, and the curve comes out close to what the engine m
   whole cam by the intake's advance, as on a pushrod engine. The line above the sliders says where
   the cams are now. See [Variable valve timing](engine.md#variable-valve-timing).
 - **Pushrods** draws the valvetrain as a pushrod engine has it: one camshaft in the block, in the valley
-  of a V, its lobes lifting tappets, and rocker arms on the heads working the valves; the pushrods between
-  them are not drawn. Off, each row of valves has a cam over it, pressing on a bucket on each valve. Either
+  of a V, its lobes lifting tappets, pushrods straight up the banks from them, parallel to the cylinders,
+  and rocker arms on the heads reaching across from the pushrods to the valves. Pushrods work a two-valve
+  head, its valves upright in a row along it, so turning them on sets two valves a cylinder, and choosing
+  four valves turns them off. Off, each row of valves has a cam over it, pressing on a bucket on each valve. Either
   way every lobe is cut to its valve's lift and turns at half the crank's speed, set round by the cam's
   phaser. With cam profile switching each pair of valves has three lobes and three finger rockers under
   them, on a rocker shaft, as Honda's VTEC has: the outer two on the low-speed lobes press the valves, and

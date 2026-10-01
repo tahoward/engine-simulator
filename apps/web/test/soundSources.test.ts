@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { presetConfig } from '../bench/presetConfig.js';
 import { Sim } from '../src/audio/worklet/sim.js';
 import { solverGraph, compileExhaust } from '../src/model/exhaustGraph.js';
-import { ENGINE_PRESETS, defaultConfig } from '../src/model/spec.js';
+import { ENGINE_PRESETS, defaultConfig, intakeRunnerOf } from '../src/model/spec.js';
 import { inletSegments } from '../src/model/intakeSizing.js';
-import { engineShell } from '../src/model/geometry.js';
+import { engineShell, intakePortOf } from '../src/model/geometry.js';
 import { inletLayout } from '../src/scene/inletLayout.js';
 import { configSources } from '../src/scene/soundSources.js';
 
@@ -67,6 +67,22 @@ describe('the inlet tract as drawn', () => {
       const half = engineShell(cfg.engine).length / 2;
       expect(Math.abs(at.airbox.centre.z), preset.name).toBeLessThan(half);
       expect(at.mouth.z, preset.name).toBeLessThan(at.airbox.centre.z);
+    }
+  });
+
+  it('keeps the two heads’ intake ports apart in the valley, down to a 45° V', () => {
+    for (const name of ['LT6', '45°', '2GR']) {
+      const spec = presetConfig(ENGINE_PRESETS.find((p) => p.name.includes(name))!).engine;
+      const flange = (intakeRunnerOf(spec).diameter / 2) * 1.53;
+      for (let v = 45; v <= 120; v += 5) {
+        const s = { ...spec, vAngle: v };
+        for (let b = 0; b < s.cylinders; b++) {
+          const { position, direction } = intakePortOf(s, b);
+          // The flange's edge nearest the middle, still on its own bank's side.
+          const inner = Math.abs(position[0]) - flange * Math.abs(direction[1]);
+          expect(inner, `${name} at ${v}°`).toBeGreaterThan(0.004);
+        }
+      }
     }
   });
 

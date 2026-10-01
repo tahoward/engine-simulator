@@ -387,21 +387,18 @@ describe('the drawn mechanism', () => {
     ['a four-valve four', { cylinders: 4, vAngle: 0, exValveCount: 2, inValveCount: 2 }],
   ] as Array<[string, Partial<EngineSpec>]>)('opens every valve of %s along its stem', (_n, engine) => {
     const mesh = new EngineMesh(spec(engine)) as unknown as {
-      cyls: Array<{ exValves: THREE.Group[]; inValves: THREE.Group[]; exhaustSide: number }>;
-      poseValve: (g: THREE.Group, sign: number, lift: number) => void;
+      cyls: Array<{ exValves: THREE.Group[]; inValves: THREE.Group[] }>;
+      poseValve: (g: THREE.Group, lift: number) => void;
     };
     const lift = 0.009;
     const count = (engine.exValveCount ?? 1) + (engine.inValveCount ?? 1);
     for (const c of mesh.cyls) {
-      const valves = [
-        ...c.exValves.map((v) => [v, c.exhaustSide] as const),
-        ...c.inValves.map((v) => [v, -c.exhaustSide] as const),
-      ];
+      const valves = [...c.exValves, ...c.inValves];
       expect(valves.length).toBe(count);
-      for (const [valve, sign] of valves) {
-        mesh.poseValve(valve, sign, 0);
+      for (const valve of valves) {
+        mesh.poseValve(valve, 0);
         const shut = valve.position.clone();
-        mesh.poseValve(valve, sign, lift);
+        mesh.poseValve(valve, lift);
         const moved = valve.position.clone().sub(shut);
         const stem = new THREE.Vector3(0, 1, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), valve.rotation.z);
         expect(moved.length()).toBeCloseTo(lift, 9);

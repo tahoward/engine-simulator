@@ -15,6 +15,7 @@ import {
   cylinderSpacing,
   cylinderZ,
   firingPlan,
+  intakeRunnerOf,
   physicalBank,
   physicalBankCount,
 } from './spec.js';
@@ -54,6 +55,65 @@ export function exhaustPortOf(spec: EngineSpec, cylinder: number): { position: V
   };
 }
 
+/**
+ * A cylinder's intake port in the cylinder's own frame, `side` the side of the head it is on (the other
+ * from the exhaust): where its runner attaches, and which way the port points, in x and y.
+ *
+ * Out of the side of the head square to it, as the exhaust is, where there is room. In a narrow V that
+ * would put the two heads' ports into each other in the valley, so there each port moves up round the
+ * head's inner edge onto its top, turning to face up as it goes, just as far as leaves its flange clear of
+ * the valley's middle: in the tightest Vs on top of the head facing straight up.
+ */
+export function intakePortLocal(spec: EngineSpec, side: number): { position: [number, number]; direction: [number, number] } {
+  const crownOffset = spec.bore * 0.34;
+  const boreArea = (Math.PI * spec.bore * spec.bore) / 4;
+  const deckY = spec.stroke / 2 + spec.rodLength + crownOffset + clearanceVolume(spec) / boreArea;
+  const headHeight = spec.bore * 0.52;
+  // `u` 0 out of the side, 1 on top facing up.
+  const at = (u: number, half: number) => {
+    const x = spec.bore * (1.15 - 0.6 * u);
+    const y = deckY + headHeight * (0.45 + 0.5 * u);
+    const tilt = u * (Math.PI / 2 - half);
+    return { position: [side * x, y] as [number, number], direction: [side * Math.cos(tilt), Math.sin(tilt)] as [number, number] };
+  };
+  if (physicalBankCount(spec) < 2 || spec.vAngle >= 150) return at(0, 0);
+  const half = ((spec.vAngle / 2) * Math.PI) / 180;
+  // The flange's inner edge across the valley's middle, for a bank leaning `half` out from upright.
+  const flange = intakeRunnerOf(spec).diameter / 2 * 1.53;
+  const gap = (u: number) => {
+    const { position, direction } = at(u, half);
+    const x = -Math.abs(position[0]) * Math.cos(half) + position[1] * Math.sin(half);
+    const rise = Math.atan2(direction[1], Math.abs(direction[0])) + half;
+    return x - flange * Math.sin(rise);
+  };
+  const clear = 0.006;
+  if (gap(0) >= clear) return at(0, half);
+  let [lo, hi] = [0, 1];
+  for (let i = 0; i < 40; i++) {
+    const mid = (lo + hi) / 2;
+    if (gap(mid) < clear) lo = mid;
+    else hi = mid;
+  }
+  return at(hi, half);
+}
+
+/** A cylinder's intake port, as `intakePortLocal` places it, turned with its bank and along the crank. */
+export function intakePortOf(spec: EngineSpec, cylinder: number): { position: Vec3; direction: Vec3 } {
+  const ex = exhaustPortOf(spec, cylinder);
+  const plan = firingPlan(spec);
+  const deg = Math.PI / 180;
+  const bankRotation = (plan.banks[cylinder] ?? 0) === 0 ? 0 : -spec.vAngle * deg;
+  const rot = bankRotation + (plan.bankCount > 1 ? (spec.vAngle / 2) * deg : 0);
+  const side = physicalBankCount(spec) > 1 && physicalBank(spec, cylinder) === 0 ? 1 : -1;
+  const { position: [px, py], direction: [dx, dy] } = intakePortLocal(spec, side);
+  const c = Math.cos(rot);
+  const s = Math.sin(rot);
+  return {
+    position: [px * c - py * s, px * s + py * c, ex.position[2]],
+    direction: [dx * c - dy * s, dx * s + dy * c, 0],
+  };
+}
+
 /** How far the crank runs on past its end throws, to the nose at one end and the flange at the other, m. */
 export const END_JOURNAL = 0.03;
 
@@ -77,6 +137,87 @@ export function deckHeight(spec: EngineSpec): number {
   return spec.stroke / 2 + spec.rodLength + spec.bore * 0.34 + clearanceVolume(spec) / boreArea;
 }
 
+/** How much further a pushrod engine's rocker arm moves the valve than its tappet moves. */
+export const ROCKER_RATIO = 1.5;
+
+/**
+ * How near the point (`x`, `y`), m, in a bank's frame with the crank at the origin and the bank upright,
+ * that bank's con rods come over the cycle, to their surface: each a bar from the crankpin's circle to the
+ * wrist pin on the bore's axis.
+ */
+function rodGap(spec: EngineSpec, x: number, y: number): number {
+  const a = spec.stroke / 2;
+  const l = spec.rodLength;
+  let near = Infinity;
+  for (let k = 0; k < 72; k++) {
+    const phi = (k / 72) * 2 * Math.PI;
+    const [px, py] = [a * Math.sin(phi), a * Math.cos(phi)];
+    const wy = py + Math.sqrt(l * l - px * px);
+    // From the pin (px, py) to the wrist (0, wy).
+    const [dx, dy] = [-px, wy - py];
+    const t = Math.min(Math.max(((x - px) * dx + (y - py) * dy) / (dx * dx + dy * dy), 0), 1);
+    near = Math.min(near, Math.hypot(x - px - t * dx, y - py - t * dy));
+  }
+  // The pin's own radius, the rod's at its widest.
+  return near - 0.0135;
+}
+
+/**
+ * Where a pushrod engine's camshaft for `bank` runs, m, in the drawn engine's frame before it is turned to
+ * straddle the vertical, bank 0 upright.
+ *
+ * Its pushrods run up the bank straight above it, parallel to the cylinders, so it has to sit where they
+ * pass outside every bore and every con rod's swing, and its lobes too. Where one cam can, it runs in the
+ * middle of a V's valley, or beside the crank on an inline engine's intake side, as near the crank as
+ * that allows. In a narrow V the middle of the valley has no such place, so each bank has a cam of its
+ * own outside it, on its exhaust side, beside its bore, as near the crank as clears the rods.
+ */
+export function blockCamOf(spec: EngineSpec, bank: number): [number, number] {
+  const shell = engineShell(spec);
+  const near = shell.crankcase.radius + camBaseRadius(spec) + 0.012;
+  const lobe = camBaseRadius(spec) + spec.maxLift / ROCKER_RATIO;
+  const vee = physicalBankCount(spec) > 1;
+  const turns = vee ? [0, (-spec.vAngle * Math.PI) / 180] : [0];
+  const r = spec.bore / 2;
+  const deck = deckHeight(spec);
+  // The lowest a piston's skirt comes, at the bottom of its stroke: the bore runs from there to the deck.
+  const skirt = spec.rodLength - spec.stroke / 2 - spec.bore * 0.34 * 0.525;
+  const local = (x: number, y: number, t: number) => [x * Math.cos(-t) - y * Math.sin(-t), x * Math.sin(-t) + y * Math.cos(-t)];
+  /** Whether something `size` across from (x, y) clears every bore and rod. */
+  const clear = (x: number, y: number, size: number) =>
+    turns.every((t) => {
+      const [lx, ly] = local(x, y, t);
+      if (ly < 0) return true;
+      if (rodGap(spec, lx, ly) < size + 0.003) return false;
+      return ly < skirt - size || Math.abs(lx) >= r + size + 0.003;
+    });
+  /** Whether a cam at (x, y) for the bank turned by `own` fits, and its pushrods up that bank to its deck. */
+  const fits = (x: number, y: number, own: number) => {
+    if (!clear(x, y, lobe)) return false;
+    const [lx, ly] = local(x, y, own);
+    for (let k = 1; k <= 24; k++) {
+      const h = ly + ((deck - ly) * k) / 24;
+      const [px, py] = [lx * Math.cos(own) - h * Math.sin(own), lx * Math.sin(own) + h * Math.cos(own)];
+      if (!clear(px, py, 0.0035)) return false;
+    }
+    return true;
+  };
+  const [ux, uy] = vee
+    ? [Math.sin(((spec.vAngle / 2) * Math.PI) / 180), Math.cos(((spec.vAngle / 2) * Math.PI) / 180)]
+    : [-0.8, 0.6];
+  // One cam, out from the crank until it fits.
+  for (let d = near; d < deck; d += 0.004) {
+    if (turns.every((t) => fits(ux * d, uy * d, t))) return [ux * d, uy * d];
+  }
+  // A cam a bank, outside it: bank 0's out beside its bore away from the valley, bank 1's mirrored.
+  const out = -(r + lobe + 0.004);
+  let y = Math.sqrt(Math.max(near * near - out * out, 0));
+  while (y < deck && !fits(out, y, 0)) y += 0.004;
+  if (bank === 0) return [out, y];
+  const t = turns[1]!;
+  return [-out * Math.cos(t) - y * Math.sin(t), -out * Math.sin(t) + y * Math.cos(t)];
+}
+
 /**
  * Where a vee's intake camshafts run, in the drawn engine's frame: how far either side of the middle their
  * centres are, m, and how far out from them the lobes reach at full lift. A pushrod engine's rocker arms
@@ -86,9 +227,13 @@ export function intakeCamsOf(spec: EngineSpec): { x: number; y: number; reach: n
   const turn = (spec.vAngle / 2) * (Math.PI / 180);
   const base = camBaseRadius(spec);
   const lift = Math.max(spec.maxLift, spec.camSwitchRpm > 0 ? spec.highMaxLift : 0);
-  // Bank 0's intake valves lean in towards the valley, their tops, and the cam over them.
+  // Bank 0's intake valves lean in towards the valley, their tops, and the cam over them. A pushrod head's
+  // valves stand upright over the middle of the cylinder, and their arms reach in from the tips to over
+  // the block's cam, where the pushrods come up.
   const along = spec.bore * STEM_LENGTH + (spec.pushrods ? 0.01 : BUCKET_HEIGHT + base);
-  const [x, y] = [spec.bore * 0.24 + Math.sin(VALVE_TILT) * along, deckHeight(spec) + Math.cos(VALVE_TILT) * along];
+  const [x, y] = spec.pushrods
+    ? [Math.max(blockCamOf(spec, 0)[0], 0.01), deckHeight(spec) + along]
+    : [spec.bore * 0.24 + Math.sin(VALVE_TILT) * along, deckHeight(spec) + Math.cos(VALVE_TILT) * along];
   return {
     x: Math.abs(x * Math.cos(turn) - y * Math.sin(turn)),
     y: x * Math.sin(turn) + y * Math.cos(turn),
@@ -101,8 +246,8 @@ export function intakeCamsOf(spec: EngineSpec): { x: number; y: number; reach: n
  * lobes, or the rocker arms on top of a pushrod engine's heads.
  */
 export function valvetrainTop(spec: EngineSpec): number {
+  if (spec.pushrods) return deckHeight(spec) + spec.bore * STEM_LENGTH + 0.025;
   const stemTop = deckHeight(spec) + spec.bore * STEM_LENGTH * Math.cos(VALVE_TILT);
-  if (spec.pushrods) return stemTop + 0.025;
   const lift = Math.max(spec.maxLift, spec.camSwitchRpm > 0 ? spec.highMaxLift : 0);
   return stemTop + BUCKET_HEIGHT + 2 * camBaseRadius(spec) + lift;
 }
