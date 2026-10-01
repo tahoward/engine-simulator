@@ -18,13 +18,32 @@ export interface Runner {
   /** Where it leaves the plenum, and where it meets the head. */
   from: THREE.Vector3;
   to: THREE.Vector3;
+  /** Which way, and how far, it bends away from each end: the curve's handles. */
+  leaving: THREE.Vector3;
+  arriving: THREE.Vector3;
   radius: number;
 }
 
+/**
+ * Cylinder `b`'s intake port: its exhaust port mirrored across the cylinder, on the other side of the head,
+ * opening the other way.
+ */
+function intakePortOf(spec: EngineSpec, b: number): { position: THREE.Vector3; direction: THREE.Vector3 } {
+  const ex = exhaustPortOf(spec, b);
+  const d = new THREE.Vector3(...ex.direction).normalize();
+  const p = new THREE.Vector3(...ex.position);
+  const across = p.x * d.x + p.y * d.y;
+  return { position: p.addScaledVector(d, -2 * across), direction: d.negate() };
+}
+
 export interface InletLayout {
-  /** The plenum: a rounded box, its middle and its size along x, y and z, m. */
-  plenum: { centre: THREE.Vector3; size: THREE.Vector3 };
-  /** On an inline engine, one curved runner a cylinder from the plenum into the head. */
+  /**
+   * The plenum: its middle and its size along x, y and z, m. In a V it narrows below the throttle body to
+   * `base` of its width, sitting down into the valley between the heads; beside an inline head it is a
+   * rounded box, its `base` 1.
+   */
+  plenum: { centre: THREE.Vector3; size: THREE.Vector3; base: number };
+  /** On an inline engine or a boxer, one curved runner a cylinder from the plenum into the head. */
   runners: Runner[];
   /** The throttle body: its middle, on the plenum's front face, its bore and its length along -z, m. */
   throttle: { centre: THREE.Vector3; bore: number; length: number };
@@ -43,8 +62,12 @@ export interface InletLayout {
   segments: PipeSegment[];
 }
 
-/** How high the plenum is, m. */
+/** How high the plenum is at least, m, and how round its edges are. */
 const PLENUM_HEIGHT = 0.1;
+export const PLENUM_ROUNDING = 0.012;
+
+/** The throttle body's wall, round its bore, m. */
+export const THROTTLE_WALL = 0.006;
 
 /** The `t` in `lo..hi` at which `f(t)` is `target`, `f` rising with `t`: by bisection. */
 function fit(f: (t: number) => number, target: number, lo: number, hi: number): number {
@@ -66,31 +89,54 @@ export function inletLayout(spec: EngineSpec): InletLayout {
 
   // The plenum: across the valley of a V or a boxer, or along the intake side of an inline head. Its
   // footprint holds the plenum's volume at its height, within what the engine leaves room for.
+  // Its front face takes the throttle body, wall and all, inside its rounded edges.
+  const bore = throttleDiaOf(spec);
+  const face = bore + 2 * THROTTLE_WALL + 2 * PLENUM_ROUNDING + 0.01;
   const length = shell.length * 0.85;
-  const footprint = plenumVolumeOf(spec) / (PLENUM_HEIGHT * length);
-  const width = Math.min(Math.max(footprint, 0.07), vee ? shell.width * 0.9 : 0.12);
+  const height = Math.max(PLENUM_HEIGHT, face);
+  const footprint = plenumVolumeOf(spec) / (height * length);
+  const width = Math.max(Math.min(Math.max(footprint, 0.07), vee ? shell.width * 0.9 : 0.12), face);
   const runners: Runner[] = [];
   let centre: THREE.Vector3;
+  const radius = intakeRunnerOf(spec).diameter / 2;
   if (vee) {
     const valley = Math.max(shell.top * Math.cos(shell.straddle) * 0.8, shell.crankcase.radius + 0.02);
-    centre = new THREE.Vector3(0, valley + PLENUM_HEIGHT / 2, 0);
+    centre = new THREE.Vector3(0, valley + height / 2, 0);
+    // A boxer's heads lie flat either side, their intake ports on top: each runner arches out of the
+    // plenum's side and down into its port. A V's ports open into the valley under the plenum.
+    if (spec.vAngle >= 150) {
+      for (let b = 0; b < spec.cylinders; b++) {
+        const port = intakePortOf(spec, b);
+        const out = Math.sign(port.position.x) || 1;
+        const from = new THREE.Vector3((out * width) / 2 - out * 0.01, centre.y - height * 0.1, port.position.z);
+        const reach = from.distanceTo(port.position) * 0.45;
+        runners.push({
+          from,
+          to: port.position,
+          leaving: new THREE.Vector3(out * reach, reach * 0.4, 0),
+          arriving: port.direction.clone().multiplyScalar(-reach),
+          radius,
+        });
+      }
+    }
   } else {
     const x = intakeSide * (shell.width / 2 + 0.08 + width / 2);
     centre = new THREE.Vector3(x, shell.top * 0.7, 0);
-    const radius = intakeRunnerOf(spec).diameter / 2;
     for (let b = 0; b < spec.cylinders; b++) {
       const z = cylinderZ(spec, b);
+      const out = -intakeSide;
       runners.push({
-        from: new THREE.Vector3(x - intakeSide * (width / 2), centre.y + PLENUM_HEIGHT * 0.15, z),
+        from: new THREE.Vector3(x - intakeSide * (width / 2), centre.y + height * 0.15, z),
         to: new THREE.Vector3(intakeSide * shell.width * 0.45, shell.top * 0.62, z),
+        leaving: new THREE.Vector3(out * 0.05, 0.04, 0),
+        arriving: new THREE.Vector3(out * 0.05, -0.03, 0),
         radius,
       });
     }
   }
-  const plenum = { centre, size: new THREE.Vector3(width, PLENUM_HEIGHT, length) };
+  const plenum = { centre, size: new THREE.Vector3(width, height, length), base: vee ? 0.55 : 1 };
 
   // The throttle body on the plenum's front face, looking forwards.
-  const bore = throttleDiaOf(spec);
   const throttleLength = 0.05 + bore * 0.3;
   const plenumFront = centre.z - length / 2;
   const throttle = {
@@ -104,20 +150,20 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   // from the end the tube enters towards the engine's middle, or across a V from one side.
   const chamber = segments[1]!;
   const area = airboxVolumeOf(spec) / chamber.length;
-  const height = Math.sqrt(area / 1.5);
-  const depth = height * 1.5;
+  const boxHeight = Math.sqrt(area / 1.5);
+  const depth = boxHeight * 1.5;
   const start = new THREE.Vector3(centre.x, centre.y, plenumFront - throttleLength);
   const run = vee ? 1 : -intakeSide;
   const side = run;
   const across = new THREE.Vector3(run, 0, 0);
   const heads = shell.top * Math.cos(shell.straddle);
-  const boxY = Math.max(centre.y + PLENUM_HEIGHT / 2, heads) + height / 2 + 0.03;
+  const boxY = Math.max(centre.y + plenum.size.y / 2, heads) + boxHeight / 2 + 0.03;
   const boxZ = front + depth / 2;
   const inletX = vee ? -chamber.length / 2 : centre.x - run * 0.02;
   const inlet = new THREE.Vector3(inletX, boxY, boxZ);
   const airbox = {
     centre: inlet.clone().addScaledVector(across, chamber.length / 2),
-    size: new THREE.Vector3(chamber.length, height, depth),
+    size: new THREE.Vector3(chamber.length, boxHeight, depth),
   };
 
   // The tube: forwards out of the throttle body, then up and round into the airbox's end, its bends as
