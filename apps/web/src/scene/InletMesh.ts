@@ -188,11 +188,14 @@ export class InletMesh {
     }
   }
 
-  /** Show a snapshot's pressures and air speeds, in the pressure view. */
-  show(s: EngineSnapshot): void {
+  /**
+   * Show a snapshot's pressures and air speeds, in the pressure view. With `hold`, as the engine is off, the
+   * scale is held where it is, so the plenum's vacuum fades as the air leaks back past the throttle.
+   */
+  show(s: EngineSnapshot, hold = false): void {
     this.velocity = s.inletVelocity;
     if (!this.showPressure) return;
-    this.paint(s);
+    this.paint(s, hold);
   }
 
   /** The engine at rest: every part at the atmosphere's pressure, and the air still. */
@@ -414,7 +417,7 @@ export class InletMesh {
    * Colour every part by a snapshot's gauge pressures, on the intake's own scale; with `null`, plain. The
    * tube, the airbox and the snorkel each take the cells of the stretch of the solver's tract they are.
    */
-  private paint(snap: EngineSnapshot | null): void {
+  private paint(snap: EngineSnapshot | null, hold = false): void {
     if (!this.layout) return;
     const parts = [this.tube, this.box, this.snorkel, this.plenum, ...this.runners];
     const cells = snap?.inletPressure;
@@ -428,7 +431,7 @@ export class InletMesh {
     if (cells) all.set(cells);
     all.set(snap.runnerPressure, cells?.length ?? 0);
     all[all.length - 1] = snap.plenumPressure;
-    const scale = this.scale.track(all);
+    const scale = this.scale.track(all, hold);
     const rgb = new THREE.Color();
     if (this.plenum) {
       pressureColor(snap.plenumPressure / scale, rgb);

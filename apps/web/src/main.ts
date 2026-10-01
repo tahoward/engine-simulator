@@ -899,7 +899,7 @@ audio.onSnapshot((s) => {
     if (i >= 0) pipeMeshes[i]?.update(reversed.has(id) ? cells.slice().reverse() : cells, scale);
     at += n;
   });
-  inletMesh.show(s);
+  inletMesh.show(s, !engineOn);
   launchSheet.onSnapshot(s.launch);
   panel.updateReadouts(s);
   hudEl.textContent =
@@ -979,6 +979,14 @@ const SILENT_PEAK = 1e-4;
 /** How long a stopped engine may keep making a sound before the audio is suspended anyway, ms. */
 const REST_TIMEOUT_MS = 3000;
 /**
+ * How close to the atmosphere's pressure the plenum must have come before a stopped engine is let rest, Pa,
+ * and how long it is given to, ms. Behind a shut throttle it can still be in vacuum when the crank stops,
+ * and air takes a second or two to leak back in through the idle valve; suspended at once, the intake's
+ * colours would jump to ambient.
+ */
+const PLENUM_SETTLED_PA = 1500;
+const BLEED_TIMEOUT_MS = 5000;
+/**
  * How long after the ignition goes on a standstill does not count as a stall, ms: snapshots from before
  * the simulation has the ignition can still arrive.
  */
@@ -1026,7 +1034,9 @@ function settleWhenStill(s: EngineSnapshot): void {
   }
   const now = performance.now();
   restSince ??= now;
-  if (s.peak >= SILENT_PEAK && now - restSince < REST_TIMEOUT_MS) return;
+  const silent = s.peak < SILENT_PEAK;
+  if (!silent && now - restSince < REST_TIMEOUT_MS) return;
+  if (silent && Math.abs(s.plenumPressure) > PLENUM_SETTLED_PA && now - restSince < BLEED_TIMEOUT_MS) return;
   void audio.suspend().then(() => {
     if (engineOn) return;
     displayRpm = 0;
