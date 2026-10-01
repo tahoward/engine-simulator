@@ -1661,7 +1661,8 @@ export function cylinderSpacing(spec: EngineSpec): number {
   // need not clear each other's bores: half the pitch keeps each bank's own cylinders the usual distance
   // apart, and the opposed pairs just offset, as a real flat engine's are.
   if (isBoxer(spec)) return spec.bore * 0.75;
-  return spec.bore * 1.45;
+  // Wide enough that a cylinder staggered along its throw (`rodStagger`) clears the next throw's too.
+  return Math.max(spec.bore * 1.45, 2 * rodStagger(spec));
 }
 
 /**
@@ -1671,9 +1672,84 @@ export function cylinderSpacing(spec: EngineSpec): number {
  */
 export const ROD_STAGGER = 0.016;
 
+/** How far apart a V's pistons have to stay, m, side to side or along the crank. */
+const PISTON_GAP = 0.004;
+
+const staggers = new Map<string, number>();
+
+/**
+ * How far apart along the crank the cylinders sharing a throw sit, m: `ROD_STAGGER`, or in a V too narrow
+ * for the two banks' pistons to pass each other at the bottom of their strokes, as far again as keeps
+ * them clear, as a VR engine's banks are staggered.
+ *
+ * The pistons as drawn, round and from skirt to crown, followed through the cycle: the stagger is the least
+ * that keeps every point round one's rims `PISTON_GAP` clear of the other.
+ */
+export function rodStagger(spec: EngineSpec): number {
+  if (!(spec.vAngle > 0) || isBoxer(spec) || physicalBankCount(spec) < 2) return ROD_STAGGER;
+  // Each throw's two cylinders: their banks' turns and their pins' angles round the shaft.
+  const pairs = crankPins(spec)
+    .filter((p) => p.cylinders.length === 2)
+    .map((p) =>
+      p.cylinders.map((c, k) => ({
+        turn: physicalBank(spec, c) === 0 ? 0 : (-spec.vAngle * Math.PI) / 180,
+        pin: (p.angles[k]! * Math.PI) / 180,
+      })),
+    );
+  if (pairs.length === 0) return ROD_STAGGER;
+  const key = `${spec.bore} ${spec.stroke} ${spec.rodLength} ${spec.vAngle} ${pairs.map((p) => p.map((c) => c.pin).join(',')).join(';')}`;
+  const known = staggers.get(key);
+  if (known !== undefined) return known;
+  const a = spec.stroke / 2;
+  const l = spec.rodLength;
+  const r = (spec.bore / 2) * 0.985;
+  const half = spec.bore * 0.34 * 0.625;
+  type V3 = [number, number, number];
+  /**
+   * A piston for the bank turned by `t` whose pin is at `pin` round the shaft, the crank turned `theta`,
+   * `dz` along the crank: its wrist pin up its bore's axis from the pin where the drawn crank has it, and
+   * the axis's direction.
+   */
+  const piston = (t: number, pin: number, theta: number, dz: number): { at: V3; up: V3 } => {
+    const [wx, wy] = [a * Math.sin(theta - pin), a * Math.cos(theta - pin)];
+    const [px, py] = [wx * Math.cos(t) + wy * Math.sin(t), -wx * Math.sin(t) + wy * Math.cos(t)];
+    const h = py + Math.sqrt(l * l - px * px);
+    const up: V3 = [-Math.sin(t), Math.cos(t), 0];
+    return { at: [up[0] * h, up[1] * h, dz], up };
+  };
+  /** Whether, `dz` apart along the crank, some point round the rims of one piston comes within the gap of the other. */
+  const touch = (dz: number) =>
+    pairs.some(([p, q]) => {
+      for (let k = 0; k < 72; k++) {
+        const theta = (k / 72) * 2 * Math.PI;
+        const ends = [piston(p!.turn, p!.pin, theta, 0), piston(q!.turn, q!.pin, theta, dz)];
+        for (const [one, other] of [ends, [ends[1]!, ends[0]!]]) {
+          const side: V3 = [one!.up[1], -one!.up[0], 0];
+          for (const y of [-half, -half / 2, 0, half / 2, half]) {
+            for (let m = 0; m < 24; m++) {
+              const c = Math.cos((m / 24) * 2 * Math.PI) * r;
+              const z = Math.sin((m / 24) * 2 * Math.PI) * r;
+              const pt = [0, 1, 2].map((i) => one!.at[i]! + one!.up[i]! * y + side[i]! * c + (i === 2 ? z : 0));
+              const d = pt.map((v, i) => v - other!.at[i]!);
+              const along = d[0]! * other!.up[0]! + d[1]! * other!.up[1]!;
+              if (Math.abs(along) > half + PISTON_GAP) continue;
+              const radial = Math.hypot(d[0]! - along * other!.up[0]!, d[1]! - along * other!.up[1]!, d[2]!);
+              if (radial < r + PISTON_GAP) return true;
+            }
+          }
+        }
+      }
+      return false;
+    });
+  let stagger = ROD_STAGGER;
+  while (stagger < 4 * spec.bore && touch(stagger)) stagger += 0.001;
+  staggers.set(key, stagger);
+  return stagger;
+}
+
 /**
  * Where cylinder `cylinder` sits along the crank, m, the engine centred on the origin: at its throw, and on
- * a throw it shares, staggered from the other cylinders on it by `ROD_STAGGER`.
+ * a throw it shares, staggered from the other cylinders on it by `rodStagger`.
  */
 export function cylinderZ(spec: EngineSpec, cylinder: number): number {
   const pins = crankPins(spec);
@@ -1682,7 +1758,7 @@ export function cylinderZ(spec: EngineSpec, cylinder: number): number {
   const along = (index - (pins.length - 1) / 2) * cylinderSpacing(spec);
   if (!pin || pin.cylinders.length < 2) return along;
   const k = pin.cylinders.indexOf(cylinder);
-  return along + (k - (pin.cylinders.length - 1) / 2) * ROD_STAGGER;
+  return along + (k - (pin.cylinders.length - 1) / 2) * rodStagger(spec);
 }
 
 /**

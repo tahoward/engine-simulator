@@ -408,6 +408,46 @@ describe('the drawn mechanism', () => {
     }
   });
 
+  it.each([
+    ['a 45° twin', { cylinders: 2, vAngle: 45 }],
+    ['a narrow twin', { cylinders: 2, vAngle: 20 }],
+    ['an oversquare 60° twin', { cylinders: 2, vAngle: 60, bore: 0.11, stroke: 0.06, rodLength: 0.11 }],
+    ['an oversquare 90° V8', { ...V8, bore: 0.11, stroke: 0.06, rodLength: 0.105 }],
+    ['a narrow V8', { ...V8, vAngle: 30 }],
+    ['a split-pin V6', { cylinders: 6, vAngle: 60, crankType: 'split', bore: 0.1, stroke: 0.07 }],
+  ] as Array<[string, Partial<EngineSpec>]>)('keeps the two banks’ pistons apart through the cycle: %s', (_n, over) => {
+    const s = spec(over);
+    const mesh = new EngineMesh(s);
+    const cyls = (mesh as unknown as { cyls: Array<{ piston: THREE.Group; rotation: number; pinAngle: number }> }).cyls;
+    const r = (s.bore / 2) * 0.985;
+    const half = s.bore * 0.34 * 0.625;
+    let deepest = 0;
+    for (let deg = 0; deg < 360; deg += 5) {
+      // Each cylinder's own crank angle, from where the crank has its pin and which way its bore points.
+      mesh.update(
+        cyls.map((c) => ({ crankAngle: deg - ((c.pinAngle - c.rotation) * 180) / Math.PI })),
+        [],
+      );
+      mesh.group.updateMatrixWorld(true);
+      // Which holds only if those crank angles agree with where the crank puts each pin.
+      for (const c of cyls as unknown as Array<{ rod: THREE.Mesh }>) expect(c.rod.scale.y).toBeCloseTo(s.rodLength, 6);
+      for (const a of cyls) {
+        for (const b of cyls) {
+          if (a === b || Math.abs(a.rotation - b.rotation) < 1e-9) continue;
+          const into = b.piston.matrixWorld.clone().invert();
+          for (const y of [-half, 0, half]) {
+            for (let k = 0; k < 24; k++) {
+              const t = (k / 24) * 2 * Math.PI;
+              const p = new THREE.Vector3(r * Math.cos(t), y, r * Math.sin(t)).applyMatrix4(a.piston.matrixWorld).applyMatrix4(into);
+              if (Math.abs(p.y) < half) deepest = Math.max(deepest, r - Math.hypot(p.x, p.z));
+            }
+          }
+        }
+      }
+    }
+    expect(deepest).toBeLessThan(1e-4);
+  });
+
   it('keeps an inline engine on one side', () => {
     const mesh = new EngineMesh(spec({ cylinders: 4, vAngle: 0 }));
     for (let i = 0; i < mesh.bankCount; i++) expect(mesh.exhaustPort(i).direction.x).toBeGreaterThan(0);

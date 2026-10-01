@@ -181,7 +181,7 @@ export function blockCamOf(spec: EngineSpec, bank: number): [number, number] {
   const r = spec.bore / 2;
   const deck = deckHeight(spec);
   // The lowest a piston's skirt comes, at the bottom of its stroke: the bore runs from there to the deck.
-  const skirt = spec.rodLength - spec.stroke / 2 - spec.bore * 0.34 * 0.525;
+  const skirt = spec.rodLength - spec.stroke / 2 - spec.bore * 0.34 * 0.625;
   const local = (x: number, y: number, t: number) => [x * Math.cos(-t) - y * Math.sin(-t), x * Math.sin(-t) + y * Math.cos(-t)];
   /** Whether something `size` across from (x, y) clears every bore and rod. */
   const clear = (x: number, y: number, size: number) =>

@@ -26,6 +26,7 @@ import {
   crankPins,
   cylinderZ,
   ROD_STAGGER,
+  rodStagger,
   mainBearingsAfter,
   exhaustPortDiameter,
   intakeRunnerOf,
@@ -275,8 +276,9 @@ export class EngineMesh {
     const throwPins = throws.map(({ angles, z }) =>
       angles.map((angle, k) => ({
         angle,
-        z: z + (angles.length > 1 ? (k - (angles.length - 1) / 2) * ROD_STAGGER : 0),
-        width: angles.length > 1 ? ROD_STAGGER - 0.001 : PIN_WIDTH,
+        z: z + (angles.length > 1 ? (k - (angles.length - 1) / 2) * rodStagger(this.spec) : 0),
+        // Room for two rods side by side on a shared one.
+        width: angles.length > 1 ? rodStagger(this.spec) - 0.001 : 2 * rodStagger(this.spec) - 0.002,
       })),
     );
 
@@ -1026,8 +1028,6 @@ const WEB_THICKNESS = 0.011;
 const MAIN_RADIUS = 0.019;
 /** Radius of its crankpins, m. */
 const PIN_RADIUS = 0.0135;
-/** How wide a crankpin is along the shaft, m: room for two rods side by side on a shared one. */
-const PIN_WIDTH = 2 * ROD_STAGGER - 0.002;
 /** How thick a rod's big end is along the crank, m: a little less than the stagger between two. */
 const ROD_THICKNESS = ROD_STAGGER - 0.003;
 /** Radius of the boss a web has round a crankpin, m. */
