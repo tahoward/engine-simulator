@@ -23,17 +23,46 @@ import {
 export type Vec3 = [number, number, number];
 
 /**
+ * Whether a V is so narrow that its banks share one head, as a VR engine's do: where the two banks' intake
+ * ports would meet in the valley even on top of the heads (`intakePortLocal`), or where their intake cams
+ * leave no room between them for a runner down to a port. Then every cylinder's exhaust valves are on bank 0's outer side and its intake valves on
+ * bank 1's, every exhaust port out of the head's outside over bank 0 and every intake port out of its
+ * outside over bank 1, as an inline engine's are out of its two sides.
+ */
+export function sharedHead(spec: EngineSpec): boolean {
+  if (physicalBankCount(spec) < 2 || spec.vAngle >= 150) return false;
+  if (!valleyPort(spec, 1, true).fits) return true;
+  if (spec.pushrods) return false;
+  const cams = intakeCamsOf(spec);
+  return cams.x - cams.reach < (intakeRunnerOf(spec).diameter / 2) * 1.53;
+}
+
+/**
+ * Which bank's frame a cylinder's exhaust or intake port is placed in, and which side of that bank's head:
+ * its own, exhaust on the outside of the V and intake in the valley; or under a shared head (`sharedHead`)
+ * every exhaust port in bank 0's, out of its outside, and every intake port in bank 1's, out of its.
+ */
+export function portSideOf(spec: EngineSpec, cylinder: number, exhaust: boolean): { bank: number; side: number } {
+  if (physicalBankCount(spec) < 2) return { bank: 0, side: exhaust ? 1 : -1 };
+  if (sharedHead(spec)) return exhaust ? { bank: 0, side: -1 } : { bank: 1, side: 1 };
+  const bank = physicalBank(spec, cylinder);
+  return { bank, side: (bank === 0 ? -1 : 1) * (exhaust ? 1 : -1) };
+}
+
+/**
  * A cylinder's exhaust port: where its pipe attaches, and which way the port points.
  *
  * Out of the head on the exhaust side, a little above the deck, square to the head; then turned with the
- * cylinder's bank, and placed along the crank where the cylinder is (`cylinderZ`).
+ * cylinder's bank, or the bank whose side of a shared head it comes out of (`portSideOf`), and placed along
+ * the crank where the cylinder is (`cylinderZ`).
  */
 export function exhaustPortOf(spec: EngineSpec, cylinder: number): { position: Vec3; direction: Vec3 } {
   const plan = firingPlan(spec);
   const z = cylinderZ(spec, cylinder);
+  const { bank, side } = portSideOf(spec, cylinder, true);
 
   const deg = Math.PI / 180;
-  const bankRotation = (plan.banks[cylinder] ?? 0) === 0 ? 0 : -spec.vAngle * deg;
+  const bankRotation = bank === 0 ? 0 : -spec.vAngle * deg;
   // Straddle vertical, so a V looks like a V rather than leaning.
   const rot = bankRotation + (plan.bankCount > 1 ? (spec.vAngle / 2) * deg : 0);
 
@@ -43,7 +72,6 @@ export function exhaustPortOf(spec: EngineSpec, cylinder: number): { position: V
   const deckY = spec.stroke / 2 + spec.rodLength + crownOffset + clearanceVolume(spec) / boreArea;
   const headHeight = spec.bore * 0.52;
 
-  const side = physicalBankCount(spec) > 1 && physicalBank(spec, cylinder) === 0 ? -1 : 1;
   const c = Math.cos(rot);
   const s = Math.sin(rot);
   const px = side * spec.bore * 1.15;
@@ -65,6 +93,19 @@ export function exhaustPortOf(spec: EngineSpec, cylinder: number): { position: V
  * the valley's middle: in the tightest Vs on top of the head facing straight up.
  */
 export function intakePortLocal(spec: EngineSpec, side: number): { position: [number, number]; direction: [number, number] } {
+  const { position, direction } = valleyPort(spec, side, physicalBankCount(spec) > 1 && spec.vAngle < 150 && !sharedHead(spec));
+  return { position, direction };
+}
+
+/**
+ * `intakePortLocal`'s port, out of the side of the head, or with `valley` moved round onto its top as far
+ * as a V's valley needs, and whether that leaves it clear of the other bank's.
+ */
+function valleyPort(
+  spec: EngineSpec,
+  side: number,
+  valley: boolean,
+): { position: [number, number]; direction: [number, number]; fits: boolean } {
   const crownOffset = spec.bore * 0.34;
   const boreArea = (Math.PI * spec.bore * spec.bore) / 4;
   const deckY = spec.stroke / 2 + spec.rodLength + crownOffset + clearanceVolume(spec) / boreArea;
@@ -74,9 +115,13 @@ export function intakePortLocal(spec: EngineSpec, side: number): { position: [nu
     const x = spec.bore * (1.15 - 0.6 * u);
     const y = deckY + headHeight * (0.45 + 0.5 * u);
     const tilt = u * (Math.PI / 2 - half);
-    return { position: [side * x, y] as [number, number], direction: [side * Math.cos(tilt), Math.sin(tilt)] as [number, number] };
+    return {
+      position: [side * x, y] as [number, number],
+      direction: [side * Math.cos(tilt), Math.sin(tilt)] as [number, number],
+      fits: true,
+    };
   };
-  if (physicalBankCount(spec) < 2 || spec.vAngle >= 150) return at(0, 0);
+  if (!valley) return at(0, 0);
   const half = ((spec.vAngle / 2) * Math.PI) / 180;
   // The flange's inner edge across the valley's middle, for a bank leaning `half` out from upright.
   const flange = intakeRunnerOf(spec).diameter / 2 * 1.53;
@@ -88,6 +133,7 @@ export function intakePortLocal(spec: EngineSpec, side: number): { position: [nu
   };
   const clear = 0.006;
   if (gap(0) >= clear) return at(0, half);
+  if (gap(1) < clear) return { ...at(1, half), fits: false };
   let [lo, hi] = [0, 1];
   for (let i = 0; i < 40; i++) {
     const mid = (lo + hi) / 2;
@@ -97,14 +143,17 @@ export function intakePortLocal(spec: EngineSpec, side: number): { position: [nu
   return at(hi, half);
 }
 
-/** A cylinder's intake port, as `intakePortLocal` places it, turned with its bank and along the crank. */
+/**
+ * A cylinder's intake port, as `intakePortLocal` places it, turned with its bank, or the bank whose side of
+ * a shared head it comes out of (`portSideOf`), and along the crank.
+ */
 export function intakePortOf(spec: EngineSpec, cylinder: number): { position: Vec3; direction: Vec3 } {
   const ex = exhaustPortOf(spec, cylinder);
   const plan = firingPlan(spec);
   const deg = Math.PI / 180;
-  const bankRotation = (plan.banks[cylinder] ?? 0) === 0 ? 0 : -spec.vAngle * deg;
+  const { bank, side } = portSideOf(spec, cylinder, false);
+  const bankRotation = bank === 0 ? 0 : -spec.vAngle * deg;
   const rot = bankRotation + (plan.bankCount > 1 ? (spec.vAngle / 2) * deg : 0);
-  const side = physicalBankCount(spec) > 1 && physicalBank(spec, cylinder) === 0 ? 1 : -1;
   const { position: [px, py], direction: [dx, dy] } = intakePortLocal(spec, side);
   const c = Math.cos(rot);
   const s = Math.sin(rot);
@@ -137,6 +186,24 @@ export function deckHeight(spec: EngineSpec): number {
   return spec.stroke / 2 + spec.rodLength + spec.bore * 0.34 + clearanceVolume(spec) / boreArea;
 }
 
+/** Radius of the crank's crankpins, m: about half the bore across, as a real engine's big-end journals are. */
+export function crankPinRadius(spec: EngineSpec): number {
+  return Math.max(0.24 * spec.bore, 0.011);
+}
+
+/** Radius of the crank's main journals, m: a little bigger than its pins. */
+export function mainJournalRadius(spec: EngineSpec): number {
+  return Math.max(0.28 * spec.bore, 0.013);
+}
+
+/** How thick a rod's eye is round its crankpin or wrist pin, m. */
+export const ROD_EYE_WALL = 0.007;
+
+/** Radius of a piston's wrist pin, m. */
+export function wristPinRadius(spec: EngineSpec): number {
+  return Math.max(0.11 * spec.bore, 0.007);
+}
+
 /** How much further a pushrod engine's rocker arm moves the valve than its tappet moves. */
 export const ROCKER_RATIO = 1.5;
 
@@ -158,8 +225,8 @@ function rodGap(spec: EngineSpec, x: number, y: number): number {
     const t = Math.min(Math.max(((x - px) * dx + (y - py) * dy) / (dx * dx + dy * dy), 0), 1);
     near = Math.min(near, Math.hypot(x - px - t * dx, y - py - t * dy));
   }
-  // The pin's own radius, the rod's at its widest.
-  return near - 0.0135;
+  // The rod's big end round its pin, where it is widest.
+  return near - crankPinRadius(spec) - ROD_EYE_WALL;
 }
 
 /**

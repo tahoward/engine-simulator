@@ -26,6 +26,7 @@ import {
   crankPins,
   cylinderZ,
   ROD_STAGGER,
+  SPLIT_WEB,
   rodStagger,
   mainBearingsAfter,
   exhaustPortDiameter,
@@ -43,10 +44,16 @@ import {
   VALVE_TILT,
   camBaseRadius,
   ROCKER_RATIO,
+  ROD_EYE_WALL,
   blockCamOf,
+  crankPinRadius,
   engineShell,
+  mainJournalRadius,
+  wristPinRadius,
   exhaustPortOf,
   intakePortLocal,
+  portSideOf,
+  sharedHead,
 } from '../model/geometry.js';
 import { valveLift } from '../model/cam.js';
 
@@ -239,10 +246,15 @@ export class EngineMesh {
          * One side for every cylinder would put bank 0's exhaust into the valley and bank 1's outside, so the
          * two banks' pipes would come off the same side of the engine. Straddling the vertical leans bank 0 towards
          * -X, so its outside is -X; bank 1 leans the other way. An inline engine keeps +X, and so does a
-         * parallel twin, whose two firing banks are one physical bank under one head.
+         * parallel twin, whose two firing banks are one physical bank under one head. Under a shared head
+         * (`sharedHead`) every cylinder's exhaust valves are on bank 0's outer side, -X.
          */
-        const exhaustSide = physicalBankCount(this.spec) > 1 && physicalBank(this.spec, cyl) === 0 ? -1 : 1;
-        this.cyls[cyl] = this.buildCylinder(bank, cylinderZ(this.spec, cyl), pins[pin]!.angles[k]!, exhaustSide, pin % 2 === 1);
+        const exhaustSide = sharedHead(this.spec)
+          ? -1
+          : physicalBankCount(this.spec) > 1 && physicalBank(this.spec, cyl) === 0
+            ? -1
+            : 1;
+        this.cyls[cyl] = this.buildCylinder(cyl, bank, cylinderZ(this.spec, cyl), pins[pin]!.angles[k]!, exhaustSide, pin % 2 === 1);
       });
     }
 
@@ -263,7 +275,9 @@ export class EngineMesh {
     const steel = new THREE.MeshStandardMaterial(STEEL);
     const cast = new THREE.MeshStandardMaterial(CAST);
     const shell = new THREE.MeshStandardMaterial({ ...BEARING, side: THREE.DoubleSide });
-    const webShape = crankWebShape(a);
+    const webShape = crankWebShape(a, crankPinRadius(this.spec));
+    const MAIN_RADIUS = mainJournalRadius(this.spec);
+    const PIN_RADIUS = crankPinRadius(this.spec);
 
     // Where each pin is round the shaft, with the throw's first cylinder's pin up +y at angle 0: rotating the
     // crank by -theta carries it to a*(sin(theta - angle), cos(theta - angle)), TDC when theta == angle.
@@ -272,13 +286,14 @@ export class EngineMesh {
       return new THREE.Vector2(-a * Math.sin(phi), a * Math.cos(phi));
     };
 
-    // A split throw's pins sit side by side along the shaft, each half as wide, under their cylinders.
+    // A split throw's pins sit side by side along the shaft under their cylinders, a thin web between each
+    // and the next (`SPLIT_WEB`).
     const throwPins = throws.map(({ angles, z }) =>
       angles.map((angle, k) => ({
         angle,
         z: z + (angles.length > 1 ? (k - (angles.length - 1) / 2) * rodStagger(this.spec) : 0),
         // Room for two rods side by side on a shared one.
-        width: angles.length > 1 ? rodStagger(this.spec) - 0.001 : 2 * rodStagger(this.spec) - 0.002,
+        width: angles.length > 1 ? rodStagger(this.spec) - SPLIT_WEB : 2 * rodStagger(this.spec) - 0.002,
       })),
     );
 
@@ -334,7 +349,7 @@ export class EngineMesh {
       } else {
         const next = throwPins[t + 1]![0]!;
         const to = next.z - next.width / 2;
-        const shape = linkWebShape(pinAt(last.angle), pinAt(next.angle));
+        const shape = linkWebShape(pinAt(last.angle), pinAt(next.angle), PIN_RADIUS, MAIN_RADIUS);
         const depth = Math.max(to - hi, 0.004);
         const geom = new THREE.ExtrudeGeometry(shape, { depth, bevelEnabled: false, curveSegments: 20 });
         geom.translate(0, 0, hi);
@@ -354,10 +369,25 @@ export class EngineMesh {
         pin.castShadow = true;
         this.crank.add(pin);
       }
+      // The web between a split pin's offset pins, round both, as thin as the gap between them.
+      own.slice(1).forEach((next, k) => {
+        const prev = own[k]!;
+        const from = prev.z + prev.width / 2;
+        const to = next.z - next.width / 2;
+        const shape = linkWebShape(pinAt(prev.angle), pinAt(next.angle), PIN_RADIUS, 0, PIN_BOSS_WALL * 0.6);
+        // Into the pins a little either side, so there is no seam.
+        const geom = new THREE.ExtrudeGeometry(shape, { depth: to - from + 0.001, bevelEnabled: false, curveSegments: 20 });
+        geom.translate(0, 0, from - 0.0005);
+        const web = new THREE.Mesh(geom, cast);
+        web.name = 'split web';
+        web.castShadow = true;
+        this.crank.add(web);
+      });
     });
   }
 
   private buildCylinder(
+    cyl: number,
     bank: number,
     z: number,
     pinAngleDeg: number,
@@ -391,12 +421,12 @@ export class EngineMesh {
       ring.position.y = this.crownOffset * 0.42 - i * 0.006;
       piston.add(ring);
     }
+    // At the piston's origin, where the rod's small end is.
     const wrist = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.0095, 0.0095, r * 1.7, 14),
+      new THREE.CylinderGeometry(wristPinRadius(s), wristPinRadius(s), r * 1.7, 14),
       new THREE.MeshStandardMaterial(STEEL),
     );
     wrist.rotation.x = Math.PI / 2;
-    wrist.position.y = -this.crownOffset * 0.1;
     piston.add(wrist);
     group.add(piston);
 
@@ -423,17 +453,20 @@ export class EngineMesh {
       lobes.push(...this.buildOverheadCam(group, inValves, -exhaustSide, false, fingers));
     }
 
-    // --- exhaust port, in this cylinder's frame ---
-    group.add(this.buildPort(exhaustSide));
+    // --- exhaust port, in this cylinder's frame, turned to the bank whose side of the head it is out of ---
+    const turnTo = (exhaust: boolean, port: THREE.Group) => {
+      const { bank: on } = portSideOf(s, cyl, exhaust);
+      const holder = new THREE.Group();
+      holder.rotation.z = (on === 0 ? 0 : -(s.vAngle * Math.PI) / 180) - rotation;
+      holder.add(port);
+      return holder;
+    };
+    group.add(turnTo(true, this.buildPort(portSideOf(s, cyl, true).side)));
     // Where its runner meets the head, its intake port's flange too.
-    group.add(this.buildIntakePort(-exhaustSide));
+    group.add(turnTo(false, this.buildIntakePort(portSideOf(s, cyl, false).side)));
 
     // --- rod: world space, from the pin to this cylinder's piston ---
-    // Slimmer along the crank than across it, as a rod's beam is, so two fit side by side on a shared pin.
-    const rod = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.009, 0.012, 1, 12),
-      new THREE.MeshStandardMaterial(STEEL),
-    );
+    const rod = new THREE.Mesh(rodGeometry(s), new THREE.MeshStandardMaterial(STEEL));
     rod.name = 'rod';
     rod.castShadow = true;
     this.group.add(rod);
@@ -500,7 +533,12 @@ export class EngineMesh {
     );
     const follower = Math.atan2(-stem.y, -stem.x);
     const steel = new THREE.MeshStandardMaterial(STEEL);
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(base * 0.55, base * 0.55, this.spacing, 20), steel);
+    // Its stretch of the bank's camshaft: a cylinder's pitch, or under a shared head, where the other
+    // bank's cylinders sit staggered between, only as far as the nearest of them, so the two banks' cams
+    // in the middle of the head take turns along it.
+    const stagger = rodStagger(s);
+    const length = sharedHead(s) ? 2 * Math.min(stagger, this.spacing - stagger) - 0.004 : this.spacing;
+    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(base * 0.55, base * 0.55, length, 20), steel);
     shaft.rotation.x = Math.PI / 2;
     shaft.position.copy(centre);
     group.add(shaft);
@@ -885,10 +923,9 @@ export class EngineMesh {
       );
       const smallEnd = new THREE.Vector3(0, pinY, 0).applyAxisAngle(AXIS_Z, mesh.rotation);
       smallEnd.z = mesh.z;
-      const mid = bigEnd.clone().add(smallEnd).multiplyScalar(0.5);
       const axis = smallEnd.clone().sub(bigEnd);
-      mesh.rod.position.copy(mid);
-      mesh.rod.scale.set(1, axis.length(), ROD_THICKNESS / 0.024);
+      mesh.rod.position.copy(bigEnd);
+      mesh.rod.userData.length = axis.length();
       mesh.rod.quaternion.setFromUnitVectors(AXIS_Y, axis.normalize());
 
       const ex = this.exhaustCamRetard;
@@ -1013,7 +1050,7 @@ export class EngineMesh {
       z: c.z,
       bankRotation: c.rotation,
       pistonY: c.piston.position.y,
-      rodLength: c.rod.scale.y,
+      rodLength: c.rod.userData.length as number,
       pinAngleDeg: (c.pinAngle * 180) / Math.PI,
     };
   }
@@ -1024,23 +1061,64 @@ const AXIS_Y = new THREE.Vector3(0, 1, 0);
 
 /** How thick each crank web is along the shaft, m. */
 const WEB_THICKNESS = 0.011;
-/** Radius of the crank's main journals, m. */
-const MAIN_RADIUS = 0.019;
-/** Radius of its crankpins, m. */
-const PIN_RADIUS = 0.0135;
-/** How thick a rod's big end is along the crank, m: a little less than the stagger between two. */
+/** How thick a rod is along the crank, m: a little less than the stagger between two on a shared pin. */
 const ROD_THICKNESS = ROD_STAGGER - 0.003;
-/** Radius of the boss a web has round a crankpin, m. */
-const PIN_BOSS = 0.022;
+/** How far the boss a web has round a crankpin stands out from the pin, m. */
+const PIN_BOSS_WALL = 0.0085;
+
+/**
+ * A con rod, its big end at the origin and its small end `spec.rodLength` up +y, its thickness along z:
+ * an eye round the crankpin and a smaller one round the wrist pin, holes and all, and a beam tapering from
+ * the one to the other.
+ */
+function rodGeometry(spec: EngineSpec): THREE.BufferGeometry {
+  const l = spec.rodLength;
+  const pin = crankPinRadius(spec);
+  const wrist = wristPinRadius(spec);
+  const big = pin + ROD_EYE_WALL;
+  const small = wrist + ROD_EYE_WALL * 0.75;
+  // The beam's half-width where it leaves each eye.
+  const [wb, ws] = [big * 0.62, small * 0.8];
+  const yb = Math.sqrt(big * big - wb * wb);
+  const ys = Math.sqrt(small * small - ws * ws);
+  const shape = new THREE.Shape();
+  // Round the big eye's underside from its right shoulder to its left, up the beam, over the small eye,
+  // and back down.
+  const right = Math.atan2(yb, wb);
+  shape.moveTo(wb, yb);
+  shape.absarc(0, 0, big, right, Math.PI - right, true);
+  shape.lineTo(-ws, l - ys);
+  const left = Math.atan2(-ys, -ws);
+  shape.absarc(0, l, small, left, Math.atan2(-ys, ws), true);
+  shape.lineTo(wb, yb);
+  const hole = (y: number, r: number) => {
+    const path = new THREE.Path();
+    path.absarc(0, y, r, 0, Math.PI * 2, false);
+    return path;
+  };
+  shape.holes.push(hole(0, pin), hole(l, wrist));
+  const bevel = 0.0008;
+  const depth = ROD_THICKNESS - 2 * bevel;
+  const geom = new THREE.ExtrudeGeometry(shape, {
+    depth,
+    bevelEnabled: true,
+    bevelThickness: bevel,
+    bevelSize: bevel,
+    bevelSegments: 1,
+    curveSegments: 24,
+  });
+  geom.translate(0, 0, -depth / 2);
+  return geom;
+}
 
 /**
  * A crank web's outline, with its pin at `(0, throwRadius)`: a boss round the pin, and the counterweight on
  * the far side of the shaft from it, a broad sector reaching further out than the pin does, so it balances
  * the pin, the big end and its share of the rod.
  */
-export function crankWebShape(throwRadius: number): THREE.Shape {
+export function crankWebShape(throwRadius: number, pinRadius: number): THREE.Shape {
   const a = throwRadius;
-  const boss = PIN_BOSS;
+  const boss = pinRadius + PIN_BOSS_WALL;
   const reach = 1.5 * a;
   const half = (75 * Math.PI) / 180;
   const shape = new THREE.Shape();
@@ -1057,10 +1135,16 @@ export function crankWebShape(throwRadius: number): THREE.Shape {
 
 /**
  * The web joining two neighbouring pins with no main bearing between them, as an opposed pair's pins in a
- * flat engine are: the outline round both pins' bosses, and round the shaft's axis too, which is what it
- * turns about.
+ * flat engine are: the outline round both pins' bosses, `wall` out from them, and round the shaft's axis
+ * too, which is what it turns about, unless `mainRadius` is 0, as for the web between a split pin's pins.
  */
-export function linkWebShape(a: THREE.Vector2, b: THREE.Vector2): THREE.Shape {
+export function linkWebShape(
+  a: THREE.Vector2,
+  b: THREE.Vector2,
+  pinRadius: number,
+  mainRadius: number,
+  wall = PIN_BOSS_WALL,
+): THREE.Shape {
   const points: THREE.Vector2[] = [];
   const ring = (c: THREE.Vector2, r: number) => {
     for (let i = 0; i < 48; i++) {
@@ -1068,9 +1152,9 @@ export function linkWebShape(a: THREE.Vector2, b: THREE.Vector2): THREE.Shape {
       points.push(new THREE.Vector2(c.x + r * Math.cos(t), c.y + r * Math.sin(t)));
     }
   };
-  ring(a, PIN_BOSS);
-  ring(b, PIN_BOSS);
-  ring(new THREE.Vector2(0, 0), MAIN_RADIUS);
+  ring(a, pinRadius + wall);
+  ring(b, pinRadius + wall);
+  if (mainRadius > 0) ring(new THREE.Vector2(0, 0), mainRadius);
   return new THREE.Shape(convexHull(points));
 }
 

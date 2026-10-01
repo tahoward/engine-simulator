@@ -22,7 +22,7 @@ import {
   type ExhaustDuct,
   type ExhaustGraph,
 } from '../model/exhaustGraph.js';
-import { exhaustPortOf } from '../model/geometry.js';
+import { exhaustPortOf, sharedHead } from '../model/geometry.js';
 import { makeSegment, physicalBank, physicalBankCount, segmentDiameter, type EngineSpec, type PipeSegment } from '../model/spec.js';
 import { fitCurve } from './drawing.js';
 import type { ExhaustPlacement, ExhaustPort } from './exhaustLayout.js';
@@ -190,7 +190,8 @@ export interface BankMirror {
  * beside bank 0's on the shared pins. `null` for an engine with one bank.
  */
 export function bankMirror(spec: EngineSpec): BankMirror | null {
-  if (physicalBankCount(spec) < 2) return null;
+  // Under a shared head both banks' ports are out of the same side: no mirror.
+  if (physicalBankCount(spec) < 2 || sharedHead(spec)) return null;
   const point = new THREE.Vector3();
   const normal = new THREE.Vector3(1, 0, 0);
   const middle = (bank: number, reflect: boolean) => {

@@ -5,7 +5,7 @@ import { Sim } from '../src/audio/worklet/sim.js';
 import { solverGraph, compileExhaust } from '../src/model/exhaustGraph.js';
 import { ENGINE_PRESETS, defaultConfig, intakeRunnerOf } from '../src/model/spec.js';
 import { inletSegments } from '../src/model/intakeSizing.js';
-import { engineShell, intakePortOf } from '../src/model/geometry.js';
+import { engineShell, exhaustPortOf, intakePortOf, sharedHead } from '../src/model/geometry.js';
 import { inletLayout } from '../src/scene/inletLayout.js';
 import { configSources } from '../src/scene/soundSources.js';
 
@@ -84,6 +84,22 @@ describe('the inlet tract as drawn', () => {
         }
       }
     }
+  });
+
+  it('shares one head between the banks of a V too narrow for runners in its valley, as a VR engine does', () => {
+    for (const name of ['LT6', '2GR', '45°']) {
+      const spec = { ...presetConfig(ENGINE_PRESETS.find((p) => p.name.includes(name))!).engine, vAngle: 15 };
+      expect(sharedHead(spec), name).toBe(true);
+      for (let b = 0; b < spec.cylinders; b++) {
+        // Every exhaust out of one side, every intake out of the other.
+        expect(exhaustPortOf(spec, b).direction[0], name).toBeLessThan(0);
+        expect(intakePortOf(spec, b).direction[0], name).toBeGreaterThan(0);
+      }
+      // And the intake beside it, as an inline engine's is.
+      const at = inletLayout(spec);
+      expect(at.plenum.centre.x, name).toBeGreaterThan(Math.max(...at.runners.map((r) => r.to.x)));
+    }
+    expect(sharedHead(presetConfig(ENGINE_PRESETS.find((p) => p.name.includes('45°'))!).engine)).toBe(false);
   });
 
   it('is the tract the simulation solves, and a turbocharged engine has none', () => {
