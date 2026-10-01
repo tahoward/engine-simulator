@@ -12,6 +12,7 @@
 
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 import type { EngineSnapshot, EngineSpec } from '../model/spec.js';
 import { PLENUM_ROUNDING, THROTTLE_WALL, inletLayout, type InletLayout } from './inletLayout.js';
@@ -106,50 +107,70 @@ function sweep(curve: THREE.Curve<THREE.Vector3>, size: (u: number) => [number, 
   return g;
 }
 
+/** How thick the plenum's casting is, m. */
+const PLENUM_WALL = 0.005;
+
 /**
- * The plenum, centred on the origin, `size` along x, y and z: its section square-shouldered down past the
- * throttle body's centre, then narrowing to `base` of its width at the bottom, with rounded corners, run
- * along z with rounded ends. A `base` of 1 is a rounded box.
+ * The plenum's section, centred on the origin, `width` by `height`: square-shouldered down past the throttle
+ * body's centre, then narrowing to `base` of its width at the bottom, its corners rounded by `round`. A
+ * `base` of 1 is a rounded rectangle.
  */
-function plenumGeometry(size: THREE.Vector3, base: number): THREE.BufferGeometry {
-  if (base >= 1) return new RoundedBoxGeometry(size.x, size.y, size.z, 4, PLENUM_ROUNDING);
-  const r = PLENUM_ROUNDING;
-  const [w, h] = [size.x / 2 - r, size.y / 2 - r];
-  const waist = -h * 0.3;
-  const foot = (size.x / 2) * base - r;
-  // Round the corners where the section turns at each of its points.
-  const corners: [number, number][] = [
-    [w, h],
-    [-w, h],
-    [-w, waist],
-    [-foot, -h],
-    [foot, -h],
-    [w, waist],
-  ];
+function plenumSection(width: number, height: number, base: number, round: number): THREE.Shape {
+  const [w, h] = [width / 2 - round, height / 2 - round];
+  const foot = (width / 2) * base - round;
+  const corners: [number, number][] =
+    base >= 1
+      ? [
+          [w, h],
+          [-w, h],
+          [-w, -h],
+          [w, -h],
+        ]
+      : [
+          [w, h],
+          [-w, h],
+          [-w, -h * 0.3],
+          [-foot, -h],
+          [foot, -h],
+          [w, -h * 0.3],
+        ];
   const shape = new THREE.Shape();
   corners.forEach(([x, y], i) => {
     const [px, py] = corners[(i + corners.length - 1) % corners.length]!;
     const [nx, ny] = corners[(i + 1) % corners.length]!;
-    const into = new THREE.Vector2(x - px, y - py).normalize();
-    const out = new THREE.Vector2(nx - x, ny - y).normalize();
-    const a = new THREE.Vector2(x, y).addScaledVector(into, -r);
-    const b = new THREE.Vector2(x, y).addScaledVector(out, r);
+    const a = new THREE.Vector2(x, y).addScaledVector(new THREE.Vector2(x - px, y - py).normalize(), -round);
+    const b = new THREE.Vector2(x, y).addScaledVector(new THREE.Vector2(nx - x, ny - y).normalize(), round);
     if (i === 0) shape.moveTo(a.x, a.y);
     else shape.lineTo(a.x, a.y);
     shape.quadraticCurveTo(x, y, b.x, b.y);
   });
   shape.closePath();
-  const g = new THREE.ExtrudeGeometry(shape, {
-    depth: size.z - 2 * r,
-    bevelEnabled: true,
-    bevelThickness: r,
-    bevelSize: r,
-    bevelSegments: 4,
-    curveSegments: 6,
-  });
-  g.translate(0, 0, -(size.z - 2 * r) / 2);
-  g.computeVertexNormals();
-  return g;
+  return shape;
+}
+
+/**
+ * The plenum as a hollow casting, centred on the origin, `size` along x, y and z: a shell `PLENUM_WALL`
+ * thick round its section, run along z, closed at the back, and at the front by a plate with the throttle
+ * body's bore, `bore` across, through it at the section's middle. Its rounded edges shade smoothly, as a
+ * pipe's curve does, and its square ones stay sharp.
+ */
+function plenumGeometry(size: THREE.Vector3, base: number, bore: number): THREE.BufferGeometry {
+  const outer = () => plenumSection(size.x, size.y, base, PLENUM_ROUNDING);
+  const sleeve = outer();
+  sleeve.holes.push(
+    plenumSection(size.x - 2 * PLENUM_WALL, size.y - 2 * PLENUM_WALL, base, Math.max(PLENUM_ROUNDING - PLENUM_WALL, 0.002)),
+  );
+  const body = new THREE.ExtrudeGeometry(sleeve, { depth: size.z, bevelEnabled: false, curveSegments: 8 });
+  body.translate(0, 0, -size.z / 2);
+  const back = new THREE.ShapeGeometry(outer(), 8).toNonIndexed();
+  back.translate(0, 0, size.z / 2);
+  const plate = outer();
+  const hole = new THREE.Path();
+  hole.absarc(0, 0, bore / 2, 0, Math.PI * 2, true);
+  plate.holes.push(hole);
+  const front = new THREE.ShapeGeometry(plate, 24).toNonIndexed();
+  front.translate(0, 0, -size.z / 2);
+  return toCreasedNormals(mergeGeometries([body.toNonIndexed(), back, front]), Math.PI / 5);
 }
 
 /** A band round a tube at `u` along `curve`: a hose clamp. */
@@ -167,8 +188,16 @@ export class InletMesh {
   private readonly plastic = new THREE.MeshStandardMaterial({ ...PLASTIC, side: THREE.DoubleSide });
   private readonly rubber = new THREE.MeshStandardMaterial({ ...RUBBER, side: THREE.DoubleSide });
   private readonly cast = new THREE.MeshStandardMaterial({ ...CAST, side: THREE.DoubleSide });
-  /** The plenum's and the runners' metal, the exhaust pipes', which the pressure view colours. */
-  private readonly pipeMetal = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.55, roughness: 0.38 });
+  /**
+   * The plenum's and the runners' metal, the exhaust pipes', which the pressure view colours. Both are drawn
+   * hollow, as castings and tubes with their insides showing.
+   */
+  private readonly pipeMetal = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    metalness: 0.55,
+    roughness: 0.38,
+    side: THREE.DoubleSide,
+  });
   private readonly clamp = new THREE.MeshStandardMaterial(CLAMP);
   private readonly plate = new THREE.MeshStandardMaterial({ ...CAST, color: 0xc9ced4, side: THREE.DoubleSide });
   private butterfly: THREE.Object3D | null = null;
@@ -312,18 +341,24 @@ export class InletMesh {
   /** The plenum, its runners and the throttle body. */
   private buildEngineSide(l: InletLayout): void {
     const { centre, size } = l.plenum;
-    const plenum = new THREE.Mesh(colourable(plenumGeometry(size, l.plenum.base)), this.pipeMetal);
+    const plenum = new THREE.Mesh(colourable(plenumGeometry(size, l.plenum.base, l.throttle.bore)), this.pipeMetal);
     plenum.position.copy(centre);
     this.group.add(plenum);
     // The boss on its front face the throttle body bolts to, cast with it, standing a little proud.
     const { bore } = l.throttle;
     const front = centre.z - size.z / 2;
-    const boss = new THREE.Mesh(
-      colourable(new THREE.CylinderGeometry(bore / 2 + THROTTLE_WALL + 0.007, bore / 2 + THROTTLE_WALL + 0.009, 0.03, 40)),
-      this.pipeMetal,
-    );
-    boss.rotation.x = Math.PI / 2;
-    boss.position.set(l.throttle.centre.x, l.throttle.centre.y, front - 0.005);
+    // A ring round the bore, its inside the bore's own wall, so the throttle body opens into the plenum.
+    const [inside, outside] = [bore / 2, bore / 2 + THROTTLE_WALL + 0.008];
+    const ring = [
+      new THREE.Vector2(inside, 0),
+      new THREE.Vector2(outside, 0),
+      new THREE.Vector2(outside, 0.03),
+      new THREE.Vector2(inside, 0.03),
+      new THREE.Vector2(inside, 0),
+    ];
+    const boss = new THREE.Mesh(colourable(new THREE.LatheGeometry(ring, 40)), this.pipeMetal);
+    boss.rotation.x = -Math.PI / 2;
+    boss.position.set(l.throttle.centre.x, l.throttle.centre.y, front + 0.01);
     this.group.add(boss);
     this.plenum = [plenum, boss];
 
@@ -334,7 +369,7 @@ export class InletMesh {
         r.to.clone().sub(r.arriving),
         r.to,
       );
-      const runner = new THREE.Mesh(colourable(new THREE.TubeGeometry(curve, 24, r.radius, 16, false)), this.pipeMetal);
+      const runner = new THREE.Mesh(colourable(new THREE.TubeGeometry(curve, 24, r.radius, 40, false)), this.pipeMetal);
       this.group.add(runner);
       this.runners.push(runner);
     }
