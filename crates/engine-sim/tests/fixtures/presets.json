@@ -34,6 +34,7 @@
   "vvtLowRpm": 2000,
   "vvtHighRpm": 6000,
   "vvtLinked": false,
+  "pushrods": false,
   "ignition": 695,
   "burnDuration": 55,
   "advanceCurve": true,
@@ -111,6 +112,7 @@
    "vvtLowRpm": 2000,
    "vvtHighRpm": 6000,
    "vvtLinked": false,
+   "pushrods": false,
    "ignition": 695,
    "burnDuration": 55,
    "advanceCurve": true,
@@ -205,7 +207,7 @@
    ],
    "intake": [
     0.0041206090119072225,
-    0.331893676279842,
+    0.40202171497872385,
     -0.274409462644186
    ],
    "engine": [
@@ -284,6 +286,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -378,7 +381,7 @@
      ],
      "intake": [
       0.0041206090119072225,
-      0.331893676279842,
+      0.40202171497872385,
       -0.274409462644186
      ],
      "engine": [
@@ -449,6 +452,7 @@
     "load": 0,
     "throttle": 0,
     "revLimit": 5600,
+    "pushrods": true,
     "flywheelInertia": 0.4,
     "outputGain": 0.55
    },
@@ -488,6 +492,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": true,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -718,6 +723,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -951,6 +957,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -1054,7 +1061,7 @@
      ],
      "intake": [
       0.09406986497560621,
-      0.3648578991747208,
+      0.43730328531857154,
       -0.4307507538886828
      ],
      "engine": [
@@ -1207,6 +1214,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -1468,7 +1476,7 @@
      ],
      "intake": [
       0.09524932156676941,
-      0.3601326225121929,
+      0.4271866823785281,
       -0.4278394284073642
      ],
      "engine": [
@@ -1629,6 +1637,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -1867,7 +1876,7 @@
      ],
      "intake": [
       0.07754944775366401,
-      0.35310537044839385,
+      0.42025677775969805,
       -0.3687591084583576
      ],
      "engine": [
@@ -2025,6 +2034,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -2309,7 +2319,7 @@
      ],
      "intake": [
       0.11533875936663096,
-      0.36328710512135176,
+      0.4314715230163827,
       -0.4712798918522458
      ],
      "engine": [
@@ -2468,6 +2478,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -3006,7 +3017,7 @@
      ],
      "intake": [
       0.1140074715815434,
-      0.33460260438799827,
+      0.4020566642543335,
       -0.5452651237226761
      ],
      "engine": [
@@ -3161,6 +3172,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 5600,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -3906,6 +3918,7 @@
   {
    "name": "V8, Chevrolet LT2",
    "engine": {
+    "pushrods": true,
     "cylinders": 8,
     "vAngle": 90,
     "crankType": "crossplane",
@@ -3968,6 +3981,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": true,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -4239,6 +4253,7 @@
      "vvtLowRpm": 4550,
      "vvtHighRpm": 7750,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -5070,6 +5085,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -5321,6 +5337,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -5573,6 +5590,7 @@
      "vvtLowRpm": 2000,
      "vvtHighRpm": 6000,
      "vvtLinked": false,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -5667,7 +5685,7 @@
      ],
      "intake": [
       0.04520312932954321,
-      0.34279284784334507,
+      0.4129208865422269,
       -0.3248094241644983
      ],
      "engine": [
