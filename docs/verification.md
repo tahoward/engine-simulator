@@ -174,6 +174,11 @@ matters.
   turbocharged engine must have no tract. On every preset, the intake must be heard from the mouth of
   the tract the view draws, in front of the engine, and the Wasm build's snapshot must carry one
   pressure for each of the tract's cells, and none on a turbocharged engine.
+- **The cams.** Through the whole cycle, every overhead cam lobe on the F20C, the LT6 and the single
+  must stay on its valve's bucket, and every lobe of the LT2's camshaft under its tappet, to 0.2 mm.
+  With cam profile switching, each side of the F20C's heads must carry a high-speed lobe beside its two,
+  and three finger rockers: below the switch speed the middle one swinging further than the other two at
+  peak lift, its pin inside it, and above it all three moving as one, the pin out through them.
 - **Where the sound comes from.** On every preset, the app must place every mouth the solver radiates
   from, by its duct, with the intake and casing; the default single's tailpipe must be at the end of
   its megaphone, out to the side, and the LT6's two within 0.25 m of each other in the middle. Through

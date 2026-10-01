@@ -10,7 +10,7 @@
 
 import * as THREE from 'three';
 
-import { engineShell, exhaustPortOf } from '../model/geometry.js';
+import { engineShell, exhaustPortOf, valvetrainTop } from '../model/geometry.js';
 import { airboxVolumeOf, inletSegments, plenumVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
 import { cylinderZ, intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
 
@@ -156,7 +156,7 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   const run = vee ? 1 : -intakeSide;
   const side = run;
   const across = new THREE.Vector3(run, 0, 0);
-  const heads = shell.top * Math.cos(shell.straddle);
+  const heads = Math.max(shell.top, valvetrainTop(spec)) * Math.cos(shell.straddle);
   const boxY = Math.max(centre.y + height / 2, heads) + boxHeight / 2 + 0.03;
   const boxZ = front + depth / 2;
   // On a V it starts just short of the throttle body, so the tube stays short however big the airbox.

@@ -57,6 +57,37 @@ export function exhaustPortOf(spec: EngineSpec, cylinder: number): { position: V
 /** How far the crank runs on past its end throws, to the nose at one end and the flange at the other, m. */
 export const END_JOURNAL = 0.03;
 
+/** How far each valve leans from its cylinder's axis, its top out towards its own side of the head, radians. */
+export const VALVE_TILT = 0.21;
+
+/** How long a valve's stem is, from its head, as a fraction of the bore. */
+export const STEM_LENGTH = 0.85;
+
+/** How tall the bucket on an overhead cam engine's valve is, between the stem and the lobe, m. */
+export const BUCKET_HEIGHT = 0.008;
+
+/** The base circle of a cam lobe, m: the round part that leaves the valve shut. */
+export function camBaseRadius(spec: EngineSpec): number {
+  return Math.max(0.012, spec.bore * 0.14);
+}
+
+/** The deck's height above the crank along a bank's axis, m: where the head starts. */
+export function deckHeight(spec: EngineSpec): number {
+  const boreArea = (Math.PI * spec.bore * spec.bore) / 4;
+  return spec.stroke / 2 + spec.rodLength + spec.bore * 0.34 + clearanceVolume(spec) / boreArea;
+}
+
+/**
+ * How far the valvetrain reaches along a bank's axis from the crank, m: over the noses of an overhead cam's
+ * lobes, or the rocker arms on top of a pushrod engine's heads.
+ */
+export function valvetrainTop(spec: EngineSpec): number {
+  const stemTop = deckHeight(spec) + spec.bore * STEM_LENGTH * Math.cos(VALVE_TILT);
+  if (spec.pushrods) return stemTop + 0.025;
+  const lift = Math.max(spec.maxLift, spec.camSwitchRpm > 0 ? spec.highMaxLift : 0);
+  return stemTop + BUCKET_HEIGHT + 2 * camBaseRadius(spec) + lift;
+}
+
 /**
  * The outline of the block and heads: one rounded casting per bank, from the crankcase up past the valve
  * springs, and the crankcase round the crank's sweep, the whole of it along the crank. What the drawn
