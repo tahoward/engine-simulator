@@ -3,9 +3,9 @@
  * the throttle, a black rubber tube with a bellows coupler and hose clamps, a black plastic airbox with its
  * lid's seam and clips, and a flattened snorkel flaring at its mouth. Where each goes is `inletLayout`.
  *
- * In the pressure view every part the simulation solves takes the colour of its gauge pressure, on a scale
- * of the intake's own: its waves are a few kPa where the exhaust's are tens, and on the exhaust's scale they
- * would not show. The tube, the airbox and the snorkel show their cells; the plenum its pressure, deep in
+ * In the pressure view every part the simulation solves takes the colour of its gauge pressure, on one
+ * scale for the whole intake, apart from the exhaust's: the intake's swings are smaller, and on the
+ * exhaust's scale its tract would not show. The tube, the airbox and the snorkel show their cells; the plenum its pressure, deep in
  * vacuum at a small throttle; and an inline engine's runners their cells. And the air itself is shown
  * moving through the tract, as specks carried at the solver's speed in each cell, slowed by `FLOW_SLOWDOWN`
  * so the eye can follow them: drawn in steadily at full throttle, and stopped and sent back by every wave.
@@ -422,9 +422,13 @@ export class InletMesh {
       for (const m of parts) if (m) fill(m.geometry, null);
       return;
     }
-    // The scale follows the tract's and the runners' waves; the plenum's vacuum, tens of kPa at a small
-    // throttle, would drown them, and shows at the top of the scale instead.
-    const scale = this.scale.track(cells && cells.length > 0 ? cells : snap.runnerPressure);
+    // One scale for every part, so none is pinned at the end of the ramp and their colours compare: the
+    // runners' waves are tens of kPa at full throttle, the plenum's vacuum as much at a small one.
+    const all = new Float32Array((cells?.length ?? 0) + snap.runnerPressure.length + 1);
+    if (cells) all.set(cells);
+    all.set(snap.runnerPressure, cells?.length ?? 0);
+    all[all.length - 1] = snap.plenumPressure;
+    const scale = this.scale.track(all);
     const rgb = new THREE.Color();
     if (this.plenum) {
       pressureColor(snap.plenumPressure / scale, rgb);
