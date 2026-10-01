@@ -10,7 +10,7 @@
 
 import * as THREE from 'three';
 
-import { engineShell, exhaustPortOf, valvetrainTop } from '../model/geometry.js';
+import { engineShell, exhaustPortOf, intakeCamsOf, valvetrainTop } from '../model/geometry.js';
 import { airboxVolumeOf, inletSegments, plenumVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
 import { cylinderZ, intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
 
@@ -22,6 +22,8 @@ export interface Runner {
   leaving: THREE.Vector3;
   arriving: THREE.Vector3;
   radius: number;
+  /** Which of the plenum's faces it leaves by: an upright side, a V's sloping flank, or the underside. */
+  exit: 'side' | 'flank' | 'bottom';
 }
 
 /**
@@ -38,12 +40,12 @@ function intakePortOf(spec: EngineSpec, b: number): { position: THREE.Vector3; d
 
 export interface InletLayout {
   /**
-   * The plenum: its middle and its size along x, y and z, m. In a V it narrows below the throttle body to
-   * `base` of its width, sitting down into the valley between the heads; beside an inline head it is a
-   * rounded box, its `base` 1.
+   * The plenum: its middle and its size along x, y and z, m. On a vee it narrows below the throttle body to
+   * `base` of its width, a V's flanks parallel to its banks so it sits down into the valley between the
+   * heads; beside an inline head it is a rounded box, its `base` 1.
    */
   plenum: { centre: THREE.Vector3; size: THREE.Vector3; base: number };
-  /** On an inline engine or a boxer, one curved runner a cylinder from the plenum into the head. */
+  /** One runner a cylinder from the plenum into the head: straight on an inline engine, curved on a vee. */
   runners: Runner[];
   /** The throttle body: its middle, on the plenum's front face, its bore and its length along -z, m. */
   throttle: { centre: THREE.Vector3; bore: number; length: number };
@@ -102,28 +104,101 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   const length = Math.max(shell.length * 0.85, 2 * lastRunner);
   const height = Math.max(PLENUM_HEIGHT, face);
   const footprint = plenumVolumeOf(spec) / (height * length);
-  const width = Math.max(Math.min(Math.max(footprint, 0.07), vee ? shell.width * 0.9 : 0.12), face);
+  let width = Math.max(Math.min(Math.max(footprint, 0.07), vee ? shell.width * 0.9 : 0.12), face);
   const runners: Runner[] = [];
   let centre: THREE.Vector3;
+  // How wide its underside is against its top: a boxer's narrows below its throttle body, a V's to its banks.
+  let base = vee ? 0.55 : 1;
   if (vee) {
     const valley = Math.max(shell.top * Math.cos(shell.straddle) * 0.8, shell.crankcase.radius + 0.02);
-    centre = new THREE.Vector3(0, valley + height / 2, 0);
-    // A boxer's heads lie flat either side, their intake ports on top: each runner arches out of the
-    // plenum's side and down into its port. A V's ports open into the valley under the plenum.
-    if (spec.vAngle >= 150) {
-      for (let b = 0; b < spec.cylinders; b++) {
-        const port = intakePortOf(spec, b);
+    const ports = Array.from({ length: spec.cylinders }, (_, b) => intakePortOf(spec, b));
+    if (spec.vAngle < 150) {
+      // A V's intake ports are on the valley side of its heads, and its runners leave by the plenum's sloping
+      // flanks, already heading down and out to them: the plenum sits low, those flanks just clear above the
+      // ports, and narrow enough to stand between the intake cams rather than over them.
+      const cams = intakeCamsOf(spec);
+      width = Math.max(face, Math.min(width, 2 * (cams.x - cams.reach - 0.008)));
+      // The flanks run parallel to the banks, so the underside is the V's own shape: each drops from 0.3 of
+      // the way down to the underside, 0.7 of the half-height, coming in by that times the half-angle's tan.
+      const drop = 0.7 * (height / 2) * Math.tan(((spec.vAngle / 2) * Math.PI) / 180);
+      base = Math.min(Math.max(1 - drop / (width / 2), 0.15), 1);
+      const [w, h] = [width / 2, height / 2];
+      const [wi, hi] = [w - PLENUM_WALL, h - PLENUM_WALL];
+      /** The middle of the flank towards `out`, `wide` and `high` the section's half-width and -height. */
+      const flankMiddle = (out: number, wide: number, high: number) =>
+        new THREE.Vector2(out * wide * (1 + base) * 0.5, -0.65 * high);
+      const flankOutward = (out: number) => {
+        const slope = new THREE.Vector2(out * w * (base - 1), -0.7 * h);
+        const n = new THREE.Vector2(slope.y, -slope.x).normalize();
+        return n.x * out < 0 ? n.negate() : n;
+      };
+      // Where the runners leave it, from wide Vs to tight ones, the first whose runners can reach their ports
+      // square: out of its upright sides, the plenum dropped down into the valley between the ports, where
+      // they are far enough out beyond its sides; out of its sloping flanks, the flanks just clear above the
+      // ports, where they are far enough out in front of those; and otherwise, in a tight V where the ports
+      // are nearly under it, out of its underside, the plenum just high enough above the ports for the
+      // runners to turn down into them.
+      const highest = Math.max(...ports.map((p) => p.position.y));
+      const room = 2.2 * radius;
+      const sideY = Math.max(valley + h, highest + 1.2 * radius - 0.1 * h);
+      const flankY = Math.max(valley + h, highest + 1.6 * radius + 0.65 * h);
+      const reaches = (y: number, at: (out: number) => THREE.Vector2, outward: (out: number) => THREE.Vector2) =>
+        ports.every((p) => {
+          const out = Math.sign(p.position.x) || 1;
+          const there = at(out).add(new THREE.Vector2(0, y));
+          return new THREE.Vector2(p.position.x, p.position.y).sub(there).dot(outward(out)) > room;
+        });
+      const sideAt = (out: number, wide: number, high: number) => new THREE.Vector2(out * wide, 0.1 * high);
+      const across = (out: number) => new THREE.Vector2(out, 0);
+      const exit: Runner['exit'] = reaches(sideY, (out) => sideAt(out, w, h), across)
+        ? 'side'
+        : reaches(flankY, (out) => flankMiddle(out, w, h), flankOutward)
+          ? 'flank'
+          : 'bottom';
+      centre = new THREE.Vector3(
+        0,
+        exit === 'side' ? sideY : exit === 'flank' ? flankY : Math.max(valley + h, highest + 2.4 * radius + h),
+        0,
+      );
+      // How far out along the underside a runner can leave it, its flared mouth clear of the rounded edge.
+      const underside = wi * base - Math.max(PLENUM_ROUNDING - PLENUM_WALL, 0.002) - 1.5 * radius - 0.002;
+      for (const port of ports) {
         const out = Math.sign(port.position.x) || 1;
-        // From the plenum's inside wall, a little above its middle, where its side is still upright.
-        const from = new THREE.Vector3(out * (width / 2 - PLENUM_WALL), centre.y + height * 0.1, port.position.z);
-        const reach = from.distanceTo(port.position) * 0.45;
+        const [start, outward] =
+          exit === 'side'
+            ? [sideAt(out, wi, hi), across(out)]
+            : exit === 'flank'
+              ? [flankMiddle(out, wi, hi), flankOutward(out)]
+              : [new THREE.Vector2(out * Math.max(Math.min(Math.abs(port.position.x), underside), 0), -hi), new THREE.Vector2(0, -1)];
+        const from = new THREE.Vector3(centre.x + start.x, centre.y + start.y, port.position.z);
+        const reach = Math.max(from.distanceTo(port.position) * 0.45, 1.6 * radius);
         runners.push({
           from,
           to: port.position,
-          // Square out of the plenum's upright side, so its mouth lies flat in the wall, before it rises.
+          leaving: new THREE.Vector3(outward.x, outward.y, 0).multiplyScalar(reach),
+          arriving: port.direction.clone().multiplyScalar(-reach),
+          radius,
+          exit,
+        });
+      }
+    } else {
+      centre = new THREE.Vector3(0, valley + height / 2, 0);
+      // Each runner leaves the plenum's side towards its bank, square to it, and arches down into its port
+      // on top of a boxer's head.
+      for (const port of ports) {
+        const out = Math.sign(port.position.x) || 1;
+        // From the plenum's inside wall, a little above its middle, where its side is still upright.
+        const from = new THREE.Vector3(out * (width / 2 - PLENUM_WALL), centre.y + height * 0.1, port.position.z);
+        const reach = Math.max(from.distanceTo(port.position) * 0.45, 2.2 * radius);
+        runners.push({
+          from,
+          to: port.position,
+          // Square out of the plenum's upright side, so its mouth lies flat in the wall, and clear of it
+          // before it turns down.
           leaving: new THREE.Vector3(out * reach, 0, 0),
           arriving: port.direction.clone().multiplyScalar(-reach),
           radius,
+          exit: 'side',
         });
       }
     }
@@ -138,10 +213,10 @@ export function inletLayout(spec: EngineSpec): InletLayout {
       const port = intakePortOf(spec, b).position;
       const from = new THREE.Vector3(x - intakeSide * (width / 2 - PLENUM_WALL), port.y, port.z);
       const third = port.clone().sub(from).divideScalar(3);
-      runners.push({ from, to: port, leaving: third, arriving: third, radius });
+      runners.push({ from, to: port, leaving: third, arriving: third, radius, exit: 'side' });
     }
   }
-  const plenum = { centre, size: new THREE.Vector3(width, height, length), base: vee ? 0.55 : 1 };
+  const plenum = { centre, size: new THREE.Vector3(width, height, length), base };
 
   // The throttle body on the plenum's front face, looking forwards.
   const throttleLength = 0.05 + bore * 0.3;

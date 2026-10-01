@@ -28,6 +28,7 @@ import {
   ROD_STAGGER,
   mainBearingsAfter,
   exhaustPortDiameter,
+  intakeRunnerOf,
   cylinderSpacing,
   firingPlan,
   physicalBank,
@@ -52,8 +53,11 @@ const BEARING = { color: 0xb8894f, metalness: 0.7, roughness: 0.4 };
 const ALLOY = { color: 0xb9c0c9, metalness: 0.85, roughness: 0.28 };
 /** The engine's outline: see-through, so everything inside it shows. */
 const SHELL = { color: 0xa9b1bb, metalness: 0.2, roughness: 0.6, transparent: true, opacity: 0.13, depthWrite: false };
-/** Each exhaust port's flange, bright enough to find. */
+/** Each exhaust port's flange, bright enough to find, and each intake port's, in the intake's blue. */
 const PORT = { color: 0xff8c42, emissive: 0x6a2a00, metalness: 0.5, roughness: 0.4 };
+const INTAKE_PORT = { color: 0x4aa8ff, emissive: 0x0b2d5c, metalness: 0.5, roughness: 0.4 };
+/** The dark of an intake port's opening. */
+const INTAKE_OPENING = 0x05090f;
 
 export interface ExhaustPort {
   /** World position where the pipe begins. */
@@ -407,6 +411,8 @@ export class EngineMesh {
 
     // --- exhaust port, in this cylinder's frame ---
     group.add(this.buildPort(exhaustSide));
+    // Where its runner meets the head, its intake port's flange too.
+    group.add(this.buildIntakePort(-exhaustSide));
 
     // --- rod: world space, from the pin to this cylinder's piston ---
     // Slimmer along the crank than across it, as a rod's beam is, so two fit side by side on a shared pin.
@@ -707,6 +713,29 @@ export class EngineMesh {
     group.position.set(sign * s.bore * 0.24, this.deckY, z);
     group.userData.z = z;
     return group;
+  }
+
+  /**
+   * The intake port, where its runner meets the head: a flange round the runner, square to it, on the
+   * other side of the head from the exhaust and at the same height, where `intakePortOf` in the intake's
+   * layout puts it.
+   */
+  private buildIntakePort(side: number): THREE.Group {
+    const s = this.spec;
+    const port = new THREE.Group();
+    port.name = 'intake port';
+    const r = intakeRunnerOf(s).diameter / 2;
+    port.add(new THREE.Mesh(new THREE.TorusGeometry(r * 1.25, r * 0.28, 10, 32), new THREE.MeshStandardMaterial(INTAKE_PORT)));
+    // The opening, dark, as the exhaust port's is.
+    port.add(
+      new THREE.Mesh(
+        new THREE.CircleGeometry(r * 1.05, 32),
+        new THREE.MeshBasicMaterial({ color: INTAKE_OPENING, side: THREE.DoubleSide }),
+      ),
+    );
+    port.rotation.y = Math.PI / 2;
+    port.position.set(side * s.bore * 1.15, this.deckY + s.bore * 0.52 * 0.45, 0);
+    return port;
   }
 
   /**
