@@ -120,7 +120,8 @@ export function inletLayout(spec: EngineSpec): InletLayout {
         runners.push({
           from,
           to: port.position,
-          leaving: new THREE.Vector3(out * reach, reach * 0.4, 0),
+          // Square out of the plenum's upright side, so its mouth lies flat in the wall, before it rises.
+          leaving: new THREE.Vector3(out * reach, 0, 0),
           arriving: port.direction.clone().multiplyScalar(-reach),
           radius,
         });
