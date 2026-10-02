@@ -1774,7 +1774,7 @@ describe('fitted pipes join straight ones, and deleting one puts back what was t
     expect(shape(graph, id)).toEqual(before);
   });
 
-  it('deleting a stretch of straight pipe takes only it, and what is left joined only to it', async () => {
+  it('deleting a stretch of straight pipe takes only it, leaving a bend from it that joins something else loose', async () => {
     const { pipesMeetAt } = await import('../src/scene/exhaustLayout.js');
     const graph = bare();
     const a = placeLoosePipe(graph, [0.4, 0.2, 0.1], 0.042, 0.5);
@@ -1794,11 +1794,20 @@ describe('fitted pipes join straight ones, and deleting one puts back what was t
     const aBefore = shape(graph, a);
     expect(validateGraph(graph, 1)).toEqual([]);
 
-    // The far half of a: it goes, and the bend from its end, which joined nothing else there; b is loose again.
+    // The far half of a: it goes, and the bend from its end, still joined to b, stays, loose where it lies.
+    const bendBefore = shape(graph, 'bend');
+    const bendTo = { ...bend.to };
     removePipe(graph, far.id, layoutGraph(ports(), graph));
     refitBends(graph, ports(), spec);
-    expect(graph.ducts.map((d) => d.id).sort()).toEqual([a, b, 'runner0'].sort());
-    expect(shape(graph, b)).toEqual(bBefore);
+    expect(graph.ducts.map((d) => d.id).sort()).toEqual([a, b, 'bend', 'runner0'].sort());
+    expect(bend.from.kind).toBe('free');
+    expect(bend.to).toEqual(bendTo);
+    expect(bend.fitted).toBe(true);
+    expect(shape(graph, 'bend').start).toEqual(bendBefore.start);
+    // b stays on the bend, where it was.
+    const bNow = shape(graph, b);
+    expect(bNow.from).toEqual(bend.to);
+    expect([bNow.start, bNow.end, bNow.lengths]).toEqual([bBefore.start, bBefore.end, bBefore.lengths]);
     // The near half stays as it was, and the runner still fitted where they meet, which stays put.
     expect(shape(graph, a).start).toEqual(aBefore.start);
     expect(shape(graph, a).end).toEqual(aBefore.end);
