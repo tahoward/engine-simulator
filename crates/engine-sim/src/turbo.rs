@@ -189,6 +189,9 @@ const BLOW_OFF_AREA_RATIO: f64 = 0.8;
 /// Pressure difference across an open blow-off valve below which its flow goes in proportion to it,
 /// Pa: see `vent_flow`.
 const BLOW_OFF_LINEAR: f64 = 300.0;
+/// Time the flow through a blow-off valve takes to follow the pressure across it, s: the inertia of
+/// the air in its bore.
+const BLOW_OFF_FLOW_TAU: f64 = 1e-3;
 
 /// Charge-air volume, compressor to throttle through the intercooler, as a multiple of total swept
 /// volume, and the throttle body's share of it, as a multiple of the swept volume too. The rest is
@@ -490,22 +493,18 @@ pub struct TurboOut {
 }
 
 /// Flow out through an open blow-off valve of effective `area`, m^2, from the throttle body at `p2`, Pa,
-/// and `t2`, K, kg/s: through it as an orifice either way, and within `BLOW_OFF_LINEAR` of the
-/// atmosphere's pressure in proportion to the difference, as the air in its bore cannot follow the
-/// orifice law's infinitely steep start from no difference at all.
+/// and `t2`, K, kg/s: through it as an orifice, and within `BLOW_OFF_LINEAR` of the atmosphere's
+/// pressure in proportion to the difference, as the air in its bore cannot follow the orifice law's
+/// infinitely steep start from no difference at all. Nothing comes in through it: with the throttle
+/// body below the atmosphere, the pressure across the piston holds it to its seat.
 fn vent_flow(area: f64, p2: f64, t2: f64) -> f64 {
-    let at = |p: f64| {
-        if p >= gas::P_AMB {
-            orifice_mass_flow(area, 0.7, p, t2, gas::P_AMB, GAMMA_AIR)
-        } else {
-            -orifice_mass_flow(area, 0.7, gas::P_AMB, gas::T_AMB, p, GAMMA_AIR)
-        }
-    };
     let dp = p2 - gas::P_AMB;
-    if dp.abs() >= BLOW_OFF_LINEAR {
-        at(p2)
+    if dp <= 0.0 {
+        0.0
+    } else if dp >= BLOW_OFF_LINEAR {
+        orifice_mass_flow(area, 0.7, p2, t2, gas::P_AMB, GAMMA_AIR)
     } else {
-        at(gas::P_AMB + BLOW_OFF_LINEAR.copysign(dp)) * (dp.abs() / BLOW_OFF_LINEAR)
+        orifice_mass_flow(area, 0.7, gas::P_AMB + BLOW_OFF_LINEAR, t2, gas::P_AMB, GAMMA_AIR) * (dp / BLOW_OFF_LINEAR)
     }
 }
 
@@ -1100,9 +1099,11 @@ impl Turbo {
             };
             r.blow_off += (dt / BLOW_OFF_TAU) * (bov_target - r.blow_off);
             r.blow_off = clamp(r.blow_off, 0.0, 1.0);
-            r.vent = vent_flow(r.size.blow_off_area * r.blow_off, p2, t2);
+            // The air in its bore cannot stop or start at once.
+            let settled = vent_flow(r.size.blow_off_area * r.blow_off, p2, t2);
+            r.vent = settled;
             vent += r.vent;
-            vent_h += r.vent * if r.vent >= 0.0 { h2 } else { gas_enthalpy(gas::T_AMB) };
+            vent_h += r.vent * h2;
         }
 
         // --- The throttle body: in from the charge pipes, out through the throttle ---
