@@ -186,6 +186,9 @@ const BLOW_OFF_CRACK: f64 = 0.3e5;
 const BLOW_OFF_SPAN: f64 = 0.15e5;
 /// Blow-off valve bore as a fraction of the compressor inducer's.
 const BLOW_OFF_AREA_RATIO: f64 = 0.8;
+/// Pressure difference across an open blow-off valve below which its flow goes in proportion to it,
+/// Pa: see `vent_flow`.
+const BLOW_OFF_LINEAR: f64 = 300.0;
 
 /// Charge-air volume, compressor to throttle through the intercooler, as a multiple of total swept
 /// volume, and the throttle body's share of it, as a multiple of the swept volume too. The rest is
@@ -484,6 +487,26 @@ pub struct TurboOut {
     pub charge_t: f64,
     /// What the turbo radiates this sample, Pa at 1 m.
     pub sound: f64,
+}
+
+/// Flow out through an open blow-off valve of effective `area`, m^2, from the throttle body at `p2`, Pa,
+/// and `t2`, K, kg/s: through it as an orifice either way, and within `BLOW_OFF_LINEAR` of the
+/// atmosphere's pressure in proportion to the difference, as the air in its bore cannot follow the
+/// orifice law's infinitely steep start from no difference at all.
+fn vent_flow(area: f64, p2: f64, t2: f64) -> f64 {
+    let at = |p: f64| {
+        if p >= gas::P_AMB {
+            orifice_mass_flow(area, 0.7, p, t2, gas::P_AMB, GAMMA_AIR)
+        } else {
+            -orifice_mass_flow(area, 0.7, gas::P_AMB, gas::T_AMB, p, GAMMA_AIR)
+        }
+    };
+    let dp = p2 - gas::P_AMB;
+    if dp.abs() >= BLOW_OFF_LINEAR {
+        at(p2)
+    } else {
+        at(gas::P_AMB + BLOW_OFF_LINEAR.copysign(dp)) * (dp.abs() / BLOW_OFF_LINEAR)
+    }
 }
 
 /// Speed of the jet through an orifice from `p_up` (Pa) and `t_up` (K) to `p_down`, m/s: sonic at the
@@ -1069,7 +1092,7 @@ impl Turbo {
 
         // --- Blow-off valves: each opens on the pressure across a shut throttle ---
         let across = p2 - plenum_p;
-        let mut vent = 0.0;
+        let (mut vent, mut vent_h) = (0.0, 0.0);
         for r in self.rotors.iter_mut() {
             let bov_target = match r.size.blow_off {
                 BlowOff::None => 0.0,
@@ -1077,14 +1100,15 @@ impl Turbo {
             };
             r.blow_off += (dt / BLOW_OFF_TAU) * (bov_target - r.blow_off);
             r.blow_off = clamp(r.blow_off, 0.0, 1.0);
-            r.vent = orifice_mass_flow(r.size.blow_off_area * r.blow_off, 0.7, p2, t2, gas::P_AMB, GAMMA_AIR);
+            r.vent = vent_flow(r.size.blow_off_area * r.blow_off, p2, t2);
             vent += r.vent;
+            vent_h += r.vent * if r.vent >= 0.0 { h2 } else { gas_enthalpy(gas::T_AMB) };
         }
 
         // --- The throttle body: in from the charge pipes, out through the throttle ---
         let out = throttle_flow + vent;
         let h_out = throttle_flow * h2;
-        self.energy += (h_in - h_out - vent * h2) * dt;
+        self.energy += (h_in - h_out - vent_h) * dt;
         self.mass += (m_in - out) * dt;
         let floor = 0.2 * (gas::P_AMB * charge.volume) / (gas::R * gas::T_AMB);
         if self.mass < floor || !self.mass.is_finite() || !self.energy.is_finite() {
