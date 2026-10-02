@@ -360,6 +360,25 @@ fn on_high_boost_the_surge_starts_with_the_lift() {
     assert!(longest < 0.15, "no lull between surges: the longest {longest} s");
 }
 
+/// Switching from a naturally aspirated engine to a turbocharged one leaves the plenum in a deep vacuum
+/// behind a throttle body at the atmosphere's pressure, and the blow-off valve wide open: the air it
+/// passes either way as the pulses swing that pressure about the atmosphere's makes no sound to speak of.
+#[test]
+fn switching_to_a_turbocharged_engine_is_quiet() {
+    let mut sim = EngineSim::new(FS, &common::engine_preset("Inline four, Honda F20C").config);
+    sim.render(2 * FS as usize);
+    let to = &common::engine_preset(RB26).config;
+    sim.set_engine_json(&serde_json::to_value(&to.engine).unwrap()).unwrap();
+    sim.set_graph(to.graph.clone());
+    let mut loudest = 0.0f64;
+    for _ in 0..FS as usize / 2 {
+        sim.render(1);
+        loudest = loudest.max(sim.turbo().unwrap().last_sound().abs());
+    }
+    assert!(sim.turbo().unwrap().blow_off() > 0.9, "the valve is open on the vacuum");
+    assert!(loudest < 0.5, "the turbo stays quiet: {loudest} Pa");
+}
+
 /// The throttle shutting is felt at the compressor only once its pressure wave has run back up the
 /// charge pipe: for the first few milliseconds the compressor goes on delivering as before.
 #[test]
