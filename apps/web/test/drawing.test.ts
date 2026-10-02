@@ -1856,6 +1856,59 @@ describe('fitted pipes ending at the same junction', () => {
   });
 });
 
+describe('deleting one of two fitted pipes that meet', () => {
+  const spec = { ...defaultConfig().engine, cylinders: 2, vAngle: 45, exhaustLayout: 'perBank' } as EngineSpec;
+  const ports = (): ExhaustPort[] => {
+    const mesh = new EngineMesh(spec);
+    return [0, 1].map((i) => mesh.exhaustPort(i));
+  };
+  /** Both runners bent into a junction fixed between them. */
+  function merged(): { graph: ExhaustGraph; node: string } {
+    const node = 'j';
+    const graph: ExhaustGraph = {
+      ducts: [0, 1].map((i) => ({
+        id: `runner${i}`,
+        segments: [makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 }), makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 })],
+        from: { kind: 'valve' as const, cylinder: i },
+        to: { kind: 'node' as const, node },
+        fitted: true as const,
+      })),
+      junctions: [{ node, position: [0, -0.35, 0.25], axis: [0, -1, 0] }],
+    };
+    refitBends(graph, ports(), spec);
+    return { graph, node };
+  }
+
+  it('leaves the other, still on its port, its bend kept as drawn', () => {
+    const { graph } = merged();
+    const other = graph.ducts.find((d) => d.id === 'runner0')!;
+    const bent = structuredClone(other.segments);
+    removePipe(graph, 'runner1', layoutGraph(ports(), graph));
+    refitBends(graph, ports(), spec);
+    expect(other.segments).toEqual(bent);
+    expect(other.fitted).toBeUndefined();
+    expect(other.to.kind).toBe('mouth');
+    expect(validateGraph(graph, 2)).toEqual([]);
+  });
+
+  it('leaves a fitted pipe from where they met loose where it lies, still joined to what it bends into', () => {
+    const { graph, node } = merged();
+    const loose = placeLoosePipe(graph, [0.3, -0.5, 0.25], 0.05, 0.3);
+    graph.ducts.splice(1, 1);
+    graph.ducts.push({ id: 'on', segments: [makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.042 })], from: { kind: 'node', node }, to: { kind: 'mouth' } });
+    attachToLooseStart(graph, 'on', loose, [1, 0, 0]);
+    const on = graph.ducts.find((d) => d.id === 'on')!;
+    on.fitted = true;
+    refitBends(graph, ports(), spec);
+    const was = layoutGraph(ports(), graph).ducts.get('on')!;
+    const to = { ...on.to };
+    removePipe(graph, 'runner0', layoutGraph(ports(), graph));
+    expect(on.from.kind).toBe('free');
+    expect(on.to).toEqual(to);
+    expect(layoutGraph(ports(), graph).ducts.get('on')!.origin.distanceTo(was.origin)).toBeLessThan(1e-9);
+  });
+});
+
 describe('deleting half of a pipe at a tee a fitted pipe comes into', () => {
   const spec = { ...defaultConfig().engine, cylinders: 1 } as EngineSpec;
   const ports = (): ExhaustPort[] => [new EngineMesh(spec).exhaustPort(0)];

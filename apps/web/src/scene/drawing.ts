@@ -327,13 +327,13 @@ export function detachDuct(
  * A fitted pipe, a bend joining two things, goes by itself: what it split is rejoined, the junctions it made
  * go, and a pipe it joined at its start starts where it did, loose again (`tidyJunctions`). Nothing is
  * turned round, and nothing else moves. A cylinder's own pipe is never deleted, as every cylinder needs one:
- * it comes off what it was fitted to.
+ * it comes off what it was fitted to. A fitted pipe it leaves alone at a junction stays where that pipe's
+ * other end is still held (`keepHeld`).
  *
  * A straight one goes by itself too, not past its junctions. Each junction it leaves still joining two or more
  * stays where it is, fixed there, and the fitted pipes at it fitted to it as before. One left with only a
- * fitted pipe goes with it. That pipe stays where its other end is still held, by a port or what it joins:
- * one ending there ends in open air, its bend kept as drawn; one starting there is left loose where it lies.
- * Held by nothing else, it goes too, putting back what it joined at its other end as above (a cylinder's
+ * fitted pipe goes with it. That pipe stays where its other end is still held (`keepHeld`); held by nothing
+ * else, it goes too, putting back what it joined at its other end as above (a cylinder's
  * comes off it). One left with only a straight leaves that loose where it lies (`loosenChildren`).
  */
 export function removePipe(
@@ -367,17 +367,8 @@ export function removePipe(
         (graph.junctions ??= []).push({ node, position: [joint.centre.x, joint.centre.y, joint.centre.z], axis: [joint.axis.x, joint.axis.y, joint.axis.z] });
       }
       if (duct.to.kind === 'node' && duct.to.node === node) keepsEnd = true;
-    } else if (left.length === 1 && left[0]!.fitted) {
-      const fitted = left[0]!;
-      const arrives = fitted.to.kind === 'node' && fitted.to.node === node;
-      // Held at its other end: by a port or a pipe it starts from, or what its bend joins.
-      const held = arrives ? fitted.from.kind !== 'free' : fitted.to.kind === 'node';
-      if (!held || !placement) alone.push(fitted);
-      else if (arrives) {
-        delete fitted.fitted;
-        delete fitted.swing;
-        delete fitted.square;
-      } else loosenWhereItLies(fitted, placement);
+    } else if (left.length === 1 && left[0]!.fitted && !keepHeld(left[0]!, node, placement)) {
+      alone.push(left[0]!);
     }
   }
   for (const d of alone) removeFitted(graph, d, placement, dirs);
@@ -388,9 +379,34 @@ export function removePipe(
   else removeDuct(graph, duct.id, dirs);
 }
 
-/** `removePipe` for a fitted pipe: a cylinder's comes off what it joined, anything else goes. */
+/**
+ * Keep `fitted`, the one pipe left at `node` as what else met there goes, where its other end is still held:
+ * by a port or a pipe it starts from, or what its bend joins. Ending at `node`, it ends in open air there, its
+ * bend kept as drawn; starting there, it is left loose where it lies. Returns whether it was kept.
+ */
+function keepHeld(fitted: ExhaustDuct, node: string, placement: ExhaustPlacement | null): boolean {
+  const arrives = fitted.to.kind === 'node' && fitted.to.node === node;
+  const held = arrives ? fitted.from.kind !== 'free' : fitted.to.kind === 'node';
+  if (!held || !placement) return false;
+  if (arrives) {
+    delete fitted.fitted;
+    delete fitted.swing;
+    delete fitted.square;
+  } else loosenWhereItLies(fitted, placement);
+  return true;
+}
+
+/**
+ * `removePipe` for a fitted pipe: a cylinder's comes off what it joined, anything else goes. A fitted pipe it
+ * leaves alone at either end stays where that pipe's other end is still held (`keepHeld`).
+ */
 function removeFitted(graph: ExhaustGraph, duct: ExhaustDuct, placement: ExhaustPlacement | null, dirs?: DuctDirections): void {
   if (!graph.ducts.includes(duct)) return;
+  for (const node of touchedAt(duct)) {
+    if (turboAt(graph, node)) continue;
+    const left = endsAt(graph, node).filter((e) => e.duct !== duct).map((e) => e.duct);
+    if (left.length === 1 && left[0]!.fitted) keepHeld(left[0]!, node, placement);
+  }
   // The only pipe into a loose pipe's start: that pipe starts where it did again.
   if (placement) loosenChildren(graph, duct.id, placement);
   if (duct.from.kind === 'valve') disconnectEnd(graph, duct.id, dirs);
