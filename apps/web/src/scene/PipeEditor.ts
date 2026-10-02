@@ -1439,6 +1439,12 @@ export class PipeEditor {
   private routeDiameter(duct: ExhaustDuct): number {
     const ctx = this.context!;
     const fromTurbo = duct.from.kind === 'node' && !!ctx.graph.turbos?.some((t) => t.node === (duct.from as { node: string }).node);
+    if (duct.segments.length === 0 && !fromTurbo && !this.startingDuct(duct) && duct.from.kind === 'node') {
+      // Where nothing runs into it, as at a loose pipe's start: at the bore a pipe leaving it starts at.
+      const node = duct.from.node;
+      const beside = ctx.graph.ducts.find((d) => d !== duct && d.from.kind === 'node' && d.from.node === node && d.segments.length > 0);
+      if (beside) return segmentDiameter(beside.segments[0]!, 0);
+    }
     return continuingDiameter(
       duct.segments.length > 0 ? duct : fromTurbo ? null : this.startingDuct(duct),
       this.startingDiameter(duct),
