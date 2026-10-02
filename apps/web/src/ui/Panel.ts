@@ -187,8 +187,12 @@ const SPEEDS: Array<[number, string]> = [
 /**
  * What the Sample rate menu offers, with the exhaust's band limit at each: the solver's finest cell is
  * `1400 / (fs · 0.85)` and it resolves up to about `c / (5 dx)` with `c` = 400 m/s at the mouth.
+ * 96 kHz is for the desktop app only, which has the CPU for it; a browser's one audio thread does not.
  */
 export const SAMPLE_RATES: Array<[number, string]> = [
+  ...(import.meta.env.VITE_TARGET === 'desktop'
+    ? ([[96000, '96 kHz · ~2× CPU, finer time steps']] as Array<[number, string]>)
+    : []),
   [48000, '48 kHz · full detail'],
   [32000, '32 kHz · ~63% CPU, exhaust to ~1.5 kHz'],
   [24000, '24 kHz · ~47% CPU, exhaust to ~1.2 kHz'],
@@ -397,7 +401,8 @@ export class Panel {
     rateSel.addEventListener('change', () => this.cb.onSampleRate(Number(rateSel.value)));
     rateRow.title =
       'The solver takes one step per audio sample, so a lower rate means fewer steps and coarser ' +
-      'cells: much less CPU, for a duller exhaust. For phones and slow machines. Changing it ' +
+      'cells: much less CPU, for a duller exhaust. For phones and slow machines. 96 kHz steps the ' +
+      'cylinders, valves and pipes twice as finely for about twice the CPU, with the same cells. Changing it ' +
       'restarts the audio, and the pipes warm up again from cold.';
 
     // ---- Launch ----------------------------------------------------------
