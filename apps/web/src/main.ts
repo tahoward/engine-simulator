@@ -950,7 +950,8 @@ viewer.onFrame(() => {
 });
 
 viewer.onFrame((dt) => {
-  inletMesh.setThrottle(config.engine.throttle);
+  // A launch or a dyno pull works the throttle itself.
+  inletMesh.setThrottle(latest?.launch?.throttle ?? config.engine.throttle);
   // The air through the intake moves at the simulation's pace, stopped while the sound is.
   inletMesh.flow(audio.running ? dt * timeScale : 0);
   if (displayRpm > 0) displayAngle = (displayAngle + displayRpm * 6 * dt * timeScale) % 720;

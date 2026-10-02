@@ -373,6 +373,8 @@ pub struct LaunchSnapshot {
     /// The same at the half mile.
     pub half_mile: Option<f64>,
     pub half_mile_kmh: Option<f64>,
+    /// The throttle's opening the run holds, 0..1: open through a pull, shut through a shift that lifts off.
+    pub throttle: f64,
     /// Engine cycles recorded since the last snapshot, `LAUNCH_POINT_STRIDE` values each.
     pub points: Vec<f32>,
 }
