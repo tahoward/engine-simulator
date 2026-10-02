@@ -5,7 +5,8 @@
 //! measures exactly the engines the web app ships, each with the exhaust the app gives it. Each runs held at `BENCH_RPM` (6500 by default) at full throttle, the worst case for the solver,
 //! at `BENCH_FS` Hz (48000), on `BENCH_THREADS` threads (1), warmed up for half a second, then
 //! timed over `BENCH_SECONDS` (3) and reported as the best of `BENCH_REPEATS` (3): the work is
-//! deterministic, so anything slower than the fastest run is the rest of the machine. `cells` is the exhaust's; `asked` is what it would have without the grid
+//! deterministic, so anything slower than the fastest run is the rest of the machine. `BENCH_CELL`
+//! asks every preset for that cell size, m, and `BENCH_BUDGET` scales the solver's budget (1). `cells` is the exhaust's; `asked` is what it would have without the grid
 //! budget, shown where the budget coarsens it.
 
 use std::sync::Arc;
@@ -41,6 +42,8 @@ fn main() {
     let repeats = env("BENCH_REPEATS", 3.0) as usize;
     let only = std::env::var("BENCH_ONLY").ok();
     let threads = env("BENCH_THREADS", 1.0) as usize;
+    let cell = std::env::var("BENCH_CELL").ok().and_then(|v| v.parse().ok());
+    let budget = env("BENCH_BUDGET", 1.0);
     interactive();
     let pool = (threads > 1).then(|| Arc::new(ThreadPool::new(threads, Some(Arc::new(interactive)))));
 
@@ -55,7 +58,11 @@ fn main() {
         cfg.engine.rpm = rpm;
         cfg.engine.throttle = 1.0;
         cfg.engine.free_running = false;
+        if let Some(cell) = cell {
+            cfg.engine.pipe_cell_size = cell;
+        }
         let mut sim = EngineSim::new(fs, &cfg);
+        sim.set_budget_scale(budget);
         sim.set_pool(pool.clone());
         let asked = EngineSim::with_options(
             fs,

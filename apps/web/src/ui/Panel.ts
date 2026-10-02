@@ -198,6 +198,15 @@ export const SAMPLE_RATES: Array<[number, string]> = [
   [24000, '24 kHz · ~47% CPU, exhaust to ~1.2 kHz'],
 ];
 
+/**
+ * The finest exhaust cell the solver can take at sample rate `hz`, m, to the slider's millimetre: one
+ * step per sample has to keep the fastest wave, `DESIGN_WAVE_SPEED` 1400 m/s, within a cell at a
+ * Courant number of 0.85. Asked for finer, the solver raises it to this.
+ */
+export function finestCell(hz: number): number {
+  return Math.ceil((1400 / (hz * 0.85)) * 1000) / 1000;
+}
+
 /** What the Cylinders menu offers: a count, and for a twin or a six whether it is a V. */
 const ENGINE_TYPES: Array<[string, string]> = [
   ['1', 'Single'],
@@ -332,6 +341,9 @@ export class Panel {
   private readonly meterFill: HTMLElement;
   private readonly startBtn: HTMLButtonElement;
   private readonly rateSel: HTMLSelectElement;
+  private cellSlider!: ReturnType<typeof slider>;
+  /** The finest cell the Solver resolution slider offers, m: `finestCell` at the sample rate. */
+  private cellFloor: number;
 
   private selected: number | null = null;
   private readonly view: ViewOptions = {
@@ -349,6 +361,7 @@ export class Panel {
     launchSettings: LaunchSettings = autoLaunchSettings(),
   ) {
     this.launch = launchSettings;
+    this.cellFloor = finestCell(sampleRate);
     const spec = config.engine;
     const section = sectionRail(root);
 
@@ -398,7 +411,10 @@ export class Panel {
     this.rateSel = rateSel;
     for (const [hz, label] of SAMPLE_RATES) rateSel.appendChild(option(String(hz), label));
     rateSel.value = String(sampleRate);
-    rateSel.addEventListener('change', () => this.cb.onSampleRate(Number(rateSel.value)));
+    rateSel.addEventListener('change', () => {
+      this.setCellFloor(Number(rateSel.value));
+      this.cb.onSampleRate(Number(rateSel.value));
+    });
     rateRow.title =
       'The solver takes one step per audio sample, so a lower rate means fewer steps and coarser ' +
       'cells: much less CPU, for a duller exhaust. For phones and slow machines. 96 kHz steps the ' +
@@ -1513,21 +1529,25 @@ export class Panel {
     }).row.title =
       'Cools the pipe wall, which cools the gas, which slows the wave speed and drops the ' +
       'tuning. Radiation off oxidised steel matters as much as convection here.';
-    this.slider(comb, {
+    this.cellSlider = this.slider(comb, {
       label: 'Solver resolution',
-      min: 0.035,
+      min: this.cellFloor,
       max: 0.12,
       step: 0.001,
       value: spec.pipeCellSize,
       sync: () => this.config.engine.pipeCellSize,
-      format: (v) =>
-        `${(v * 1000).toFixed(0)} mm cells · ~${(550 / (10 * v) / 1000).toFixed(1)} kHz`,
+      // What the solver takes: a cell asked for finer than the sample rate allows is raised to it.
+      format: (v) => {
+        const cell = Math.max(v, this.cellFloor);
+        return `${(cell * 1000).toFixed(0)} mm cells · ~${(550 / (10 * cell) / 1000).toFixed(1)} kHz`;
+      },
       onInput: (v) => this.cb.onEngine({ pipeCellSize: v }),
-    }).row.title =
+    });
+    this.cellSlider.row.title =
       'Cell length for the exhaust gas-dynamics solver. Smaller cells resolve higher ' +
-      'frequencies and cost more. The solver takes one step per audio sample, so cells ' +
-      'cannot be shorter than about 35 mm at 48 kHz (51 mm at 32 kHz, 69 mm at 24 kHz); a big engine may be given ' +
-      'coarser cells than asked for, to keep it in real time.';
+      'frequencies and cost more. The solver takes one step per audio sample, so the finest cell ' +
+      'is set by the sample rate: about 18 mm at 96 kHz, 35 mm at 48 kHz, 51 mm at 32 kHz and 69 mm ' +
+      'at 24 kHz. A big engine may be given coarser cells than asked for, to keep it in real time.';
     this.slider(comb, {
       label: 'Port gas temp',
       min: 350,
@@ -1883,6 +1903,14 @@ export class Panel {
   /** Show a sample rate chosen somewhere other than the menu. */
   setSampleRate(hz: number): void {
     this.rateSel.value = String(hz);
+    this.setCellFloor(hz);
+  }
+
+  /** Let the Solver resolution slider down to the finest cell sample rate `hz` allows. */
+  private setCellFloor(hz: number): void {
+    this.cellFloor = finestCell(hz);
+    this.cellSlider.input.min = String(this.cellFloor);
+    this.cellSlider.render(this.config.engine.pipeCellSize);
   }
 
   // -------------------------------------------------------------------------

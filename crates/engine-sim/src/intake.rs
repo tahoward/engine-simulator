@@ -156,21 +156,15 @@ impl IntakeRunners {
     /// pushes back up its runner takes its composition.
     pub fn advance(&mut self, io: &RunnerIo, valves: &[ValveState], breathing: &[f64], cyl_state: &[CylState]) {
         let count = self.runners.len();
-        let step = self.begin(io, valves, breathing, cyl_state);
+        let step = self.begin(io, breathing);
         for b in 0..count {
-            unsafe { step.runner(b) };
+            unsafe { step.runner(b, &valves[b], &cyl_state[b]) };
         }
     }
 
     /// `advance`, set up for its runners to be stepped one at a time, in any order or at once: each
     /// touches only its own `Runner`. The substep count is shared, so it is settled here.
-    pub fn begin<'a>(
-        &'a mut self,
-        io: &RunnerIo,
-        valves: &'a [ValveState],
-        breathing: &[f64],
-        cyl_state: &'a [CylState],
-    ) -> IntakeStep<'a> {
+    pub fn begin(&mut self, io: &RunnerIo, breathing: &[f64]) -> IntakeStep<'_> {
         let dt = io.dt;
         let mut substeps = 1;
         for r in self.runners.iter_mut() {
@@ -185,14 +179,7 @@ impl IntakeRunners {
         for (r, &bp) in self.runners.iter_mut().zip(breathing) {
             r.pipe.set_reservoir(io.p * bp, io.rho * bp, res_c);
         }
-        IntakeStep {
-            io: *io,
-            substeps,
-            valves,
-            cyl_state,
-            runners: self.runners.as_mut_ptr(),
-            _runners: std::marker::PhantomData,
-        }
+        IntakeStep { io: *io, substeps, runners: self.runners.as_mut_ptr(), _runners: std::marker::PhantomData }
     }
 }
 
@@ -201,8 +188,6 @@ impl IntakeRunners {
 pub struct IntakeStep<'a> {
     io: RunnerIo,
     substeps: usize,
-    valves: &'a [ValveState],
-    cyl_state: &'a [CylState],
     runners: *mut Runner,
     _runners: std::marker::PhantomData<&'a mut IntakeRunners>,
 }
@@ -212,19 +197,18 @@ unsafe impl Sync for IntakeStep<'_> {}
 unsafe impl Send for IntakeStep<'_> {}
 
 impl IntakeStep<'_> {
-    /// Step runner `b` through the sample.
+    /// Step runner `b` through the sample, onto its intake `valve` and a cylinder holding `cyl`.
     ///
     /// # Safety
     ///
     /// Each `b` must be stepped once, by one thread: two threads on one runner would race.
-    pub unsafe fn runner(&self, b: usize) {
+    pub unsafe fn runner(&self, b: usize, valve: &ValveState, cyl: &CylState) {
         let dt = self.io.dt;
         let substeps = self.substeps;
         let h = dt / substeps as f64;
         let plenum_burned = self.io.burned;
         let plenum_fuel = self.io.fuel;
         let inject = self.io.inject;
-        let valve = &self.valves[b];
         let run = unsafe { &mut *self.runners.add(b) };
         let r = &mut run.pipe;
         let mut vf = 0.0;
@@ -257,8 +241,8 @@ impl IntakeStep<'_> {
         let mass = if run.mass > 1e-12 { run.mass } else { 1e-12 };
         let rb = run.burned;
         let rf = run.fuel;
-        let cb = self.cyl_state[b].burned;
-        let cf = self.cyl_state[b].fuel;
+        let cb = cyl.burned;
+        let cf = cyl.fuel;
         let mut burned = run.burned_mass
             + ((if vf >= 0.0 { vf * cb } else { vf * rb }) - (if pf >= 0.0 { pf * rb } else { pf * plenum_burned }))
                 * dt;

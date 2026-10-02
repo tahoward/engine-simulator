@@ -533,8 +533,8 @@ export interface EngineSpec {
    * The trade between fidelity and CPU. Smaller cells resolve higher frequencies — roughly
    * `c / (10 * pipeCellSize)` before numerical dissipation takes over — and cost more cells. The solver
    * takes exactly one step per audio sample, which puts a floor under this: a cell has to be long
-   * enough for the fastest wave not to cross it in one sample, about 34 mm at 48 kHz and 37 mm at
-   * 44.1 kHz, and anything smaller asked for is raised to that.
+   * enough for the fastest wave not to cross it in one sample, about 17 mm at 96 kHz, 34 mm at 48 kHz
+   * and 37 mm at 44.1 kHz, and anything smaller asked for is raised to that.
    */
   pipeCellSize: number;
   /**

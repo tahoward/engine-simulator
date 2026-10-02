@@ -330,6 +330,7 @@ fn render_loop(
     if max_threads > 1 {
         sim.set_pool(Some(Arc::new(ThreadPool::new(max_threads, Some(Arc::new(worker_priority))))));
     }
+    sim.set_budget_scale(budget_scale(fs, max_threads));
     let mut tuner = ThreadTuner::new(max_threads, 2);
     tuner.retune(sim.useful_threads());
     sim.set_max_threads(tuner.threads());
@@ -475,6 +476,15 @@ fn apply(
     false
 }
 
+/// How many times a browser's solver budget the simulation may spend on finer cells, at sample rate
+/// `fs`, Hz, on up to `threads` threads. The budget is what one browser thread affords at 48 kHz; a cell
+/// costs in proportion to the sample rate, and each thread past the first is worth about a quarter of
+/// one, as they share the work only as finely as the ducts split, up to the most that pays.
+fn budget_scale(fs: f64, threads: usize) -> f64 {
+    let parallel = (1.0 + 0.25 * (threads.max(1) - 1) as f64).min(2.25);
+    parallel * 48000.0 / fs
+}
+
 /// A worker thread's priority: on macOS, the class that keeps it on a performance core. Not real-time,
 /// as the render thread is: a worker spins between jobs, and a real-time thread that never yields is
 /// demoted on macOS and may be killed on Linux.
@@ -492,6 +502,15 @@ fn worker_priority() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_budget_grows_with_threads_and_shrinks_with_the_sample_rate() {
+        assert_eq!(budget_scale(48000.0, 1), 1.0);
+        assert_eq!(budget_scale(96000.0, 1), 0.5);
+        assert_eq!(budget_scale(48000.0, 5), 2.0);
+        assert_eq!(budget_scale(96000.0, 6), 1.125);
+        assert_eq!(budget_scale(96000.0, 12), 1.125);
+    }
 
     #[test]
     fn a_frame_packs_its_json_padded_then_its_waveform() {
