@@ -15,7 +15,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 import type { EngineSnapshot, EngineSpec } from '../model/spec.js';
-import { PLENUM_ROUNDING, PLENUM_WALL, SNORKEL_ASPECT, SNORKEL_WALL, THROTTLE_WALL, inletLayout, type InletLayout } from './inletLayout.js';
+import { PLENUM_ROUNDING, PLENUM_WALL, taperAt, type PlenumTaper, SNORKEL_ASPECT, SNORKEL_WALL, THROTTLE_WALL, inletLayout, type InletLayout } from './inletLayout.js';
 import { pressureColor } from './PipeMesh.js';
 
 const PLASTIC = { color: 0x2c2f35, metalness: 0.05, roughness: 0.62 };
@@ -137,26 +137,29 @@ function sweep(
 /**
  * The plenum's section, centred on the origin, `width` by `height`, as points round it anticlockwise:
  * square-shouldered down past the throttle body's centre, then narrowing to `base` of its width at the
- * bottom, its corners rounded by `round`. A `base` of 1 is a rounded rectangle. `faces` gives, for each of
- * its straight faces a runner can leave by, the two points the face runs between, in the order the points
- * go round: the upright sides, and a tapered section's sloping flanks below them.
+ * bottom, its corners rounded by `round`. A `base` of 1 is a rounded rectangle. `inset` draws its +x side in
+ * by that much, or its -x side where it is negative. `faces` gives, for each of its straight faces a runner
+ * can leave by, the two points the face runs between, in the order the points go round: the upright sides,
+ * and a tapered section's sloping flanks below them.
  */
 function plenumSection(
   width: number,
   height: number,
   base: number,
   round: number,
+  inset = 0,
 ): { points: THREE.Vector2[]; faces: Partial<Record<Face, [number, number]>> } {
   // The corners on the outline itself: each is rounded off by cutting `round` back along both its edges.
   const [w, h] = [width / 2, height / 2];
+  const [right, left] = [w - Math.max(inset, 0), -w + Math.max(-inset, 0)];
   const foot = (width / 2) * base;
   const corners: [number, number][] =
     base >= 1
       ? [
-          [w, h],
-          [-w, h],
-          [-w, -h],
-          [w, -h],
+          [right, h],
+          [left, h],
+          [left, -h],
+          [right, -h],
         ]
       : [
           [w, h],
@@ -229,38 +232,70 @@ function alongFace(p: THREE.Vector2, q: THREE.Vector2, start: THREE.Vector2, dir
 
 /**
  * The plenum as a hollow casting, centred on the origin, `size` along x, y and z: a shell `PLENUM_WALL`
- * thick round its section, run along z, and rounded over at each end as its sides are, closed at the back,
- * and at the front with the throttle body's bore, `bore` across, through it at the section's middle. Where
- * runners leave it, the upright side they leave by is a plate of its own, inside and out, with an opening for
- * each, so the runners can be seen into from inside. Its rounded edges and corners shade smoothly, as a
- * pipe's curve does, and its square ones stay sharp.
+ * thick round its section, run along z, its side `taper` names drawn in towards the back (`PlenumTaper`), and
+ * rounded over at each end as its sides are. It is closed at the back, and at the front with the throttle
+ * body's bore, `bore` across, through it at the section's middle. Where runners leave it, the upright side
+ * they leave by is a plate of its own, inside and out, with an opening for each, so the runners can be seen
+ * into from inside. Its rounded edges and corners shade smoothly, as a pipe's curve does, and its square ones
+ * stay sharp.
  */
-function plenumGeometry(size: THREE.Vector3, base: number, bore: number, openings: Opening[]): THREE.BufferGeometry {
-  const outer = plenumSection(size.x, size.y, base, PLENUM_ROUNDING);
-  const inner = plenumSection(
-    size.x - 2 * PLENUM_WALL,
-    size.y - 2 * PLENUM_WALL,
-    base,
-    Math.max(PLENUM_ROUNDING - PLENUM_WALL, 0.002),
-  );
+function plenumGeometry(
+  size: THREE.Vector3,
+  base: number,
+  bore: number,
+  openings: Opening[],
+  taper: PlenumTaper | null,
+): THREE.BufferGeometry {
+  // Where its sides run straight between its rounded ends, and its section anywhere along there, drawn in by
+  // `inset` all round: by its wall, inside.
+  const [front, back] = [-size.z / 2 + PLENUM_ROUNDING, size.z / 2 - PLENUM_ROUNDING];
+  const insideRound = Math.max(PLENUM_ROUNDING - PLENUM_WALL, 0.002);
+  const sectionAt = (z: number, inset: number, round = Math.max(PLENUM_ROUNDING - inset, 1e-4)) =>
+    plenumSection(size.x - 2 * inset, size.y - 2 * inset, base, round, taper ? taper.side * taperAt(taper, size.z, z) : 0);
+  const outer = sectionAt(front, 0);
   const n = outer.points.length;
-  // The length its sides run straight, between its rounded ends.
-  const straight = size.z - 2 * PLENUM_ROUNDING;
   const open = (['right', 'left', 'rightFlank', 'leftFlank', 'bottom'] as const).filter((face) =>
     openings.some((o) => o.face === face),
   );
   const parts: THREE.BufferGeometry[] = [];
-  const extrude = (shape: THREE.Shape) => {
-    const g = new THREE.ExtrudeGeometry(shape, { depth: straight, bevelEnabled: false, curveSegments: 1 });
-    g.translate(0, 0, -straight / 2);
-    parts.push(g.toNonIndexed());
-  };
 
-  // The shell round the section: whole, or in pieces between the faces runners leave by.
+  /**
+   * Rings of points round it, each joined to the next: of the section's points `run` goes through, or round
+   * it whole. Wound to face out, or with `inward` in.
+   */
+  const loft = (rings: { points: THREE.Vector2[]; z: number }[], inward: boolean, run?: number[]) => {
+    const order = run ?? [...Array.from({ length: n }, (_, i) => i), 0];
+    const positions: number[] = [];
+    for (let k = 0; k + 1 < rings.length; k++) {
+      const [a, b] = [rings[k]!, rings[k + 1]!];
+      // Anticlockwise round the section, so towards +z it faces out as given, and towards -z the other way.
+      const flip = b.z > a.z === inward;
+      for (let m = 0; m + 1 < order.length; m++) {
+        const [i, j] = [order[m]!, order[m + 1]!];
+        const corners: [THREE.Vector2, number][] = [
+          [a.points[i]!, a.z],
+          [a.points[j]!, a.z],
+          [b.points[j]!, b.z],
+          [b.points[i]!, b.z],
+        ];
+        for (const c of flip ? [0, 2, 1, 0, 3, 2] : [0, 1, 2, 0, 2, 3]) {
+          const [p, z] = corners[c]!;
+          positions.push(p.x, p.y, z);
+        }
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    g.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((positions.length / 3) * 2), 2));
+    g.computeVertexNormals();
+    parts.push(g);
+  };
+  const along = (inset: number, round?: number) => [front, back].map((z) => ({ points: sectionAt(z, inset, round).points, z }));
+
+  // The sides: whole, or in pieces between the faces runners leave by.
   if (open.length === 0) {
-    const shell = new THREE.Shape(outer.points);
-    shell.holes.push(new THREE.Path(inner.points));
-    extrude(shell);
+    loft(along(0), false);
+    loft(along(PLENUM_WALL, insideRound), true);
   } else {
     // Each piece runs anticlockwise from where the outline leaves one open face to where it reaches the next.
     const ends = open.map((face) => outer.faces[face]!);
@@ -273,24 +308,26 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
         run.push(i);
         if (i === to) break;
       }
-      extrude(new THREE.Shape([...run.map((i) => outer.points[i]!), ...[...run].reverse().map((i) => inner.points[i]!)]));
+      loft(along(0), false, run);
+      loft(along(PLENUM_WALL, insideRound), true, run);
     });
     // Each open face, out and in: a plate across it with each runner's opening through it, where the runner's
     // axis crosses it.
     for (const face of open) {
-      for (const section of [outer, inner]) {
+      for (const inset of [0, PLENUM_WALL]) {
+        const section = sectionAt(front, inset, inset > 0 ? insideRound : undefined);
         const [p, q] = section.faces[face]!.map((i) => section.points[i]!);
         const length = p!.distanceTo(q!);
         const plate = new THREE.Shape([
-          new THREE.Vector2(-straight / 2, 0),
-          new THREE.Vector2(straight / 2, 0),
-          new THREE.Vector2(straight / 2, length),
-          new THREE.Vector2(-straight / 2, length),
+          new THREE.Vector2(front, 0),
+          new THREE.Vector2(back, 0),
+          new THREE.Vector2(back, length),
+          new THREE.Vector2(front, length),
         ]);
         for (const o of openings.filter((o) => o.face === face)) {
           const hole = new THREE.Path();
           const at = alongFace(p!, q!, o.start, o.direction);
-          hole.absarc(o.z, at, section === outer ? o.outside : o.inside, 0, Math.PI * 2, true);
+          hole.absarc(o.z, at, inset > 0 ? o.inside : o.outside, 0, Math.PI * 2, true);
           plate.holes.push(hole);
         }
         // Drawn in its own plane, along z and along the face, then laid on the face.
@@ -306,54 +343,34 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
     }
   }
 
-  // Each end rounded over as its sides are: the section drawn in a little further at each step round the
-  // quarter, to a plate across the end, the front one with the throttle body's bore through it. Inside, a
+  // Each end rounded over as its sides are: the section there drawn in a little further at each step round
+  // the quarter, to a plate across the end, the front one with the throttle body's bore through it. Inside, a
   // plate closes each end where the sides stop, the bore's rim between the two at the front.
-  const rings = Array.from({ length: END_ARC + 1 }, (_, k) => {
-    const t = (k / END_ARC) * (Math.PI / 2);
-    const d = PLENUM_ROUNDING * (1 - Math.cos(t));
-    return {
-      points: plenumSection(size.x - 2 * d, size.y - 2 * d, base, Math.max(PLENUM_ROUNDING - d, 1e-4)).points,
-      z: straight / 2 + PLENUM_ROUNDING * Math.sin(t),
-    };
-  });
   const bored = (points: THREE.Vector2[], hole: boolean) => {
     const shape = new THREE.Shape(points);
     if (hole) shape.holes.push(new THREE.Path().absarc(0, 0, bore / 2, 0, Math.PI * 2, true));
     return new THREE.ShapeGeometry(shape, 24).toNonIndexed();
   };
-  for (const side of [1, -1]) {
-    const positions: number[] = [];
-    for (let k = 0; k < END_ARC; k++) {
-      const [a, b] = [rings[k]!, rings[k + 1]!];
-      for (let i = 0; i < n; i++) {
-        const j = (i + 1) % n;
-        const quad = [
-          [a.points[i]!, a.z],
-          [a.points[j]!, a.z],
-          [b.points[j]!, b.z],
-          [a.points[i]!, a.z],
-          [b.points[j]!, b.z],
-          [b.points[i]!, b.z],
-        ] as const;
-        for (const [p, z] of quad) positions.push(p.x, p.y, side * z);
-      }
-    }
-    const band = new THREE.BufferGeometry();
-    band.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    band.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((positions.length / 3) * 2), 2));
-    band.computeVertexNormals();
-    parts.push(band);
+  for (const [z0, side] of [
+    [back, 1],
+    [front, -1],
+  ] as const) {
+    const rings = Array.from({ length: END_ARC + 1 }, (_, k) => {
+      const t = (k / END_ARC) * (Math.PI / 2);
+      const d = PLENUM_ROUNDING * (1 - Math.cos(t));
+      return { points: sectionAt(z0, d).points, z: z0 + side * PLENUM_ROUNDING * Math.sin(t) };
+    });
+    loft(rings, false);
     const end = bored(rings[END_ARC]!.points, side < 0);
     end.translate(0, 0, side * (size.z / 2));
     parts.push(end);
-    const inside = bored(inner.points, side < 0);
-    inside.translate(0, 0, side * (straight / 2));
+    const inside = bored(sectionAt(z0, PLENUM_WALL, insideRound).points, side < 0);
+    inside.translate(0, 0, z0);
     parts.push(inside);
   }
   const rim = new THREE.CylinderGeometry(bore / 2, bore / 2, PLENUM_ROUNDING, 32, 1, true).toNonIndexed();
   rim.rotateX(Math.PI / 2);
-  rim.translate(0, 0, -(straight + PLENUM_ROUNDING) / 2);
+  rim.translate(0, 0, front - PLENUM_ROUNDING / 2);
   parts.push(rim);
   return toCreasedNormals(mergeGeometries(parts), Math.PI / 5);
 }
@@ -791,7 +808,7 @@ export class InletMesh {
       outside: runnerRadius(r.radius, PLENUM_WALL, flares[k]!),
     }));
     const plenum = new THREE.Mesh(
-      colourable(plenumGeometry(size, l.plenum.base, l.throttle.bore, openings)),
+      colourable(plenumGeometry(size, l.plenum.base, l.throttle.bore, openings, l.plenum.taper)),
       this.pipeMetal,
     );
     plenum.position.copy(centre);
