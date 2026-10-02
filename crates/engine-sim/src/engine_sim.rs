@@ -1656,6 +1656,7 @@ impl EngineSim {
             quarter_mile_kmh: d.quarter.map(|m| m.speed * 3.6),
             half_mile: d.half.map(|m| m.time),
             half_mile_kmh: d.half.map(|m| m.speed * 3.6),
+            throttle: d.throttle,
             points: d.take_points(),
         });
         let (mut runner_pressure, mut runner_cells) = (Vec::new(), Vec::new());

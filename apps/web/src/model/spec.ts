@@ -780,6 +780,8 @@ export interface LaunchSnapshot {
   /** The same at the half mile. */
   halfMile: number | null;
   halfMileKmh: number | null;
+  /** The throttle's opening the run holds, 0..1: open through a pull, shut through a shift that lifts off. */
+  throttle: number;
   /**
    * The engine cycles recorded since the last snapshot, six values each: rpm, crank torque (N*m),
    * road speed (km/h), gear (1-based), volumetric efficiency (a fraction) and intake manifold pressure
