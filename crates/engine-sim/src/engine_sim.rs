@@ -14,6 +14,7 @@
 //! ```
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::afterfire::Afterfire;
 use crate::cylinder::{AdvanceIo, CrackleSpark, CylState, Cylinder, SpecInstance};
@@ -189,14 +190,20 @@ enum Source {
 /// Time constant, s, of the mean-torque tracker and of the rpm readout's smoothing.
 const IRREGULARITY_TAU: f64 = 0.12;
 
-/// The solver's cost budget, and what a cylinder and a junction cost, all in pipe cells.
+/// The solver's cost budget, and what a cylinder and a junction cost, all in pipe cells: what keeps an
+/// engine in real time at 48 kHz on one thread of a browser's audio worklet.
 const CYLINDER_COST_IN_CELLS: f64 = 102.0;
 const JUNCTION_COST_IN_CELLS: f64 = 27.0;
 const SOLVER_COST_BUDGET: f64 = 1216.0;
 
 /// Cells of pipe the budget leaves for an engine with this many cylinders and junctions.
 pub fn grid_budget_cells(cylinders: usize, junctions: usize) -> f64 {
-    SOLVER_COST_BUDGET - CYLINDER_COST_IN_CELLS * cylinders as f64 - JUNCTION_COST_IN_CELLS * junctions as f64
+    scaled_budget_cells(cylinders, junctions, 1.0)
+}
+
+/// `grid_budget_cells` with the whole budget `scale` times as large, for a machine that can afford it.
+pub fn scaled_budget_cells(cylinders: usize, junctions: usize, scale: f64) -> f64 {
+    SOLVER_COST_BUDGET * scale - CYLINDER_COST_IN_CELLS * cylinders as f64 - JUNCTION_COST_IN_CELLS * junctions as f64
 }
 
 /// Bandwidth of the combustion pressure-rise drive, Hz, and the band limit on everything
@@ -241,7 +248,10 @@ pub struct EngineSim {
     steepening: Vec<Steepening>,
     /// Every chamber's shell, ringing with the gas inside it.
     shells: Vec<ChamberShell>,
-    throat_noise: Vec<Noise>,
+    /// Each cylinder's valves and what they did this sample.
+    banks: Vec<Bank>,
+    /// Each cylinder's throat turbulence, kept across rebuilds.
+    throat_noise: Vec<CachePadded<Noise>>,
     clack: Vec<Resonator>,
     slap: Vec<Resonator>,
     clack_impact: Vec<Impact>,
@@ -249,10 +259,6 @@ pub struct EngineSim {
     head_share: f64,
     /// Piston slaps triggered since construction.
     pub slap_count: u64,
-    /// Each cylinder's exhaust lift, intake lift and exhaust flow area this sample.
-    lift_now: Vec<(f64, f64, f64)>,
-    cyl_state: Vec<CylState>,
-    tdc_pressure: Vec<f64>,
     structure: Vec<Resonator>,
     dpdt_smooth: f64,
     dpdt_smooth_c: f64,
@@ -269,9 +275,6 @@ pub struct EngineSim {
     intake_far_field: FarField,
     breathing: Vec<f64>,
     timing: Vec<f64>,
-    last_valve_mdot: Vec<f64>,
-    valve_states: Vec<ValveState>,
-    in_valves: Vec<ValveState>,
     intake_long: IntakeRunners,
     intake_short: Option<IntakeRunners>,
     on_short_runners: bool,
@@ -282,15 +285,8 @@ pub struct EngineSim {
     inject_fraction: f64,
     full_charge_kg: f64,
     torque_last: f64,
-    ex_lift: Vec<f64>,
-    in_lift: Vec<f64>,
-    seating_now: Vec<bool>,
-    in_seating_now: Vec<bool>,
-    seat_pulse: Vec<Impact>,
     /// CFL substeps the gas solver took last sample.
     pub substeps: usize,
-    turb1: Vec<f64>,
-    turb2: Vec<f64>,
     omega: f64,
     omega_mean: f64,
     omega_ripple: f64,
@@ -321,9 +317,6 @@ pub struct EngineSim {
     afterfires_seen: u64,
     launch: Option<LaunchRun>,
     launch_opening: f64,
-    prev_ex_lift: Vec<f64>,
-    prev_in_lift: Vec<f64>,
-    prev_angle: Vec<f64>,
     rebuild_ramp: f64,
     rebuild_ramp_step: f64,
     peak: f64,
@@ -340,6 +333,8 @@ pub struct EngineSim {
     charge_t: f64,
     graph: Option<ExhaustGraph>,
     wg_options: EulerPipeOptions,
+    /// How many times `SOLVER_COST_BUDGET` the solver may spend: 1 is what a browser can afford.
+    budget_scale: f64,
     /// Simulated samples per output sample: 1 is real time, less is slow motion.
     time_scale: f64,
     /// In slow motion, how far the output is from the last simulated sample to the next, 0..1.
@@ -353,6 +348,8 @@ pub struct EngineSim {
     max_threads: usize,
     /// Each intake runner's cells, as the exhaust is told them to balance its threads.
     runner_cells: Vec<usize>,
+    /// Each primary's port pressure, Pa, as the valves read it.
+    port_pressure: Vec<f64>,
     /// What `close_sample` hands each thread, and what it gives back: per cylinder, per mouth, per
     /// shell, and the turbo's.
     close_groups: Vec<Vec<CloseItem>>,
@@ -360,6 +357,143 @@ pub struct EngineSim {
     mouth_out: Vec<CachePadded<f64>>,
     shell_out: Vec<CachePadded<f64>>,
     turbo_out: CachePadded<Option<TurboOut>>,
+    /// What each of `close_sample`'s parts took in a timed sample, ns: cylinders, mouths, shells.
+    close_ns: Vec<CachePadded<f64>>,
+}
+
+/// One cylinder's valves: what they did this sample, and what the next needs of the last. On cache
+/// lines of its own, as each cylinder's are stepped on its exhaust primary's thread.
+#[repr(align(128))]
+struct Bank {
+    cyl_state: CylState,
+    valve_state: ValveState,
+    in_valve: ValveState,
+    ex_lift: f64,
+    in_lift: f64,
+    seating_now: bool,
+    in_seating_now: bool,
+    /// Cylinder pressure at a top dead centre crossed this sample, Pa, or -1.
+    tdc_pressure: f64,
+    seat_pulse: Impact,
+    /// The throat turbulence's two filter stages.
+    turb1: f64,
+    turb2: f64,
+    last_valve_mdot: f64,
+    prev_ex_lift: f64,
+    prev_in_lift: f64,
+    prev_angle: f64,
+}
+
+impl Bank {
+    fn new(sample_rate: f64) -> Bank {
+        let valve = ValveState {
+            throat_area: 0.0,
+            cyl_pressure: gas::P_AMB,
+            cyl_temp: gas::T_AMB,
+            cyl_gamma: gas::GAMMA_EXH,
+            extra_mass_flow: 0.0,
+        };
+        Bank {
+            cyl_state: CylState::default(),
+            valve_state: valve,
+            in_valve: valve,
+            ex_lift: 0.0,
+            in_lift: 0.0,
+            seating_now: false,
+            in_seating_now: false,
+            tdc_pressure: -1.0,
+            seat_pulse: Impact::new(VALVE_CONTACT_S, sample_rate),
+            turb1: 0.0,
+            turb2: 0.0,
+            last_valve_mdot: 0.0,
+            prev_ex_lift: 0.0,
+            prev_in_lift: 0.0,
+            prev_angle: 0.0,
+        }
+    }
+}
+
+/// What every cylinder's valves read this sample.
+struct ValveCtx<'a> {
+    spec: &'a SpecInstance,
+    /// The cam profile in use, for the lifts.
+    lift_spec: &'a EngineSpec,
+    timing: &'a [f64],
+    intake_shift: f64,
+    exhaust_shift: f64,
+    limiter_cut: bool,
+    crackle: Option<CrackleSpark>,
+    rpm: f64,
+    sample_rate: f64,
+}
+
+impl ValveCtx<'_> {
+    /// Cylinder `b`'s valves for this sample: their lifts and flow areas, the cylinder's state as they
+    /// see it, and the throat turbulence and seating pulse its exhaust valve sheds into a primary whose
+    /// port is at `port_abs`, Pa.
+    fn step(&self, b: usize, cyl: &mut Cylinder, bank: &mut Bank, noise: &mut Noise, port_abs: f64) {
+        let angle = cyl.angle;
+        cyl.spark_cut = self.limiter_cut;
+        cyl.crackle = self.crackle;
+        cyl.intake_cam_offset = self.timing[b] + self.intake_shift;
+        cyl.exhaust_cam_offset = self.timing[b] + self.exhaust_shift;
+        let lift_spec = self.lift_spec;
+        let ex_offset = self.timing[b] + self.exhaust_shift;
+        let in_offset = self.timing[b] + self.intake_shift;
+        let ex_lift = valve_lift(angle, lift_spec.evo + ex_offset, lift_spec.evc + ex_offset, lift_spec.max_lift);
+        let in_lift = valve_lift(angle, lift_spec.ivo + in_offset, lift_spec.ivc + in_offset, lift_spec.max_lift);
+        let ex_area = valve_flow_area(ex_lift, lift_spec.ex_valve_dia) * lift_spec.ex_valve_count;
+        let state = cyl.read_state(self.spec);
+        bank.cyl_state = state;
+        let p_cyl = state.pressure;
+        let t_cyl = state.temp;
+        let spec = &self.spec.spec;
+
+        // Throat turbulence, scaled by the previous sample's flow through this valve.
+        let mut extra_mass_flow = 0.0;
+        if ex_area > 0.0 && spec.throat_noise > 0.0 {
+            let throat_rho = port_abs / (gas::R * t_cyl);
+            let speed = math::min(
+                bank.last_valve_mdot.abs() / math::max(throat_rho * ex_area, 1e-9),
+                math::sqrt(gas::GAMMA_CYL * gas::R * t_cyl),
+            );
+            let strouhal_hz = (0.2 * speed) / spec.ex_valve_dia;
+            let k = clamp(1.0 - math::exp((-2.0 * PI * strouhal_hz) / self.sample_rate), 0.02, 0.85);
+            let white = noise.next() * bank.last_valve_mdot.abs() * TURBULENCE_INTENSITY * spec.throat_noise;
+            bank.turb1 += k * (white - bank.turb1);
+            bank.turb2 += k * (bank.turb1 - bank.turb2);
+            extra_mass_flow += bank.turb2;
+        }
+
+        let seating = bank.prev_ex_lift > 0.0 && ex_lift == 0.0;
+        if seating {
+            bank.seat_pulse.trigger(spec.mech_noise * 0.02 * (self.rpm / 3000.0));
+        }
+        extra_mass_flow += bank.seat_pulse.next();
+
+        let cyl_gamma = 1.0 + gas::R / (CV_REF + CV_SLOPE * (t_cyl - T_REF));
+        bank.valve_state =
+            ValveState { throat_area: ex_area, cyl_pressure: p_cyl, cyl_temp: t_cyl, cyl_gamma, extra_mass_flow };
+        bank.in_valve = ValveState {
+            throat_area: valve_flow_area(in_lift, spec.in_valve_dia) * spec.in_valve_count,
+            cyl_pressure: p_cyl,
+            cyl_temp: t_cyl,
+            cyl_gamma,
+            extra_mass_flow: 0.0,
+        };
+
+        bank.ex_lift = ex_lift;
+        bank.in_lift = in_lift;
+        bank.seating_now = seating;
+        bank.in_seating_now = bank.prev_in_lift > 0.0 && in_lift == 0.0;
+        bank.tdc_pressure =
+            if crossed_angle(bank.prev_angle, angle, 0.0) || crossed_angle(bank.prev_angle, angle, 360.0) {
+                p_cyl
+            } else {
+                -1.0
+            };
+        bank.prev_angle = angle;
+    }
 }
 
 /// One part of `EngineSim::close_sample`.
@@ -399,7 +533,8 @@ impl EngineSim {
         // Replaced by `build_intake` once the cylinders exist.
         let intake_long = IntakeRunners::new(&spec.spec, sample_rate, 0, &EulerPipeOptions::default(), 0.3);
 
-        let wg = build_exhaust_for(&spec.spec, &pipe, &collector_pipe, graph.as_ref(), sample_rate, &wg_options, None);
+        let wg =
+            build_exhaust_for(&spec.spec, &pipe, &collector_pipe, graph.as_ref(), sample_rate, &wg_options, 1.0, None);
         let plenum = IntakePlenum::new(&spec.spec);
 
         let mut sim = EngineSim {
@@ -412,6 +547,7 @@ impl EngineSim {
             far_fields: Vec::new(),
             steepening: Vec::new(),
             shells: Vec::new(),
+            banks: Vec::new(),
             throat_noise: Vec::new(),
             clack: Vec::new(),
             slap: Vec::new(),
@@ -419,9 +555,6 @@ impl EngineSim {
             slap_impact: Vec::new(),
             head_share: 1.0,
             slap_count: 0,
-            lift_now: Vec::new(),
-            cyl_state: Vec::new(),
-            tdc_pressure: Vec::new(),
             structure: Vec::new(),
             dpdt_smooth: 0.0,
             dpdt_smooth_c: 1.0 - math::exp((-2.0 * PI * DPDT_BANDWIDTH_HZ) / sample_rate),
@@ -435,9 +568,6 @@ impl EngineSim {
             intake_far_field: FarField::new(sample_rate, 0.0),
             breathing: Vec::new(),
             timing: Vec::new(),
-            last_valve_mdot: Vec::new(),
-            valve_states: Vec::new(),
-            in_valves: Vec::new(),
             intake_long,
             intake_short: None,
             on_short_runners: false,
@@ -448,14 +578,7 @@ impl EngineSim {
             inject_fraction: 0.0,
             full_charge_kg: 1.0,
             torque_last: 0.0,
-            ex_lift: Vec::new(),
-            in_lift: Vec::new(),
-            seating_now: Vec::new(),
-            in_seating_now: Vec::new(),
-            seat_pulse: Vec::new(),
             substeps: 0,
-            turb1: Vec::new(),
-            turb2: Vec::new(),
             omega: 0.0,
             omega_mean: 0.0,
             omega_ripple: 0.0,
@@ -477,9 +600,6 @@ impl EngineSim {
             afterfires_seen: 0,
             launch: None,
             launch_opening: f64::NAN,
-            prev_ex_lift: Vec::new(),
-            prev_in_lift: Vec::new(),
-            prev_angle: Vec::new(),
             rebuild_ramp: 1.0,
             rebuild_ramp_step: 1.0 / (0.008 * sample_rate),
             peak: 0.0,
@@ -494,6 +614,7 @@ impl EngineSim {
             charge_t: gas::T_AMB,
             graph,
             wg_options,
+            budget_scale: 1.0,
             time_scale: 1.0,
             slow_phase: 0.0,
             slow_prev: 0.0,
@@ -506,6 +627,8 @@ impl EngineSim {
             mouth_out: Vec::new(),
             shell_out: Vec::new(),
             turbo_out: CachePadded(None),
+            close_ns: Vec::new(),
+            port_pressure: Vec::new(),
         };
         sim.refresh_cam_profiles(false);
         sim.refresh_derived();
@@ -800,7 +923,9 @@ impl EngineSim {
     /// Refilled at the atmosphere's pressure, they would hand a throttled engine a few full charges.
     fn rebuild_exhaust(&mut self) {
         self.wg = self.build_exhaust();
-        self.last_valve_mdot.fill(0.0);
+        for bank in self.banks.iter_mut() {
+            bank.last_valve_mdot = 0.0;
+        }
         self.afterfire.clear();
         self.refresh_far_fields();
         for f in self.far_fields.iter_mut() {
@@ -827,6 +952,7 @@ impl EngineSim {
             self.graph.as_ref(),
             self.sample_rate,
             &self.wg_options,
+            self.budget_scale,
             inherit,
         )
     }
@@ -968,20 +1094,7 @@ impl EngineSim {
         self.make_cylinder_variation(n);
         let full_charge = (gas::P_AMB * displacement(&self.spec.spec)) / (gas::R * gas::T_AMB);
         self.afterfire = Afterfire::new(n, full_charge, fuel_fraction_at(1.0));
-        self.last_valve_mdot = vec![0.0; n];
-        self.turb1 = vec![0.0; n];
-        self.turb2 = vec![0.0; n];
-        self.ex_lift = vec![0.0; n];
-        self.in_lift = vec![0.0; n];
-        self.prev_ex_lift = vec![0.0; n];
-        self.prev_in_lift = vec![0.0; n];
-        self.prev_angle = vec![0.0; n];
-        self.seating_now = vec![false; n];
-        self.seat_pulse = (0..n).map(|_| Impact::new(VALVE_CONTACT_S, sr)).collect();
-        self.in_seating_now = vec![false; n];
-        self.tdc_pressure = vec![-1.0; n];
-        self.lift_now = vec![(0.0, 0.0, 0.0); n];
-        self.cyl_state = vec![CylState::default(); n];
+        self.banks = (0..n).map(|_| Bank::new(sr)).collect();
         self.clack = (0..n).map(|_| Resonator::new(CLACK_MODE.0, CLACK_MODE.1, sr)).collect();
         self.slap = (0..n).map(|_| Resonator::new(SLAP_MODE.0, SLAP_MODE.1, sr)).collect();
         self.clack_impact = (0..n).map(|_| Impact::new(VALVE_CONTACT_S, sr)).collect();
@@ -989,17 +1102,6 @@ impl EngineSim {
         if !self.structure.is_empty() {
             self.tune_structure();
         }
-        self.valve_states = vec![
-            ValveState {
-                throat_area: 0.0,
-                cyl_pressure: gas::P_AMB,
-                cyl_temp: gas::T_AMB,
-                cyl_gamma: gas::GAMMA_EXH,
-                extra_mass_flow: 0.0,
-            };
-            n
-        ];
-        self.in_valves = self.valve_states.clone();
     }
 
     /// Pitch everything that rings to the size of this engine.
@@ -1020,18 +1122,6 @@ impl EngineSim {
             self.clack[b].set(CLACK_MODE.0 * valve * (1.0 + LOCAL_MODE_DETUNE * t), CLACK_MODE.1, self.sample_rate);
             self.slap[b].set(SLAP_MODE.0 * bore * (1.0 + LOCAL_MODE_DETUNE * u), SLAP_MODE.1, self.sample_rate);
         }
-    }
-
-    /// Cylinder `b`'s valve lifts and exhaust flow area this sample.
-    #[inline]
-    fn compute_lifts(&mut self, b: usize) {
-        let spec = if self.on_high_cam { &self.high_cam_spec.as_ref().unwrap().spec } else { &self.spec.spec };
-        let angle = self.cyls[b].angle;
-        let ex_offset = self.timing[b] + self.exhaust_shift;
-        let in_offset = self.timing[b] + self.intake_shift;
-        let ex_lift = valve_lift(angle, spec.evo + ex_offset, spec.evc + ex_offset, spec.max_lift);
-        let in_lift = valve_lift(angle, spec.ivo + in_offset, spec.ivc + in_offset, spec.max_lift);
-        self.lift_now[b] = (ex_lift, in_lift, valve_flow_area(ex_lift, spec.ex_valve_dia) * spec.ex_valve_count);
     }
 
     /// Fixed per-cylinder breathing multipliers and cam timing offsets, spread evenly and shuffled.
@@ -1135,7 +1225,7 @@ impl EngineSim {
         for b in 0..spec.cylinders as usize {
             out.push(Cylinder::new(spec, wrap_cycle(-plan.offsets[b]), 0x51f3a7 as f64 + b as f64 * 0x9e3779b as f64));
             if self.throat_noise.len() <= b {
-                self.throat_noise.push(Noise::new(0x2c1b3d as f64 + b as f64 * 0x85ebca6b_u32 as f64));
+                self.throat_noise.push(CachePadded(Noise::new(0x2c1b3d as f64 + b as f64 * 0x85ebca6b_u32 as f64)));
             }
         }
         out
@@ -1149,6 +1239,7 @@ impl EngineSim {
             self.graph.as_ref(),
             self.sample_rate,
             &self.wg_options,
+            self.budget_scale,
             Some(self.wg.export_wall()),
         )
     }
@@ -1330,73 +1421,6 @@ impl EngineSim {
         let mut dpdt_sum = 0.0;
         let limiter_cut = self.limiter_cut || !self.ignition || self.launch.as_ref().is_some_and(|l| l.spark_cut);
         let rpm = self.rpm();
-        for b in 0..banks {
-            let angle = self.cyls[b].angle;
-            {
-                let cyl = &mut self.cyls[b];
-                cyl.spark_cut = limiter_cut;
-                cyl.crackle = crackle;
-                cyl.intake_cam_offset = self.timing[b] + self.intake_shift;
-                cyl.exhaust_cam_offset = self.timing[b] + self.exhaust_shift;
-            }
-            self.compute_lifts(b);
-            let (ex_lift, in_lift, ex_area) = self.lift_now[b];
-            let state = self.cyls[b].read_state(&self.spec);
-            self.cyl_state[b] = state;
-            let p_cyl = state.pressure;
-            let t_cyl = state.temp;
-            let spec = &self.spec.spec;
-            let port_abs = self.wg.primary(b).read_port().0;
-
-            // Throat turbulence, scaled by the previous sample's flow through this valve.
-            let mut extra_mass_flow = 0.0;
-            if ex_area > 0.0 && spec.throat_noise > 0.0 {
-                let throat_rho = port_abs / (gas::R * t_cyl);
-                let speed = math::min(
-                    self.last_valve_mdot[b].abs() / math::max(throat_rho * ex_area, 1e-9),
-                    math::sqrt(gas::GAMMA_CYL * gas::R * t_cyl),
-                );
-                let strouhal_hz = (0.2 * speed) / spec.ex_valve_dia;
-                let k = clamp(1.0 - math::exp((-2.0 * PI * strouhal_hz) / self.sample_rate), 0.02, 0.85);
-                let white = self.throat_noise[b].next()
-                    * self.last_valve_mdot[b].abs()
-                    * TURBULENCE_INTENSITY
-                    * spec.throat_noise;
-                self.turb1[b] += k * (white - self.turb1[b]);
-                self.turb2[b] += k * (self.turb1[b] - self.turb2[b]);
-                extra_mass_flow += self.turb2[b];
-            }
-
-            let seating = self.prev_ex_lift[b] > 0.0 && ex_lift == 0.0;
-            if seating {
-                self.seat_pulse[b].trigger(spec.mech_noise * 0.02 * (rpm / 3000.0));
-            }
-            extra_mass_flow += self.seat_pulse[b].next();
-
-            let cyl_gamma = 1.0 + gas::R / (CV_REF + CV_SLOPE * (t_cyl - T_REF));
-            self.valve_states[b] =
-                ValveState { throat_area: ex_area, cyl_pressure: p_cyl, cyl_temp: t_cyl, cyl_gamma, extra_mass_flow };
-            self.in_valves[b] = ValveState {
-                throat_area: valve_flow_area(in_lift, spec.in_valve_dia) * spec.in_valve_count,
-                cyl_pressure: p_cyl,
-                cyl_temp: t_cyl,
-                cyl_gamma,
-                extra_mass_flow: 0.0,
-            };
-
-            self.ex_lift[b] = ex_lift;
-            self.in_lift[b] = in_lift;
-            self.seating_now[b] = seating;
-            self.in_seating_now[b] = self.prev_in_lift[b] > 0.0 && in_lift == 0.0;
-            self.tdc_pressure[b] =
-                if crossed_angle(self.prev_angle[b], angle, 0.0) || crossed_angle(self.prev_angle[b], angle, 360.0) {
-                    p_cyl
-                } else {
-                    -1.0
-                };
-            self.prev_angle[b] = angle;
-        }
-
         // --- Exhaust gas dynamics, all ducts in lockstep, with the turbine in them and afterfire ---
         for b in 0..banks {
             self.wg.afterfire_heat_mut()[b] = self.afterfire.heat_rate(b);
@@ -1423,10 +1447,36 @@ impl EngineSim {
         self.runner_cells.clear();
         self.runner_cells.extend(intake.runners.iter().map(|r| r.pipe.n));
         {
-            let step = intake.begin(&run_io, &self.in_valves, &self.breathing, &self.cyl_state);
-            // The exhaust steps each side item once.
-            let side = SideWork { costs: &self.runner_cells, job: &|b| unsafe { step.runner(b) } };
-            self.wg.advance_on(dt, &self.valve_states, self.pool.as_deref(), self.max_threads, Some(&side));
+            // Each cylinder's valves, then its intake runner, on one thread: the runner reads what the
+            // valves give it. The primary's port is read as it stood at the end of the last sample.
+            let valves = ValveCtx {
+                spec: &self.spec,
+                lift_spec: if self.on_high_cam { &self.high_cam_spec.as_ref().unwrap().spec } else { &self.spec.spec },
+                timing: &self.timing,
+                intake_shift: self.intake_shift,
+                exhaust_shift: self.exhaust_shift,
+                limiter_cut,
+                crackle,
+                rpm,
+                sample_rate: self.sample_rate,
+            };
+            let cyls = Disjoint::new(&mut self.cyls);
+            let bank_state = Disjoint::new(&mut self.banks);
+            let noise = Disjoint::new(&mut self.throat_noise);
+            self.port_pressure.clear();
+            self.port_pressure.extend((0..banks).map(|b| self.wg.port_pressure(b)));
+            let port_pressure = &self.port_pressure;
+            let step = intake.begin(&run_io, &self.breathing);
+            // The exhaust steps each side item once, and reads a valve state only after they are all
+            // done.
+            let job = |b: usize| unsafe {
+                let bank = bank_state.get(b);
+                valves.step(b, cyls.get(b), bank, &mut noise.get(b).0, port_pressure[b]);
+                step.runner(b, &bank.in_valve, &bank.cyl_state);
+            };
+            let side = SideWork { costs: &self.runner_cells, job: &job };
+            let valve_of = |b: usize| unsafe { bank_state.get(b) }.valve_state;
+            self.wg.advance_on(dt, &valve_of, self.pool.as_deref(), self.max_threads, Some(&side));
         }
         self.substeps = self.wg.result.substeps;
 
@@ -1460,12 +1510,9 @@ impl EngineSim {
 
         // --- Cylinders and afterfire, the inlet tract or the turbo, and the radiation ---
         self.close_sample(dt, throttle_flow);
-        for (b, out) in self.bank_out.iter().enumerate() {
+        for out in &self.bank_out {
             torque_sum += out.0.torque;
             dpdt_sum += out.0.dpdt;
-            self.last_valve_mdot[b] = self.wg.result.valve_mass_flows[b];
-            self.prev_ex_lift[b] = self.ex_lift[b];
-            self.prev_in_lift[b] = self.in_lift[b];
         }
 
         // --- Turbocharger ---
@@ -1481,14 +1528,15 @@ impl EngineSim {
         let mech = self.spec.spec.mech_noise;
         let head_share = self.head_share;
         for b in 0..banks {
-            let seat = (if self.seating_now[b] { 1.0 } else { 0.0 }) + (if self.in_seating_now[b] { 0.7 } else { 0.0 });
+            let bank = &self.banks[b];
+            let seat = (if bank.seating_now { 1.0 } else { 0.0 }) + (if bank.in_seating_now { 0.7 } else { 0.0 });
             if seat > 0.0 {
                 self.clack_impact[b].trigger(CLACK_PA_AT_1M * mech * seat * (rpm / 3000.0) * head_share);
             }
             let hit = self.clack_impact[b].next();
             direct_pa += self.clack[b].process(hit);
 
-            let p = self.tdc_pressure[b];
+            let p = bank.tdc_pressure;
             if p >= 0.0 {
                 self.slap_count += 1;
                 self.slap_impact[b].trigger(SLAP_PA_AT_1M * mech * clamp(p / 3e6, 0.05, 1.6) * head_share);
@@ -1712,6 +1760,7 @@ impl EngineSim {
         self.bank_out.resize(banks, CachePadded::default());
         self.mouth_out.resize(mouths, CachePadded::default());
         self.shell_out.resize(shell_count, CachePadded::default());
+        self.close_ns.resize(banks + mouths + shell_count, CachePadded::default());
 
         let threads = if self.pool.is_some() { self.wg.threads_used() } else { 1 };
         if threads > 1 {
@@ -1721,8 +1770,9 @@ impl EngineSim {
             for g in self.close_groups.iter_mut() {
                 g.clear();
             }
+            // Each cylinder where its valves were, as their state is in that thread's cache.
             for b in 0..banks {
-                self.close_groups[self.wg.owner_of(b)].push(CloseItem::Bank(b));
+                self.close_groups[self.wg.side_owner(b)].push(CloseItem::Bank(b));
             }
             for m in 0..mouths {
                 self.close_groups[self.wg.owner_of(self.wg.radiating_duct_index(m))].push(CloseItem::Mouth(m));
@@ -1730,22 +1780,23 @@ impl EngineSim {
             for (k, shell) in self.shells.iter().enumerate() {
                 self.close_groups[self.wg.owner_of(shell.duct())].push(CloseItem::Shell(k));
             }
-            // The tract or turbo onto the thread with the least else to do, a cylinder counting most.
-            let load = |g: &Vec<CloseItem>| -> usize {
-                g.iter().map(|item| if matches!(item, CloseItem::Bank(_)) { 4 } else { 1 }).sum()
-            };
-            let air = (0..threads).min_by_key(|&w| load(&self.close_groups[w])).unwrap();
+            // The tract or turbo onto the thread with the least else to do.
+            let air = (0..threads).min_by(|&a, &b| self.wg.thread_load(a).total_cmp(&self.wg.thread_load(b))).unwrap();
             self.close_groups[air].push(CloseItem::Air);
         }
 
         let cam_spec = if self.on_high_cam { self.high_cam_spec.as_ref().unwrap() } else { &self.spec };
         let intake = if self.on_short_runners { self.intake_short.as_ref().unwrap() } else { &self.intake_long };
         let wg = &self.wg;
+        // Timed, each item's time is put to the duct it reads, for the threads' balance.
+        let timing = threads > 1 && wg.timing();
         let omega = self.omega;
         let (area, bore) = (self.plenum.area(), throttle_dia_of(&self.spec.spec));
         let throat_noise = self.spec.spec.throat_noise;
         let plenum_p = self.plenum.pressure();
         let cyls = Disjoint::new(&mut self.cyls);
+        let bank_state = Disjoint::new(&mut self.banks);
+        let close_ns = Disjoint::new(&mut self.close_ns);
         let (pockets, floor) = self.afterfire.pockets_mut();
         let pockets = Disjoint::new(pockets);
         let steepening = Disjoint::new(&mut self.steepening);
@@ -1763,6 +1814,7 @@ impl EngineSim {
 
         // Each item is run once, by the one thread it is grouped to, and touches only its own state.
         let run = |item: CloseItem| unsafe {
+            let t0 = timing.then(Instant::now);
             match item {
                 CloseItem::Bank(b) => {
                     let ex_mdot = wg.result.valve_mass_flows[b];
@@ -1805,6 +1857,11 @@ impl EngineSim {
                     let zone_mass = primary.density_at(0) * volume;
                     let hottest = || primary.leading_state(cells).1;
                     pockets.get(b).step(dt, fuel, air, inflow, zone_mass, hottest, taken, floor);
+
+                    let bank = bank_state.get(b);
+                    bank.last_valve_mdot = ex_mdot;
+                    bank.prev_ex_lift = bank.ex_lift;
+                    bank.prev_in_lift = bank.in_lift;
                 }
                 CloseItem::Air => {
                     if let Some(inlet) = &inlet {
@@ -1823,6 +1880,17 @@ impl EngineSim {
                 CloseItem::Shell(k) => {
                     let shell = shells.get(k);
                     *shell_out.get(k) = CachePadded(shell.process(&wg.ducts[shell.duct()]));
+                }
+            }
+            if let Some(t0) = t0 {
+                let slot = match item {
+                    CloseItem::Bank(b) => Some(b),
+                    CloseItem::Mouth(m) => Some(banks + m),
+                    CloseItem::Shell(k) => Some(banks + mouths + k),
+                    CloseItem::Air => None,
+                };
+                if let Some(slot) = slot {
+                    close_ns.get(slot).0 = t0.elapsed().as_nanos() as f64;
                 }
             }
         };
@@ -1845,6 +1913,17 @@ impl EngineSim {
                 run(CloseItem::Shell(k));
             }
         }
+        if timing {
+            for b in 0..banks {
+                self.wg.note_side_time(b, self.close_ns[b].0);
+            }
+            for m in 0..mouths {
+                self.wg.note_time(self.wg.radiating_duct_index(m), self.close_ns[banks + m].0);
+            }
+            for k in 0..shell_count {
+                self.wg.note_time(self.shells[k].duct(), self.close_ns[banks + mouths + k].0);
+            }
+        }
     }
 
     /// Step the exhaust's ducts and the intake runners across `pool`'s threads, or with `None` on the
@@ -1859,6 +1938,16 @@ impl EngineSim {
         let Some(pool) = &self.pool else { return 1 };
         let runners: Vec<usize> = self.intake().runners.iter().map(|r| r.pipe.n).collect();
         self.wg.useful_threads(&runners, pool.threads())
+    }
+
+    /// Let the solver spend `scale` times the budget a browser can afford on finer cells, which
+    /// rebuilds the exhaust if that changes them.
+    pub fn set_budget_scale(&mut self, scale: f64) {
+        let scale = if scale.is_finite() { scale.max(0.1) } else { 1.0 };
+        if scale != self.budget_scale {
+            self.budget_scale = scale;
+            self.rebuild_exhaust();
+        }
     }
 
     /// Use at most `threads` of the pool's threads, the caller's included: fewer can be faster, as each
@@ -1904,7 +1993,13 @@ fn usable_graph(
 
 /// Cell size that keeps the solver inside its cost budget: the finest at or above the request that
 /// fits, or failing that the cheapest.
-fn budgeted_cell_size(spec: &EngineSpec, graph: &ExhaustGraph, sample_rate: f64, wg_options: &EulerPipeOptions) -> f64 {
+fn budgeted_cell_size(
+    spec: &EngineSpec,
+    graph: &ExhaustGraph,
+    sample_rate: f64,
+    wg_options: &EulerPipeOptions,
+    budget_scale: f64,
+) -> f64 {
     let cfl = wg_options.cfl.unwrap_or(DEFAULT_CFL);
     let max_cells = wg_options.max_cells.unwrap_or(DEFAULT_MAX_CELLS);
     let min_dx = single_step_dx(sample_rate, cfl);
@@ -1929,7 +2024,7 @@ fn budgeted_cell_size(spec: &EngineSpec, graph: &ExhaustGraph, sample_rate: f64,
     let cells_at = |cell_size: f64| -> f64 {
         lengths.iter().fold(0.0, |a, &l| a + duct_cell_count(l, cell_size, max_cells, min_dx) as f64)
     };
-    let budget_for = grid_budget_cells(spec.cylinders as usize, node_order(graph).len()) - runner_cells;
+    let budget_for = scaled_budget_cells(spec.cylinders as usize, node_order(graph).len(), budget_scale) - runner_cells;
 
     let mut best = requested;
     let mut best_cost = cells_at(requested);
@@ -1952,6 +2047,7 @@ fn budgeted_cell_size(spec: &EngineSpec, graph: &ExhaustGraph, sample_rate: f64,
 }
 
 /// Solver options with the cylinder-head port prepended to the user's geometry.
+#[allow(clippy::too_many_arguments)]
 fn build_options_for(
     spec: &EngineSpec,
     pipe: &[PipeSegment],
@@ -1959,11 +2055,12 @@ fn build_options_for(
     stored: Option<&ExhaustGraph>,
     sample_rate: f64,
     wg_options: &EulerPipeOptions,
+    budget_scale: f64,
     inherit: Option<Vec<f64>>,
 ) -> EulerPipeOptions {
     let graph = usable_graph(spec, pipe, collector, stored);
     let base = EulerPipeOptions {
-        cell_size: Some(budgeted_cell_size(spec, &graph, sample_rate, wg_options)),
+        cell_size: Some(budgeted_cell_size(spec, &graph, sample_rate, wg_options, budget_scale)),
         single_step: Some(true),
         wall_thickness: Some(spec.pipe_wall_thickness),
         air_speed: Some(spec.air_speed),
@@ -1976,6 +2073,7 @@ fn build_options_for(
     opts
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_exhaust_for(
     spec: &EngineSpec,
     pipe: &[PipeSegment],
@@ -1983,10 +2081,11 @@ fn build_exhaust_for(
     stored: Option<&ExhaustGraph>,
     sample_rate: f64,
     wg_options: &EulerPipeOptions,
+    budget_scale: f64,
     inherit: Option<Vec<f64>>,
 ) -> ExhaustSystem {
     let graph = usable_graph(spec, pipe, collector, stored);
-    let opts = build_options_for(spec, pipe, collector, stored, sample_rate, wg_options, inherit);
+    let opts = build_options_for(spec, pipe, collector, stored, sample_rate, wg_options, budget_scale, inherit);
     let mut sys = ExhaustSystem::new(&graph, spec.cylinders as usize, sample_rate, spec.port_gas_temp, &opts)
         .expect("a compiled or validated graph is solvable");
     sys.set_turbulence(spec.throat_noise);

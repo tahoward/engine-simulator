@@ -5,6 +5,8 @@
 //! travels up the other primaries, where it helps scavenge those cylinders or blocks them depending
 //! on where the firing interval puts it.
 
+use std::time::Instant;
+
 use crate::afterfire::AFTERFIRE_ZONE_LENGTH;
 use crate::dsp::Noise;
 use crate::euler_pipe::{DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, OutletKind, ValveState};
@@ -13,7 +15,7 @@ use crate::exhaust_graph::{
     valve_ducts,
 };
 use crate::math::{self, PI, clamp};
-use crate::pool::{Disjoint, ThreadPool};
+use crate::pool::{CachePadded, Disjoint, ThreadPool};
 use crate::spec::gas;
 use crate::turbo;
 
@@ -28,6 +30,16 @@ const JUNCTION_BALANCE_TOL: f64 = 0.005;
 
 /// Fewest cells worth handing a thread of their own: below it, handing off costs more than it saves.
 const MIN_CELLS_PER_THREAD: usize = 40;
+
+/// The threads are balanced on what each duct, with what goes with it, has been timed to take: one
+/// sample in `TIME_EVERY` is timed, each timing folded into a running average by `COST_SMOOTHING`,
+/// and every `REBALANCE_EVERY` samples the ducts are dealt out afresh if that would cut the busiest
+/// thread's share by `REBALANCE_GAIN`. Moving a duct moves its cells to another core's cache, so it is
+/// not done for less.
+const TIME_EVERY: u64 = 61;
+const COST_SMOOTHING: f64 = 0.005;
+const REBALANCE_EVERY: u64 = 4096;
+const REBALANCE_GAIN: f64 = 0.1;
 
 /// Turbulence intensity of the jet through an open wastegate, as a fraction of its mass flow.
 const BYPASS_TURBULENCE: f64 = 0.2;
@@ -140,7 +152,17 @@ pub struct ExhaustSystem {
     groups: Vec<Vec<usize>>,
     groups_for: usize,
     groups_side: Vec<usize>,
-    /// The thread each duct was stepped on in the last `advance_on`, and how many there were.
+    /// Per duct and side item, with what `note_time` adds: what it took in the last timed sample, ns,
+    /// and its running average; `costs_known` once there is one.
+    unit_time: Vec<CachePadded<f64>>,
+    unit_cost: Vec<f64>,
+    costs_known: bool,
+    /// Samples advanced, whether this one is timed, and samples since the threads were last balanced.
+    samples: u64,
+    timing: bool,
+    since_balance: u64,
+    /// The thread each duct and side item was stepped on in the last `advance_on`, and how many there
+    /// were.
     owner: Vec<usize>,
     threads_used: usize,
 }
@@ -153,8 +175,10 @@ struct DuctOut {
     mouth_flow: f64,
     valve_flow: f64,
     heat: f64,
-    /// On the last substep: whether the duct's state had gone inadmissible, and was reset.
+    /// On the last substep: whether the duct's state had gone inadmissible, and was reset; and the
+    /// pressure in its first cell, Pa, as `read_port` gives it, for its valve next sample.
     broken: bool,
+    port_pressure: f64,
 }
 
 /// What a duct reads to finish a substep, shared by every thread.
@@ -162,7 +186,7 @@ struct FinishInputs<'a> {
     h: f64,
     last: bool,
     primaries: usize,
-    valves: &'a [ValveState],
+    valves: &'a (dyn Fn(usize) -> ValveState + Sync),
     afterfire_heat: &'a [f64],
     zone_cells: &'a [usize],
     zone_volume: &'a [f64],
@@ -179,10 +203,10 @@ impl FinishInputs<'_> {
         let h = self.h;
         let mut out = DuctOut { mouth_flow: duct.apply_own_boundaries(h), ..DuctOut::default() };
         if i < self.primaries {
-            let valve = &self.valves[i];
-            let flow = duct.valve_flux_for(valve);
+            let valve = (self.valves)(i);
+            let flow = duct.valve_flux_for(&valve);
             duct.set_end_step(h, flow + valve.extra_mass_flow);
-            duct.end_step_set(valve);
+            duct.end_step_set(&valve);
             out.valve_flow = flow * duct.source_scale;
             let heat = self.afterfire_heat[i];
             if heat > 0.0 {
@@ -197,6 +221,7 @@ impl FinishInputs<'_> {
         duct.after_step(h);
         if self.last {
             out.broken = duct.recover_if_broken();
+            out.port_pressure = duct.read_port().0;
         }
         out
     }
@@ -209,23 +234,27 @@ pub struct SideWork<'a> {
     pub job: &'a (dyn Fn(usize) + Sync),
 }
 
-/// Ducts and side items split into `threads` groups of about equal cells, the largest placed first,
-/// each onto the group with the fewest so far; each group in order, ducts first.
-fn balance(ducts: &[EulerPipe], side: &[usize], threads: usize) -> Vec<Vec<usize>> {
-    let cost = |i: usize| if i < ducts.len() { ducts[i].n } else { side[i - ducts.len()] };
-    let mut order: Vec<usize> = (0..ducts.len() + side.len()).collect();
-    order.sort_by_key(|&i| std::cmp::Reverse(cost(i)));
+/// Ducts and side items split into `threads` groups of about equal cost, the costliest placed first,
+/// each onto the group with the least so far; each group in order, ducts first.
+fn balance(costs: &[f64], threads: usize) -> Vec<Vec<usize>> {
+    let mut order: Vec<usize> = (0..costs.len()).collect();
+    order.sort_by(|&a, &b| costs[b].total_cmp(&costs[a]));
     let mut groups: Vec<Vec<usize>> = vec![Vec::new(); threads];
-    let mut load = vec![0usize; threads];
+    let mut load = vec![0.0f64; threads];
     for i in order {
-        let g = (0..threads).min_by_key(|&g| load[g]).unwrap();
+        let g = (0..threads).min_by(|&a, &b| load[a].total_cmp(&load[b])).unwrap();
         groups[g].push(i);
-        load[g] += cost(i);
+        load[g] += costs[i];
     }
     for g in groups.iter_mut() {
         g.sort();
     }
     groups
+}
+
+/// The busiest group's cost.
+fn busiest(groups: &[Vec<usize>], costs: &[f64]) -> f64 {
+    groups.iter().map(|g| g.iter().map(|&i| costs[i]).sum::<f64>()).fold(0.0, f64::max)
 }
 
 impl ExhaustSystem {
@@ -441,6 +470,7 @@ impl ExhaustSystem {
             .collect();
         let zone_volume: Vec<f64> = zone_cells.iter().enumerate().map(|(b, &c)| ducts[b].leading_volume(c)).collect();
 
+        let duct_out = ducts.iter().map(|d| DuctOut { port_pressure: d.read_port().0, ..DuctOut::default() }).collect();
         Ok(ExhaustSystem {
             afterfire_heat: vec![0.0; valve_fed.len()],
             zone_cells,
@@ -465,12 +495,18 @@ impl ExhaustSystem {
             turbine_mounts,
             turbine_nodes,
             turbines: Vec::new(),
-            duct_out: vec![DuctOut::default(); duct_count],
+            duct_out,
             groups: Vec::new(),
             groups_for: 0,
             groups_side: Vec::new(),
             owner: vec![0; duct_count],
             threads_used: 1,
+            unit_time: vec![CachePadded(0.0); duct_count],
+            unit_cost: vec![0.0; duct_count],
+            costs_known: false,
+            samples: 0,
+            timing: false,
+            since_balance: 0,
         })
     }
 
@@ -552,7 +588,7 @@ impl ExhaustSystem {
 
     /// Advance every duct by `dt`, on one shared substep count.
     pub fn advance(&mut self, dt: f64, valves: &[ValveState]) -> &ExhaustResult {
-        self.advance_on(dt, valves, None, 1, None)
+        self.advance_on(dt, &|b| valves[b], None, 1, None)
     }
 
     /// Threads worth giving this exhaust and `side`, out of `available`: enough cells for each to be
@@ -562,13 +598,86 @@ impl ExhaustSystem {
         available.min(self.ducts.len() + side.len()).min(cells / MIN_CELLS_PER_THREAD).max(1)
     }
 
+    /// Whether this sample is being timed, for the threads' balance: if it is, the caller times what it
+    /// does with each duct's cells afterwards, on that duct's thread, and adds it with `note_time`.
+    pub fn timing(&self) -> bool {
+        self.timing
+    }
+
+    pub fn note_time(&mut self, duct: usize, ns: f64) {
+        self.unit_time[duct].0 += ns;
+    }
+
+    /// `note_time` for side item `k`.
+    pub fn note_side_time(&mut self, k: usize, ns: f64) {
+        let i = self.ducts.len() + k;
+        if let Some(t) = self.unit_time.get_mut(i) {
+            t.0 += ns;
+        }
+    }
+
+    /// The thread side item `k` was stepped on in the last `advance_on`.
+    pub fn side_owner(&self, k: usize) -> usize {
+        self.owner.get(self.ducts.len() + k).copied().unwrap_or(0)
+    }
+
+    /// Pressure in primary `b`'s first cell, Pa, as it stands between samples: what `read_port` gives,
+    /// kept by the thread that stepped it.
+    pub fn port_pressure(&self, b: usize) -> f64 {
+        self.duct_out[b].port_pressure
+    }
+
+    /// What thread `w` has been timed to take per sample, ns, or failing a timing its cells.
+    pub fn thread_load(&self, w: usize) -> f64 {
+        let Some(g) = self.groups.get(w) else { return 0.0 };
+        g.iter().map(|&i| if self.costs_known { self.unit_cost[i] } else { self.unit_cells(i) }).sum()
+    }
+
+    /// Duct or side item `i`'s cells.
+    fn unit_cells(&self, i: usize) -> f64 {
+        match self.ducts.get(i) {
+            Some(d) => d.n as f64,
+            None => self.groups_side.get(i - self.ducts.len()).copied().unwrap_or(0) as f64,
+        }
+    }
+
+    /// Fold the last timed sample into the running costs, and deal the ducts out afresh if they have
+    /// drifted out of balance.
+    fn rebalance(&mut self, threads: usize) {
+        if self.timing {
+            for (cost, time) in self.unit_cost.iter_mut().zip(self.unit_time.iter_mut()) {
+                *cost = if self.costs_known { *cost + COST_SMOOTHING * (time.0 - *cost) } else { time.0 };
+                time.0 = 0.0;
+            }
+            self.costs_known = true;
+        }
+        self.since_balance += 1;
+        if !self.costs_known || self.since_balance < REBALANCE_EVERY {
+            return;
+        }
+        self.since_balance = 0;
+        let groups = balance(&self.unit_cost, threads);
+        if busiest(&groups, &self.unit_cost) < busiest(&self.groups, &self.unit_cost) * (1.0 - REBALANCE_GAIN) {
+            self.set_groups(groups);
+        }
+    }
+
+    fn set_groups(&mut self, groups: Vec<Vec<usize>>) {
+        for (w, g) in groups.iter().enumerate() {
+            for &i in g {
+                self.owner[i] = w;
+            }
+        }
+        self.groups = groups;
+    }
+
     /// `advance`, with the ducts stepped across up to `max_threads` of `pool`'s threads where there are
     /// enough of them to be worth it, and `side` stepped alongside them. Each duct is stepped exactly as on one thread, so
     /// the result is the same to the bit.
     pub fn advance_on(
         &mut self,
         dt: f64,
-        valves: &[ValveState],
+        valves: &(dyn Fn(usize) -> ValveState + Sync),
         pool: Option<&ThreadPool>,
         max_threads: usize,
         side: Option<&SideWork>,
@@ -576,19 +685,32 @@ impl ExhaustSystem {
         let side_costs = side.map_or(&[][..], |s| s.costs);
         let threads = pool.map_or(1, |p| self.useful_threads(side_costs, p.threads().min(max_threads)));
         if threads > 1 && (self.groups_for != threads || self.groups_side != side_costs) {
-            self.groups = balance(&self.ducts, side_costs, threads);
-            self.groups_for = threads;
+            // Dealt out by cells until there are timings to go on.
             self.groups_side = side_costs.to_vec();
-            for (w, g) in self.groups.iter().enumerate() {
-                for &i in g.iter().filter(|&&i| i < self.ducts.len()) {
-                    self.owner[i] = w;
-                }
+            let units = self.ducts.len() + side_costs.len();
+            let cells: Vec<f64> = (0..units).map(|i| self.unit_cells(i)).collect();
+            self.owner.resize(units, 0);
+            self.unit_time.resize(units, CachePadded(0.0));
+            self.unit_cost.resize(units, 0.0);
+            self.set_groups(balance(&cells, threads));
+            self.groups_for = threads;
+            self.costs_known = false;
+            self.timing = false;
+            self.since_balance = 0;
+            for t in self.unit_time.iter_mut() {
+                t.0 = 0.0;
             }
         }
         if threads == 1 {
             self.owner.fill(0);
+            self.timing = false;
+        } else {
+            self.rebalance(threads);
+            self.timing = self.samples.is_multiple_of(TIME_EVERY);
         }
+        self.samples += 1;
         self.threads_used = threads;
+        let timing = self.timing;
         let n_ducts = self.ducts.len();
         let n_primaries = self.primary_count;
 
@@ -615,13 +737,18 @@ impl ExhaustSystem {
             let side_now = side.filter(|_| step == 0);
             if threads > 1 {
                 let ducts = Disjoint::new(&mut self.ducts);
+                let unit_time = Disjoint::new(&mut self.unit_time);
                 let groups = &self.groups;
                 pool.unwrap().run(threads, &|w| {
                     for &i in &groups[w] {
+                        let t0 = timing.then(Instant::now);
                         if i < n_ducts {
                             unsafe { ducts.get(i) }.begin_step(h);
                         } else if let Some(side) = side_now {
                             (side.job)(i - n_ducts);
+                        }
+                        if let Some(t0) = t0 {
+                            unsafe { unit_time.get(i) }.0 += t0.elapsed().as_nanos() as f64;
                         }
                     }
                 });
@@ -656,10 +783,15 @@ impl ExhaustSystem {
             if threads > 1 {
                 let ducts = Disjoint::new(&mut self.ducts);
                 let out = Disjoint::new(&mut self.duct_out);
+                let unit_time = Disjoint::new(&mut self.unit_time);
                 let groups = &self.groups;
                 pool.unwrap().run(threads, &|w| {
                     for &i in groups[w].iter().take_while(|&&i| i < n_ducts) {
+                        let t0 = timing.then(Instant::now);
                         unsafe { *out.get(i) = inputs.finish(i, ducts.get(i)) };
+                        if let Some(t0) = t0 {
+                            unsafe { unit_time.get(i) }.0 += t0.elapsed().as_nanos() as f64;
+                        }
                     }
                 });
             } else {
