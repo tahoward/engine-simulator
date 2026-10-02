@@ -13,6 +13,8 @@
 //!                                    mouth flow -> d/dt -> far-field pressure
 //! ```
 
+use std::sync::Arc;
+
 use crate::afterfire::Afterfire;
 use crate::cylinder::{AdvanceIo, CrackleSpark, CylState, Cylinder, SpecInstance};
 use crate::drivetrain::{LaunchPhase, LaunchRun};
@@ -22,12 +24,13 @@ use crate::euler_pipe::{
     single_step_dx,
 };
 use crate::exhaust_graph::{ExhaustGraph, compile_exhaust, node_order, validate_graph};
-use crate::exhaust_system::ExhaustSystem;
+use crate::exhaust_system::{ExhaustSystem, SideWork};
 use crate::inlet::{InletTract, airbox_volume_of, snorkel_dia_of};
 use crate::intake::{IntakeRunners, RunnerIo};
 use crate::listener::{Listener, SoundSources, Vec3};
 use crate::math::{self, PI, clamp};
 use crate::plenum::{IntakePlenum, throttle_dia_of};
+use crate::pool::{CachePadded, Disjoint, ThreadPool};
 use crate::radiation::{FarField, Steepening};
 use crate::shell::ChamberShell;
 use crate::spec::{
@@ -37,7 +40,7 @@ use crate::spec::{
     displacement, exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_fraction_at, full_load_torque, gas,
     intake_runner_of, load_torque_of, physical_bank_count,
 };
-use crate::turbo::Turbo;
+use crate::turbo::{Turbo, TurboOut};
 use crate::valve::{valve_flow_area, valve_lift};
 
 /// Pressure, Pa, that maps to digital full scale.
@@ -343,6 +346,37 @@ pub struct EngineSim {
     slow_phase: f64,
     slow_prev: f64,
     slow_next: f64,
+    /// Threads the exhaust's ducts and the intake runners are stepped across; `None` for this thread
+    /// alone.
+    pool: Option<Arc<ThreadPool>>,
+    /// The most of the pool's threads to use.
+    max_threads: usize,
+    /// Each intake runner's cells, as the exhaust is told them to balance its threads.
+    runner_cells: Vec<usize>,
+    /// What `close_sample` hands each thread, and what it gives back: per cylinder, per mouth, per
+    /// shell, and the turbo's.
+    close_groups: Vec<Vec<CloseItem>>,
+    bank_out: Vec<CachePadded<BankOut>>,
+    mouth_out: Vec<CachePadded<f64>>,
+    shell_out: Vec<CachePadded<f64>>,
+    turbo_out: CachePadded<Option<TurboOut>>,
+}
+
+/// One part of `EngineSim::close_sample`.
+#[derive(Clone, Copy, Debug)]
+enum CloseItem {
+    Bank(usize),
+    /// The inlet tract, or the turbo.
+    Air,
+    Mouth(usize),
+    Shell(usize),
+}
+
+/// What a cylinder gave over a sample: its torque, N m, and its pressure's rate of rise, Pa/s.
+#[derive(Clone, Copy, Debug, Default)]
+struct BankOut {
+    torque: f64,
+    dpdt: f64,
 }
 
 impl EngineSim {
@@ -464,6 +498,14 @@ impl EngineSim {
             slow_phase: 0.0,
             slow_prev: 0.0,
             slow_next: 0.0,
+            pool: None,
+            max_threads: usize::MAX,
+            runner_cells: Vec::new(),
+            close_groups: Vec::new(),
+            bank_out: Vec::new(),
+            mouth_out: Vec::new(),
+            shell_out: Vec::new(),
+            turbo_out: CachePadded(None),
         };
         sim.refresh_cam_profiles(false);
         sim.refresh_derived();
@@ -1362,10 +1404,7 @@ impl EngineSim {
         if let Some(turbo) = &mut self.turbo {
             self.wg.set_turbines(turbo.turbine_settings());
         }
-        self.wg.advance(dt, &self.valve_states);
-        self.substeps = self.wg.result.substeps;
-
-        // --- Intake runners, all in lockstep ---
+        // --- Intake runners, all in lockstep, alongside the exhaust: neither reads the other ---
         let p_plenum = self.plenum.pressure();
         let t_plenum = self.plenum.temp();
         let run_io = RunnerIo {
@@ -1374,62 +1413,22 @@ impl EngineSim {
             rho: p_plenum / (gas::R * t_plenum),
             burned: self.plenum.burned_fraction(),
             fuel: self.plenum.fuel_fraction(),
-            inject: if (self.fuel_cut_active && !self.crackle_active) || !self.ignition { 0.0 } else { self.inject_fraction },
+            inject: if (self.fuel_cut_active && !self.crackle_active) || !self.ignition {
+                0.0
+            } else {
+                self.inject_fraction
+            },
         };
         let intake = if self.on_short_runners { self.intake_short.as_mut().unwrap() } else { &mut self.intake_long };
-        intake.advance(&run_io, &self.in_valves, &self.breathing, &self.cyl_state);
-
-        // --- Cylinder gas state, sub-stepped ---
-        let cam_spec = if self.on_high_cam { self.high_cam_spec.as_ref().unwrap() } else { &self.spec };
-        for b in 0..banks {
-            let ex_mdot = self.wg.result.valve_mass_flows[b];
-            self.last_valve_mdot[b] = ex_mdot;
-            let in_mdot = -intake.valve_mass_flows[b];
-            let port_temp = self.wg.primary(b).read_port().1;
-            let cyl = &mut self.cyls[b];
-
-            let deg_per_sample = (self.omega.abs() * dt * 180.0) / PI;
-            let mass_flux = (ex_mdot.abs() + in_mdot.abs()) * dt;
-            let mass_ratio = mass_flux / math::max(cyl.mass, 1e-12);
-            let n_sub = clamp(
-                math::max(
-                    (deg_per_sample / MAX_DEG_PER_SUBSTEP).ceil(),
-                    (mass_ratio / MAX_MASS_FRACTION_PER_SUBSTEP).ceil(),
-                ),
-                1.0,
-                MAX_CYL_SUBSTEPS,
-            );
-            let sub_dt = dt / n_sub;
-            let io = AdvanceIo {
-                dt: sub_dt,
-                omega: self.omega,
-                ex_mdot,
-                in_mdot,
-                intake_t: intake.port_temps[b],
-                port_t: port_temp,
-                intake_burned: intake.burned[b],
-                intake_fuel: intake.inflow_fuel[b],
-            };
-            let steps = n_sub as usize;
-            for _ in 0..steps {
-                cyl.advance(cam_spec, &io);
-            }
-            torque_sum += cyl.torque + cyl.inertia_torque;
-            dpdt_sum += cyl.dpdt;
-            self.prev_ex_lift[b] = self.ex_lift[b];
-            self.prev_in_lift[b] = self.in_lift[b];
+        self.runner_cells.clear();
+        self.runner_cells.extend(intake.runners.iter().map(|r| r.pipe.n));
+        {
+            let step = intake.begin(&run_io, &self.in_valves, &self.breathing, &self.cyl_state);
+            // The exhaust steps each side item once.
+            let side = SideWork { costs: &self.runner_cells, job: &|b| unsafe { step.runner(b) } };
+            self.wg.advance_on(dt, &self.valve_states, self.pool.as_deref(), self.max_threads, Some(&side));
         }
-
-        // --- Afterfire: what each valve sent out unburned, in the leading cells of its primary ---
-        for b in 0..banks {
-            let (fuel, air) = self.cyls[b].take_exhausted();
-            let inflow = math::max(self.wg.result.valve_mass_flows[b], 0.0) * dt;
-            let taken = self.wg.result.heat_taken[b];
-            let (cells, volume) = self.wg.afterfire_zone(b);
-            let primary = self.wg.primary(b);
-            let zone_mass = primary.density_at(0) * volume;
-            self.afterfire.step(b, dt, fuel, air, inflow, zone_mass, || primary.leading_state(cells).1, taken);
-        }
+        self.substeps = self.wg.result.substeps;
 
         // --- Plenum ---
         let mut drawn = 0.0;
@@ -1438,33 +1437,40 @@ impl EngineSim {
         let mut back_burned = 0.0;
         let mut back_fuel = 0.0;
         for b in 0..banks {
-            let f = intake.plenum_flows[b];
+            let f = intake.runners[b].plenum_flow;
             drawn -= f;
             if f > 0.0 {
                 back += f;
-                back_t += f * intake.plenum_temps[b];
-                back_burned += f * intake.burned[b];
-                back_fuel += f * intake.fuel[b];
+                back_t += f * intake.runners[b].plenum_temp;
+                back_burned += f * intake.runners[b].burned;
+                back_fuel += f * intake.runners[b].fuel;
             }
         }
         let back_t = if back > 0.0 { back_t / back } else { t_plenum };
         let back_burned = if back > 0.0 { back_burned / back } else { 0.0 };
         let back_fuel = if back > 0.0 { back_fuel / back } else { 0.0 };
-        let throttle_flow = match &mut self.inlet {
+        // The plenum draws from the inlet tract's throttle end, stepped below with the throttle's flow.
+        let throttle_flow = match &self.inlet {
             Some(inlet) if self.turbo.is_none() => {
                 let p_up = inlet.upstream_pressure();
-                let flow = self.plenum.step(dt, p_up, gas::T_AMB, drawn, back, back_t, back_burned, back_fuel);
-                let (area, bore) = (self.plenum.area(), throttle_dia_of(&self.spec.spec));
-                inlet.advance(dt, flow, area, bore, self.spec.spec.throat_noise);
-                flow
+                self.plenum.step(dt, p_up, gas::T_AMB, drawn, back, back_t, back_burned, back_fuel)
             }
             _ => self.plenum.step(dt, self.charge_p, self.charge_t, drawn, back, back_t, back_burned, back_fuel),
         };
 
+        // --- Cylinders and afterfire, the inlet tract or the turbo, and the radiation ---
+        self.close_sample(dt, throttle_flow);
+        for (b, out) in self.bank_out.iter().enumerate() {
+            torque_sum += out.0.torque;
+            dpdt_sum += out.0.dpdt;
+            self.last_valve_mdot[b] = self.wg.result.valve_mass_flows[b];
+            self.prev_ex_lift[b] = self.ex_lift[b];
+            self.prev_in_lift[b] = self.in_lift[b];
+        }
+
         // --- Turbocharger ---
         let mut turbo_pa = 0.0;
-        if let Some(turbo) = &mut self.turbo {
-            let out = turbo.step(dt, &self.wg.result.turbines, throttle_flow, self.plenum.pressure());
+        if let Some(out) = self.turbo_out.0.take() {
             self.charge_p = out.charge_p;
             self.charge_t = out.charge_t;
             turbo_pa = out.sound;
@@ -1508,16 +1514,13 @@ impl EngineSim {
         self.torque_last = torque_sum;
 
         // --- Radiate ---
-        let flows = &self.wg.result.mouth_flows;
         let mut pa = 0.0;
-        for m in 0..flows.len() {
-            let (_, t, a) = self.wg.radiating_duct(m).read_mouth();
-            let q = self.steepening[m].process(flows[m], a, t);
-            pa += self.listener.process(m, self.far_fields[m].process(q));
+        for out in &self.mouth_out {
+            pa += out.0;
         }
         let mut shells_pa = 0.0;
-        for shell in self.shells.iter_mut() {
-            shells_pa += shell.process(&self.wg.ducts[shell.duct()]);
+        for out in &self.shell_out {
+            shells_pa += out.0;
         }
         pa += self.listener.process(self.path_of(Source::Shells), shells_pa);
         // The throttle's mouth breathes in what the engine draws. A turbocharged engine draws through its
@@ -1610,7 +1613,7 @@ impl EngineSim {
         let (mut runner_pressure, mut runner_cells) = (Vec::new(), Vec::new());
         for r in &self.intake().runners {
             let start = runner_pressure.len();
-            r.push_cell_pressures(&mut runner_pressure);
+            r.pipe.push_cell_pressures(&mut runner_pressure);
             runner_cells.push((runner_pressure.len() - start) as u32);
         }
         let snap = EngineSnapshot {
@@ -1695,6 +1698,173 @@ impl EngineSim {
             }
             *o = (self.slow_prev + (self.slow_next - self.slow_prev) * self.slow_phase) as f32;
         }
+    }
+
+    /// The rest of a sample once its gas dynamics are done, in parts that each read only their own
+    /// state and the pipes': each cylinder with its afterfire pocket, the inlet tract or the turbo, each
+    /// mouth's radiation and each chamber shell's. Across the pool's threads, each part on the thread
+    /// that stepped the duct it reads, whose cache holds it. What each gives is left in `bank_out`,
+    /// `mouth_out`, `shell_out` and `turbo_out`, to be gathered in order.
+    fn close_sample(&mut self, dt: f64, throttle_flow: f64) {
+        let banks = self.cyls.len();
+        let mouths = self.wg.result.mouth_flows.len();
+        let shell_count = self.shells.len();
+        self.bank_out.resize(banks, CachePadded::default());
+        self.mouth_out.resize(mouths, CachePadded::default());
+        self.shell_out.resize(shell_count, CachePadded::default());
+
+        let threads = if self.pool.is_some() { self.wg.threads_used() } else { 1 };
+        if threads > 1 {
+            if self.close_groups.len() < threads {
+                self.close_groups.resize_with(threads, Vec::new);
+            }
+            for g in self.close_groups.iter_mut() {
+                g.clear();
+            }
+            for b in 0..banks {
+                self.close_groups[self.wg.owner_of(b)].push(CloseItem::Bank(b));
+            }
+            for m in 0..mouths {
+                self.close_groups[self.wg.owner_of(self.wg.radiating_duct_index(m))].push(CloseItem::Mouth(m));
+            }
+            for (k, shell) in self.shells.iter().enumerate() {
+                self.close_groups[self.wg.owner_of(shell.duct())].push(CloseItem::Shell(k));
+            }
+            // The tract or turbo onto the thread with the least else to do, a cylinder counting most.
+            let load = |g: &Vec<CloseItem>| -> usize {
+                g.iter().map(|item| if matches!(item, CloseItem::Bank(_)) { 4 } else { 1 }).sum()
+            };
+            let air = (0..threads).min_by_key(|&w| load(&self.close_groups[w])).unwrap();
+            self.close_groups[air].push(CloseItem::Air);
+        }
+
+        let cam_spec = if self.on_high_cam { self.high_cam_spec.as_ref().unwrap() } else { &self.spec };
+        let intake = if self.on_short_runners { self.intake_short.as_ref().unwrap() } else { &self.intake_long };
+        let wg = &self.wg;
+        let omega = self.omega;
+        let (area, bore) = (self.plenum.area(), throttle_dia_of(&self.spec.spec));
+        let throat_noise = self.spec.spec.throat_noise;
+        let plenum_p = self.plenum.pressure();
+        let cyls = Disjoint::new(&mut self.cyls);
+        let (pockets, floor) = self.afterfire.pockets_mut();
+        let pockets = Disjoint::new(pockets);
+        let steepening = Disjoint::new(&mut self.steepening);
+        let far_fields = Disjoint::new(&mut self.far_fields);
+        let shells = Disjoint::new(&mut self.shells);
+        let paths = self.listener.paths();
+        let bank_out = Disjoint::new(&mut self.bank_out);
+        let mouth_out = Disjoint::new(&mut self.mouth_out);
+        let shell_out = Disjoint::new(&mut self.shell_out);
+        // The tract is stepped only without a turbo: with one, the engine draws through its compressors.
+        let inlet = if self.turbo.is_none() { self.inlet.as_mut() } else { None };
+        let inlet = inlet.map(|i| Disjoint::new(std::slice::from_mut(i)));
+        let turbo = self.turbo.as_mut().map(|t| Disjoint::new(std::slice::from_mut(t)));
+        let turbo_out = Disjoint::new(std::slice::from_mut(&mut self.turbo_out));
+
+        // Each item is run once, by the one thread it is grouped to, and touches only its own state.
+        let run = |item: CloseItem| unsafe {
+            match item {
+                CloseItem::Bank(b) => {
+                    let ex_mdot = wg.result.valve_mass_flows[b];
+                    let in_mdot = -intake.runners[b].valve_mass_flow;
+                    let primary = wg.primary(b);
+                    let port_temp = primary.read_port().1;
+                    let cyl = cyls.get(b);
+
+                    let deg_per_sample = (omega.abs() * dt * 180.0) / PI;
+                    let mass_flux = (ex_mdot.abs() + in_mdot.abs()) * dt;
+                    let mass_ratio = mass_flux / math::max(cyl.mass, 1e-12);
+                    let n_sub = clamp(
+                        math::max(
+                            (deg_per_sample / MAX_DEG_PER_SUBSTEP).ceil(),
+                            (mass_ratio / MAX_MASS_FRACTION_PER_SUBSTEP).ceil(),
+                        ),
+                        1.0,
+                        MAX_CYL_SUBSTEPS,
+                    );
+                    let io = AdvanceIo {
+                        dt: dt / n_sub,
+                        omega,
+                        ex_mdot,
+                        in_mdot,
+                        intake_t: intake.runners[b].port_temp,
+                        port_t: port_temp,
+                        intake_burned: intake.runners[b].burned,
+                        intake_fuel: intake.runners[b].inflow_fuel,
+                    };
+                    for _ in 0..n_sub as usize {
+                        cyl.advance(cam_spec, &io);
+                    }
+                    *bank_out.get(b) = CachePadded(BankOut { torque: cyl.torque + cyl.inertia_torque, dpdt: cyl.dpdt });
+
+                    // What the valve sent out unburned, in the leading cells of the primary.
+                    let (fuel, air) = cyl.take_exhausted();
+                    let inflow = math::max(ex_mdot, 0.0) * dt;
+                    let taken = wg.result.heat_taken[b];
+                    let (cells, volume) = wg.afterfire_zone(b);
+                    let zone_mass = primary.density_at(0) * volume;
+                    let hottest = || primary.leading_state(cells).1;
+                    pockets.get(b).step(dt, fuel, air, inflow, zone_mass, hottest, taken, floor);
+                }
+                CloseItem::Air => {
+                    if let Some(inlet) = &inlet {
+                        inlet.get(0).advance(dt, throttle_flow, area, bore, throat_noise);
+                    }
+                    if let Some(turbo) = &turbo {
+                        *turbo_out.get(0) =
+                            CachePadded(Some(turbo.get(0).step(dt, &wg.result.turbines, throttle_flow, plenum_p)));
+                    }
+                }
+                CloseItem::Mouth(m) => {
+                    let (_, t, a) = wg.radiating_duct(m).read_mouth();
+                    let q = steepening.get(m).process(wg.result.mouth_flows[m], a, t);
+                    *mouth_out.get(m) = CachePadded(paths.process(m, far_fields.get(m).process(q)));
+                }
+                CloseItem::Shell(k) => {
+                    let shell = shells.get(k);
+                    *shell_out.get(k) = CachePadded(shell.process(&wg.ducts[shell.duct()]));
+                }
+            }
+        };
+        if threads > 1 {
+            let groups = &self.close_groups;
+            self.pool.as_deref().unwrap().run(threads, &|w| {
+                for &item in &groups[w] {
+                    run(item);
+                }
+            });
+        } else {
+            for b in 0..banks {
+                run(CloseItem::Bank(b));
+            }
+            run(CloseItem::Air);
+            for m in 0..mouths {
+                run(CloseItem::Mouth(m));
+            }
+            for k in 0..shell_count {
+                run(CloseItem::Shell(k));
+            }
+        }
+    }
+
+    /// Step the exhaust's ducts and the intake runners across `pool`'s threads, or with `None` on the
+    /// caller's alone. The sound is the same to the bit either way; only how long it takes changes.
+    pub fn set_pool(&mut self, pool: Option<Arc<ThreadPool>>) {
+        self.pool = pool;
+    }
+
+    /// The most of the pool's threads this engine can use: enough cells of pipe for each to be worth
+    /// it. More pipe, more threads.
+    pub fn useful_threads(&self) -> usize {
+        let Some(pool) = &self.pool else { return 1 };
+        let runners: Vec<usize> = self.intake().runners.iter().map(|r| r.pipe.n).collect();
+        self.wg.useful_threads(&runners, pool.threads())
+    }
+
+    /// Use at most `threads` of the pool's threads, the caller's included: fewer can be faster, as each
+    /// costs a hand-off per step. The sound is the same whatever the count.
+    pub fn set_max_threads(&mut self, threads: usize) {
+        self.max_threads = threads.max(1);
     }
 
     /// Run at `scale` of real time, 0..1: 1 is real time, 0.01 a hundred times slower. The

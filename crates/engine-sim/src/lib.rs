@@ -23,6 +23,7 @@ pub mod listener;
 pub mod math;
 mod math_tables;
 pub mod plenum;
+pub mod pool;
 pub mod pow;
 pub mod radiation;
 pub mod shell;

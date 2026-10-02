@@ -65,6 +65,8 @@ impl Glide {
 }
 
 /// One source's way to the ear: the direct sound and the ground's reflection, read off one delay line.
+// On cache lines of its own, as each may be stepped on a thread of its own.
+#[repr(align(128))]
 struct Path {
     line: Delay,
     direct_delay: Glide,
@@ -142,13 +144,56 @@ impl Listener {
     /// Radiated pressure from source `i`, referred to 1 m, Pa, to its pressure at the ear, Pa.
     #[inline]
     pub fn process(&mut self, i: usize, source: f64) -> f64 {
-        let c = self.glide_c;
-        let Some(p) = self.paths.get_mut(i) else { return 0.0 };
-        p.line.push(source);
-        let direct = p.line.tap(p.direct_delay.next(c));
-        let bounced = p.line.tap(p.ground_delay.next(c));
-        let direct = p.air_direct.process(direct) * p.direct_gain.next(c);
-        let ground = p.air_ground.process(p.ground_loss.process(bounced)) * p.ground_gain.next(c);
+        match self.paths.get_mut(i) {
+            Some(p) => p.process(self.glide_c, source),
+            None => 0.0,
+        }
+    }
+
+    /// Every path, to be processed apart, each with `ListenerPaths::process`.
+    pub fn paths(&mut self) -> ListenerPaths<'_> {
+        ListenerPaths {
+            paths: self.paths.as_mut_ptr(),
+            count: self.paths.len(),
+            glide_c: self.glide_c,
+            _paths: std::marker::PhantomData,
+        }
+    }
+}
+
+/// The listener's paths, from `Listener::paths`, each reached only through its own index.
+pub struct ListenerPaths<'a> {
+    paths: *mut Path,
+    count: usize,
+    glide_c: f64,
+    _paths: std::marker::PhantomData<&'a mut Listener>,
+}
+
+// Each path is reached only through `process(i)`, which each index is given to by one thread.
+unsafe impl Sync for ListenerPaths<'_> {}
+unsafe impl Send for ListenerPaths<'_> {}
+
+impl ListenerPaths<'_> {
+    /// `Listener::process` for path `i`.
+    ///
+    /// # Safety
+    ///
+    /// Only one thread may process a given path at a time.
+    pub unsafe fn process(&self, i: usize, source: f64) -> f64 {
+        if i >= self.count {
+            return 0.0;
+        }
+        unsafe { &mut *self.paths.add(i) }.process(self.glide_c, source)
+    }
+}
+
+impl Path {
+    fn process(&mut self, c: f64, source: f64) -> f64 {
+        self.line.push(source);
+        let direct = self.line.tap(self.direct_delay.next(c));
+        let bounced = self.line.tap(self.ground_delay.next(c));
+        let direct = self.air_direct.process(direct) * self.direct_gain.next(c);
+        let ground = self.air_ground.process(self.ground_loss.process(bounced)) * self.ground_gain.next(c);
         direct + ground
     }
 }

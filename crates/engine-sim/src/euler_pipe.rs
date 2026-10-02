@@ -251,6 +251,8 @@ pub enum DuctEnd {
     Outlet,
 }
 
+// On cache lines of its own, as each duct may be stepped on a thread of its own.
+#[repr(align(128))]
 pub struct EulerPipe {
     pub n: usize,
     pub dx: f64,

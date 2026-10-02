@@ -219,7 +219,7 @@ fn fuel_cut_leaves_nothing_to_burn_with_the_throttle_shut_above_the_cut_speed() 
     // The injectors are off, so neither the manifold nor the runners hold any fuel worth the name:
     // under 1% of a stoichiometric charge's.
     assert!(sim.plenum().fuel_fraction() < 6e-4, "plenum {}", sim.plenum().fuel_fraction());
-    assert!(sim.intake().fuel[0] < 6e-4, "runner {}", sim.intake().fuel[0]);
+    assert!(sim.intake().runners[0].fuel < 6e-4, "runner {}", sim.intake().runners[0].fuel);
 }
 
 /// Keeps firing weakly on the throttle leak when it is off.
