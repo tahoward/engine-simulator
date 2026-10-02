@@ -17,6 +17,7 @@ import { solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
 import type { LaunchConfig, EngineConfig, EngineSnapshot, EngineSpec, SoundSources } from '../model/spec.js';
 import type { EngineHost, LagListener, SnapshotListener } from './EngineHost.js';
 import { CONTROL_PARAMS } from './worklet/controls.js';
+import { solvedPlenum } from '../scene/inletLayout.js';
 
 /** Samples in each frame's waveform, and the FFT size of the spectrum: an AnalyserNode's 2048. */
 const FFT_SIZE = 2048;
@@ -43,12 +44,13 @@ interface StreamInfo {
 }
 
 /** The snapshot as the simulation serialises it, before its sample arrays become typed arrays. */
-type RawSnapshot = Omit<EngineSnapshot, 'pipePressure' | 'ductPressure' | 'inletPressure' | 'inletVelocity' | 'runnerPressure' | 'launch'> & {
+type RawSnapshot = Omit<EngineSnapshot, 'pipePressure' | 'ductPressure' | 'inletPressure' | 'inletVelocity' | 'runnerPressure' | 'plenumZones' | 'launch'> & {
   pipePressure: number[];
   ductPressure: number[];
   inletPressure: number[];
   inletVelocity: number[];
   runnerPressure: number[];
+  plenumZones: number[];
   launch: (Omit<NonNullable<EngineSnapshot['launch']>, 'points'> & { points: number[] }) | null;
 };
 
@@ -130,8 +132,34 @@ export class NativeEngine implements EngineHost {
     return () => this.lagListeners.delete(listener);
   }
 
+  /** The plenum the simulation is given last: as it is drawn (`solvedPlenum`). */
+  private plenumSent: ReturnType<typeof solvedPlenum> | null = null;
+
+  /**
+   * `partial`, with the plenum's size as drawn wherever that has moved since it was last given: the
+   * simulation solves the plenum the app shows, whose size follows much of the engine where it is left to
+   * work itself out.
+   */
+  private withPlenum(partial: Partial<EngineSpec>): Partial<EngineSpec> {
+    // The controls alone move nothing it is sized by.
+    if (Object.keys(partial).every((k) => (CONTROL_PARAMS as readonly string[]).includes(k))) return partial;
+    const solved = solvedPlenum(this.config.engine);
+    const was = this.plenumSent;
+    this.plenumSent = solved;
+    const moved = (Object.keys(solved) as Array<keyof typeof solved>).filter((k) => !was || was[k] !== solved[k]);
+    if (moved.length === 0) return partial;
+    return { ...partial, ...Object.fromEntries(moved.map((k) => [k, solved[k]])) };
+  }
+
+  /** The config to start the simulation from: the plenum as drawn. */
+  private startConfig(): EngineConfig {
+    this.plenumSent = solvedPlenum(this.config.engine);
+    return { ...this.config, engine: { ...this.config.engine, ...this.plenumSent } };
+  }
+
   setEngine(partial: Partial<EngineSpec>): void {
     Object.assign(this.config.engine, partial);
+    partial = this.withPlenum(partial);
     // The continuous controls go on their own command, which the simulation applies without any of the
     // rebuilding an engine change can cause.
     let rest: Partial<EngineSpec> | null = null;
@@ -217,7 +245,7 @@ export class NativeEngine implements EngineHost {
     const frames = new Channel<ArrayBuffer>();
     frames.onmessage = (buffer) => this.receive(buffer);
     this.info = await invoke<StreamInfo>('audio_start', {
-      config: this.config,
+      config: this.startConfig(),
       sampleRate: this.rate,
       bufferFrames: null,
       frames,
@@ -248,6 +276,7 @@ export class NativeEngine implements EngineHost {
       inletPressure: Float32Array.from(raw.inletPressure),
       inletVelocity: Float32Array.from(raw.inletVelocity),
       runnerPressure: Float32Array.from(raw.runnerPressure),
+      plenumZones: Float32Array.from(raw.plenumZones),
       launch: raw.launch && { ...raw.launch, points: Float32Array.from(raw.launch.points) },
     };
     const waveAt = 8 + jsonLength + ((4 - (jsonLength % 4)) % 4);

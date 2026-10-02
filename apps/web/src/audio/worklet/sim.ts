@@ -125,12 +125,13 @@ function fromUtf8(bytes: Uint8Array): string {
 }
 
 /** The snapshot as the Wasm module writes it, before its sample arrays become typed arrays. */
-type RawSnapshot = Omit<EngineSnapshot, 'pipePressure' | 'ductPressure' | 'inletPressure' | 'inletVelocity' | 'runnerPressure' | 'launch'> & {
+type RawSnapshot = Omit<EngineSnapshot, 'pipePressure' | 'ductPressure' | 'inletPressure' | 'inletVelocity' | 'runnerPressure' | 'plenumZones' | 'launch'> & {
   pipePressure: number[];
   ductPressure: number[];
   inletPressure: number[];
   inletVelocity: number[];
   runnerPressure: number[];
+  plenumZones: number[];
   launch: (Omit<NonNullable<EngineSnapshot['launch']>, 'points'> & { points: number[] }) | null;
 };
 
@@ -243,6 +244,7 @@ export class Sim {
       inletPressure: Float32Array.from(raw.inletPressure),
       inletVelocity: Float32Array.from(raw.inletVelocity),
       runnerPressure: Float32Array.from(raw.runnerPressure),
+      plenumZones: Float32Array.from(raw.plenumZones),
       launch: raw.launch && { ...raw.launch, points: Float32Array.from(raw.launch.points) },
     };
   }

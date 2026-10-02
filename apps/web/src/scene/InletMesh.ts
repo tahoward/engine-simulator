@@ -1028,8 +1028,26 @@ export class InletMesh {
       return;
     }
     const rgb = new THREE.Color();
-    pressureColor(snap.plenumPressure / scale, rgb);
-    for (const m of this.plenum) fill(m.geometry, rgb);
+    // The plenum by the zone each point is in along it, front to back.
+    const zones = snap.plenumZones?.length ? snap.plenumZones : [snap.plenumPressure];
+    const { centre, size } = this.layout.plenum;
+    for (const m of this.plenum) {
+      const pos = m.geometry.getAttribute('position') as THREE.BufferAttribute;
+      const c = m.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+      if (!c) continue;
+      const arr = c.array as Float32Array;
+      const at = new THREE.Vector3();
+      for (let i = 0; i < pos.count; i++) {
+        at.fromBufferAttribute(pos, i).applyMatrix4(m.matrix);
+        const along = (at.z - centre.z) / size.z + 0.5;
+        const k = Math.min(Math.max(Math.floor(along * zones.length), 0), zones.length - 1);
+        pressureColor(zones[k]! / scale, rgb);
+        arr[i * 3] = rgb.r;
+        arr[i * 3 + 1] = rgb.g;
+        arr[i * 3 + 2] = rgb.b;
+      }
+      c.needsUpdate = true;
+    }
     // A runner's cells from its valve; drawn from the plenum, so read back.
     let at = 0;
     snap.runnerCells.forEach((n, b) => {

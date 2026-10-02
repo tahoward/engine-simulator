@@ -535,7 +535,7 @@ impl EngineSim {
 
         let wg =
             build_exhaust_for(&spec.spec, &pipe, &collector_pipe, graph.as_ref(), sample_rate, &wg_options, 1.0, None);
-        let plenum = IntakePlenum::new(&spec.spec);
+        let plenum = IntakePlenum::new(&spec.spec, sample_rate);
 
         let mut sim = EngineSim {
             sample_rate,
@@ -1429,14 +1429,8 @@ impl EngineSim {
             self.wg.set_turbines(turbo.turbine_settings());
         }
         // --- Intake runners, all in lockstep, alongside the exhaust: neither reads the other ---
-        let p_plenum = self.plenum.pressure();
-        let t_plenum = self.plenum.temp();
         let run_io = RunnerIo {
             dt,
-            p: p_plenum,
-            rho: p_plenum / (gas::R * t_plenum),
-            burned: self.plenum.burned_fraction(),
-            fuel: self.plenum.fuel_fraction(),
             inject: if (self.fuel_cut_active && !self.crackle_active) || !self.ignition {
                 0.0
             } else {
@@ -1466,7 +1460,7 @@ impl EngineSim {
             self.port_pressure.clear();
             self.port_pressure.extend((0..banks).map(|b| self.wg.port_pressure(b)));
             let port_pressure = &self.port_pressure;
-            let step = intake.begin(&run_io, &self.breathing);
+            let step = intake.begin(&run_io, &self.plenum, &self.breathing);
             // The exhaust steps each side item once, and reads a valve state only after they are all
             // done.
             let job = |b: usize| unsafe {
@@ -1481,31 +1475,13 @@ impl EngineSim {
         self.substeps = self.wg.result.substeps;
 
         // --- Plenum ---
-        let mut drawn = 0.0;
-        let mut back = 0.0;
-        let mut back_t = 0.0;
-        let mut back_burned = 0.0;
-        let mut back_fuel = 0.0;
-        for b in 0..banks {
-            let f = intake.runners[b].plenum_flow;
-            drawn -= f;
-            if f > 0.0 {
-                back += f;
-                back_t += f * intake.runners[b].plenum_temp;
-                back_burned += f * intake.runners[b].burned;
-                back_fuel += f * intake.runners[b].fuel;
-            }
-        }
-        let back_t = if back > 0.0 { back_t / back } else { t_plenum };
-        let back_burned = if back > 0.0 { back_burned / back } else { 0.0 };
-        let back_fuel = if back > 0.0 { back_fuel / back } else { 0.0 };
         // The plenum draws from the inlet tract's throttle end, stepped below with the throttle's flow.
         let throttle_flow = match &self.inlet {
             Some(inlet) if self.turbo.is_none() => {
                 let p_up = inlet.upstream_pressure();
-                self.plenum.step(dt, p_up, gas::T_AMB, drawn, back, back_t, back_burned, back_fuel)
+                self.plenum.step(dt, p_up, gas::T_AMB, &intake.runners)
             }
-            _ => self.plenum.step(dt, self.charge_p, self.charge_t, drawn, back, back_t, back_burned, back_fuel),
+            _ => self.plenum.step(dt, self.charge_p, self.charge_t, &intake.runners),
         };
 
         // --- Cylinders and afterfire, the inlet tract or the turbo, and the radiation ---
@@ -1693,6 +1669,7 @@ impl EngineSim {
                 out
             }),
             plenum_pressure: self.plenum.pressure() - gas::P_AMB,
+            plenum_zones: self.plenum.zone_pressures().map(|p| p as f32).collect(),
             runner_pressure,
             runner_cells,
             peak: self.peak,
@@ -1794,7 +1771,7 @@ impl EngineSim {
         let omega = self.omega;
         let (area, bore) = (self.plenum.area(), throttle_dia_of(&self.spec.spec));
         let throat_noise = self.spec.spec.throat_noise;
-        let plenum_p = self.plenum.pressure();
+        let plenum_p = self.plenum.throttle_pressure();
         let cyls = Disjoint::new(&mut self.cyls);
         let bank_state = Disjoint::new(&mut self.banks);
         let close_ns = Disjoint::new(&mut self.close_ns);

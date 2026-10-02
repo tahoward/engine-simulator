@@ -183,6 +183,10 @@ pub struct EngineSpec {
     pub throttle: f64,
     pub throttle_dia: f64,
     pub plenum_volume: f64,
+    pub plenum_length: f64,
+    pub plenum_width: f64,
+    pub plenum_height: f64,
+    pub plenum_taper: f64,
     pub airbox_volume: f64,
     pub snorkel_length: f64,
     pub snorkel_dia: f64,
@@ -272,6 +276,10 @@ impl Default for EngineSpec {
             throttle: 0.75,
             throttle_dia: 0.0,
             plenum_volume: 0.0,
+            plenum_length: 0.0,
+            plenum_width: 0.0,
+            plenum_height: 0.0,
+            plenum_taper: 0.4,
             airbox_volume: 0.0,
             snorkel_length: 0.3,
             snorkel_dia: 0.0,
@@ -416,8 +424,10 @@ pub struct EngineSnapshot {
     /// Air speed in every cell of the inlet tract, m/s, the same way: positive out towards the snorkel's
     /// mouth, so negative as the engine draws.
     pub inlet_velocity: Vec<f32>,
-    /// Gauge pressure in the plenum, Pa: below zero, the manifold's vacuum.
+    /// Gauge pressure in the plenum, Pa, over its volume: below zero, the manifold's vacuum.
     pub plenum_pressure: f64,
+    /// Gauge pressure in each zone along the plenum, Pa, from the throttle at its front to its back.
+    pub plenum_zones: Vec<f32>,
     /// Gauge pressure in every cell of every intake runner, Pa, in cylinder order, each from its valve
     /// end, taking `runner_cells` values in turn.
     pub runner_pressure: Vec<f32>,

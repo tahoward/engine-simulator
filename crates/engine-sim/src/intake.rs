@@ -13,18 +13,13 @@
 use crate::cylinder::CylState;
 use crate::euler_pipe::{EulerPipe, EulerPipeOptions, InletKind, OutletKind, ValveState};
 use crate::math::{self, PI};
+use crate::plenum::{IntakePlenum, PlenumFeed};
 use crate::spec::{EngineSpec, SegmentKind, SegmentPartial, gas, intake_runner_of, make_segment, speed_of_sound};
 
-/// The plenum's state and the injectors' setting for one `IntakeRunners::advance`.
+/// The injectors' setting for one `IntakeRunners::advance`.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct RunnerIo {
     pub dt: f64,
-    /// Plenum pressure, Pa, and density, kg/m^3.
-    pub p: f64,
-    pub rho: f64,
-    /// Plenum spent-gas and fuel fractions.
-    pub burned: f64,
-    pub fuel: f64,
     /// Fuel mass fraction each injector brings the air its cylinder draws to; 0 with the fuel cut.
     pub inject: f64,
 }
@@ -52,6 +47,8 @@ pub struct Runner {
     mass: f64,
     /// Air the cylinder has pushed back out and not yet drawn back in, kg, as a negative balance.
     air_owed: f64,
+    /// What it draws from the plenum this sample, where it leaves it.
+    feed: PlenumFeed,
 }
 
 pub struct IntakeRunners {
@@ -104,6 +101,7 @@ impl IntakeRunners {
                     burned_mass: 0.0,
                     fuel_mass: 0.0,
                     air_owed: 0.0,
+                    feed: PlenumFeed::default(),
                 }
             })
             .collect();
@@ -151,12 +149,19 @@ impl IntakeRunners {
         }
     }
 
-    /// Advance every runner by one sample, in lockstep. `breathing` is each cylinder's multiplier on
-    /// the pressure its runner opens onto; `cyl_state` is each cylinder's contents, from which what it
-    /// pushes back up its runner takes its composition.
-    pub fn advance(&mut self, io: &RunnerIo, valves: &[ValveState], breathing: &[f64], cyl_state: &[CylState]) {
+    /// Advance every runner by one sample, in lockstep, each drawing from `plenum` where it leaves it.
+    /// `breathing` is each cylinder's multiplier on the pressure its runner opens onto; `cyl_state` is each
+    /// cylinder's contents, from which what it pushes back up its runner takes its composition.
+    pub fn advance(
+        &mut self,
+        io: &RunnerIo,
+        plenum: &IntakePlenum,
+        valves: &[ValveState],
+        breathing: &[f64],
+        cyl_state: &[CylState],
+    ) {
         let count = self.runners.len();
-        let step = self.begin(io, breathing);
+        let step = self.begin(io, plenum, breathing);
         for b in 0..count {
             unsafe { step.runner(b, &valves[b], &cyl_state[b]) };
         }
@@ -164,7 +169,7 @@ impl IntakeRunners {
 
     /// `advance`, set up for its runners to be stepped one at a time, in any order or at once: each
     /// touches only its own `Runner`. The substep count is shared, so it is settled here.
-    pub fn begin(&mut self, io: &RunnerIo, breathing: &[f64]) -> IntakeStep<'_> {
+    pub fn begin(&mut self, io: &RunnerIo, plenum: &IntakePlenum, breathing: &[f64]) -> IntakeStep<'_> {
         let dt = io.dt;
         let mut substeps = 1;
         for r in self.runners.iter_mut() {
@@ -174,10 +179,13 @@ impl IntakeRunners {
             }
         }
 
-        // Breathing scales pressure and density together, so the plenum's sound speed is every runner's.
-        let res_c = math::sqrt((gas::GAMMA_EXH * io.p) / io.rho);
-        for (r, &bp) in self.runners.iter_mut().zip(breathing) {
-            r.pipe.set_reservoir(io.p * bp, io.rho * bp, res_c);
+        // Each opens onto its own zone of the plenum. Breathing scales pressure and density together, so the
+        // zone's sound speed is its runner's.
+        for (c, (r, &bp)) in self.runners.iter_mut().zip(breathing).enumerate() {
+            let feed = plenum.feed(c);
+            let res_c = math::sqrt((gas::GAMMA_EXH * feed.p) / feed.rho);
+            r.pipe.set_reservoir(feed.p * bp, feed.rho * bp, res_c);
+            r.feed = feed;
         }
         IntakeStep { io: *io, substeps, runners: self.runners.as_mut_ptr(), _runners: std::marker::PhantomData }
     }
@@ -206,10 +214,10 @@ impl IntakeStep<'_> {
         let dt = self.io.dt;
         let substeps = self.substeps;
         let h = dt / substeps as f64;
-        let plenum_burned = self.io.burned;
-        let plenum_fuel = self.io.fuel;
         let inject = self.io.inject;
         let run = unsafe { &mut *self.runners.add(b) };
+        let plenum_burned = run.feed.burned;
+        let plenum_fuel = run.feed.fuel;
         let r = &mut run.pipe;
         let mut vf = 0.0;
         let mut pf = 0.0;

@@ -53,15 +53,18 @@ fn the_engine_draws_its_air_through_the_snorkel() {
     assert!(per_rev > 0.0008 && per_rev < 0.0012, "{per_rev} m^3 a revolution");
 }
 
-/// The runners' pulses reach the mouth: its flow pulses at the firing frequency.
+/// The runners' pulses reach the mouth: its flow pulses at the firing frequency, far above where the
+/// engine has no order at all. The throttle at the plenum's front hears the cylinders nearest it loudest,
+/// so the half orders between the firing order and the next are there too, as they are at a real snorkel.
 #[test]
 fn the_runners_pulses_reach_the_mouth() {
     let rpm = 6000.0;
     let firing = rpm / 30.0;
     let mut sim = f20c(rpm, 1.0, json!({ "throatNoise": 0 }));
     let flow = mouth_flow(&mut sim);
-    let at = band(&flow, firing * 0.9, firing * 1.1);
-    let between = band(&flow, firing * 1.3, firing * 1.7);
+    let at = band(&flow, firing * 0.95, firing * 1.05);
+    // Between the firing order and the half order after it, a quarter of the firing frequency on.
+    let between = band(&flow, firing * 1.08, firing * 1.17);
     println!("firing order {:.1} dB over the band between", 10.0 * (at / between).log10());
     assert!(at > between * 10.0, "firing {at} against between {between}");
 }
