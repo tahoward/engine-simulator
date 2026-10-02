@@ -228,22 +228,20 @@ function alongFace(p: THREE.Vector2, q: THREE.Vector2, start: THREE.Vector2, dir
 }
 
 /**
- * The plenum as a hollow casting, centred on the origin, `size` along x, y and z: a shell `wall` thick round
- * its section, its edges rounded by `rounding`, run along z, closed at the back, and at the front by a plate with the throttle
+ * The plenum as a hollow casting, centred on the origin, `size` along x, y and z: a shell `PLENUM_WALL`
+ * thick round its section, run along z, closed at the back, and at the front by a plate with the throttle
  * body's bore, `bore` across, through it at the section's middle. Where runners leave it, the upright side
  * they leave by is a plate of its own, inside and out, with an opening for each, so the runners can be seen
  * into from inside. Its rounded edges shade smoothly, as a pipe's curve does, and its square ones stay sharp.
  */
-function plenumGeometry(
-  size: THREE.Vector3,
-  base: number,
-  bore: number,
-  openings: Opening[],
-  rounding = PLENUM_ROUNDING,
-  wall = PLENUM_WALL,
-): THREE.BufferGeometry {
-  const outer = plenumSection(size.x, size.y, base, rounding);
-  const inner = plenumSection(size.x - 2 * wall, size.y - 2 * wall, base, Math.max(rounding - wall, 0.002));
+function plenumGeometry(size: THREE.Vector3, base: number, bore: number, openings: Opening[]): THREE.BufferGeometry {
+  const outer = plenumSection(size.x, size.y, base, PLENUM_ROUNDING);
+  const inner = plenumSection(
+    size.x - 2 * PLENUM_WALL,
+    size.y - 2 * PLENUM_WALL,
+    base,
+    Math.max(PLENUM_ROUNDING - PLENUM_WALL, 0.002),
+  );
   const n = outer.points.length;
   const open = (['right', 'left', 'rightFlank', 'leftFlank', 'bottom'] as const).filter((face) =>
     openings.some((o) => o.face === face),
@@ -316,6 +314,243 @@ function plenumGeometry(
   front.translate(0, 0, -size.z / 2);
   parts.push(front);
   return toCreasedNormals(mergeGeometries(parts), Math.PI / 5);
+}
+
+/** A round hole through one of a box's faces: the face, by its outward axis, and the hole's middle and radius, m. */
+interface BoxHole {
+  axis: 0 | 1 | 2;
+  sign: 1 | -1;
+  centre: THREE.Vector3;
+  radius: number;
+}
+
+/** Turn each of `g`'s triangles to wind anticlockwise seen from the way its vertex normals point. */
+function windOut(g: THREE.BufferGeometry): THREE.BufferGeometry {
+  const p = g.getAttribute('position') as THREE.BufferAttribute;
+  const n = g.getAttribute('normal') as THREE.BufferAttribute;
+  const [a, b, c, e1, e2, m] = [0, 0, 0, 0, 0, 0].map(() => new THREE.Vector3());
+  for (let i = 0; i < p.count; i += 3) {
+    a.fromBufferAttribute(p, i);
+    b.fromBufferAttribute(p, i + 1);
+    c.fromBufferAttribute(p, i + 2);
+    m.fromBufferAttribute(n, i);
+    if (e1.subVectors(b, a).cross(e2.subVectors(c, a)).dot(m) >= 0) continue;
+    for (const attr of [p, n]) {
+      const [x, y, z] = [attr.getX(i + 1), attr.getY(i + 1), attr.getZ(i + 1)];
+      attr.setXYZ(i + 1, attr.getX(i + 2), attr.getY(i + 2), attr.getZ(i + 2));
+      attr.setXYZ(i + 2, x, y, z);
+    }
+  }
+  return g;
+}
+
+/**
+ * The surface of a box centred on the origin, `half` its size each way along x, y and z, every edge and
+ * corner rounded by `round`, with `holes` through its flat faces; its normals outwards, or with `inward`
+ * in, as the inside of a shell.
+ */
+function roundedBoxSurface(half: THREE.Vector3, round: number, holes: BoxHole[], inward: boolean): THREE.BufferGeometry {
+  const parts: THREE.BufferGeometry[] = [];
+  const flip = inward ? -1 : 1;
+  const axes = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, 0, 1)];
+  const flat = [half.x - round, half.y - round, half.z - round];
+  const ARC = 8;
+  // The flat faces, each with any holes through it.
+  for (const axis of [0, 1, 2] as const) {
+    const [u, v] = [(axis + 1) % 3, (axis + 2) % 3];
+    for (const sign of [1, -1] as const) {
+      const face = new THREE.Shape([
+        new THREE.Vector2(-flat[u]!, -flat[v]!),
+        new THREE.Vector2(flat[u]!, -flat[v]!),
+        new THREE.Vector2(flat[u]!, flat[v]!),
+        new THREE.Vector2(-flat[u]!, flat[v]!),
+      ]);
+      for (const h of holes.filter((h) => h.axis === axis && h.sign === sign)) {
+        const hole = new THREE.Path();
+        hole.absarc(h.centre.getComponent(u), h.centre.getComponent(v), h.radius, 0, Math.PI * 2, true);
+        face.holes.push(hole);
+      }
+      const g = new THREE.ShapeGeometry(face, 32).toNonIndexed();
+      const pos = g.getAttribute('position') as THREE.BufferAttribute;
+      const normal = new Float32Array(pos.count * 3);
+      for (let i = 0; i < pos.count; i++) {
+        const q = new THREE.Vector3()
+          .addScaledVector(axes[u]!, pos.getX(i))
+          .addScaledVector(axes[v]!, pos.getY(i))
+          .addScaledVector(axes[axis]!, sign * half.getComponent(axis));
+        pos.setXYZ(i, q.x, q.y, q.z);
+        normal[i * 3 + axis] = sign * flip;
+      }
+      g.deleteAttribute('uv');
+      g.setAttribute('normal', new THREE.BufferAttribute(normal, 3));
+      parts.push(g);
+    }
+  }
+  // A quarter round each edge, and an eighth of a ball each corner: the points `round` out from the flat
+  // box's edges and corners, every way in between.
+  const patch = (rows: THREE.Vector3[][], centreAt: (i: number, j: number) => THREE.Vector3) => {
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const vertex = (i: number, j: number) => {
+      const d = rows[i]![j]!.clone().normalize();
+      const q = centreAt(i, j).addScaledVector(d, round);
+      positions.push(q.x, q.y, q.z);
+      normals.push(d.x * flip, d.y * flip, d.z * flip);
+    };
+    // Between each row and the next, which is as long or one shorter.
+    for (let i = 0; i + 1 < rows.length; i++) {
+      for (let j = 0; j + 1 < rows[i]!.length; j++) {
+        vertex(i, j);
+        vertex(i + 1, j);
+        vertex(i, j + 1);
+        if (j + 1 < rows[i + 1]!.length) {
+          vertex(i, j + 1);
+          vertex(i + 1, j);
+          vertex(i + 1, j + 1);
+        }
+      }
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    g.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+    parts.push(g);
+  };
+  for (const along of [0, 1, 2] as const) {
+    const [a, b] = [(along + 1) % 3, (along + 2) % 3];
+    for (const sa of [1, -1]) {
+      for (const sb of [1, -1]) {
+        // Rows along the edge, each round the quarter from one face to the other.
+        const rows = [-1, 1].map(() =>
+          Array.from({ length: ARC + 1 }, (_, k) => {
+            const t = (k / ARC) * (Math.PI / 2);
+            return axes[a]!.clone().multiplyScalar(sa * Math.cos(t)).addScaledVector(axes[b]!, sb * Math.sin(t));
+          }),
+        );
+        patch(rows, (i) =>
+          new THREE.Vector3()
+            .addScaledVector(axes[a]!, sa * flat[a]!)
+            .addScaledVector(axes[b]!, sb * flat[b]!)
+            .addScaledVector(axes[along]!, (i === 0 ? -1 : 1) * flat[along]!),
+        );
+      }
+    }
+  }
+  for (const sx of [1, -1]) {
+    for (const sy of [1, -1]) {
+      for (const sz of [1, -1]) {
+        // Rows from the corner's x-most edge up to its pole on z, each a little shorter than the last.
+        const rows = Array.from({ length: ARC + 1 }, (_, i) =>
+          Array.from({ length: ARC + 1 - i }, (_, j) => new THREE.Vector3(sx * (ARC - i - j), sy * j, sz * i)),
+        );
+        const centre = new THREE.Vector3(sx * flat[0]!, sy * flat[1]!, sz * flat[2]!);
+        patch(rows, () => centre.clone());
+      }
+    }
+  }
+  return windOut(mergeGeometries(parts));
+}
+
+/**
+ * The airbox as a hollow moulding, centred on the origin, `size` along x, y and z: a shell `wall` thick, its
+ * edges and corners rounded by `round`, open through `holes`, each with its rim the wall's thickness.
+ */
+function airboxGeometry(size: THREE.Vector3, round: number, wall: number, holes: BoxHole[]): THREE.BufferGeometry {
+  const half = size.clone().multiplyScalar(0.5);
+  const inner = half.clone().subScalar(wall);
+  const parts = [
+    roundedBoxSurface(half, round, holes, false),
+    roundedBoxSurface(inner, Math.max(round - wall, 0.001), holes.map((h) => ({ ...h, centre: h.centre.clone().setComponent(h.axis, h.sign * inner.getComponent(h.axis)) })), true),
+  ];
+  for (const h of holes) {
+    const rim = new THREE.CylinderGeometry(h.radius, h.radius, wall, 32, 1, true).toNonIndexed();
+    rim.deleteAttribute('uv');
+    // Facing in, towards the hole's axis.
+    const n = rim.getAttribute('normal') as THREE.BufferAttribute;
+    for (let i = 0; i < n.count; i++) n.setXYZ(i, -n.getX(i), -n.getY(i), -n.getZ(i));
+    const axis = new THREE.Vector3().setComponent(h.axis, h.sign);
+    rim.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis));
+    const at = h.centre.clone().setComponent(h.axis, h.sign * (half.getComponent(h.axis) - wall / 2));
+    rim.translate(at.x, at.y, at.z);
+    parts.push(windOut(rim));
+  }
+  return mergeGeometries(parts);
+}
+
+/** How far the airbox's lid lip stands out of its sides, and how tall it is, m. */
+const LIP_OUT = 0.005;
+const LIP_HEIGHT = 0.008;
+
+/**
+ * The lip round the airbox at its lid's seam, `y` up from its middle: a band standing out of its sides, round
+ * its rounded corners, centred on the origin as the airbox is. It stops short either side of any of `holes`
+ * it would run across, `radius` there the collar round each.
+ */
+function airboxLip(size: THREE.Vector3, round: number, y: number, holes: BoxHole[]): THREE.BufferGeometry {
+  // Round the outline of the sides, a point every few millimetres, with the way out from the box at each.
+  const [x0, z0] = [size.x / 2 - round, size.z / 2 - round];
+  const ring: { at: THREE.Vector2; out: THREE.Vector2 }[] = [];
+  const corners: [number, number, number][] = [
+    [x0, -z0, -Math.PI / 2],
+    [x0, z0, 0],
+    [-x0, z0, Math.PI / 2],
+    [-x0, -z0, Math.PI],
+  ];
+  const step = 0.003;
+  corners.forEach(([cx, cz, from], k) => {
+    const arc = Math.max(2, Math.ceil(((Math.PI / 2) * round) / step));
+    for (let i = 0; i <= arc; i++) {
+      const t = from + (i / arc) * (Math.PI / 2);
+      const out = new THREE.Vector2(Math.cos(t), Math.sin(t));
+      ring.push({ at: new THREE.Vector2(cx, cz).addScaledVector(out, round), out });
+    }
+    // Then straight along the side to the next corner.
+    const [nx, nz, nfrom] = corners[(k + 1) % 4]!;
+    const out = new THREE.Vector2(Math.cos(nfrom), Math.sin(nfrom));
+    const a = new THREE.Vector2(cx, cz).addScaledVector(out, round);
+    const b = new THREE.Vector2(nx, nz).addScaledVector(out, round);
+    const n = Math.ceil(a.distanceTo(b) / step);
+    for (let i = 1; i < n; i++) ring.push({ at: a.clone().lerp(b, i / n), out });
+  });
+  const crosses = (p: THREE.Vector2) =>
+    holes.some((h) => {
+      const at = new THREE.Vector3(p.x, y, p.y);
+      const off = at.sub(h.centre).setComponent(h.axis, 0);
+      return off.length() < h.radius;
+    });
+  const positions: number[] = [];
+  const normals: number[] = [];
+  const quad = (a: THREE.Vector3, b: THREE.Vector3, c: THREE.Vector3, d: THREE.Vector3, n: THREE.Vector3) => {
+    for (const v of [a, b, c, a, c, d]) {
+      positions.push(v.x, v.y, v.z);
+      normals.push(n.x, n.y, n.z);
+    }
+  };
+  const corner = (p: { at: THREE.Vector2; out: THREE.Vector2 }, outwards: number, up: number) =>
+    new THREE.Vector3(p.at.x + p.out.x * outwards, y + up, p.at.y + p.out.y * outwards);
+  const [top, bottom] = [LIP_HEIGHT / 2, -LIP_HEIGHT / 2];
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i]!;
+    const q = ring[(i + 1) % ring.length]!;
+    if (crosses(p.at.clone().add(q.at).multiplyScalar(0.5))) continue;
+    const out = new THREE.Vector3(p.out.x + q.out.x, 0, p.out.y + q.out.y).normalize();
+    quad(corner(p, LIP_OUT, bottom), corner(q, LIP_OUT, bottom), corner(q, LIP_OUT, top), corner(p, LIP_OUT, top), out);
+    quad(corner(p, 0, top), corner(p, LIP_OUT, top), corner(q, LIP_OUT, top), corner(q, 0, top), new THREE.Vector3(0, 1, 0));
+    quad(corner(p, 0, bottom), corner(q, 0, bottom), corner(q, LIP_OUT, bottom), corner(p, LIP_OUT, bottom), new THREE.Vector3(0, -1, 0));
+    // Its end, where it stops short of a hole.
+    const along = new THREE.Vector3(q.at.x - p.at.x, 0, q.at.y - p.at.y).normalize();
+    const before = ring[(i + ring.length - 1) % ring.length]!;
+    const after = ring[(i + 2) % ring.length]!;
+    if (crosses(before.at.clone().add(p.at).multiplyScalar(0.5))) {
+      quad(corner(p, 0, bottom), corner(p, LIP_OUT, bottom), corner(p, LIP_OUT, top), corner(p, 0, top), along.clone().negate());
+    }
+    if (crosses(q.at.clone().add(after.at).multiplyScalar(0.5))) {
+      quad(corner(q, 0, bottom), corner(q, LIP_OUT, bottom), corner(q, LIP_OUT, top), corner(q, 0, top), along);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+  return windOut(g);
 }
 
 /** A band round a tube at `u` along `curve`: a hose clamp. */
@@ -618,57 +853,46 @@ export class InletMesh {
     // view: its cells would show only as their mean.
     const { centre, size } = l.airbox;
     const round = Math.sqrt(l.snorkelArea / Math.PI);
-    const into = l.tube.getPointAt(1);
-    const holes = [l.tubeRadius, round];
-    // Made as the plenum is, a shell run along its length: that along the way it runs from the tube's end to
-    // the snorkel's, which leaves by the plate at the far end, and the tube by the front.
-    const length = new THREE.Vector3(-l.side, 0, 0);
-    const up = new THREE.Vector3(0, 1, 0);
-    const width = new THREE.Vector3().crossVectors(up, length);
-    const local = (v: THREE.Vector3) => new THREE.Vector2(v.dot(width), v.y);
-    const rel = into.clone().sub(centre);
-    const out = local(l.tube.getTangentAt(1).negate()).normalize();
-    const flat = size.y / 2 - Math.max(...holes) - 0.004;
-    const box = new THREE.Mesh(
-      plenumGeometry(
-        new THREE.Vector3(size.z, size.y, size.x),
-        1,
-        2 * round,
-        [{ face: out.x > 0 ? 'right' : 'left', start: local(rel), direction: out, z: rel.dot(length), inside: l.tubeRadius, outside: l.tubeRadius }],
-        Math.max(Math.min(Math.min(size.y, size.z) * 0.18, flat), 0.004),
-        AIRBOX_WALL,
+    // Where each pipe meets it, on the face it comes in square to.
+    const holeAt = (at: THREE.Vector3, outwards: THREE.Vector3, radius: number): BoxHole => {
+      const axis = ([0, 1, 2] as const).reduce((m, k) => (Math.abs(outwards.getComponent(k)) > Math.abs(outwards.getComponent(m)) ? k : m), 0);
+      return { axis, sign: outwards.getComponent(axis) > 0 ? 1 : -1, centre: at.clone().sub(centre), radius };
+    };
+    const holes = [
+      holeAt(l.tube.getPointAt(1), l.tube.getTangentAt(1).negate(), l.tubeRadius),
+      holeAt(l.snorkel.getPointAt(0), l.snorkel.getTangentAt(0), round),
+    ];
+    // Rounded as far as leaves each hole on the flat of its face.
+    const clear = Math.min(
+      ...holes.flatMap((h) =>
+        ([0, 1, 2] as const)
+          .filter((k) => k !== h.axis)
+          .map((k) => size.getComponent(k) / 2 - Math.abs(h.centre.getComponent(k)) - h.radius - 0.002),
       ),
-      this.plastic,
     );
+    const rounding = Math.max(Math.min(Math.min(size.y, size.z) * 0.18, clear), AIRBOX_WALL + 0.001);
+    const box = new THREE.Mesh(airboxGeometry(size, rounding, AIRBOX_WALL, holes), this.plastic);
     box.position.copy(centre);
-    box.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(width, up, length));
     this.tract.add(box);
-    // The seam above the openings, so the lip does not run across them.
-    const seamY = centre.y + Math.min(Math.max(size.y * 0.15, Math.max(...holes) + 0.012), size.y / 2 - 0.008);
-    const frame = new THREE.Shape([
-      new THREE.Vector2(-(size.x + 0.01) / 2, -(size.z + 0.01) / 2),
-      new THREE.Vector2((size.x + 0.01) / 2, -(size.z + 0.01) / 2),
-      new THREE.Vector2((size.x + 0.01) / 2, (size.z + 0.01) / 2),
-      new THREE.Vector2(-(size.x + 0.01) / 2, (size.z + 0.01) / 2),
-    ]);
-    frame.holes.push(
-      new THREE.Path([
-        new THREE.Vector2(-size.x / 2, -size.z / 2),
-        new THREE.Vector2(-size.x / 2, size.z / 2),
-        new THREE.Vector2(size.x / 2, size.z / 2),
-        new THREE.Vector2(size.x / 2, -size.z / 2),
-      ]),
-    );
+    // The lid's seam on the flat of the sides, above the openings, or below them where there is no room
+    // above, so the lip does not run across them; the lip round it rounded at the corners as the box is.
+    const sides = size.y / 2 - rounding - 0.006;
+    const above = Math.max(size.y * 0.15, ...holes.map((h) => h.centre.y + h.radius + 0.012));
+    const below = Math.min(...holes.map((h) => h.centre.y - h.radius - 0.012));
+    const seamY = centre.y + (above <= sides ? above : below >= -sides ? below : Math.min(size.y * 0.15, sides));
     const lip = new THREE.Mesh(
-      new THREE.ExtrudeGeometry(frame, { depth: 0.008, bevelEnabled: false }).rotateX(Math.PI / 2).translate(0, 0.004, 0),
+      airboxLip(size, rounding, seamY - centre.y, holes.map((h) => ({ ...h, radius: h.radius + WALL + 0.004 }))),
       this.plastic,
     );
-    lip.position.set(centre.x, seamY, centre.z);
+    lip.position.copy(centre);
     this.tract.add(lip);
     for (const fx of [-0.3, 0.3]) {
       for (const fz of [-1, 1]) {
         const clip = new THREE.Mesh(new RoundedBoxGeometry(0.018, 0.028, 0.008, 2, 0.002), this.clamp);
         clip.position.set(centre.x + fx * size.x, seamY, centre.z + (fz * (size.z + 0.012)) / 2);
+        // None on a pipe's collar.
+        const rel = clip.position.clone().sub(centre);
+        if (holes.some((h) => rel.clone().sub(h.centre).setComponent(h.axis, 0).length() < h.radius + WALL + 0.004 + 0.016)) continue;
         this.tract.add(clip);
       }
     }
