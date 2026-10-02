@@ -166,6 +166,14 @@ export interface TurboMount {
   rotation: Quat;
   /** Its own settings, or none to follow the engine's, as every turbo does while they are in sync. */
   settings?: TurboSettings;
+  /**
+   * Whether it sits on the end of the one pipe into it, its inlet flush with the pipe's end: put down on a
+   * pipe. It goes where that end goes, turned only by `roll`, and the pipe ends at its inlet's bore. See
+   * `seatSnappedTurbos`.
+   */
+  snapped?: true;
+  /** How far a snapped turbo is rolled about its inlet's axis, radians, from its shaft lying level. */
+  roll?: number;
 }
 
 /**
@@ -271,7 +279,8 @@ export function graphFromJson(raw: unknown): ExhaustGraph | null {
                 },
               }
             : {};
-        return [{ id: t.id, node: t.node, position, rotation, ...settings }];
+        const snapped = t.snapped === true ? { snapped: true as const, ...(finite(t.roll) && t.roll !== 0 ? { roll: t.roll } : {}) } : {};
+        return [{ id: t.id, node: t.node, position, rotation, ...settings, ...snapped }];
       })
     : [];
   const junctions = (raw as { junctions?: unknown }).junctions;

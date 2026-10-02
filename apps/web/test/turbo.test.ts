@@ -33,14 +33,20 @@ import {
   engineTurboSettings,
   graphTurboSize,
   newTurbo,
+  connectToTurbo,
   placeTurbo,
+  placeTurboAtJoint,
+  placeTurboAtJunction,
   quatFromAxisAngle,
   quatMultiply,
   quatRotate,
   fittedBend,
   lockedFrom,
   removeTurbo,
+  seatTurbo,
   setTurbosSynced,
+  turboFitsJunction,
+  turboRoll,
   turboPortsOf,
   turbosSynced,
   UPRIGHT,
@@ -73,9 +79,22 @@ function singleWithTurbo() {
   return { spec, graph, ports, mount };
 }
 
+/**
+ * The single with a turbo put down on its own at the open end of its pipe, and that pipe then drawn into its
+ * inlet: not snapped onto the pipe, so free to be moved and turned.
+ */
+function singleWithFreeTurbo() {
+  const { spec, graph, ports } = single();
+  const mount = newTurbo(graph);
+  placeTurbo(graph, mount);
+  connectToTurbo(graph, 'runner0', mount.id);
+  seatTurbos(graph, ports, spec);
+  return { spec, graph, ports, mount };
+}
+
 /** As `singleWithTurbo`, with a pipe drawn from the turbo's outlet to the air. */
 function singleWithTurboAndOutlet() {
-  const t = singleWithTurbo();
+  const t = singleWithFreeTurbo();
   t.graph.ducts.push({
     id: 'downpipe',
     segments: [makeSegment({ kind: 'pipe', length: 0.3, dIn: 0.05 })],
@@ -150,16 +169,55 @@ describe('a turbo put down on the open end of a pipe', () => {
     expect(validateGraph(graph, 1)).toEqual([]);
   });
 
-  it('takes its bend with it when it comes out', () => {
-    const { spec, graph, ports, mount } = singleWithTurbo();
-    const drawn = graph.ducts.find((d) => d.id === 'runner0')!.segments.length;
+  it('leaves the bend its pipe was fitted into it with, as drawn, when it comes out', () => {
+    const { spec, graph, ports, mount } = singleWithFreeTurbo();
     const [px, py, pz] = mount.position!;
     moveTurbo(graph, ports, spec, mount.id, [px + 0.05, py, pz + 0.08], mount.rotation);
-    removeTurbo(graph, mount.id);
     const runner = graph.ducts.find((d) => d.id === 'runner0')!;
-    expect(runner.segments).toHaveLength(drawn);
+    const fitted = runner.segments.map((s) => ({ ...s }));
+    expect(runner.fitted).toBe(true);
+    removeTurbo(graph, mount.id);
+    // Still on its port, so kept, bend and all.
+    expect(runner.segments).toEqual(fitted);
     expect(runner.fitted).toBeUndefined();
-    expect(runner.segments.every((s) => !s.curve)).toBe(true);
+    expect(runner.to.kind).toBe('mouth');
+    expect(validateGraph(graph, 1)).toEqual([]);
+  });
+
+  it('leaves the pipes into it from a junction, each still on its port, where it was put in', () => {
+    const preset = ENGINE_PRESETS.find((p) => p.name === 'Inline four, Honda F20C')!;
+    const cfg = defaultConfig();
+    const spec = presetEngine(preset, cfg.engine);
+    const graph = compileExhaust(spec, cfg.pipe, cfg.collector);
+    const ports = portsOf(spec);
+    seatHeaders(graph, ports);
+    refitBends(graph, ports, spec);
+    const joint = layoutGraph(ports, graph, turboPortsOf(graph, spec)).joints.get('merge0')!;
+    const mount = newTurbo(graph);
+    seatTurbo(mount, [joint.centre.x, joint.centre.y, joint.centre.z], [joint.axis.x, joint.axis.y, joint.axis.z], graphTurboSize(graph, spec));
+    placeTurboAtJunction(graph, mount, 'merge0');
+    refitBends(graph, ports, spec);
+    const runners = graph.ducts.filter((d) => d.role === 'runner').map((d) => ({ id: d.id, segments: structuredClone(d.segments) }));
+    expect(removeTurbo(graph, mount.id)).toBe(true);
+    for (const r of runners) {
+      const d = graph.ducts.find((x) => x.id === r.id)!;
+      expect(d.segments).toEqual(r.segments);
+      expect(d.to.kind).toBe('mouth');
+    }
+    expect(validateGraph(graph, spec.cylinders)).toEqual([]);
+  });
+
+  it('takes the bend off a loose pipe into it when it comes out', () => {
+    const { spec, graph, ports } = single();
+    const mount = newTurbo(graph, [0.6, 0.1, 0.3], UPRIGHT);
+    placeTurbo(graph, mount);
+    graph.ducts.push({ id: 'loose', segments: [makeSegment({ length: 0.2 })], from: { kind: 'free', position: [0.2, 0.3, 0.3] }, to: { kind: 'node', node: mount.node } });
+    refitBends(graph, ports, spec);
+    const loose = graph.ducts.find((d) => d.id === 'loose')!;
+    expect(loose.fitted).toBe(true);
+    removeTurbo(graph, mount.id);
+    expect(loose.segments).toHaveLength(1);
+    expect(loose.fitted).toBeUndefined();
   });
 
   it('stays in while pipes carry on from its outlet pipe', () => {
@@ -171,6 +229,25 @@ describe('a turbo put down on the open end of a pipe', () => {
     const before = JSON.stringify(graph);
     expect(removeTurbo(graph, mount.id)).toBe(false);
     expect(JSON.stringify(graph)).toBe(before);
+  });
+
+  it('given its size, leaves its outlet pipe where it was, loose, where it joins something further on', () => {
+    const { spec, graph, ports, mount } = singleWithTurboAndOutlet();
+    const outlet = endsAt(graph, mount.node).find((e) => e.end === 'inlet')!.duct;
+    const node = joinDuctEnd(graph, outlet.id)!;
+    graph.ducts.push({ id: 'onward', segments: [makeSegment({ length: 0.3 })], from: { kind: 'node', node }, to: { kind: 'mouth' } });
+    freezeHeadings(graph, layoutGraph(ports, graph, turboPortsOf(graph, spec)), ports);
+    const was = layoutGraph(ports, graph, turboPortsOf(graph, spec)).ducts.get(outlet.id)!;
+    expect(removeTurbo(graph, mount.id, undefined, graphTurboSize(graph, spec))).toBe(true);
+    expect(graph.turbos).toBeUndefined();
+    expect(outlet.from.kind).toBe('free');
+    expect(outlet.to).toEqual({ kind: 'node', node });
+    expect(graph.ducts.some((d) => d.id === 'onward')).toBe(true);
+    const now = layoutGraph(ports, graph, new Map()).ducts.get(outlet.id)!;
+    expect(now.origin.distanceTo(was.origin)).toBeLessThan(1e-9);
+    expect(now.heading.angleTo(was.heading)).toBeLessThan(1e-9);
+    // The pipe that fed it still runs from its port, open where the inlet was.
+    expect(graph.ducts.find((d) => d.id === 'runner0')!.to.kind).toBe('mouth');
   });
 
   it('keeps its outlet pipe, and what carries on from it, when the pipe into it comes off', () => {
@@ -201,7 +278,7 @@ describe('a turbo put down on the open end of a pipe', () => {
   });
 
   it('brings its pipe with it when it is moved', () => {
-    const { spec, graph, ports, mount } = singleWithTurbo();
+    const { spec, graph, ports, mount } = singleWithFreeTurbo();
     const [x, y, z] = mount.position!;
     const turned = quatMultiply(quatFromAxisAngle([1, 0, 0], 0.4), mount.rotation);
     moveTurbo(graph, ports, spec, mount.id, [x + 0.06, y - 0.04, z + 0.05], turned);
@@ -211,7 +288,7 @@ describe('a turbo put down on the open end of a pipe', () => {
   });
 
   it('turned a quarter turn about an axis, turns its outlet by a quarter turn', () => {
-    const { spec, graph, ports, mount } = singleWithTurbo();
+    const { spec, graph, ports, mount } = singleWithFreeTurbo();
     const before = turboPortsOf(graph, spec).get(mount.node)!.outlet.dir;
     const turned = quatMultiply(quatFromAxisAngle([1, 0, 0], Math.PI / 2), mount.rotation);
     moveTurbo(graph, ports, spec, mount.id, mount.position!, turned);
@@ -303,6 +380,171 @@ describe('a turbo put down on the open end of a pipe', () => {
   });
 });
 
+describe('a turbo put down on a pipe that bends', () => {
+  it('sits flush with it, however the pipe climbs or turns, its shaft level', () => {
+    const { spec, graph, ports } = single();
+    const runner = graph.ducts.find((d) => d.id === 'runner0')!;
+    runner.segments.push(makeSegment({ kind: 'pipe', length: 0.2, dIn: segmentDiameter(runner.segments[0]!, 1), yaw: 0.6, pitch: -0.7 }));
+    const drawn = runner.segments.length;
+    const placement = layoutGraph(ports, graph, turboPortsOf(graph, spec));
+    const place = placement.ducts.get('runner0')!;
+    const swept = layoutPipe(runner.segments, place.origin, place.heading);
+    const end = swept.joints.at(-1)!;
+    const dir = swept.jointDirections.at(-1)!;
+    expect(Math.abs(dir.y)).toBeGreaterThan(0.1);
+    const mount = newTurbo(graph);
+    seatTurbo(mount, [end.x, end.y, end.z], [dir.x, dir.y, dir.z], graphTurboSize(graph, spec));
+    placeTurbo(graph, mount, 'runner0');
+    const inlet = turboPortsOf(graph, spec).get(mount.node)!.inlet;
+    inlet.point.forEach((x, i) => expect(x).toBeCloseTo(end.getComponent(i), 9));
+    inlet.dir.forEach((x, i) => expect(x).toBeCloseTo(dir.getComponent(i), 9));
+    expect(quatRotate([1, 0, 0], mount.rotation)[1]).toBeCloseTo(0, 9);
+    // Flush, so nothing is fitted to meet it.
+    refitBends(graph, ports, spec);
+    expect(runner.fitted).toBeUndefined();
+    expect(runner.segments).toHaveLength(drawn);
+  });
+
+  it('facing straight down, lies along the crank', () => {
+    const mount = { id: 't', node: 'n', position: null, rotation: [...UPRIGHT] as typeof UPRIGHT };
+    seatTurbo(mount, [0, 0, 0], [0, -1, 0], { scroll: 0.07, depth: 0.06, outletDia: 0.058, inletDia: 0.042 });
+    quatRotate([1, 0, 0], mount.rotation).forEach((x, i) => expect(x).toBeCloseTo(quatRotate([1, 0, 0], UPRIGHT)[i]!, 9));
+    quatRotate([0, 0, 1], mount.rotation).forEach((x, i) => expect(x).toBeCloseTo([0, -1, 0][i]!, 9));
+  });
+});
+
+describe('a turbo snapped onto a pipe', () => {
+  const inletOf = (t: ReturnType<typeof singleWithTurbo>) => turboPortsOf(t.graph, t.spec).get(t.mount.node)!.inlet;
+  const pipeEnd = (t: ReturnType<typeof singleWithTurbo>) => {
+    const runner = t.graph.ducts.find((d) => d.id === 'runner0')!;
+    const place = layoutGraph(t.ports, t.graph, turboPortsOf(t.graph, t.spec)).ducts.get('runner0')!;
+    const swept = layoutPipe(runner.segments, place.origin, place.heading);
+    return { point: swept.joints.at(-1)!, dir: swept.jointDirections.at(-1)! };
+  };
+  const flush = (t: ReturnType<typeof singleWithTurbo>) => {
+    const inlet = inletOf(t);
+    const end = pipeEnd(t);
+    inlet.point.forEach((x, i) => expect(x).toBeCloseTo(end.point.getComponent(i), 9));
+    inlet.dir.forEach((x, i) => expect(x).toBeCloseTo(end.dir.getComponent(i), 9));
+  };
+
+  it('ends the pipe at its inlet’s bore', () => {
+    const t = singleWithTurbo();
+    refitBends(t.graph, t.ports, t.spec);
+    expect(t.mount.snapped).toBe(true);
+    const runner = t.graph.ducts.find((d) => d.id === 'runner0')!;
+    expect(segmentDiameter(runner.segments.at(-1)!, 1)).toBeCloseTo(graphTurboSize(t.graph, t.spec).inletDia, 12);
+    expect(runner.fitted).toBeUndefined();
+  });
+
+  it('is not moved off it, only rolled about its inlet’s axis', () => {
+    const t = singleWithTurbo();
+    refitBends(t.graph, t.ports, t.spec);
+    const [x, y, z] = t.mount.position!;
+    moveTurbo(t.graph, t.ports, t.spec, t.mount.id, [x + 0.1, y, z], t.mount.rotation);
+    expect(t.mount.position).toEqual([x, y, z]);
+    const axis = inletOf(t).dir;
+    moveTurbo(t.graph, t.ports, t.spec, t.mount.id, t.mount.position!, quatMultiply(quatFromAxisAngle(axis, 0.7), t.mount.rotation));
+    expect(t.mount.roll).toBeCloseTo(0.7, 9);
+    expect(turboRoll(t.mount.rotation)).toBeCloseTo(0.7, 9);
+    flush(t);
+    // Turned about anything else, it takes only the roll.
+    moveTurbo(t.graph, t.ports, t.spec, t.mount.id, t.mount.position!, quatMultiply(quatFromAxisAngle([0, 1, 0], 0.5), t.mount.rotation));
+    flush(t);
+    // And keeps it in a link.
+    const back = graphFromJson(JSON.parse(JSON.stringify(t.graph)))!;
+    expect(back.turbos![0]!.snapped).toBe(true);
+    expect(back.turbos![0]!.roll).toBe(t.mount.roll);
+  });
+
+  it('follows the pipe’s end when the pipe is changed', () => {
+    const t = singleWithTurbo();
+    const runner = t.graph.ducts.find((d) => d.id === 'runner0')!;
+    runner.segments.at(-1)!.length += 0.1;
+    runner.segments.at(-1)!.pitch = -0.4;
+    refitBends(t.graph, t.ports, t.spec);
+    flush(t);
+    expect(runner.fitted).toBeUndefined();
+  });
+
+  it('goes in where one of a pipe’s segments meets the next, the rest of the pipe from its outlet', () => {
+    const { spec, graph, ports } = single();
+    const runner = graph.ducts.find((d) => d.id === 'runner0')!;
+    expect(runner.segments.length).toBeGreaterThan(1);
+    const mount = newTurbo(graph);
+    expect(placeTurboAtJoint(graph, mount, 'runner0', runner.segments[0]!.length)).toBe(true);
+    refitBends(graph, ports, spec);
+    expect(validateGraph(graph, 1)).toEqual([]);
+    expect(mount.snapped).toBe(true);
+    expect(runner.to).toEqual({ kind: 'node', node: mount.node });
+    const after = graph.ducts.find((d) => d.from.kind === 'node' && d.from.node === mount.node)!;
+    expect(after.to.kind).toBe('mouth');
+    const turbos = turboPortsOf(graph, spec);
+    const placement = layoutGraph(ports, graph, turbos);
+    expect(pipesMeetAt(graph, placement, mount.node)).toBe(true);
+    placement.ducts.get(after.id)!.origin.toArray().forEach((x, i) => expect(x).toBeCloseTo(turbos.get(mount.node)!.outlet.point[i]!, 9));
+  });
+
+  it('is snapped onto nothing once a second pipe feeds it, and stays put', () => {
+    const t = singleWithTurbo();
+    refitBends(t.graph, t.ports, t.spec);
+    const at = [...t.mount.position!];
+    t.graph.ducts.push({ id: 'extra', segments: [makeSegment({ length: 0.2 })], from: { kind: 'free', position: [0.5, 0, 0] }, to: { kind: 'node', node: t.mount.node } });
+    refitBends(t.graph, t.ports, t.spec);
+    expect(t.mount.snapped).toBeUndefined();
+    expect(t.mount.position).toEqual(at);
+  });
+});
+
+describe('a turbo put down on a junction', () => {
+  /** The Honda's four runners into its merge, a collector out of it, and a turbo put in there. */
+  function mergeWithTurbo() {
+    const preset = ENGINE_PRESETS.find((p) => p.name === 'Inline four, Honda F20C')!;
+    const cfg = defaultConfig();
+    const spec = presetEngine(preset, cfg.engine);
+    const graph = compileExhaust(spec, cfg.pipe, cfg.collector);
+    const ports = portsOf(spec);
+    seatHeaders(graph, ports);
+    refitBends(graph, ports, spec);
+    expect(turboFitsJunction(graph, 'merge0')).toBe(true);
+    const joint = layoutGraph(ports, graph, turboPortsOf(graph, spec)).joints.get('merge0')!;
+    const mount = newTurbo(graph);
+    seatTurbo(mount, [joint.centre.x, joint.centre.y, joint.centre.z], [joint.axis.x, joint.axis.y, joint.axis.z], graphTurboSize(graph, spec));
+    placeTurboAtJunction(graph, mount, 'merge0');
+    refitBends(graph, ports, spec);
+    return { spec, graph, ports, mount };
+  }
+
+  it('takes the pipes into it at its inlet, and the one out of it from its outlet', () => {
+    const { spec, graph, ports, mount } = mergeWithTurbo();
+    expect(validateGraph(graph, spec.cylinders)).toEqual([]);
+    expect(mount.node).toBe('merge0');
+    expect(junctionAt(graph, 'merge0')).toBeUndefined();
+    const turbos = turboPortsOf(graph, spec);
+    const placement = layoutGraph(ports, graph, turbos);
+    expect(pipesMeetAt(graph, placement, 'merge0')).toBe(true);
+    const outlet = turbos.get('merge0')!.outlet;
+    placement.ducts.get('collector0')!.origin.toArray().forEach((x, i) => expect(x).toBeCloseTo(outlet.point[i]!, 9));
+    // Every pipe into it bends in flush with its flange.
+    for (const d of graph.ducts.filter((d) => d.role === 'runner')) {
+      const place = placement.ducts.get(d.id)!;
+      const dir = layoutPipe(d.segments, place.origin, place.heading).jointDirections.at(-1)!;
+      dir.toArray().forEach((x, i) => expect(x, d.id).toBeCloseTo(turbos.get('merge0')!.inlet.dir[i]!, 6));
+    }
+    expect(turboFitsJunction(graph, 'merge0')).toBe(false);
+  });
+
+  it('is not offered where more than one pipe leaves it', () => {
+    const { graph } = single();
+    graph.ducts.push(
+      { id: 'a', segments: [makeSegment({ length: 0.2 })], from: { kind: 'node', node: 'j' }, to: { kind: 'mouth' } },
+      { id: 'b', segments: [makeSegment({ length: 0.2 })], from: { kind: 'node', node: 'j' }, to: { kind: 'mouth' } },
+    );
+    graph.ducts.find((d) => d.id === 'runner0')!.to = { kind: 'node', node: 'j' };
+    expect(turboFitsJunction(graph, 'j')).toBe(false);
+  });
+});
+
 describe('a pipe fitted into a turbo’s inlet', () => {
   const entry = new THREE.Vector3(0.1, 0.2, 0);
   const x = new THREE.Vector3(1, 0, 0);
@@ -349,7 +591,7 @@ describe('a pipe fitted into a turbo’s inlet', () => {
   });
 
   it('fits the bend again when the turbo moves, leaving the pipe as drawn, and is not edited', () => {
-    const { spec, graph, ports, mount } = singleWithTurbo();
+    const { spec, graph, ports, mount } = singleWithFreeTurbo();
     const drawn = graph.ducts.find((d) => d.id === 'runner0')!.segments.map((s) => ({ ...s }));
     const [px, py, pz] = mount.position!;
     moveTurbo(graph, ports, spec, mount.id, [px + 0.05, py, pz + 0.08], mount.rotation);

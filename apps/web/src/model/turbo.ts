@@ -22,8 +22,9 @@ import {
   junctionRemoval,
   nodeOrder,
   removeJunction,
+  splitDuctAt,
 } from './exhaustGraph.js';
-import type { Vec3 } from './geometry.js';
+import { type Vec3, turnBetweenDirs, turnDir } from './geometry.js';
 import { type EngineSpec, displacement } from './spec.js';
 
 /** Swept volume one turbo is drawn for, m^3: a size of turbo in the middle of the range. */
@@ -242,17 +243,105 @@ export function turboPortsOf(graph: ExhaustGraph, spec: EngineSpec): Map<string,
   return out;
 }
 
+/** The turn taking the turbo's own x, y and z onto the unit, square `x`, `y` and `z`. */
+function quatFromBasis(x: Vec3, y: Vec3, z: Vec3): Quat {
+  const trace = x[0] + y[1] + z[2];
+  if (trace > 0) {
+    const s = 0.5 / Math.sqrt(trace + 1);
+    return quatNormalise([(y[2] - z[1]) * s, (z[0] - x[2]) * s, (x[1] - y[0]) * s, 0.25 / s]);
+  }
+  if (x[0] > y[1] && x[0] > z[2]) {
+    const s = 2 * Math.sqrt(1 + x[0] - y[1] - z[2]);
+    return quatNormalise([0.25 * s, (y[0] + x[1]) / s, (z[0] + x[2]) / s, (y[2] - z[1]) / s]);
+  }
+  if (y[1] > z[2]) {
+    const s = 2 * Math.sqrt(1 + y[1] - x[0] - z[2]);
+    return quatNormalise([(y[0] + x[1]) / s, 0.25 * s, (z[1] + y[2]) / s, (z[0] - x[2]) / s]);
+  }
+  const s = 2 * Math.sqrt(1 + z[2] - x[0] - y[1]);
+  return quatNormalise([(z[0] + x[2]) / s, (z[1] + y[2]) / s, 0.25 * s, (x[1] - y[0]) / s]);
+}
+
+const cross = (a: Vec3, b: Vec3): Vec3 => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const dot = (a: Vec3, b: Vec3): number => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
 /**
- * Put `mount` where its inlet flange is at `point`, turned to take gas arriving along `dir`.
- *
- * Seated level, turned only about the vertical: a pipe arriving from above or below meets the flange at an
- * angle, as it would meet a junction, until the turbo is tipped to meet it.
+ * The level way a turbo's shaft lies with gas arriving at its inlet along the unit `z`: square to it and to
+ * the vertical. Gas arriving straight up or down leaves no level way square to it in particular, so then
+ * along the crank.
  */
-export function seatTurbo(mount: TurboMount, point: Vec3, dir: Vec3, size: TurboSize): void {
-  const flat = Math.hypot(dir[0], dir[2]);
-  if (flat > 1e-6) mount.rotation = quatFromYaw(Math.atan2(dir[0], dir[2]));
+function levelShaft(z: Vec3): Vec3 {
+  let x = cross([0, 1, 0], z);
+  if (Math.hypot(...x) < 1e-6) {
+    const k = -z[2];
+    x = [-k * z[0], -k * z[1], -1 - k * z[2]];
+  }
+  const m = Math.hypot(...x);
+  return [x[0] / m, x[1] / m, x[2] / m];
+}
+
+/**
+ * Put `mount` where its inlet flange is at `point`, turned to take gas arriving along `dir`: the flange
+ * square to it, flush with a pipe ending there however that pipe climbs or falls. Tipped only as far as
+ * that takes, its shaft lying level (`levelShaft`), then rolled `roll` radians about the way the gas
+ * arrives.
+ */
+export function seatTurbo(mount: TurboMount, point: Vec3, dir: Vec3, size: TurboSize, roll = 0): void {
+  const n = Math.hypot(...dir);
+  if (n > 1e-9) {
+    const z: Vec3 = [dir[0] / n, dir[1] / n, dir[2] / n];
+    const x = levelShaft(z);
+    const level = quatFromBasis(x, cross(z, x), z);
+    mount.rotation = roll === 0 ? level : quatNormalise(quatMultiply(quatFromAxisAngle(z, roll), level));
+  }
   const r = quatRotate(localInlet(size), mount.rotation);
   mount.position = [point[0] - r[0], point[1] - r[1], point[2] - r[2]];
+}
+
+/** How far a turbo turned by `rotation` is rolled about its inlet's axis from its shaft lying level, radians. */
+export function turboRoll(rotation: Quat): number {
+  const z = quatRotate([0, 0, 1], rotation);
+  const x = quatRotate([1, 0, 0], rotation);
+  const level = levelShaft(z);
+  return Math.atan2(dot(cross(level, x), z), dot(level, x));
+}
+
+/**
+ * Whether a turbo can go in at junction `node`, its turbine where the pipes there meet: some pipe runs
+ * into it, no more than one leaves it, which becomes the turbo's outlet pipe, and it is neither a turbo
+ * already nor an X-pipe's crossing, whose pipes run on through it.
+ */
+export function turboFitsJunction(graph: ExhaustGraph, node: string): boolean {
+  if (graph.turbos?.some((t) => t.node === node)) return false;
+  if (graph.junctions?.some((j) => j.node === node && j.through)) return false;
+  const ends = endsAt(graph, node);
+  return ends.some((e) => e.end === 'outlet') && ends.filter((e) => e.end === 'inlet').length <= 1;
+}
+
+/**
+ * Put `mount` in at junction `node` (`turboFitsJunction`): the pipes into it feed its inlet, and the pipe
+ * leaving it, if one does, runs on from its outlet flange. Into one pipe, it is snapped onto that pipe's
+ * end (`TurboMount.snapped`), which takes any bend it was fitted with as drawn; into several, they bend in
+ * to meet its flange.
+ */
+export function placeTurboAtJunction(graph: ExhaustGraph, mount: TurboMount, node: string): void {
+  mount.node = node;
+  const feeds = endsAt(graph, node).filter((e) => e.end === 'outlet');
+  if (feeds.length === 1) {
+    const feed = feeds[0]!.duct;
+    delete feed.fitted;
+    delete feed.swing;
+    delete feed.square;
+    mount.snapped = true;
+  }
+  // The turbo has a place of its own, so the junction's goes.
+  if (graph.junctions) {
+    graph.junctions = graph.junctions.filter((j) => j.node !== node);
+    if (graph.junctions.length === 0) delete graph.junctions;
+  }
+  // Leaving the outlet flange, it carries on from none of the pipes into the inlet.
+  for (const d of graph.ducts) if (d.from.kind === 'node' && d.from.node === node) delete d.continues;
+  (graph.turbos ??= []).push(mount);
 }
 
 /** A turbo not yet in `graph`, with ids nothing is using. */
@@ -267,10 +356,25 @@ export function newTurbo(graph: ExhaustGraph, position: Vec3 | null = null, rota
   return { id: `turbo${n}`, node: `turbine${k}`, position, rotation: [...rotation] };
 }
 
-/** Add `mount` to the graph, and attach `attach`'s open end to its inlet if given. */
+/**
+ * Add `mount` to the graph, and attach `attach`'s open end to its inlet if given: snapped onto that end,
+ * which it then sits on (`TurboMount.snapped`).
+ */
 export function placeTurbo(graph: ExhaustGraph, mount: TurboMount, attach?: string): void {
   (graph.turbos ??= []).push(mount);
-  if (attach) connectToTurbo(graph, attach, mount.id);
+  if (attach && connectToTurbo(graph, attach, mount.id)) mount.snapped = true;
+}
+
+/**
+ * Put `mount` in where one of pipe `ductId`'s segments meets the next, `x` along it, m: the pipe split there,
+ * the turbo snapped onto the end of the part before (`placeTurboAtJunction`) and the part after running on
+ * from its outlet. Returns whether it went in.
+ */
+export function placeTurboAtJoint(graph: ExhaustGraph, mount: TurboMount, ductId: string, x: number): boolean {
+  const node = splitDuctAt(graph, ductId, x);
+  if (!node) return false;
+  placeTurboAtJunction(graph, mount, node);
+  return true;
 }
 
 /**
@@ -291,15 +395,47 @@ export function connectToTurbo(graph: ExhaustGraph, ductId: string, turboId: str
 /**
  * Take a turbo out. The pipes that fed it end in open air where its inlet was, and its outlet pipe goes,
  * since nothing feeds it any more. Refused, returning `false`, where that pipe has children of its own.
+ *
+ * A pipe into it that starts at a port or another pipe keeps the bend it was fitted into the inlet with,
+ * as drawn: often that bend is most or all of it, as a header's primaries are. A loose pipe, joined to
+ * nothing else, gives its bend up and ends where it was drawn to. Given the turbos' `size`, a pipe from its
+ * outlet that joins something further on, another pipe or a junction, stays too: a loose pipe from where
+ * the outlet flange was, heading as it did, so it is never refused.
  */
-export function removeTurbo(graph: ExhaustGraph, turboId: string, dirs?: DuctDirections): boolean {
+export function removeTurbo(graph: ExhaustGraph, turboId: string, dirs?: DuctDirections, size?: TurboSize): boolean {
   const mount = graph.turbos?.find((t) => t.id === turboId);
   if (!mount) return false;
+  if (size && mount.position) {
+    const outlet = turboPorts(mount as TurboMount & { position: Vec3 }, size).outlet;
+    for (const e of endsAt(graph, mount.node)) {
+      if (e.end === 'inlet' && e.duct.to.kind === 'node') loosenFrom(e.duct, outlet);
+    }
+  }
   const inUse = endsAt(graph, mount.node).length > 0;
   // Refused where its outlet pipe carries on into others, as deleting that pipe would take them with it.
   if (inUse && !junctionRemoval(graph, mount.node, true)) return false;
   graph.turbos = graph.turbos!.filter((t) => t !== mount);
   if (graph.turbos.length === 0) delete graph.turbos;
+  for (const e of endsAt(graph, mount.node)) {
+    if (e.end !== 'outlet' || e.duct.from.kind === 'free') continue;
+    delete e.duct.fitted;
+    delete e.duct.swing;
+    delete e.duct.square;
+  }
   if (inUse) removeJunction(graph, mount.node, dirs, true);
   return true;
+}
+
+/**
+ * Make `duct`, leaving a turbo's `outlet`, a loose pipe starting where the flange is, heading as it did: in
+ * the world's terms, which a pipe leaving a turbo stores its heading in or off the flange's way.
+ */
+function loosenFrom(duct: ExhaustDuct, outlet: TurboPorts['outlet']): void {
+  const heading = turnDir(duct.headingFrame === 'world' ? [1, 0, 0] : outlet.dir, duct.headingYaw ?? 0, duct.headingPitch ?? 0);
+  const turn = turnBetweenDirs([1, 0, 0], heading);
+  duct.from = { kind: 'free', position: [...outlet.point] };
+  duct.headingYaw = turn.yaw;
+  duct.headingPitch = turn.pitch;
+  duct.headingFrame = 'world';
+  delete duct.continues;
 }

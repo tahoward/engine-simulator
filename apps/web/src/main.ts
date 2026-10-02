@@ -55,6 +55,8 @@ import {
   engineTurboSettings,
   newTurbo,
   placeTurbo,
+  placeTurboAtJoint,
+  placeTurboAtJunction,
   setTurbosSynced,
   turbosSynced,
   removeTurbo,
@@ -302,13 +304,14 @@ const editor = new PipeEditor(
       audio.setGraph(config.graph!);
       saveConfig();
     },
-    onPlaceTurbo: ({ position, rotation, attach }) => {
+    onPlaceTurbo: ({ position, rotation, attach, junction, joint }) => {
       freeze();
       const graph = config.graph!;
       const mount = newTurbo(graph, position, rotation);
       // Out of sync, a new turbo starts from the engine's settings, as its own.
       if (!turbosSynced(graph)) mount.settings = engineTurboSettings(config.engine);
-      placeTurbo(graph, mount, attach);
+      if (junction) placeTurboAtJunction(graph, mount, junction);
+      else if (!joint || !placeTurboAtJoint(graph, mount, joint.duct, joint.x)) placeTurbo(graph, mount, attach);
       afterTurboEdit(true);
       selectTurbo(mount.id);
     },
@@ -391,7 +394,7 @@ window.addEventListener('keydown', (e) => {
 
   if (selectedTurbo) {
     freeze();
-    if (removeTurbo(config.graph!, selectedTurbo, directionsOf(stablePlacement))) {
+    if (removeTurbo(config.graph!, selectedTurbo, directionsOf(stablePlacement), graphTurboSize(config.graph!, config.engine))) {
       selectTurbo(null);
       afterTurboEdit(true);
     } else {
@@ -602,7 +605,7 @@ const panel = new Panel(panelEl, toolsEl, config, {
   onPlacePipeMode: (on) => editor.setPlaceMode(on, 'pipe'),
   onRemoveTurbo: (id) => {
     freeze();
-    if (!removeTurbo(config.graph!, id, directionsOf(stablePlacement))) {
+    if (!removeTurbo(config.graph!, id, directionsOf(stablePlacement), graphTurboSize(config.graph!, config.engine))) {
       panel.notify('Pipes carry on from this turbo’s outlet pipe: delete them first.');
       return;
     }
