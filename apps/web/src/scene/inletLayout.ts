@@ -1,6 +1,6 @@
 /**
  * Where the intake's parts are drawn: the plenum on the engine, the throttle body on its front, the tube
- * from it up into an airbox across the top of the engine's front, and the snorkel from the airbox forwards
+ * from it up and over into the front of an airbox across the top of the engine's front, and the snorkel from the airbox forwards
  * to just ahead of the engine. Pure geometry, so what is drawn and where the intake is heard from (`soundSources`) agree.
  *
  * The tube, the airbox and the snorkel are the inlet tract the simulation solves (`inletSegments`): the
@@ -77,6 +77,11 @@ function fit(f: (t: number) => number, target: number, lo: number, hi: number): 
   }
   return (lo + hi) / 2;
 }
+
+/** How far along the airbox from its end the tube goes into its front, beyond the tube's own radius, m. */
+const TUBE_INSET = 0.03;
+/** How much further the tube reaches forwards over the top of its U than out of the throttle body. */
+const TUBE_TOP_REACH = 1.6;
 
 export function inletLayout(spec: EngineSpec): InletLayout {
   const shell = engineShell(spec);
@@ -244,16 +249,15 @@ export function inletLayout(spec: EngineSpec): InletLayout {
     size: new THREE.Vector3(chamber.length, boxHeight, depth),
   };
 
-  // The tube: forwards out of the throttle body, then up and round into the airbox's end, its bends as
-  // full as make it the solver's length.
+  // The tube: forwards out of the throttle body, then up and back over into the front of the airbox, by its
+  // end, in one U, as long as the solver's. Into the airbox's end instead, it would have to double back on
+  // itself in a bend tighter than its own bore.
+  const intoBox = inlet.clone().addScaledVector(across, bore / 2 + TUBE_INSET);
+  intoBox.z = boxZ - depth / 2;
+  const forwards = new THREE.Vector3(0, 0, -1);
   const tubeAt = (k: number) =>
-    new THREE.CubicBezierCurve3(
-      start,
-      start.clone().add(new THREE.Vector3(0, 0, -k)),
-      inlet.clone().addScaledVector(across, -k),
-      inlet,
-    );
-  const tube = tubeAt(fit((k) => tubeAt(k).getLength(), segments[0]!.length, 0.02, 0.5));
+    new THREE.CubicBezierCurve3(start, start.clone().addScaledVector(forwards, k), intoBox.clone().addScaledVector(forwards, k * TUBE_TOP_REACH), intoBox);
+  const tube = tubeAt(fit((k) => tubeAt(k).getLength(), segments[0]!.length, 0, 1));
 
   // The snorkel: out of the airbox's far end, round to face forwards, its mouth just ahead of the engine,
   // as long as the solver's.
