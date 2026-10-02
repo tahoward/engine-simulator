@@ -44,6 +44,9 @@ function runnerRadius(radius: number, s: number, flare: number): number {
   return s >= reach ? radius : radius * (1 + flare * (1 - s / reach) ** 2);
 }
 
+/** Wall thickness of the airbox's moulding, m. */
+const AIRBOX_WALL = 0.004;
+
 /** Wall thickness of the rubber tube, m: how far it stands out of its bore. */
 const WALL = 0.004;
 
@@ -225,20 +228,22 @@ function alongFace(p: THREE.Vector2, q: THREE.Vector2, start: THREE.Vector2, dir
 }
 
 /**
- * The plenum as a hollow casting, centred on the origin, `size` along x, y and z: a shell `PLENUM_WALL`
- * thick round its section, run along z, closed at the back, and at the front by a plate with the throttle
+ * The plenum as a hollow casting, centred on the origin, `size` along x, y and z: a shell `wall` thick round
+ * its section, its edges rounded by `rounding`, run along z, closed at the back, and at the front by a plate with the throttle
  * body's bore, `bore` across, through it at the section's middle. Where runners leave it, the upright side
  * they leave by is a plate of its own, inside and out, with an opening for each, so the runners can be seen
  * into from inside. Its rounded edges shade smoothly, as a pipe's curve does, and its square ones stay sharp.
  */
-function plenumGeometry(size: THREE.Vector3, base: number, bore: number, openings: Opening[]): THREE.BufferGeometry {
-  const outer = plenumSection(size.x, size.y, base, PLENUM_ROUNDING);
-  const inner = plenumSection(
-    size.x - 2 * PLENUM_WALL,
-    size.y - 2 * PLENUM_WALL,
-    base,
-    Math.max(PLENUM_ROUNDING - PLENUM_WALL, 0.002),
-  );
+function plenumGeometry(
+  size: THREE.Vector3,
+  base: number,
+  bore: number,
+  openings: Opening[],
+  rounding = PLENUM_ROUNDING,
+  wall = PLENUM_WALL,
+): THREE.BufferGeometry {
+  const outer = plenumSection(size.x, size.y, base, rounding);
+  const inner = plenumSection(size.x - 2 * wall, size.y - 2 * wall, base, Math.max(rounding - wall, 0.002));
   const n = outer.points.length;
   const open = (['right', 'left', 'rightFlank', 'leftFlank', 'bottom'] as const).filter((face) =>
     openings.some((o) => o.face === face),
@@ -608,17 +613,56 @@ export class InletMesh {
     maf.lookAt(maf.position.clone().add(l.tube.getTangentAt(0.7)));
     this.tract.add(maf);
 
-    // The airbox: a rounded black plastic box, its lid's seam a lip round it, clipped down front and back.
-    // It stays black in the pressure view: its cells would show only as their mean.
+    // The airbox: a rounded black plastic box, hollow, open where the tube and the snorkel join it so they can
+    // be seen into, its lid's seam a lip round it, clipped down front and back. It stays black in the pressure
+    // view: its cells would show only as their mean.
     const { centre, size } = l.airbox;
+    const round = Math.sqrt(l.snorkelArea / Math.PI);
+    const into = l.tube.getPointAt(1);
+    const holes = [l.tubeRadius, round];
+    // Made as the plenum is, a shell run along its length: that along the way it runs from the tube's end to
+    // the snorkel's, which leaves by the plate at the far end, and the tube by the front.
+    const length = new THREE.Vector3(-l.side, 0, 0);
+    const up = new THREE.Vector3(0, 1, 0);
+    const width = new THREE.Vector3().crossVectors(up, length);
+    const local = (v: THREE.Vector3) => new THREE.Vector2(v.dot(width), v.y);
+    const rel = into.clone().sub(centre);
+    const out = local(l.tube.getTangentAt(1).negate()).normalize();
+    const flat = size.y / 2 - Math.max(...holes) - 0.004;
     const box = new THREE.Mesh(
-      new RoundedBoxGeometry(size.x, size.y, size.z, 5, Math.min(size.y, size.z) * 0.18),
+      plenumGeometry(
+        new THREE.Vector3(size.z, size.y, size.x),
+        1,
+        2 * round,
+        [{ face: out.x > 0 ? 'right' : 'left', start: local(rel), direction: out, z: rel.dot(length), inside: l.tubeRadius, outside: l.tubeRadius }],
+        Math.max(Math.min(Math.min(size.y, size.z) * 0.18, flat), 0.004),
+        AIRBOX_WALL,
+      ),
       this.plastic,
     );
     box.position.copy(centre);
+    box.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(width, up, length));
     this.tract.add(box);
-    const seamY = centre.y + size.y * 0.15;
-    const lip = new THREE.Mesh(new RoundedBoxGeometry(size.x + 0.01, 0.008, size.z + 0.01, 2, 0.003), this.plastic);
+    // The seam above the openings, so the lip does not run across them.
+    const seamY = centre.y + Math.min(Math.max(size.y * 0.15, Math.max(...holes) + 0.012), size.y / 2 - 0.008);
+    const frame = new THREE.Shape([
+      new THREE.Vector2(-(size.x + 0.01) / 2, -(size.z + 0.01) / 2),
+      new THREE.Vector2((size.x + 0.01) / 2, -(size.z + 0.01) / 2),
+      new THREE.Vector2((size.x + 0.01) / 2, (size.z + 0.01) / 2),
+      new THREE.Vector2(-(size.x + 0.01) / 2, (size.z + 0.01) / 2),
+    ]);
+    frame.holes.push(
+      new THREE.Path([
+        new THREE.Vector2(-size.x / 2, -size.z / 2),
+        new THREE.Vector2(-size.x / 2, size.z / 2),
+        new THREE.Vector2(size.x / 2, size.z / 2),
+        new THREE.Vector2(size.x / 2, -size.z / 2),
+      ]),
+    );
+    const lip = new THREE.Mesh(
+      new THREE.ExtrudeGeometry(frame, { depth: 0.008, bevelEnabled: false }).rotateX(Math.PI / 2).translate(0, 0.004, 0),
+      this.plastic,
+    );
     lip.position.set(centre.x, seamY, centre.z);
     this.tract.add(lip);
     for (const fx of [-0.3, 0.3]) {
@@ -628,12 +672,12 @@ export class InletMesh {
         this.tract.add(clip);
       }
     }
-    // A spigot each end, where the tube and the snorkel join it.
-    for (const [curve, u] of [
-      [l.tube, 1],
-      [l.snorkel, 0],
+    // A spigot each end, where the tube and the snorkel join it: a collar round each, open through.
+    for (const [curve, u, radius] of [
+      [l.tube, 1, r + 0.004],
+      [l.snorkel, 0, round + SNORKEL_WALL + 0.004],
     ] as const) {
-      const spigot = new THREE.Mesh(new THREE.CylinderGeometry(r + 0.004, r + 0.004, 0.03, 24), this.plastic);
+      const spigot = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.03, 32, 1, true), this.plastic);
       spigot.position.copy(curve.getPointAt(u));
       spigot.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), curve.getTangentAt(u).normalize());
       this.tract.add(spigot);
@@ -641,7 +685,6 @@ export class InletMesh {
 
     // The snorkel: round where it leaves the airbox, flattening over its first stretch to fit under the
     // bonnet with the solver's area kept, and flaring at its mouth.
-    const round = Math.sqrt(l.snorkelArea / Math.PI);
     const aspect = SNORKEL_ASPECT;
     const snorkelLength = l.snorkel.getLength();
     const snorkel = new THREE.Mesh(
