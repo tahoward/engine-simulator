@@ -385,10 +385,11 @@ whoosh as the flow builds, are the inlet's flow itself.
   speed, and radiated with the flow, so the whine is as loud as the air the wheel moves. Each turbo has a
   voice, 1.2% faster than the one before, so two or more beat. Every tone fades out below the Nyquist frequency,
   so nothing folds back down at a low sample rate.
-- **The flutter.** Past its surge line the wheel's flow breaks up: it sheds turbulence into the inlet,
-  around its first few shaft orders, growing from nothing at the surge line to 6% of its flow with no
-  flow at all. As the flow collapses and recovers in a surge, that comes and goes with it, which is the
-  flutter. The air forced back out through the inducer is a jet as well, and roars as one.
+- **The flutter.** In a rotating stall, or forced backwards, the wheel's flow breaks up: it sheds
+  turbulence into the inlet, around its first few shaft orders, up to 20% of the flow through it as the
+  stall grows to full, or as the reversed flow reaches 22% of the choke flow. In a surge the flow
+  collapses, runs backwards and recovers each cycle, and that comes and goes with it in bursts, which
+  is the flutter. The air forced back out through the inducer is a jet as well, and roars as one.
 
 **From the blow-off valve.** An atmospheric valve's outlet is a mouth too, and its outflow radiates as
 the valve lifts and shuts. The jet's hiss is Lighthill's: its sound power is `K rho U^8 D^2 / c^5`, from

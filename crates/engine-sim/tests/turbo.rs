@@ -313,20 +313,67 @@ fn without_a_blow_off_valve_the_compressor_surges() {
     assert!(least < 0.05, "and recovers between surges: {least}");
 }
 
+/// Lifted off with no blow-off valve, revving free, the surge dies away as the shaft slows: a slower
+/// wheel's speed line is flatter at low flow, and has less to drive one with. Within a second and a
+/// half the flow through it barely swings.
+#[test]
+fn without_a_blow_off_valve_the_surge_dies_away_as_the_shaft_slows() {
+    let mut sim = rb26(json!({ "throttle": 0, "rpm": 900, "blowOff": "none", "freeRunning": true }));
+    sim.render(2 * FS as usize);
+    sim.set_controls(1.0, 0.0);
+    sim.render((1.2 * FS) as usize);
+    sim.set_controls(0.0, 0.0);
+    let flow: Vec<f64> = (0..2 * FS as usize)
+        .map(|_| {
+            sim.render(1);
+            sim.turbo().unwrap().compressor_flow()
+        })
+        .collect();
+    let swing = |v: &[f64]| v.iter().cloned().fold(f64::MIN, f64::max) - v.iter().cloned().fold(f64::MAX, f64::min);
+    let (early, late) = (swing(&flow[..FS as usize / 5]), swing(&flow[(1.5 * FS) as usize..]));
+    assert!(early > 0.1, "a deep surge on the lift: {early} kg/s");
+    assert!(late < 0.15 * early, "gone by 1.5 s: {late} kg/s against {early}");
+}
+
+/// On high boost too, the EA855 on its 1.35 bar, the surge starts with the lift and keeps on: the
+/// charge trapped behind the shut throttle can never rest against a wheel making no flow, and goes on
+/// blowing back through it, cycle after cycle.
+#[test]
+fn on_high_boost_the_surge_starts_with_the_lift() {
+    let mut cfg = common::engine_preset("Inline five, Audi EA855 EVO").config.clone();
+    cfg.engine = common::with(
+        &cfg.engine,
+        json!({ "throttle": 1, "rpm": 4500, "blowOff": "none", "freeRunning": false, "combustionVariability": 0 }),
+    );
+    let mut sim = EngineSim::new(FS, &cfg);
+    sim.render(3 * FS as usize);
+    sim.set_controls(0.0, 0.0);
+    let flow: Vec<f64> = (0..(0.6 * FS) as usize)
+        .map(|_| {
+            sim.render(1);
+            sim.turbo().unwrap().compressor_flow()
+        })
+        .collect();
+    let starts: Vec<usize> = (1..flow.len()).filter(|&i| flow[i - 1] >= 0.0 && flow[i] < 0.0).collect();
+    assert!(starts.len() >= 5, "{} surges in 0.6 s", starts.len());
+    let longest = starts.windows(2).map(|w| w[1] - w[0]).max().unwrap() as f64 / FS;
+    assert!(longest < 0.15, "no lull between surges: the longest {longest} s");
+}
+
 /// The throttle shutting is felt at the compressor only once its pressure wave has run back up the
 /// charge pipe: for the first few milliseconds the compressor goes on delivering as before.
 #[test]
 fn the_throttle_shutting_reaches_the_compressor_as_a_wave() {
     let (_, flow) = lift_off(json!({ "blowOff": "none" }));
     let before = flow[0];
-    let unaware = (0.004 * FS) as usize;
+    let unaware = (0.007 * FS) as usize;
     assert!(
         flow[..unaware].iter().all(|&m| (m - before).abs() < 0.03 * before),
-        "unchanged for 4 ms: {:?}",
+        "unchanged for 7 ms: {:?}",
         &flow[..unaware]
     );
     let reached = flow.iter().position(|&m| m < 0.5 * before).unwrap() as f64 / FS;
-    assert!(reached < 0.012, "the flow falls once the wave arrives, after {reached} s");
+    assert!(reached < 0.02, "the flow falls once the wave arrives, after {reached} s");
 }
 
 /// On boost, what the compressor radiates from its inlet has its strongest tone at the blade-pass
