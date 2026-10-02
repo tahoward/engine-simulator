@@ -139,7 +139,7 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   let width = Math.max(Math.min(Math.max(footprint, 0.07), vee ? shell.width * 0.9 : 0.12), face);
   const runners: Runner[] = [];
   let centre: THREE.Vector3;
-  // How wide its underside is against its top: a boxer's narrows below its throttle body, a V's to its banks.
+  // How wide its underside is against its top: a V's narrows to its banks.
   let base = vee ? 0.55 : 1;
   if (vee) {
     const valley = Math.max(shell.top * Math.cos(shell.straddle) * 0.8, shell.crankcase.radius + 0.02);
@@ -214,13 +214,17 @@ export function inletLayout(spec: EngineSpec): InletLayout {
         });
       }
     } else {
+      // A boxer's sits on top between its heads, a rounded box, square below.
+      base = 1;
       centre = new THREE.Vector3(0, valley + height / 2, 0);
       // Each runner leaves the plenum's side towards its bank, square to it, and arches down into its port
       // on top of a boxer's head.
       for (const port of ports) {
         const out = Math.sign(port.position.x) || 1;
-        // From the plenum's inside wall, a little above its middle, where its side is still upright.
-        const from = new THREE.Vector3(out * (width / 2 - PLENUM_WALL), centre.y + height * 0.1, port.position.z);
+        // From the plenum's inside wall, low on its side, its flared mouth just clear of the rounded edge
+        // below, so the top has room to drop towards the back over them.
+        const low = Math.min(-height / 2 + PLENUM_ROUNDING + 1.5 * radius + 0.004, 0);
+        const from = new THREE.Vector3(out * (width / 2 - PLENUM_WALL), centre.y + low, port.position.z);
         const reach = Math.max(from.distanceTo(port.position) * 0.45, 2.2 * radius);
         runners.push({
           from,
