@@ -29,26 +29,33 @@ pub struct RunnerIo {
     pub inject: f64,
 }
 
+/// One runner: its duct, what flowed through it over the last sample, and what it holds. On cache
+/// lines of its own, as each runner may be stepped on a thread of its own.
+#[repr(align(128))]
+pub struct Runner {
+    pub pipe: EulerPipe,
+    /// Mass flow through the intake valve, kg/s, positive out of the cylinder into the runner.
+    pub valve_mass_flow: f64,
+    /// Mass flow out of the plenum end, kg/s, positive into the plenum.
+    pub plenum_flow: f64,
+    /// Gas temperature at the plenum end, K.
+    pub plenum_temp: f64,
+    /// Spent-gas and fuel mass fractions of the runner's contents.
+    pub burned: f64,
+    pub fuel: f64,
+    /// Gas temperature at the valve end, K.
+    pub port_temp: f64,
+    /// Fuel mass fraction of what the cylinder draws in through the valve.
+    pub inflow_fuel: f64,
+    burned_mass: f64,
+    fuel_mass: f64,
+    mass: f64,
+    /// Air the cylinder has pushed back out and not yet drawn back in, kg, as a negative balance.
+    air_owed: f64,
+}
+
 pub struct IntakeRunners {
-    pub runners: Vec<EulerPipe>,
-    /// Mass flow through each intake valve, kg/s, positive out of the cylinder into its runner.
-    pub valve_mass_flows: Vec<f64>,
-    /// Mass flow out of each runner's plenum end, kg/s, positive into the plenum.
-    pub plenum_flows: Vec<f64>,
-    /// Gas temperature at each runner's plenum end, K.
-    pub plenum_temps: Vec<f64>,
-    /// Spent-gas and fuel mass fractions of each runner's contents.
-    pub burned: Vec<f64>,
-    pub fuel: Vec<f64>,
-    /// Gas temperature at each runner's valve end, K.
-    pub port_temps: Vec<f64>,
-    /// Fuel mass fraction of what each cylinder draws in through its valve.
-    pub inflow_fuel: Vec<f64>,
-    burned_mass: Vec<f64>,
-    fuel_mass: Vec<f64>,
-    mass: Vec<f64>,
-    /// Air each cylinder has pushed back out and not yet drawn back in, kg, as a negative balance.
-    air_owed: Vec<f64>,
+    pub runners: Vec<Runner>,
 }
 
 impl IntakeRunners {
@@ -80,71 +87,67 @@ impl IntakeRunners {
             inherit_wall: None,
             ..opts.clone()
         };
-        let runners: Vec<EulerPipe> =
-            (0..count).map(|_| EulerPipe::new(&segment, sample_rate, spec.port_gas_temp, &runner_opts)).collect();
-        let z = || vec![0.0; count];
-        let mut r = IntakeRunners {
-            runners,
-            valve_mass_flows: z(),
-            plenum_flows: z(),
-            plenum_temps: z(),
-            port_temps: z(),
-            burned: z(),
-            fuel: z(),
-            burned_mass: z(),
-            fuel_mass: z(),
-            mass: z(),
-            air_owed: z(),
-            inflow_fuel: z(),
-        };
-        for b in 0..count {
-            r.mass[b] = r.runners[b].total_mass();
-            let t = r.runners[b].read_port().1;
-            r.port_temps[b] = t;
-            r.plenum_temps[b] = t;
-        }
-        r
+        let runners = (0..count)
+            .map(|_| {
+                let pipe = EulerPipe::new(&segment, sample_rate, spec.port_gas_temp, &runner_opts);
+                let t = pipe.read_port().1;
+                Runner {
+                    mass: pipe.total_mass(),
+                    port_temp: t,
+                    plenum_temp: t,
+                    pipe,
+                    valve_mass_flow: 0.0,
+                    plenum_flow: 0.0,
+                    burned: 0.0,
+                    fuel: 0.0,
+                    inflow_fuel: 0.0,
+                    burned_mass: 0.0,
+                    fuel_mass: 0.0,
+                    air_owed: 0.0,
+                }
+            })
+            .collect();
+        IntakeRunners { runners }
     }
 
     /// Cells across all the runners.
     pub fn cells(&self) -> usize {
-        self.runners.iter().map(|r| r.n).sum()
+        self.runners.iter().map(|r| r.pipe.n).sum()
     }
 
     /// Solver recoveries across all the runners. Should stay zero.
     pub fn recoveries(&self) -> u64 {
-        self.runners.iter().map(|r| r.recoveries).sum()
+        self.runners.iter().map(|r| r.pipe.recoveries).sum()
     }
 
     /// Take over from `src`, the other set of a two-stage intake, as the manifold switches between
     /// them: the gas, its composition and what each injector is owed.
     pub fn take_state_from(&mut self, src: &IntakeRunners) {
-        for b in 0..self.runners.len() {
-            let r = &mut self.runners[b];
-            r.resample_from(&src.runners[b]);
-            let m = r.total_mass();
-            self.mass[b] = m;
-            self.burned[b] = src.burned[b];
-            self.fuel[b] = src.fuel[b];
-            self.burned_mass[b] = m * src.burned[b];
-            self.fuel_mass[b] = m * src.fuel[b];
-            self.air_owed[b] = src.air_owed[b];
-            self.inflow_fuel[b] = src.inflow_fuel[b];
-            self.valve_mass_flows[b] = src.valve_mass_flows[b];
-            self.plenum_flows[b] = src.plenum_flows[b];
-            self.port_temps[b] = r.read_port().1;
-            self.plenum_temps[b] = r.read_mouth().1;
+        for (r, s) in self.runners.iter_mut().zip(&src.runners) {
+            r.pipe.resample_from(&s.pipe);
+            let m = r.pipe.total_mass();
+            r.mass = m;
+            r.burned = s.burned;
+            r.fuel = s.fuel;
+            r.burned_mass = m * s.burned;
+            r.fuel_mass = m * s.fuel;
+            r.air_owed = s.air_owed;
+            r.inflow_fuel = s.inflow_fuel;
+            r.valve_mass_flow = s.valve_mass_flow;
+            r.plenum_flow = s.plenum_flow;
+            r.port_temp = r.pipe.read_port().1;
+            r.plenum_temp = r.pipe.read_mouth().1;
         }
     }
 
     /// Prime every runner with a mixture, so the first cycles draw a charge.
     pub fn prime(&mut self, burned: f64, fuel: f64) {
-        for b in 0..self.runners.len() {
-            let m = self.mass[b];
-            self.burned_mass[b] = m * burned;
-            self.fuel_mass[b] = m * fuel;
-            self.burned[b] = burned;
-            self.fuel[b] = fuel;
+        for r in self.runners.iter_mut() {
+            let m = r.mass;
+            r.burned_mass = m * burned;
+            r.fuel_mass = m * fuel;
+            r.burned = burned;
+            r.fuel = fuel;
         }
     }
 
@@ -152,108 +155,147 @@ impl IntakeRunners {
     /// the pressure its runner opens onto; `cyl_state` is each cylinder's contents, from which what it
     /// pushes back up its runner takes its composition.
     pub fn advance(&mut self, io: &RunnerIo, valves: &[ValveState], breathing: &[f64], cyl_state: &[CylState]) {
-        let dt = io.dt;
-        let p_plenum = io.p;
-        let rho_plenum = io.rho;
-        let plenum_burned = io.burned;
-        let plenum_fuel = io.fuel;
-        let inject = io.inject;
         let count = self.runners.len();
+        let step = self.begin(io, valves, breathing, cyl_state);
+        for b in 0..count {
+            unsafe { step.runner(b) };
+        }
+    }
+
+    /// `advance`, set up for its runners to be stepped one at a time, in any order or at once: each
+    /// touches only its own `Runner`. The substep count is shared, so it is settled here.
+    pub fn begin<'a>(
+        &'a mut self,
+        io: &RunnerIo,
+        valves: &'a [ValveState],
+        breathing: &[f64],
+        cyl_state: &'a [CylState],
+    ) -> IntakeStep<'a> {
+        let dt = io.dt;
         let mut substeps = 1;
         for r in self.runners.iter_mut() {
-            let s = r.substeps_for(dt);
+            let s = r.pipe.substeps_for(dt);
             if s > substeps {
                 substeps = s;
             }
         }
-        let h = dt / substeps as f64;
-        self.valve_mass_flows.fill(0.0);
-        self.plenum_flows.fill(0.0);
 
         // Breathing scales pressure and density together, so the plenum's sound speed is every runner's.
-        let res_c = math::sqrt((gas::GAMMA_EXH * p_plenum) / rho_plenum);
-        for b in 0..count {
-            let bp = breathing[b];
-            self.runners[b].set_reservoir(p_plenum * bp, rho_plenum * bp, res_c);
+        let res_c = math::sqrt((gas::GAMMA_EXH * io.p) / io.rho);
+        for (r, &bp) in self.runners.iter_mut().zip(breathing) {
+            r.pipe.set_reservoir(io.p * bp, io.rho * bp, res_c);
         }
+        IntakeStep {
+            io: *io,
+            substeps,
+            valves,
+            cyl_state,
+            runners: self.runners.as_mut_ptr(),
+            _runners: std::marker::PhantomData,
+        }
+    }
+}
+
+/// One sample of `IntakeRunners::advance`, from `IntakeRunners::begin`, each runner reached only
+/// through its own index.
+pub struct IntakeStep<'a> {
+    io: RunnerIo,
+    substeps: usize,
+    valves: &'a [ValveState],
+    cyl_state: &'a [CylState],
+    runners: *mut Runner,
+    _runners: std::marker::PhantomData<&'a mut IntakeRunners>,
+}
+
+// Each runner is reached only through `runner(b)`, which each index is given to once.
+unsafe impl Sync for IntakeStep<'_> {}
+unsafe impl Send for IntakeStep<'_> {}
+
+impl IntakeStep<'_> {
+    /// Step runner `b` through the sample.
+    ///
+    /// # Safety
+    ///
+    /// Each `b` must be stepped once, by one thread: two threads on one runner would race.
+    pub unsafe fn runner(&self, b: usize) {
+        let dt = self.io.dt;
+        let substeps = self.substeps;
+        let h = dt / substeps as f64;
+        let plenum_burned = self.io.burned;
+        let plenum_fuel = self.io.fuel;
+        let inject = self.io.inject;
+        let valve = &self.valves[b];
+        let run = unsafe { &mut *self.runners.add(b) };
+        let r = &mut run.pipe;
+        let mut vf = 0.0;
+        let mut pf = 0.0;
         for _ in 0..substeps {
-            for b in 0..count {
-                let r = &mut self.runners[b];
-                r.begin_step(h);
-                r.apply_own_boundaries(h);
-                self.plenum_flows[b] += r.mouth_mass_flow;
-                r.compute_valve_flux(&valves[b]);
-                let flow = r.valve_flux_out;
-                r.set_end_step(h, flow);
-            }
-            for b in 0..count {
-                let r = &mut self.runners[b];
-                r.end_step_set(&valves[b]);
-                self.valve_mass_flows[b] += r.valve_flux_out * r.source_scale;
-                r.after_step(h);
-            }
+            r.begin_step(h);
+            r.apply_own_boundaries(h);
+            pf += r.mouth_mass_flow;
+            r.compute_valve_flux(valve);
+            let flow = r.valve_flux_out;
+            r.set_end_step(h, flow);
+            r.end_step_set(valve);
+            vf += r.valve_flux_out * r.source_scale;
+            r.after_step(h);
         }
 
         let inv = 1.0 / substeps as f64;
-        for b in 0..count {
-            let r = &mut self.runners[b];
-            let mut vf = self.valve_mass_flows[b] * inv;
-            let mut pf = self.plenum_flows[b] * inv;
-            if r.recover_if_broken() {
-                vf = 0.0;
-                pf = 0.0;
-                self.mass[b] = r.total_mass();
-            } else {
-                self.mass[b] += (vf - pf) * dt;
-            }
-            self.valve_mass_flows[b] = vf;
-            self.plenum_flows[b] = pf;
-
-            let mass = if self.mass[b] > 1e-12 { self.mass[b] } else { 1e-12 };
-            let rb = self.burned[b];
-            let rf = self.fuel[b];
-            let cb = cyl_state[b].burned;
-            let cf = cyl_state[b].fuel;
-            let mut burned = self.burned_mass[b]
-                + ((if vf >= 0.0 { vf * cb } else { vf * rb })
-                    - (if pf >= 0.0 { pf * rb } else { pf * plenum_burned }))
-                    * dt;
-            let air_through = if vf < 0.0 { -vf * (1.0 - rb - rf) } else { -vf * (1.0 - cb - cf) };
-            let mut owed = self.air_owed[b] + air_through * dt;
-            let mut injected = 0.0;
-            if owed > 0.0 && vf < 0.0 {
-                injected = owed * inject;
-                owed = 0.0;
-            }
-            self.air_owed[b] = owed;
-            let inflow = if vf < 0.0 { -vf * dt } else { 0.0 };
-            let sprayed = if inflow > 0.0 { rf + injected / inflow } else { rf };
-            self.inflow_fuel[b] = if sprayed > 1.0 - rb { 1.0 - rb } else { sprayed };
-            let mut fuel = self.fuel_mass[b]
-                + ((if vf >= 0.0 { vf * cf } else { vf * rf }) - (if pf >= 0.0 { pf * rf } else { pf * plenum_fuel }))
-                    * dt;
-            burned = if burned < 0.0 {
-                0.0
-            } else if burned > mass {
-                mass
-            } else {
-                burned
-            };
-            fuel = if fuel < 0.0 {
-                0.0
-            } else if fuel > mass - burned {
-                mass - burned
-            } else {
-                fuel
-            };
-            self.burned_mass[b] = burned;
-            self.fuel_mass[b] = fuel;
-            self.burned[b] = burned / mass;
-            self.fuel[b] = fuel / mass;
-
-            self.port_temps[b] = r.read_port().1;
-            self.plenum_temps[b] = r.read_mouth().1;
+        vf *= inv;
+        pf *= inv;
+        if r.recover_if_broken() {
+            vf = 0.0;
+            pf = 0.0;
+            run.mass = r.total_mass();
+        } else {
+            run.mass += (vf - pf) * dt;
         }
+        run.valve_mass_flow = vf;
+        run.plenum_flow = pf;
+
+        let mass = if run.mass > 1e-12 { run.mass } else { 1e-12 };
+        let rb = run.burned;
+        let rf = run.fuel;
+        let cb = self.cyl_state[b].burned;
+        let cf = self.cyl_state[b].fuel;
+        let mut burned = run.burned_mass
+            + ((if vf >= 0.0 { vf * cb } else { vf * rb }) - (if pf >= 0.0 { pf * rb } else { pf * plenum_burned }))
+                * dt;
+        let air_through = if vf < 0.0 { -vf * (1.0 - rb - rf) } else { -vf * (1.0 - cb - cf) };
+        let mut owed = run.air_owed + air_through * dt;
+        let mut injected = 0.0;
+        if owed > 0.0 && vf < 0.0 {
+            injected = owed * inject;
+            owed = 0.0;
+        }
+        run.air_owed = owed;
+        let inflow = if vf < 0.0 { -vf * dt } else { 0.0 };
+        let sprayed = if inflow > 0.0 { rf + injected / inflow } else { rf };
+        run.inflow_fuel = if sprayed > 1.0 - rb { 1.0 - rb } else { sprayed };
+        let mut fuel = run.fuel_mass
+            + ((if vf >= 0.0 { vf * cf } else { vf * rf }) - (if pf >= 0.0 { pf * rf } else { pf * plenum_fuel })) * dt;
+        burned = if burned < 0.0 {
+            0.0
+        } else if burned > mass {
+            mass
+        } else {
+            burned
+        };
+        fuel = if fuel < 0.0 {
+            0.0
+        } else if fuel > mass - burned {
+            mass - burned
+        } else {
+            fuel
+        };
+        run.burned_mass = burned;
+        run.fuel_mass = fuel;
+        run.burned = burned / mass;
+        run.fuel = fuel / mass;
+
+        run.port_temp = r.read_port().1;
+        run.plenum_temp = r.read_mouth().1;
     }
 }
 

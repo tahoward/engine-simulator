@@ -8,6 +8,8 @@
 use crate::math::{self, PI};
 use crate::spec::{density, gas};
 
+// On cache lines of its own, as each may be stepped on a thread of its own.
+#[repr(align(128))]
 pub struct FarField {
     sample_rate: f64,
     x1: f64,
@@ -77,7 +79,8 @@ const WARP_MEAN_HZ: f64 = 2.0;
 /// `s + D - d(s) = n`, where `d(s)` is the gain of the flow leaving at `s` and `D` is a fixed latency.
 /// The mouth flow is held to the grid's band limit first, so the warp only sharpens what the grid
 /// solved. Fronts sharpen most where the pipe is loud, cool and long, and barely at all at a quiet one
-/// or after a muffler.
+/// or after a muffler. On cache lines of its own, as each may be stepped on a thread of its own.
+#[repr(align(128))]
 pub struct Steepening {
     sample_rate: f64,
     flow: Vec<f64>,

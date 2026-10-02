@@ -88,6 +88,8 @@ pub struct CylState {
     pub fuel: f64,
 }
 
+// On cache lines of its own, as each may be stepped on a thread of its own.
+#[repr(align(128))]
 pub struct Cylinder {
     /// Crank angle, deg in [0, 720). 0 = TDC firing.
     pub angle: f64,

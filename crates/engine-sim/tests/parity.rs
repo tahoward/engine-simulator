@@ -13,9 +13,11 @@
 
 use engine_sim::euler_pipe::EulerPipeOptions;
 use engine_sim::exhaust_graph::{ExhaustGraph, compile_exhaust};
+use engine_sim::pool::ThreadPool;
 use engine_sim::{EngineConfig, EngineSim, LaunchConfig};
 use serde::Deserialize;
 use serde_json::Value;
+use std::sync::Arc;
 
 #[derive(Deserialize)]
 struct Fixture {
@@ -107,9 +109,11 @@ fn first_difference(path: &str, a: &Value, b: &Value) -> Option<String> {
     }
 }
 
-/// What a scenario renders: its audio and its snapshots.
-fn render(s: &Scenario) -> (Vec<f32>, Vec<Value>) {
+/// What a scenario renders, with its exhaust stepped across `pool` if one is given: its audio and
+/// its snapshots.
+fn render(s: &Scenario, pool: Option<&Arc<ThreadPool>>) -> (Vec<f32>, Vec<Value>) {
     let mut sim = EngineSim::with_options(s.sample_rate, &s.config, EulerPipeOptions::default(), None);
+    sim.set_pool(pool.cloned());
     let mut audio: Vec<f32> = Vec::new();
     let mut snapshots: Vec<Value> = Vec::new();
     for step in &s.steps {
@@ -136,8 +140,8 @@ fn render(s: &Scenario) -> (Vec<f32>, Vec<Value>) {
     (audio, snapshots)
 }
 
-fn run(s: &Scenario, block: usize) -> Result<(), String> {
-    let (audio, snapshots) = render(s);
+fn run(s: &Scenario, block: usize, pool: Option<&Arc<ThreadPool>>) -> Result<(), String> {
+    let (audio, snapshots) = render(s, pool);
     let blocks: Vec<String> = audio.chunks(block).map(fnv).collect();
     if blocks.len() != s.result.blocks.len() {
         return Err(format!("{} blocks, expected {}", blocks.len(), s.result.blocks.len()));
@@ -167,6 +171,20 @@ fn every_scenario_renders_bit_for_bit() {
         bless();
         return;
     }
+    replay(None);
+}
+
+/// The same, with the exhaust stepped across threads, as the desktop app may: the ducts are split
+/// between them, and each is stepped exactly as on one.
+#[test]
+fn every_scenario_renders_bit_for_bit_across_threads() {
+    if std::env::var("PARITY_BLESS").is_ok() {
+        return;
+    }
+    replay(Some(&Arc::new(ThreadPool::new(4, None))));
+}
+
+fn replay(pool: Option<&Arc<ThreadPool>>) {
     let f = fixture();
     let only = std::env::var("PARITY_ONLY").ok();
     let mut failures = Vec::new();
@@ -174,7 +192,7 @@ fn every_scenario_renders_bit_for_bit() {
         if only.as_deref().is_some_and(|o| !s.name.contains(o)) {
             continue;
         }
-        match run(s, f.block_size) {
+        match run(s, f.block_size, pool) {
             Ok(()) => println!("ok    {}", s.name),
             Err(e) => {
                 println!("FAIL  {}: {e}", s.name);
@@ -193,7 +211,7 @@ fn bless() {
     let f = fixture();
     let block = f.block_size;
     for (i, s) in f.scenarios.iter().enumerate() {
-        let (audio, snapshots) = render(s);
+        let (audio, snapshots) = render(s, None);
         let head: Vec<f32> = audio.iter().copied().take(s.result.head.len()).collect();
         raw["scenarios"][i]["result"] = serde_json::json!({
             "blocks": audio.chunks(block).map(fnv).collect::<Vec<_>>(),

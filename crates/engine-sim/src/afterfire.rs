@@ -59,8 +59,10 @@ pub fn lean_limit(t: f64) -> f64 {
     Y_LEAN * math::max(1.0 - LEAN_LIMIT_PER_K * (t - gas::T_AMB), LEAN_LIMIT_FLOOR)
 }
 
-/// One cylinder's pocket of unburned mixture in the leading cells of its primary.
+/// One cylinder's pocket of unburned mixture in the leading cells of its primary. On cache lines of
+/// its own, as each may be stepped on a thread of its own.
 #[derive(Clone, Debug)]
+#[repr(align(128))]
 pub struct Pocket {
     /// Unburned fuel and air in the zone, kg.
     pub fuel: f64,
@@ -272,6 +274,12 @@ impl Afterfire {
     ) {
         let floor = self.floor;
         self.pockets[b].step(dt, fuel_in, air_in, inflow, zone_mass, hottest, taken, floor);
+    }
+
+    /// Every pocket, and the burnable fuel below which a pocket is not counted, kg: for stepping the
+    /// pockets apart, with `Pocket::step`.
+    pub fn pockets_mut(&mut self) -> (&mut [Pocket], f64) {
+        (&mut self.pockets, self.floor)
     }
 
     /// Heat cylinder `b`'s pocket releases over the next sample, W.

@@ -3,14 +3,16 @@
 //!
 //! The presets come from `tests/fixtures/presets.json` (`npm run export:presets` in apps/web), so this
 //! measures exactly the engines the web app ships, each with the exhaust the app gives it. Each runs held at `BENCH_RPM` (6500 by default) at full throttle, the worst case for the solver,
-//! warmed up for half a second, then timed over `BENCH_SECONDS` (3) and reported as the best of
-//! `BENCH_REPEATS` (3): the work is deterministic, so anything slower than the fastest run is the
-//! rest of the machine. `cells` is the exhaust's; `asked` is what it would have without the grid
+//! at `BENCH_FS` Hz (48000), on `BENCH_THREADS` threads (1), warmed up for half a second, then
+//! timed over `BENCH_SECONDS` (3) and reported as the best of `BENCH_REPEATS` (3): the work is
+//! deterministic, so anything slower than the fastest run is the rest of the machine. `cells` is the exhaust's; `asked` is what it would have without the grid
 //! budget, shown where the budget coarsens it.
 
+use std::sync::Arc;
 use std::time::Instant;
 
 use engine_sim::euler_pipe::EulerPipeOptions;
+use engine_sim::pool::ThreadPool;
 use engine_sim::{EngineConfig, EngineSim};
 use serde::Deserialize;
 
@@ -33,11 +35,14 @@ fn env(name: &str, default: f64) -> f64 {
 fn main() {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/presets.json");
     let fixture: Fixture = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-    let fs = 48000.0;
+    let fs = env("BENCH_FS", 48000.0);
     let rpm = env("BENCH_RPM", 6500.0);
     let seconds = env("BENCH_SECONDS", 3.0);
     let repeats = env("BENCH_REPEATS", 3.0) as usize;
     let only = std::env::var("BENCH_ONLY").ok();
+    let threads = env("BENCH_THREADS", 1.0) as usize;
+    interactive();
+    let pool = (threads > 1).then(|| Arc::new(ThreadPool::new(threads, Some(Arc::new(interactive)))));
 
     let width = fixture.engine_presets.iter().map(|p| p.name.chars().count()).max().unwrap_or(10);
     println!("{:width$}  cells  asked  substeps  % of one core @ {rpm} rpm  (spread)", "preset");
@@ -51,6 +56,7 @@ fn main() {
         cfg.engine.throttle = 1.0;
         cfg.engine.free_running = false;
         let mut sim = EngineSim::new(fs, &cfg);
+        sim.set_pool(pool.clone());
         let asked = EngineSim::with_options(
             fs,
             &cfg,
@@ -86,4 +92,15 @@ fn main() {
         }
     }
     println!("\nworst: {} at {:.1}%", worst.0, worst.1 * 100.0);
+}
+
+/// Asks for a performance core, as the desktop app's audio threads have.
+fn interactive() {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        unsafe extern "C" {
+            fn pthread_set_qos_class_self_np(class: u32, relative_priority: i32) -> i32;
+        }
+        pthread_set_qos_class_self_np(0x21, 0);
+    }
 }

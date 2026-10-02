@@ -117,7 +117,9 @@ impl Mode {
     }
 }
 
-/// The shell and end plates of one chamber, and their radiation.
+/// The shell and end plates of one chamber, and their radiation. On cache lines of its own, as each
+/// may be stepped on a thread of its own.
+#[repr(align(128))]
 pub struct ChamberShell {
     duct: usize,
     modes: Vec<Mode>,

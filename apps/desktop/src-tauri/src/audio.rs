@@ -19,6 +19,9 @@
 //!
 //! Unlike an AudioWorklet, the render thread can time itself, so it reports when the simulation is
 //! not keeping up with real time from its own measurements, and from the underruns the callback saw.
+//!
+//! The render thread also has a pool of worker threads to step the simulation across, and times its
+//! own blocks to choose how many of them to use (see `tuner`).
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -29,8 +32,11 @@ use std::time::{Duration, Instant};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use engine_sim::exhaust_graph::ExhaustGraph;
 use engine_sim::listener::SoundSources;
+use engine_sim::pool::ThreadPool;
 use engine_sim::{EngineConfig, EngineSim, LaunchConfig};
 use serde::{Deserialize, Serialize};
+
+use crate::tuner::ThreadTuner;
 
 /// Samples the render thread produces at a time.
 const BLOCK: usize = 128;
@@ -42,6 +48,9 @@ const LAG_WINDOW: Duration = Duration::from_secs(2);
 const LAG_RATIO: f64 = 0.98;
 const LAG_WINDOWS_BAD: u32 = 2;
 const LAG_WINDOWS_GOOD: u32 = 3;
+/// Most threads the simulation is stepped on, the render thread's included: past this, each one's
+/// hand-off costs more than it takes on.
+const MAX_THREADS: usize = 6;
 
 /// A change from the UI, as the web app's worklet messages carry it, plus what the web app sets
 /// through AudioParams and its AudioContext.
@@ -315,6 +324,16 @@ fn render_loop(
     let _priority = audio_thread_priority::promote_current_thread_to_real_time(BLOCK as u32, info.sample_rate).ok();
 
     let mut sim = EngineSim::new(fs, &config);
+    // Two cores left for the device callback and the interface.
+    let cores = thread::available_parallelism().map_or(1, |n| n.get());
+    let max_threads = cores.saturating_sub(2).clamp(1, MAX_THREADS);
+    if max_threads > 1 {
+        sim.set_pool(Some(Arc::new(ThreadPool::new(max_threads, Some(Arc::new(worker_priority))))));
+    }
+    let mut tuner = ThreadTuner::new(max_threads, 2);
+    tuner.retune(sim.useful_threads());
+    sim.set_max_threads(tuner.threads());
+    let mut time_scale = 1.0;
     let mut block = vec![0.0f32; BLOCK];
     let mut waveform = vec![0.0f32; WAVEFORM];
     let mut wave_at = 0;
@@ -333,7 +352,12 @@ fn render_loop(
     while !stop.load(Ordering::Acquire) {
         loop {
             match commands.try_recv() {
-                Ok(command) => apply(&mut sim, command, &mut snapshot_interval, &mut suspended, fs),
+                Ok(command) => {
+                    if apply(&mut sim, command, &mut snapshot_interval, &mut suspended, &mut time_scale, fs) {
+                        tuner.retune(sim.useful_threads());
+                        sim.set_max_threads(tuner.threads());
+                    }
+                }
                 Err(TryRecvError::Empty) => break,
                 Err(TryRecvError::Disconnected) => return,
             }
@@ -355,7 +379,14 @@ fn render_loop(
 
         let t0 = Instant::now();
         sim.render_into(&mut block);
-        window_busy += t0.elapsed();
+        let took = t0.elapsed();
+        window_busy += took;
+        // In slow motion a block holds few steps, too few to tell the counts apart by.
+        if time_scale >= 1.0
+            && let Some(threads) = tuner.record(took, Instant::now())
+        {
+            sim.set_max_threads(threads);
+        }
         window_samples += BLOCK;
         if let Ok(mut chunk) = producer.write_chunk_uninit(BLOCK) {
             let (a, b) = chunk.as_mut_slices();
@@ -405,14 +436,26 @@ fn render_loop(
     }
 }
 
-fn apply(sim: &mut EngineSim, command: Command, snapshot_interval: &mut usize, suspended: &mut bool, fs: f64) {
+/// Apply a command; true if it changed the engine or its exhaust, which can change the best thread count.
+fn apply(
+    sim: &mut EngineSim,
+    command: Command,
+    snapshot_interval: &mut usize,
+    suspended: &mut bool,
+    time_scale: &mut f64,
+    fs: f64,
+) -> bool {
     match command {
         Command::Engine { engine } => {
             if let Err(e) = sim.set_engine_json(&engine) {
                 eprintln!("audio: engine change rejected: {e}");
             }
+            return true;
         }
-        Command::Graph { graph } => sim.set_graph(graph),
+        Command::Graph { graph } => {
+            sim.set_graph(graph);
+            return true;
+        }
         Command::Sources { sources } => sim.set_sources(sources),
         Command::Listener { position } => sim.set_listener(position),
         Command::Launch { config } => match config {
@@ -420,18 +463,35 @@ fn apply(sim: &mut EngineSim, command: Command, snapshot_interval: &mut usize, s
             None => sim.stop_launch(),
         },
         Command::SnapshotRate { hz } => *snapshot_interval = ((fs / hz).round() as usize).max(1),
-        Command::TimeScale { scale } => sim.set_time_scale(scale),
+        Command::TimeScale { scale } => {
+            sim.set_time_scale(scale);
+            *time_scale = scale;
+        }
         Command::Controls { throttle, load } => sim.set_controls(throttle, load),
         Command::Ignition { on } => sim.set_ignition(on),
         Command::Suspend => *suspended = true,
         Command::Resume => *suspended = false,
+    }
+    false
+}
+
+/// A worker thread's priority: on macOS, the class that keeps it on a performance core. Not real-time,
+/// as the render thread is: a worker spins between jobs, and a real-time thread that never yields is
+/// demoted on macOS and may be killed on Linux.
+fn worker_priority() {
+    #[cfg(target_os = "macos")]
+    {
+        const QOS_CLASS_USER_INTERACTIVE: u32 = 0x21;
+        unsafe extern "C" {
+            fn pthread_set_qos_class_self_np(class: u32, relative_priority: i32) -> i32;
+        }
+        unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) };
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use engine_sim::EngineConfig;
 
     #[test]
     fn a_frame_packs_its_json_padded_then_its_waveform() {
