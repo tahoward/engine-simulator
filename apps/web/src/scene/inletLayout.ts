@@ -10,7 +10,17 @@
 
 import * as THREE from 'three';
 
-import { engineShell, exhaustPortOf, intakeCamsOf, intakePortOf, sharedHead, valvetrainTop } from '../model/geometry.js';
+import {
+  ROCKER_RATIO,
+  blockCamOf,
+  camBaseRadius,
+  engineShell,
+  exhaustPortOf,
+  intakeCamsOf,
+  intakePortOf,
+  sharedHead,
+  valvetrainTop,
+} from '../model/geometry.js';
 import { airboxVolumeOf, inletSegments, plenumVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
 import { cylinderZ, intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
 
@@ -214,9 +224,18 @@ export function inletLayout(spec: EngineSpec): InletLayout {
         });
       }
     } else {
-      // A boxer's sits on top between its heads, a rounded box, square below.
+      // A boxer's sits on top between its heads, a rounded box, square below: with pushrods, clear above the
+      // camshaft that runs in the block over the crank, its lobes at full lift.
       base = 1;
-      centre = new THREE.Vector3(0, valley + height / 2, 0);
+      let floor = valley;
+      if (spec.pushrods) {
+        const [x, y] = blockCamOf(spec, 0);
+        const turn = ((spec.vAngle / 2) * Math.PI) / 180;
+        const lift = Math.max(spec.maxLift, spec.camSwitchRpm > 0 ? spec.highMaxLift : 0);
+        const cam = x * Math.sin(turn) + y * Math.cos(turn);
+        floor = Math.max(floor, cam + camBaseRadius(spec) + lift / ROCKER_RATIO + 0.01);
+      }
+      centre = new THREE.Vector3(0, floor + height / 2, 0);
       // Each runner leaves the plenum's side towards its bank, square to it, and arches down into its port
       // on top of a boxer's head.
       for (const port of ports) {
