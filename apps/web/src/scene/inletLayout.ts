@@ -36,8 +36,9 @@ export interface InletLayout {
   /**
    * The plenum: its middle and its size along x, y and z, m. On a vee it narrows below the throttle body to
    * `base` of its width, a V's flanks parallel to its banks so it sits down into the valley between the
-   * heads; beside an inline head it is a rounded box, its `base` 1, its side away from the head, opposite its
-   * runners, drawn in towards the back, as a cast plenum's is (`taper`).
+   * heads; beside an inline head it is a rounded box, its `base` 1. It narrows towards the back, as a cast
+   * plenum does (`taper`): beside an inline head, its side away from the head, opposite its runners, drawn in;
+   * on a V or a boxer, whose runners leave both sides, its top dropping.
    */
   plenum: { centre: THREE.Vector3; size: THREE.Vector3; base: number; taper: PlenumTaper | null };
   /** One runner a cylinder from the plenum into the head: straight on an inline engine, curved on a vee. */
@@ -91,21 +92,26 @@ export const SNORKEL_WALL = 0.004;
 const SNORKEL_CLEAR = 0.012;
 
 /**
- * A plenum's side drawn in towards its back: the side, +1 for +x or -1 for -x, and how far in it is at the
- * back, m, from none at the front.
+ * How a plenum narrows towards its back, from none at its front: by its side `side`, +1 for +x or -1 for -x,
+ * drawn in `inwards`, and by its top dropping `drop`, m, at the back.
  */
 export interface PlenumTaper {
   side: number;
-  back: number;
+  inwards: number;
+  drop: number;
 }
 
-/** How far in a plenum's tapered side is `z` m back from its middle, the plenum `length` long. */
-export function taperAt(taper: PlenumTaper, length: number, z: number): number {
-  return taper.back * Math.min(Math.max(z / length + 0.5, 0), 1);
+/** How much of its taper a plenum `length` long has `z` m back from its middle: none at the front, all at the back. */
+export function taperAlong(length: number, z: number): number {
+  return Math.min(Math.max(z / length + 0.5, 0), 1);
 }
 
-/** How far in an inline plenum's outer side is at its back, as a fraction of its width. */
+/**
+ * How far in an inline plenum's outer side is at its back, as a fraction of its width, and how far a V's or
+ * a boxer's top drops there, of its height.
+ */
 const PLENUM_TAPER = 0.45;
+const PLENUM_DROP = 0.4;
 
 export function inletLayout(spec: EngineSpec): InletLayout {
   const shell = engineShell(spec);
@@ -128,8 +134,8 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   const lastRunner = Math.max(...zs.map(Math.abs)) + radius * 1.5 + PLENUM_ROUNDING + 0.006;
   const length = Math.max(shell.length * 0.85, 2 * lastRunner);
   const height = Math.max(PLENUM_HEIGHT, face);
-  // Beside an inline head it narrows towards the back, so is as wide on average as a box a taper's half less.
-  const footprint = plenumVolumeOf(spec) / (height * length * (vee ? 1 : 1 - PLENUM_TAPER / 2));
+  // Narrowing towards the back, it holds about as much as a box half its taper less.
+  const footprint = plenumVolumeOf(spec) / (height * length * (1 - (vee ? PLENUM_DROP : PLENUM_TAPER) / 2));
   let width = Math.max(Math.min(Math.max(footprint, 0.07), vee ? shell.width * 0.9 : 0.12), face);
   const runners: Runner[] = [];
   let centre: THREE.Vector3;
@@ -242,9 +248,26 @@ export function inletLayout(spec: EngineSpec): InletLayout {
       runners.push({ from, to: port, leaving: third, arriving: third, radius, exit: 'side' });
     }
   }
-  // Drawn in on its side opposite the runners, but no further than leaves it room inside at the back.
-  const inwards = Math.min(PLENUM_TAPER * width, width - 4 * PLENUM_ROUNDING - 2 * PLENUM_WALL);
-  const taper: PlenumTaper | null = vee || inwards <= 0 ? null : { side: intakeSide, back: inwards };
+  // Beside an inline head, drawn in on its side opposite the runners, but no further than leaves it room
+  // inside at the back. On a V or a boxer, its top dropped, but no further than leaves each runner's flared
+  // mouth on the flat of the side it leaves by, below where the top rounds over, nor the sides above a V's
+  // flanks too short to be sides.
+  let taper: PlenumTaper | null = null;
+  if (!vee) {
+    const inwards = Math.min(PLENUM_TAPER * width, width - 4 * PLENUM_ROUNDING - 2 * PLENUM_WALL);
+    if (inwards > 0) taper = { side: intakeSide, inwards, drop: 0 };
+  } else {
+    const half = height / 2;
+    const sides = base < 1 ? -0.3 * half : -half;
+    let drop = Math.min(PLENUM_DROP * height, half - sides - 2 * PLENUM_ROUNDING - 0.006);
+    for (const r of runners) {
+      if (r.exit !== 'side') continue;
+      const need = r.from.y - centre.y + 1.5 * r.radius + PLENUM_ROUNDING + 0.004;
+      const along = taperAlong(length, r.from.z - centre.z);
+      if (along > 1e-6) drop = Math.min(drop, (half - need) / along);
+    }
+    if (drop > 0) taper = { side: 0, inwards: 0, drop };
+  }
   const plenum = { centre, size: new THREE.Vector3(width, height, length), base, taper };
 
   // The throttle body on the plenum's front face, looking forwards.
