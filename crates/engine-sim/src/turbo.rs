@@ -96,9 +96,19 @@ const MG_W: f64 = 0.22;
 
 /// On a real map the surge line bends toward less flow on the lower speed lines, which are flatter and
 /// wider than the top one. Here it is at `2 W` of the choke flow at full speed and above, and falls in
-/// a straight line with the speed to this share of that at no speed: the flow is taken to the power
-/// that puts the surge line at `2 W`, which leaves no flow and the choke where they are.
+/// a straight line with the speed to this share of that at no speed: the flow is stretched, in
+/// proportion either side of the surge line, to put it at `2 W`, which leaves no flow and the choke
+/// where they are.
 const SURGE_LINE_AT_REST: f64 = 0.4;
+
+/// The lower speed lines of a real map are also flat toward no flow, where the top ones fall away to
+/// the left of their peak, which is what drives a surge. Here a speed line has the cubic's full hump
+/// from `FULL_HUMP_SPEED` of full speed, and less of it in a straight line down to none at
+/// `FLAT_SPEED`: the pressure it makes left of its peak is the peak's less that share of the fall.
+/// A rotating stall grows toward that share of its amplitude on the full hump, and dies away on a flat
+/// speed line.
+const FLAT_SPEED: f64 = 0.4;
+const FULL_HUMP_SPEED: f64 = 0.8;
 
 /// Rotor revolutions the pressure the wheel makes takes to follow its characteristic: the time the
 /// flow through its blades takes to settle. No longer than `COMPRESSOR_LAG_MAX`, s: a wheel turning
@@ -114,6 +124,16 @@ const COMPRESSOR_LAG_MAX: f64 = 1e-3;
 /// never falls below `STALL_SEED`, the disturbances there always are for a stall to grow from.
 const STALL_GROWTH_REVS: f64 = 0.4;
 const STALL_SEED: f64 = 1e-3;
+
+/// Backwards through the wheel the characteristic goes on falling a little past no flow, to its
+/// lowest with the flow `REVERSE_DIP` of `W` reversed, then rises steeply as the spinning blades fight
+/// the reversed flow, as measured reverse-flow characteristics do: by `REVERSE_RISE` times `H` for
+/// each `W` of reversed flow squared, out to this `y`, three times `W` of the choke flow backwards, and
+/// level beyond. So no flow at all is never a resting place for a wheel shut in behind the throttle.
+/// The dip goes with the hump.
+const REVERSE_Y_MIN: f64 = -4.0;
+const REVERSE_DIP: f64 = 0.25;
+const REVERSE_RISE: f64 = 2.0;
 
 /// Peak pressure rise at full speed as a multiple of the boost target: the headroom the wastegate
 /// has to take away.
@@ -172,12 +192,13 @@ const BLOW_OFF_AREA_RATIO: f64 = 0.8;
 /// the charge pipes and the intercoolers.
 const CHARGE_VOLUME_RATIO: f64 = 2.0;
 const THROTTLE_BODY_VOLUME_RATIO: f64 = 0.2;
-/// Each charge pipe: from the compressor to the intercooler, the intercooler's core, and from it to
-/// the throttle body, m. The pipe's bore is this multiple of its inducer's area, and the intercooler
-/// holds what is left of the charge volume, but no less than a pipe as long.
-const HOT_PIPE_LENGTH: f64 = 0.5;
+/// Each charge pipe, laid out as for an intercooler at the front of the car: from the compressor down
+/// to the intercooler, the intercooler's core, and from it back up to the throttle body, m. Their
+/// length sets how fast a surge cycles. The pipe's bore is this multiple of its inducer's area, and
+/// the intercooler holds what is left of the charge volume, but no less than a pipe as long.
+const HOT_PIPE_LENGTH: f64 = 1.2;
 const INTERCOOLER_LENGTH: f64 = 0.6;
-const COLD_PIPE_LENGTH: f64 = 0.8;
+const COLD_PIPE_LENGTH: f64 = 1.5;
 const CHARGE_PIPE_AREA_RATIO: f64 = 1.5;
 /// Shortest cell the charge pipes are solved on, m. What they carry is the surge, the throttle's
 /// pressure waves and the engine's pulses, all well below the 900 Hz or so these resolve, so they are
@@ -185,7 +206,7 @@ const CHARGE_PIPE_AREA_RATIO: f64 = 1.5;
 const CHARGE_PIPE_CELL: f64 = 0.08;
 /// The duct the compressor draws through, from the air filter through the wheel's passages, m: its
 /// air's inertia, at the inducer's area.
-const COMPRESSOR_DUCT_LENGTH: f64 = 0.4;
+const COMPRESSOR_DUCT_LENGTH: f64 = 0.6;
 /// Loss coefficient of the flow through a compressor too slow to do any work, windmilling.
 const WINDMILL_LOSS: f64 = 1.0;
 
@@ -220,9 +241,9 @@ const LIGHTHILL_K: f64 = 5e-5;
 /// How much of a recirculating blow-off valve's jet noise gets out through the intake's ducting.
 const RECIRCULATING_TRANSMISSION: f64 = 0.1;
 
-/// The turbulence a fully stalled compressor sheds into its inlet, as a share of its flow at that
-/// speed: what the flutter is made of. It goes as the stall's amplitude.
-const STALL_INTENSITY: f64 = 0.06;
+/// The turbulence a compressor whose flow has fully broken down sheds into its inlet, as a share of the
+/// flow through it, as a wastegate's jet sheds: what the flutter is made of. It goes as the breakdown.
+const STALL_INTENSITY: f64 = 0.2;
 
 /// Wastegate flap rattle at 1 m, Pa, per 10 kPa of pulse across it, and how far open it can be and
 /// still rattle.
@@ -532,8 +553,10 @@ struct Rotor {
     /// its rotating stall, `J`.
     rise: f64,
     stall: f64,
-    /// The power the flow is taken to on the present speed line: see `SURGE_LINE_AT_REST`.
-    bend: f64,
+    /// The surge line on the present speed line, as a share of its choke flow: see `SURGE_LINE_AT_REST`.
+    surge_line: f64,
+    /// How much of the cubic's hump the present speed line has, 0 flat to 1: see `FLAT_SPEED`.
+    hump: f64,
     /// Temperature of the air the compressor delivers into its charge pipe, past the intercooler, K.
     delivery_t: f64,
     /// The charge pipe from the compressor to the throttle body, and what flowed out of it into the
@@ -554,7 +577,7 @@ struct Rotor {
     turbine_phase: [f64; 2],
     reverse_jet: JetNoise,
     blow_off_jet: JetNoise,
-    stall_lp: f64,
+    stall_lp: [f64; 2],
     stall_hp: f64,
     /// The pressure drop across the turbine, smoothed, Pa, and whether it is above that now: the
     /// pulses the wastegate flap rattles on.
@@ -573,7 +596,8 @@ impl Rotor {
             compressor_flow: 0.0,
             rise: 0.0,
             stall: STALL_SEED,
-            bend: 1.0,
+            surge_line: 2.0 * MG_W,
+            hump: 1.0,
             delivery_t: gas::T_AMB,
             pipe: charge_pipe(&size, sample_rate, opts),
             delivered: 0.0,
@@ -586,7 +610,7 @@ impl Rotor {
             turbine_phase: [0.0; 2],
             reverse_jet: JetNoise::new(),
             blow_off_jet: JetNoise::new(),
-            stall_lp: 0.0,
+            stall_lp: [0.0; 2],
             stall_hp: 0.0,
             across_mean: 0.0,
             across_high: false,
@@ -612,29 +636,43 @@ impl Rotor {
     }
 
     /// The pressure rise the wheel's blades settle to at flow `m`, kg/s, in a rotating stall of squared
-    /// amplitude `j`, Pa: its characteristic. Backwards through the wheel, its shut-off pressure.
+    /// amplitude `j`, Pa: its characteristic.
     fn characteristic(&self, m: f64, j: f64) -> f64 {
         let s = self.omega / self.size.full_speed;
-        let peak = self.size.peak_rise * s * s;
-        if m <= 0.0 {
-            return peak * (MG_F0 + 0.75 * MG_H * j);
-        }
-        let y = self.flow_coefficient(m) / MG_W - 1.0;
-        peak * (MG_F0 + MG_H * (1.0 + 1.5 * y * (1.0 - 0.5 * j) - 0.5 * y * y * y))
+        let y = math::max(self.y_of(m), REVERSE_Y_MIN);
+        let cubic = |y: f64| MG_F0 + MG_H * (1.0 + 1.5 * y * (1.0 - 0.5 * j) - 0.5 * y * y * y);
+        let (peak, g) = (cubic(1.0), self.hump);
+        let shape = if y > 1.0 {
+            cubic(y)
+        } else if y >= -1.0 {
+            peak - g * (peak - cubic(y))
+        } else {
+            let d = y + 1.0;
+            peak - g * (peak - cubic(-1.0)) + MG_H * REVERSE_RISE * (d * d + 2.0 * REVERSE_DIP * g * d)
+        };
+        self.size.peak_rise * s * s * shape
+    }
+
+    /// The flow `m`, kg/s, as the cubic takes it, `phi / W - 1`: forwards with `phi` the flow
+    /// coefficient, backwards the plain share of the choke flow on the present speed line.
+    fn y_of(&self, m: f64) -> f64 {
+        let phi = if m > 0.0 { self.flow_coefficient(m) } else { m / self.choke_at(self.omega / self.size.full_speed) };
+        phi / MG_W - 1.0
     }
 
     /// The flow `m`, kg/s, 0 or more, as the characteristic takes it: as a share of the choke flow on the
     /// present speed line, bent so the surge line there falls at `2 W`.
     fn flow_coefficient(&self, m: f64) -> f64 {
         let phi = math::min(m / self.choke_at(self.omega / self.size.full_speed), 5.0);
-        math::pow(phi, self.bend)
+        let (surge, at) = (self.surge_line, 2.0 * MG_W);
+        if phi < surge { phi * (at / surge) } else { at + (phi - surge) * ((1.0 - at) / (1.0 - surge)) }
     }
 
-    /// Set `bend` for the present shaft speed.
-    fn bend_surge_line(&mut self) {
+    /// Set `surge_line` and `hump` for the present shaft speed.
+    fn set_speed_line(&mut self) {
         let s = clamp(self.omega / self.size.full_speed, 0.0, 1.0);
-        let surge = 2.0 * MG_W * (SURGE_LINE_AT_REST + (1.0 - SURGE_LINE_AT_REST) * s);
-        self.bend = math::log(2.0 * MG_W) / math::log(surge);
+        self.surge_line = 2.0 * MG_W * (SURGE_LINE_AT_REST + (1.0 - SURGE_LINE_AT_REST) * s);
+        self.hump = clamp((s - FLAT_SPEED) / (FULL_HUMP_SPEED - FLAT_SPEED), 0.0, 1.0);
     }
 
     /// The loss of air forced through the wheel's passages at flow `m`, kg/s, where the wheel does no
@@ -670,8 +708,11 @@ impl Rotor {
         let target = if m > 0.0 { math::max(settled, -self.passage_loss(m)) } else { settled };
         self.rise += (1.0 - math::exp(-h / tau)) * (target - self.rise);
 
-        let y = if m > 0.0 { self.flow_coefficient(m) } else { m / self.choke_at(self.omega / full) } / MG_W - 1.0;
-        let growth = (1.0 - y * y - 0.25 * self.stall) * (revs / STALL_GROWTH_REVS);
+        let y = self.y_of(m);
+        // On a flatter speed line a stall grows more slowly, and to less: to nothing on a flat one.
+        let room = 1.0 - y * y;
+        let drive = if room > 0.0 { self.hump * room } else { room } - 0.25 * self.stall;
+        let growth = drive * (revs / STALL_GROWTH_REVS);
         self.stall = clamp(self.stall * math::exp(math::max(growth * h, -50.0)), STALL_SEED, 4.0);
 
         self.duct_flow = m + h * self.size.duct_a_over_l * (gas::P_AMB + self.net_rise(m, self.rise) - p_face);
@@ -680,6 +721,15 @@ impl Rotor {
     /// The stall's amplitude, 0 unstalled to 1 fully stalled.
     fn stall_amplitude(&self) -> f64 {
         0.5 * math::sqrt(math::max(self.stall - STALL_SEED, 0.0))
+    }
+
+    /// How far the flow through the wheel has broken down, 0 to 1: its rotating stall, or the air
+    /// forced backwards through it, which leaves its passages as fully separated as `W` of its choke
+    /// flow backwards does.
+    fn breakdown(&self) -> f64 {
+        let s = self.omega / self.size.full_speed;
+        let reverse = -self.compressor_flow / (MG_W * self.choke_at(s));
+        clamp(math::max(self.stall_amplitude(), reverse), 0.0, 1.0)
     }
 }
 
@@ -962,7 +1012,7 @@ impl Turbo {
 
             // --- Compressor and its charge pipe: each substep, the face of the pipe passes what the duct
             // delivers, and the wheel and the duct's air answer the pressure there ---
-            r.bend_surge_line();
+            r.set_speed_line();
             let rho2 = p2 / (gas::R * t2);
             r.pipe.set_reservoir(p2, rho2, math::sqrt((gas::GAMMA_EXH * p2) / rho2));
             let substeps = r.pipe.substeps_for(dt);
@@ -1089,14 +1139,17 @@ impl Turbo {
             }
             whine *= (WHINE_DEPTH * s * s) / size.count;
 
-            // --- Stall: in a rotating stall the wheel's flow breaks up, around a few shaft orders ---
-            let stall = if s > 0.1 { r.stall_amplitude() } else { 0.0 };
+            // --- Stall: in a rotating stall, or forced backwards, the wheel's flow breaks up, around a few
+            // shaft orders ---
+            let stall = if s > 0.1 { r.breakdown() } else { 0.0 };
+            // Two poles above, as the radiation from the inlet rises with the frequency.
             let stall_hz = clamp(shaft_hz, 50.0, 0.2 * sample_rate);
             let c_lp = 1.0 - math::exp((-2.0 * PI * 3.0 * stall_hz) / sample_rate);
             let c_hp = 1.0 - math::exp((-2.0 * PI * 0.3 * stall_hz) / sample_rate);
-            r.stall_lp += c_lp * (noise.next() - r.stall_lp);
-            r.stall_hp += c_hp * (r.stall_lp - r.stall_hp);
-            let turbulence = (r.stall_lp - r.stall_hp) * STALL_INTENSITY * stall * s * size.choke_flow;
+            r.stall_lp[0] += c_lp * (noise.next() - r.stall_lp[0]);
+            r.stall_lp[1] += c_lp * (r.stall_lp[0] - r.stall_lp[1]);
+            r.stall_hp += c_hp * (r.stall_lp[1] - r.stall_hp);
+            let turbulence = (r.stall_lp[1] - r.stall_hp) * STALL_INTENSITY * stall * m_c.abs();
             drawn += m_c * (1.0 + whine) + turbulence;
 
             // --- A surge: the air forced backwards through the inducer ---

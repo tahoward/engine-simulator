@@ -41,8 +41,10 @@ Where the model is simplified, and by how much.
   volume, and its efficiency does not vary with its speed or its pressure ratio. Turbos on the same
   settings share one lumped shaft, so they cannot spool apart from each other; only one set differently
   turns on its own.
-- **The rest of the turbocharger is lumped.** The compressor map is one generic shape scaled to the
-  turbo's size, not a real turbo's map. There is no knock, so no boost is too much and the spark is not
+- **The rest of the turbocharger is lumped, but for the charge pipes.** The compressor map is one
+  generic shape scaled to the turbo's size, not a real turbo's map, and the charge pipe one generic
+  layout: a hot pipe, an intercooler and a cold pipe of fixed lengths, whatever the engine. The
+  intercooler cools the air as it enters the pipe, rather than along its core. There is no knock, so no boost is too much and the spark is not
   retarded on boost, as a real engine's would be. The shaft has no speed limit, so a turbo too small
   for the engine, at its choke, spins as fast as its turbine can drive it, well past the speed a real
   wheel would survive. Where a real engine's own compressor map is not published, its turbos are sized

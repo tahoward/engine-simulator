@@ -186,8 +186,8 @@ intake 40° at low speed    334    339    365    378    350
 
 A turbocharger is a turbine in the exhaust and a compressor in the intake on one shaft. The throttle
 draws from the air between the compressor and itself, the charge air, rather than from the atmosphere,
-so on boost the cylinders fill from above atmospheric pressure. The turbine is part of the exhaust's
-gas dynamics; the rest is lumped, one state each, and stepped every audio sample
+so on boost the cylinders fill from above atmospheric pressure. The turbine and the charge pipes are
+part of the gas dynamics; the rest is lumped, one state each, and stepped every audio sample
 ([`turbo.rs`](https://github.com/tahoward/engine-simulator/blob/main/crates/engine-sim/src/turbo.rs)):
 
 - **The turbine** sits in the exhaust, wherever the turbo was placed: the pipes drawn into its inlet
@@ -201,29 +201,45 @@ gas dynamics; the rest is lumped, one state each, and stepped every audio sample
   Its power is the isentropic expansion across it at 68% efficiency, and the gas leaves it cooler by
   the work it did. The cylinders push out against its inlet pressure, which costs pumping work and
   leaves more spent gas in the cylinder.
-- **Two or more turbos** blow into one charge air, each through its own intercooler, each with its own
-  blow-off valve on it. Turbos on the same settings share one lumped shaft, with the airflow split evenly
-  between them; one set differently ([Controls](controls.md#turbocharger)) has a shaft, compressor duct,
-  wastegate, intercooler and blow-off valve of its own, turned by its own turbine. Each turbine is solved on its own, on the pulses of the cylinders
+- **Two or more turbos** blow into one throttle body, each down its own charge pipe and through its own
+  intercooler, each with its own blow-off valve. Turbos on the same settings share one lumped shaft and
+  one charge pipe, with the airflow split evenly between them; one set differently
+  ([Controls](controls.md#turbocharger)) has a shaft, compressor duct, charge pipe, wastegate,
+  intercooler and blow-off valve of its own, turned by its own turbine. Each turbine is solved on its own, on the pulses of the cylinders
   feeding it. Each wastegate opens on the one boost, so a turbo on a higher target keeps its gate shut
   while the other's opens, and the other, slowing, can be pushed into a surge by the charge air it can
   no longer hold.
 - **The wastegate** opens a bypass around the turbine as the boost reaches its target, over a few
   hundredths of a bar, so the turbine takes less of the exhaust. It is a spring and diaphragm with a
   40 ms lag, not a controller, so the boost settles near the target rather than exactly on it.
-- **The compressor** is a Moore-Greitzer characteristic: a cubic in the flow, scaled with the square
-  of the shaft speed. It has its peak pressure rise at 44% of the choke flow, its surge line; to the
-  left of that the pressure it makes falls as the flow falls. The air in its duct has inertia, and the
-  charge air is a volume behind it: together they have a Helmholtz resonance near 18 Hz. The efficiency
+- **The compressor** is Moore and Greitzer's model. Its characteristic is a cubic in the flow, scaled
+  with the square of the shaft speed, with its peak pressure rise at 44% of the choke flow at full
+  speed: its surge line. To the left of that the pressure it makes falls as the flow falls, which is
+  what drives a surge. As on a real map, the lower speed lines are wider and flatter: the surge line
+  moves toward less flow as the speed falls, and below 80% of full speed the fall to the left of the
+  peak shrinks, to nothing at 40%. Backwards through the wheel the characteristic falls a little further
+  past no flow, then rises steeply as the spinning blades fight the reversed flow, as measured
+  ones do, so a wheel shut in behind the throttle never comes to rest with no flow through it. The pressure the wheel makes follows its characteristic two
+  revolutions behind. A rotating stall grows to the left of the surge line within a few revolutions,
+  lowering the pressure the wheel makes by up to 6%, and dies away once the flow recovers; on the
+  flatter speed lines it grows to less, and on a flat one, at idle, to nothing. The air in
+  the 0.6 m duct the compressor draws through, from the air filter, has inertia. The efficiency
   is best in the middle of the map and falls toward the choke, so a turbo too small for the engine
   does ever more work for the same boost at the top end. Up to full speed, the speed its sizing gives
   it, the choke flow rises in proportion to the shaft speed. Above it the choke flow levels off at 10%
   more, as the speed lines crowd together near the choke on a real map: a wheel spun faster still makes
   more pressure at low flow, but passes little more air.
+- **The charge pipe** carries each compressor's air to the throttle body, laid out as for an
+  intercooler at the front of the car: 1.2 m of pipe to the intercooler, the intercooler, and 1.5 m of
+  pipe back, at one and a half times the inducer's area,
+  solved like the exhaust on cells no shorter than 8 cm. The charge air's volume, twice the swept
+  volume, is mostly the intercooler's; the throttle body, a fifth of the swept volume, is lumped. The
+  charge air's pressure waves travel along it and reflect off its ends: when the throttle shuts, the
+  compressor feels it about 10 ms later, as the wave arrives.
 - **The shaft** is accelerated by the turbine's power less the compressor's and its bearings'. Its
   inertia grows as the wheel's diameter to the fifth, which is why a big turbo lags.
 - **The intercooler** takes a share of the compressor's heating back out of the air it delivers.
-- **The blow-off valve** opens on the pressure across a shut throttle and vents the charge air, to
+- **The blow-off valve** opens on the pressure across a shut throttle and vents the throttle body, to
   the atmosphere or back to the compressor inlet. Each turbo's is as big as its compressor's inducer, so
   with one turbo's taken off, the others' vent less of the charge, and more slowly.
 
@@ -236,12 +252,19 @@ twice the atmosphere's at that flow; at 2 bar, near six times.
 The lag is not a filter on a boost map; it is the shaft spinning up. At 3500 rpm, opened from part
 throttle, the RB26's twin turbos take 1.2 s to reach 90% of their boost.
 
-With the throttle shut on boost and no blow-off valve, the charge air has nowhere to go. Its pressure
-rises, the compressor's flow falls past the surge line, and the characteristic that is stable to the
-right of it becomes unstable to the left: the flow collapses and runs backwards through the wheel, the
-charge air empties, and the compressor recovers, over and over: on the RB26, 18 times a second. That is a
+With the throttle shut on boost and no blow-off valve, the charge air has nowhere to go. The throttle
+sends a pressure wave back up the charge pipe as it shuts, and when it reaches the compressor the flow
+falls past the surge line, where the characteristic that is stable to the right of it is unstable. The
+flow collapses and runs backwards through the wheel, the charge pipe empties back out of the inlet,
+and the compressor recovers, over and over: on the RB26 at 4000 rpm, about 15 times a second. That is a
 surge, and it is where the flutter comes from. It is not scripted: it comes out of the compressor's
-characteristic and the inertia of the air, as Greitzer's model of it does.
+characteristic, the inertia of the air and the charge pipe's gas dynamics, as Greitzer's model of it
+does. As the shaft slows, its speed line flattens and has less to drive a surge with: revved free and
+lifted, the RB26's surge has died away within a second and a half.
+
+A blow-off valve opens as the plenum's pressure falls behind the shut throttle. The wave from the
+throttle reaches the compressor before the valve has lifted, and pushes the flow back through it once;
+from then on the valve lets the charge go, and the compressor does not surge.
 
 The RB26 preset's exhaust has the real engine's layout: the front three cylinders' pipes feed one
 turbo, the rear three's another, both on the exhaust side of the head, and the two turbos' outlets meet
