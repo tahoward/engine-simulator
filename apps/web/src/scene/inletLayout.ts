@@ -83,6 +83,12 @@ const TUBE_INSET = 0.03;
 /** How much further the tube reaches forwards over the top of its U than out of the throttle body. */
 const TUBE_TOP_REACH = 1.6;
 
+/** How much wider than high the snorkel is flattened to fit under the bonnet, its area kept. */
+export const SNORKEL_ASPECT = 1.8;
+/** The snorkel's wall, m, and the gap it is left from the airbox's end as it runs past. */
+export const SNORKEL_WALL = 0.004;
+const SNORKEL_CLEAR = 0.012;
+
 export function inletLayout(spec: EngineSpec): InletLayout {
   const shell = engineShell(spec);
   const segments = inletSegments(spec);
@@ -259,25 +265,26 @@ export function inletLayout(spec: EngineSpec): InletLayout {
     new THREE.CubicBezierCurve3(start, start.clone().addScaledVector(forwards, k), intoBox.clone().addScaledVector(forwards, k * TUBE_TOP_REACH), intoBox);
   const tube = tubeAt(fit((k) => tubeAt(k).getLength(), segments[0]!.length, 0, 1));
 
-  // The snorkel: out of the airbox's far end, round to face forwards, its mouth just ahead of the engine,
-  // as long as the solver's.
+  // The snorkel: out of the airbox's far end, round to face forwards, its mouth ahead of the engine, as long
+  // as the solver's. It runs forwards clear of the airbox's end by its own flattened width, so it does not
+  // cut through the airbox's corner on its way past.
+  const snorkelArea = (Math.PI * snorkelDiaOf(spec) ** 2) / 4;
   const outlet = inlet.clone().addScaledVector(across, chamber.length);
-  const snorkelAt = (reach: number) => {
-    const mouth = outlet
-      .clone()
-      .addScaledVector(across, Math.min(reach * 0.25, 0.06))
-      .add(new THREE.Vector3(0, -0.01, -(depth / 2 + reach * 0.8)));
+  const halfWidth = Math.sqrt((snorkelArea / Math.PI) * SNORKEL_ASPECT) + SNORKEL_WALL;
+  const aside = halfWidth + SNORKEL_CLEAR;
+  const snorkelAt = (ahead: number) => {
+    const forward = depth / 2 + ahead;
+    const mouth = outlet.clone().addScaledVector(across, aside).add(new THREE.Vector3(0, -0.01, -forward));
     const curve = new THREE.CubicBezierCurve3(
       outlet,
-      outlet.clone().addScaledVector(across, Math.min(reach * 0.3, 0.08)),
-      mouth.clone().add(new THREE.Vector3(0, 0, reach * 0.3)),
+      outlet.clone().addScaledVector(across, aside * 1.15),
+      mouth.clone().add(new THREE.Vector3(0, 0, forward * 0.5)),
       mouth,
     );
     return { mouth, curve };
   };
-  const reach = fit((r) => snorkelAt(r).curve.getLength(), segments[2]!.length, 0, 3);
-  const { mouth, curve: snorkel } = snorkelAt(reach);
-  const snorkelArea = (Math.PI * snorkelDiaOf(spec) ** 2) / 4;
+  const ahead = fit((a) => snorkelAt(a).curve.getLength(), segments[2]!.length, 0, 3);
+  const { mouth, curve: snorkel } = snorkelAt(ahead);
 
   return {
     plenum,

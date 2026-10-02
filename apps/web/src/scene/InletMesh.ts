@@ -15,7 +15,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 import type { EngineSnapshot, EngineSpec } from '../model/spec.js';
-import { PLENUM_ROUNDING, PLENUM_WALL, THROTTLE_WALL, inletLayout, type InletLayout } from './inletLayout.js';
+import { PLENUM_ROUNDING, PLENUM_WALL, SNORKEL_ASPECT, SNORKEL_WALL, THROTTLE_WALL, inletLayout, type InletLayout } from './inletLayout.js';
 import { pressureColor } from './PipeMesh.js';
 
 const PLASTIC = { color: 0x2c2f35, metalness: 0.05, roughness: 0.62 };
@@ -44,7 +44,7 @@ function runnerRadius(radius: number, s: number, flare: number): number {
   return s >= reach ? radius : radius * (1 + flare * (1 - s / reach) ** 2);
 }
 
-/** Wall thickness of the rubber tube and the snorkel, m: how far they stand out of their bore. */
+/** Wall thickness of the rubber tube, m: how far it stands out of its bore. */
 const WALL = 0.004;
 
 /** How many specks of air are shown moving through the tract. */
@@ -642,7 +642,7 @@ export class InletMesh {
     // The snorkel: round where it leaves the airbox, flattening over its first stretch to fit under the
     // bonnet with the solver's area kept, and flaring at its mouth.
     const round = Math.sqrt(l.snorkelArea / Math.PI);
-    const aspect = 1.8;
+    const aspect = SNORKEL_ASPECT;
     const snorkelLength = l.snorkel.getLength();
     const snorkel = new THREE.Mesh(
       sweep(l.snorkel, (u) => {
@@ -651,13 +651,13 @@ export class InletMesh {
         const flat = Math.min(1, (u * snorkelLength) / 0.08);
         const wide = round * (1 + (Math.sqrt(aspect) - 1) * flat);
         const high = (round * round) / wide;
-        return [wide * flare + WALL, high * flare + WALL];
+        return [wide * flare + SNORKEL_WALL, high * flare + SNORKEL_WALL];
       }),
       this.plastic,
     );
     this.tract.add(snorkel);
     // A rolled lip round the mouth, the flare's edge.
-    const [wide, high] = [round * Math.sqrt(aspect) * 1.35 + WALL, (round / Math.sqrt(aspect)) * 1.35 + WALL];
+    const [wide, high] = [round * Math.sqrt(aspect) * 1.35 + SNORKEL_WALL, (round / Math.sqrt(aspect)) * 1.35 + SNORKEL_WALL];
     const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.0035 / Math.min(wide, high), 8, 48), this.plastic);
     rim.scale.set(wide, high, Math.min(wide, high));
     rim.position.copy(l.mouth);
