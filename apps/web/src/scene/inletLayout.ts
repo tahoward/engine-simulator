@@ -36,9 +36,10 @@ export interface InletLayout {
   /**
    * The plenum: its middle and its size along x, y and z, m. On a vee it narrows below the throttle body to
    * `base` of its width, a V's flanks parallel to its banks so it sits down into the valley between the
-   * heads; beside an inline head it is a rounded box, its `base` 1.
+   * heads; beside an inline head it is a rounded box, its `base` 1, its side away from the head, opposite its
+   * runners, drawn in towards the back, as a cast plenum's is (`taper`).
    */
-  plenum: { centre: THREE.Vector3; size: THREE.Vector3; base: number };
+  plenum: { centre: THREE.Vector3; size: THREE.Vector3; base: number; taper: PlenumTaper | null };
   /** One runner a cylinder from the plenum into the head: straight on an inline engine, curved on a vee. */
   runners: Runner[];
   /** The throttle body: its middle, on the plenum's front face, its bore and its length along -z, m. */
@@ -89,6 +90,23 @@ export const SNORKEL_ASPECT = 1.8;
 export const SNORKEL_WALL = 0.004;
 const SNORKEL_CLEAR = 0.012;
 
+/**
+ * A plenum's side drawn in towards its back: the side, +1 for +x or -1 for -x, and how far in it is at the
+ * back, m, from none at the front.
+ */
+export interface PlenumTaper {
+  side: number;
+  back: number;
+}
+
+/** How far in a plenum's tapered side is `z` m back from its middle, the plenum `length` long. */
+export function taperAt(taper: PlenumTaper, length: number, z: number): number {
+  return taper.back * Math.min(Math.max(z / length + 0.5, 0), 1);
+}
+
+/** How far in an inline plenum's outer side is at its back, as a fraction of its width. */
+const PLENUM_TAPER = 0.45;
+
 export function inletLayout(spec: EngineSpec): InletLayout {
   const shell = engineShell(spec);
   const segments = inletSegments(spec);
@@ -110,7 +128,8 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   const lastRunner = Math.max(...zs.map(Math.abs)) + radius * 1.5 + PLENUM_ROUNDING + 0.006;
   const length = Math.max(shell.length * 0.85, 2 * lastRunner);
   const height = Math.max(PLENUM_HEIGHT, face);
-  const footprint = plenumVolumeOf(spec) / (height * length);
+  // Beside an inline head it narrows towards the back, so is as wide on average as a box a taper's half less.
+  const footprint = plenumVolumeOf(spec) / (height * length * (vee ? 1 : 1 - PLENUM_TAPER / 2));
   let width = Math.max(Math.min(Math.max(footprint, 0.07), vee ? shell.width * 0.9 : 0.12), face);
   const runners: Runner[] = [];
   let centre: THREE.Vector3;
@@ -223,7 +242,10 @@ export function inletLayout(spec: EngineSpec): InletLayout {
       runners.push({ from, to: port, leaving: third, arriving: third, radius, exit: 'side' });
     }
   }
-  const plenum = { centre, size: new THREE.Vector3(width, height, length), base };
+  // Drawn in on its side opposite the runners, but no further than leaves it room inside at the back.
+  const inwards = Math.min(PLENUM_TAPER * width, width - 4 * PLENUM_ROUNDING - 2 * PLENUM_WALL);
+  const taper: PlenumTaper | null = vee || inwards <= 0 ? null : { side: intakeSide, back: inwards };
+  const plenum = { centre, size: new THREE.Vector3(width, height, length), base, taper };
 
   // The throttle body on the plenum's front face, looking forwards.
   const throttleLength = 0.05 + bore * 0.3;
