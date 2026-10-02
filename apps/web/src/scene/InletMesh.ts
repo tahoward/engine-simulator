@@ -30,6 +30,8 @@ const AROUND = 28;
 /** How much of the tube, from the throttle body, is the bellows coupler, m, and its ribs' pitch. */
 const BELLOWS = 0.09;
 const RIB_PITCH = 0.012;
+/** How far apart the tube's stations are, m: close enough to round each rib. */
+const RIB_STATION = 0.0015;
 
 /** How much wider a runner flares where it meets the plenum, as a fraction of its bore, and over how many
  * of its radii, like a cast fillet outside and a bellmouth in. */
@@ -83,6 +85,7 @@ function sweep(
   curve: THREE.Curve<THREE.Vector3>,
   size: (u: number) => [number, number],
   bend = false,
+  along = ALONG,
 ): THREE.BufferGeometry {
   const positions: number[] = [];
   const normals: number[] = [];
@@ -90,10 +93,10 @@ function sweep(
   const up = new THREE.Vector3(0, 1, 0);
   // A round tube bending through the vertical, as a runner turning down into its port does, is carried
   // round its bend without twisting: the frame a bent pipe has.
-  const frames = bend ? curve.computeFrenetFrames(ALONG, false) : null;
+  const frames = bend ? curve.computeFrenetFrames(along, false) : null;
   let was = new THREE.Vector3(1, 0, 0);
-  for (let i = 0; i <= ALONG; i++) {
-    const u = i / ALONG;
+  for (let i = 0; i <= along; i++) {
+    const u = i / along;
     const at = curve.getPointAt(u);
     const t = curve.getTangentAt(u).normalize();
     const across = frames ? frames.normals[i]!.clone() : new THREE.Vector3().crossVectors(t, up);
@@ -114,7 +117,7 @@ function sweep(
       normals.push(n.x, n.y, n.z);
     }
   }
-  for (let i = 0; i < ALONG; i++) {
+  for (let i = 0; i < along; i++) {
     for (let j = 0; j < AROUND; j++) {
       const a = i * (AROUND + 1) + j;
       const b = a + AROUND + 1;
@@ -591,7 +594,7 @@ export class InletMesh {
         const s = u * tubeLength;
         const rib = u < ribs && s > 0.02 ? 0.0045 * Math.max(0, Math.sin((s / RIB_PITCH) * Math.PI * 2)) : 0;
         return [r + rib, r + rib];
-      }),
+      }, false, Math.ceil(tubeLength / RIB_STATION)),
       this.rubber,
     );
     this.tract.add(tube);
