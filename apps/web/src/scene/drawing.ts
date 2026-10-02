@@ -243,18 +243,7 @@ export function loosenChildren(graph: ExhaustGraph, ductId: string, placement: E
   const ends = endsAt(graph, node);
   const others = ends.filter((e) => e.end === 'outlet' && e.duct !== duct);
   if (others.length > 0) return;
-  for (const e of ends) {
-    if (e.end !== 'inlet') continue;
-    const child = e.duct;
-    const place = placement.ducts.get(child.id);
-    if (!place) continue;
-    const turn = turnBetween(new THREE.Vector3(1, 0, 0), place.heading);
-    child.from = { kind: 'free', position: [place.origin.x, place.origin.y, place.origin.z] };
-    child.headingYaw = turn.yaw;
-    child.headingPitch = turn.pitch;
-    child.headingFrame = 'world';
-    delete child.continues;
-  }
+  for (const e of ends) if (e.end === 'inlet') loosenWhereItLies(e.duct, placement);
   duct.to = { kind: 'mouth' };
   // The bend it was fitted in goes too, and any swing: they were only the way to what it joined.
   releaseBend(duct);
@@ -262,6 +251,18 @@ export function loosenChildren(graph: ExhaustGraph, ductId: string, placement: E
     graph.junctions = graph.junctions.filter((j) => j.node !== node);
     if (graph.junctions.length === 0) delete graph.junctions;
   }
+}
+
+/** Make `duct` a loose pipe, starting where it does in `placement`, heading as it does. */
+function loosenWhereItLies(duct: ExhaustDuct, placement: ExhaustPlacement): void {
+  const place = placement.ducts.get(duct.id);
+  if (!place) return;
+  const turn = turnBetween(new THREE.Vector3(1, 0, 0), place.heading);
+  duct.from = { kind: 'free', position: [place.origin.x, place.origin.y, place.origin.z] };
+  duct.headingYaw = turn.yaw;
+  duct.headingPitch = turn.pitch;
+  duct.headingFrame = 'world';
+  delete duct.continues;
 }
 
 /**
@@ -330,8 +331,10 @@ export function detachDuct(
  *
  * A straight one goes by itself too, not past its junctions. Each junction it leaves still joining two or more
  * stays where it is, fixed there, and the fitted pipes at it fitted to it as before. One left with only a
- * fitted pipe goes with it, that pipe going too, putting back what it joined at its other end as above (a
- * cylinder's comes off it); one left with only a straight leaves that loose where it lies (`loosenChildren`).
+ * fitted pipe goes with it. That pipe stays where its other end is still held, by a port or what it joins:
+ * one ending there ends in open air, its bend kept as drawn; one starting there is left loose where it lies.
+ * Held by nothing else, it goes too, putting back what it joined at its other end as above (a cylinder's
+ * comes off it). One left with only a straight leaves that loose where it lies (`loosenChildren`).
  */
 export function removePipe(
   graph: ExhaustGraph,
@@ -365,7 +368,16 @@ export function removePipe(
       }
       if (duct.to.kind === 'node' && duct.to.node === node) keepsEnd = true;
     } else if (left.length === 1 && left[0]!.fitted) {
-      alone.push(left[0]!);
+      const fitted = left[0]!;
+      const arrives = fitted.to.kind === 'node' && fitted.to.node === node;
+      // Held at its other end: by a port or a pipe it starts from, or what its bend joins.
+      const held = arrives ? fitted.from.kind !== 'free' : fitted.to.kind === 'node';
+      if (!held || !placement) alone.push(fitted);
+      else if (arrives) {
+        delete fitted.fitted;
+        delete fitted.swing;
+        delete fitted.square;
+      } else loosenWhereItLies(fitted, placement);
     }
   }
   for (const d of alone) removeFitted(graph, d, placement, dirs);
