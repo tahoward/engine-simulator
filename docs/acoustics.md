@@ -396,9 +396,10 @@ the valve lifts and shuts. The jet's hiss is Lighthill's: its sound power is `K 
 the jet's own speed through the valve and its opening, with `K` 5 × 10^-5 as measured jets give. The
 noise is band-limited around the jet's Strouhal peak, `0.2 U / D`. A recirculating valve hands its air
 back to the compressor inlet, which then draws that much less from the air, and a tenth of its jet's
-noise gets out through the ducting. On a vacuum with no boost behind it, it lets air through either
-way as the throttle body's pressure swings about the atmosphere's, gently: close to no difference its
-flow goes in proportion to the difference, so it never snaps on and off.
+noise gets out through the ducting. On a vacuum with no boost behind it, it has nothing to vent; and close
+to no difference its flow goes in proportion to the difference, so it never snaps on and off as the
+throttle body's pressure swings about the atmosphere's. Nothing comes in through it: with the throttle
+body below the atmosphere, the pressure across its piston holds it shut.
 
 **The wastegate flap.** Just open, it rattles on its seat with each pulse across the turbine, as the
 simulated pressure there rises. The flap is mechanical, so this is an impact ringing two of its modes,

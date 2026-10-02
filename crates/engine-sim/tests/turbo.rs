@@ -361,8 +361,8 @@ fn on_high_boost_the_surge_starts_with_the_lift() {
 }
 
 /// Switching from a naturally aspirated engine to a turbocharged one leaves the plenum in a deep vacuum
-/// behind a throttle body at the atmosphere's pressure, and the blow-off valve wide open: the air it
-/// passes either way as the pulses swing that pressure about the atmosphere's makes no sound to speak of.
+/// behind a throttle body at the atmosphere's pressure, and the blow-off valve wide open: what it lets
+/// out as the pulses swing that pressure about the atmosphere's makes no sound to speak of.
 #[test]
 fn switching_to_a_turbocharged_engine_is_quiet() {
     let mut sim = EngineSim::new(FS, &common::engine_preset("Inline four, Honda F20C").config);
@@ -377,6 +377,23 @@ fn switching_to_a_turbocharged_engine_is_quiet() {
     }
     assert!(sim.turbo().unwrap().blow_off() > 0.9, "the valve is open on the vacuum");
     assert!(loudest < 0.5, "the turbo stays quiet: {loudest} Pa");
+}
+
+/// Starting a launch from idle snaps the throttle open while the blow-off valve is still open on the
+/// idle vacuum, venting the little the compressor delivers there. The throttle body empties in a few
+/// samples, but the air in the valve's bore cannot stop at once, so the vent dies away without a click.
+#[test]
+fn starting_a_launch_does_not_click() {
+    let preset = common::engine_preset(RB26);
+    let mut sim = EngineSim::new(FS, &preset.config);
+    sim.render(FS as usize);
+    sim.start_launch(preset.launch.clone());
+    let mut loudest = 0.0f64;
+    for _ in 0..(0.008 * FS) as usize {
+        sim.render(1);
+        loudest = loudest.max(sim.turbo().unwrap().last_sound().abs());
+    }
+    assert!(loudest < 0.3, "the turbo is quiet as the throttle opens: {loudest} Pa");
 }
 
 /// The throttle shutting is felt at the compressor only once its pressure wave has run back up the
