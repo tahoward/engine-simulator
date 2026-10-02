@@ -2708,8 +2708,18 @@ export class PipeEditor {
     let shown = false;
     let point = target.point.clone();
     if (target.kind === 'port') {
-      // Onto a port: the cylinder's pipe, bent from its flange round into where the route stands.
-      this.drawGhost.rebuild([fitCurve(tip.point, tip.dir, target.point, target.dir.clone().negate(), { dIn: dia, dOut: this.portDiameter })], tip.point, tip.dir);
+      // Onto a port: the cylinder's pipe, bent from its flange round into where the route stands, as
+      // `drawToPort` makes it: into the open end the route has got to, or what it started from if it drew
+      // nothing.
+      const drew = duct.segments.length > this.route.base;
+      const onto = drew ? { point: routeEnd.point, dir: routeEnd.dir, dia } : this.connectionAnchor(this.route.start, this.route.ductId);
+      const from = { point: target.point, dir: target.dir };
+      if (onto) {
+        const bore = { dIn: Math.max(this.portDiameter, 0.02), dOut: onto.dia };
+        this.drawGhost.rebuild([fitCurve(from.point, from.dir, onto.point, onto.dir, bore)], from.point, from.dir);
+      } else {
+        this.drawGhost.rebuild([fitCurve(tip.point, tip.dir, target.point, target.dir.clone().negate(), { dIn: dia, dOut: this.portDiameter })], tip.point, tip.dir);
+      }
       shown = true;
     } else {
       // Joining something, the bend the pipe will take to arrive along it, tapering to its bore.
