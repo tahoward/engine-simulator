@@ -877,7 +877,11 @@ export class Panel {
       TOOL_ICONS.turbo,
       'Place a turbo',
       'Put a turbo down in the view, then draw pipes into its inlet: the open flange on the side of its ' +
-        'turbine. Put it on the open end of a pipe to attach that pipe as it goes down. Until you draw a ' +
+        'turbine. Put it on the open end of a pipe, or where one of a pipe’s segments meets the next, to snap ' +
+        'it onto that pipe: its inlet flush with the pipe’s end however the pipe bends, and the pipe ending at ' +
+        'the inlet’s bore. A snapped turbo follows its pipe, and its triad only rolls it about the inlet. Put ' +
+        'it on a junction to put it in there: the pipes into the junction feed it, snapped onto the pipe if ' +
+        'there is only one, and the one out of it runs on from its outlet. Until you draw a ' +
         'pipe from its outlet flange, it exhausts straight to the air there. Click a turbo for its triad: ' +
         'drag an arrow to move it along that axis, a square to move it in that plane, a ring to turn it; ' +
         'shift snaps to 5 mm and 15 degrees. Its pipes follow. Right-click a turbo to set it up; Delete ' +

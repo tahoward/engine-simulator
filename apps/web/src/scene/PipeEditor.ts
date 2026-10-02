@@ -25,6 +25,7 @@ import {
   quatMultiply,
   quatNormalise,
   seatTurbo,
+  turboFitsJunction,
   UPRIGHT,
   type TurboSize,
 } from '../model/turbo.js';
@@ -191,11 +192,16 @@ export type ScenePick =
   | { kind: 'joint'; node: string }
   | { kind: 'turbo'; turbo: string };
 
-/** Where a turbo being placed goes, and the open pipe end it was put on, if any. */
+/**
+ * Where a turbo being placed goes, and what it was put on, if anything: a pipe's open end, a junction, or
+ * where one of a pipe's segments meets the next, `x` along it.
+ */
 export interface TurboPlacement {
   position: Vec3;
   rotation: Quat;
   attach?: string;
+  junction?: string;
+  joint?: { duct: string; x: number };
 }
 
 export interface PipeEditorCallbacks {
@@ -556,16 +562,25 @@ export class PipeEditor {
     this.placeTurboTriad();
   }
 
-  /** Put the turbo triad on the selected turbo, sized to it, or hide it. */
+  /**
+   * Put the turbo triad on the selected turbo, sized to it, or hide it. On one snapped onto a pipe, only the
+   * ring about its inlet's axis, at the inlet: it can only be rolled there.
+   */
   private placeTurboTriad(): void {
     const mount = this.context?.graph.turbos?.find((t) => t.id === this.selectedTurbo);
     const show = !!mount?.position && !this.drawMode && !this.placeMode;
     if (show) {
       const at = new THREE.Vector3(...mount!.position!);
+      const inlet = this.context!.placement.turbos.get(mount!.node)?.inlet.point;
+      const snapped = !!mount!.snapped && !!inlet;
       this.turboTriad.setMoveOrigin(at);
-      this.turboTriad.setRotateOrigin(at);
-      // Turned with the turbo: red along its shaft.
+      this.turboTriad.setRotateOrigin(snapped ? new THREE.Vector3(...inlet!) : at);
+      // Turned with the turbo: red along its shaft, blue along the way gas arrives at its inlet.
       this.turboTriad.setOrientation(new THREE.Quaternion(...mount!.rotation));
+      this.turboTriad.setRingsOwn(snapped);
+      this.turboTriad.showMoves(!snapped);
+      this.turboTriad.hideRing(0, snapped);
+      this.turboTriad.hideRing(1, snapped);
     }
     this.turboTriad.setVisible(show);
   }
@@ -608,8 +623,9 @@ export class PipeEditor {
 
   /**
    * Follow the pointer with the turbo being placed: on the level it is put down at, or, near an open pipe
-   * end, with its inlet flange on that end and turned to take the pipe. A loose pipe being placed follows
-   * it on the level of the ports.
+   * end, a junction a turbo can go in at or where one of a pipe's segments meets the next, with its inlet
+   * flange there, flush with the pipe arriving. A loose pipe being placed follows it on the level of the
+   * ports.
    */
   private updateGhost(): void {
     const ctx = this.context;
@@ -623,22 +639,39 @@ export class PipeEditor {
       return;
     }
     const rect = this.dom.getBoundingClientRect();
-    const ends = collectSnapTargets(ctx.graph, ctx.placement, ctx.ports).filter((t) => t.kind === 'ductEnd');
-    const end = nearestSnap(ends, this.pointer, this.camera, SNAP_PIXELS, {
+    const seats = collectSnapTargets(ctx.graph, ctx.placement, ctx.ports).filter(
+      (t) => t.kind === 'ductEnd' || t.kind === 'ductSurface' || (t.kind === 'node' && turboFitsJunction(ctx.graph, t.node)),
+    );
+    const seat = nearestSnap(seats, this.pointer, this.camera, SNAP_PIXELS, {
       width: rect.width,
       height: rect.height,
     });
-    if (end && end.kind === 'ductEnd') {
-      const duct = ctx.graph.ducts.find((d) => d.id === end.duct);
-      const place = ctx.placement.ducts.get(end.duct);
-      if (duct && place) {
-        const dir = layoutPipe(duct.segments, place.origin, place.heading).jointDirections.at(-1) ?? place.heading;
-        const mount = { id: '', node: '', position: null as Vec3 | null, rotation: [...IDENTITY] as Quat };
-        seatTurbo(mount, [end.point.x, end.point.y, end.point.z], [dir.x, dir.y, dir.z], this.size);
-        this.ghostAt = { position: mount.position!, rotation: mount.rotation, attach: duct.id };
-        this.showGhost();
-        return;
-      }
+    const arriving = (duct: ExhaustDuct) => {
+      const place = ctx.placement.ducts.get(duct.id);
+      return place ? (layoutPipe(duct.segments, place.origin, place.heading).jointDirections.at(-1) ?? place.heading) : undefined;
+    };
+    let dir: THREE.Vector3 | undefined;
+    let on: Pick<TurboPlacement, 'attach' | 'junction' | 'joint'> = {};
+    if (seat?.kind === 'ductEnd') {
+      const duct = ctx.graph.ducts.find((d) => d.id === seat.duct);
+      dir = duct && arriving(duct);
+      on = { attach: seat.duct };
+    } else if (seat?.kind === 'node') {
+      // Flush with the one pipe into it, or facing the way the pipes into it meet.
+      const feeds = endsAt(ctx.graph, seat.node).filter((e) => e.end === 'outlet');
+      const joint = ctx.placement.joints.get(seat.node);
+      dir = feeds.length === 1 || !joint ? arriving(feeds[0]!.duct) : joint.axis;
+      on = { junction: seat.node };
+    } else if (seat?.kind === 'ductSurface' && seat.dir) {
+      dir = seat.dir;
+      on = { joint: { duct: seat.duct, x: seat.x } };
+    }
+    if (seat && dir) {
+      const mount = { id: '', node: '', position: null as Vec3 | null, rotation: [...this.ghostAt.rotation] as Quat };
+      seatTurbo(mount, [seat.point.x, seat.point.y, seat.point.z], [dir.x, dir.y, dir.z], this.size);
+      this.ghostAt = { position: mount.position!, rotation: mount.rotation, ...on };
+      this.showGhost();
+      return;
     }
     const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -this.turboHeight);
     const point = new THREE.Vector3();

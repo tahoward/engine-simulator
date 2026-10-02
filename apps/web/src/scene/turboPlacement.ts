@@ -20,7 +20,7 @@ import {
 } from '../model/exhaustGraph.js';
 import type { Vec3 } from '../model/geometry.js';
 import { makeSegment, segmentDiameter, type EngineSpec, type PipeSegment } from '../model/spec.js';
-import { graphTurboSize, seatTurbo, turboPortsOf } from '../model/turbo.js';
+import { graphTurboSize, seatTurbo, turboPortsOf, turboRoll } from '../model/turbo.js';
 import { MIN_BEND_BORES, bendAnchor, fitCurve, type BendAnchor } from './drawing.js';
 import { bendRadius } from './PipeMesh.js';
 import { layoutGraph, type ExhaustPort } from './exhaustLayout.js';
@@ -81,7 +81,10 @@ export function moveJunction(
   refitBends(graph, ports, spec);
 }
 
-/** Move or turn a turbo. The pipes feeding it follow, their bends into its inlet fitted again. */
+/**
+ * Move or turn a turbo. The pipes feeding it follow, their bends into its inlet fitted again. One snapped
+ * onto a pipe stays on its end, only rolled: by as much as `rotation` rolls it about its inlet's axis.
+ */
 export function moveTurbo(
   graph: ExhaustGraph,
   ports: ExhaustPort[],
@@ -92,9 +95,48 @@ export function moveTurbo(
 ): void {
   const mount = graph.turbos?.find((t) => t.id === id);
   if (!mount) return;
-  mount.position = position;
-  mount.rotation = rotation;
+  if (mount.snapped) {
+    const roll = turboRoll(rotation);
+    if (Math.abs(roll) > 1e-9) mount.roll = roll;
+    else delete mount.roll;
+  } else {
+    mount.position = position;
+    mount.rotation = rotation;
+  }
   refitBends(graph, ports, spec);
+}
+
+/**
+ * Seat every turbo snapped onto a pipe on that pipe's end again (`TurboMount.snapped`): its inlet flange
+ * there, flush with it, rolled as it was, and the pipe ending at the inlet's bore, tapering to it along its
+ * last segment. So it follows the pipe however that is edited. A turbo whose pipe has gone, or which more
+ * than one pipe now feeds, is snapped onto nothing any more, and stays where it is.
+ */
+export function seatSnappedTurbos(graph: ExhaustGraph, ports: ExhaustPort[], spec: EngineSpec): void {
+  const snapped = (graph.turbos ?? []).filter((t) => t.snapped);
+  if (snapped.length === 0) return;
+  const size = graphTurboSize(graph, spec);
+  // A turbo on a pipe from another's outlet is seated once that one is: a pass for each.
+  for (let pass = 0; pass < snapped.length; pass++) {
+    const placement = layoutGraph(ports, graph, turboPortsOf(graph, spec));
+    for (const mount of snapped) {
+      if (!mount.snapped) continue;
+      const feeds = graph.ducts.filter((d) => d.to.kind === 'node' && d.to.node === mount.node);
+      const feed = feeds.length === 1 ? feeds[0]! : undefined;
+      const place = feed ? placement.ducts.get(feed.id) : undefined;
+      if (!feed || !place || feed.segments.length === 0) {
+        delete mount.snapped;
+        delete mount.roll;
+        continue;
+      }
+      const last = feed.segments.at(-1)!;
+      if (last.kind !== 'chamber') last.dOut = size.inletDia;
+      const swept = layoutPipe(feed.segments, place.origin, place.heading);
+      const end = swept.joints.at(-1)!;
+      const dir = swept.jointDirections.at(-1)!;
+      seatTurbo(mount, [end.x, end.y, end.z], [dir.x, dir.y, dir.z], size, mount.roll ?? 0);
+    }
+  }
 }
 
 /**
@@ -103,9 +145,10 @@ export function moveTurbo(
  * another.
  *
  * Done on every rebuild, so each bend follows whatever moved: the turbo or the pipe it joins, or the pipe
- * drawn up to it.
+ * drawn up to it. Turbos snapped onto a pipe are seated on its end first (`seatSnappedTurbos`).
  */
 export function refitBends(graph: ExhaustGraph, ports: ExhaustPort[], spec: EngineSpec): void {
+  seatSnappedTurbos(graph, ports, spec);
   const turbos = turboPortsOf(graph, spec);
   if (turbos.size === 0 && !graph.junctions?.length && !graph.ducts.some((d) => d.fitted)) return;
   const placement = layoutGraph(ports, graph, turbos);
