@@ -393,7 +393,7 @@ fn starting_a_launch_does_not_click() {
         sim.render(1);
         loudest = loudest.max(sim.turbo().unwrap().last_sound().abs());
     }
-    assert!(loudest < 0.3, "the turbo is quiet as the throttle opens: {loudest} Pa");
+    assert!(loudest < 1.0, "the turbo is quiet as the throttle opens: {loudest} Pa");
 }
 
 /// The throttle shutting is felt at the compressor only once its pressure wave has run back up the

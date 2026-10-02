@@ -1101,7 +1101,7 @@ impl Turbo {
             r.blow_off = clamp(r.blow_off, 0.0, 1.0);
             // The air in its bore cannot stop or start at once.
             let settled = vent_flow(r.size.blow_off_area * r.blow_off, p2, t2);
-            r.vent = settled;
+            r.vent += (1.0 - math::exp(-dt / BLOW_OFF_FLOW_TAU)) * (settled - r.vent);
             vent += r.vent;
             vent_h += r.vent * h2;
         }
