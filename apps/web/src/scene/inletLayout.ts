@@ -103,10 +103,11 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   // front face takes the throttle body, wall and all, inside its rounded edges.
   const bore = throttleDiaOf(spec);
   const face = bore + 2 * THROTTLE_WALL + 2 * PLENUM_ROUNDING + 0.01;
-  // Most of the engine's length, and at least past every runner, by their bore and a little more.
+  // Most of the engine's length, and at least past every runner: by its flare where it leaves the plenum, so
+  // each opening is on the flat of the side, clear of where the ends round over, and a little more.
   const radius = intakeRunnerOf(spec).diameter / 2;
   const zs = Array.from({ length: spec.cylinders }, (_, b) => cylinderZ(spec, b));
-  const lastRunner = Math.max(...zs.map(Math.abs)) + radius + 0.02;
+  const lastRunner = Math.max(...zs.map(Math.abs)) + radius * 1.5 + PLENUM_ROUNDING + 0.006;
   const length = Math.max(shell.length * 0.85, 2 * lastRunner);
   const height = Math.max(PLENUM_HEIGHT, face);
   const footprint = plenumVolumeOf(spec) / (height * length);

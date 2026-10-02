@@ -229,10 +229,11 @@ function alongFace(p: THREE.Vector2, q: THREE.Vector2, start: THREE.Vector2, dir
 
 /**
  * The plenum as a hollow casting, centred on the origin, `size` along x, y and z: a shell `PLENUM_WALL`
- * thick round its section, run along z, closed at the back, and at the front by a plate with the throttle
- * body's bore, `bore` across, through it at the section's middle. Where runners leave it, the upright side
- * they leave by is a plate of its own, inside and out, with an opening for each, so the runners can be seen
- * into from inside. Its rounded edges shade smoothly, as a pipe's curve does, and its square ones stay sharp.
+ * thick round its section, run along z, and rounded over at each end as its sides are, closed at the back,
+ * and at the front with the throttle body's bore, `bore` across, through it at the section's middle. Where
+ * runners leave it, the upright side they leave by is a plate of its own, inside and out, with an opening for
+ * each, so the runners can be seen into from inside. Its rounded edges and corners shade smoothly, as a
+ * pipe's curve does, and its square ones stay sharp.
  */
 function plenumGeometry(size: THREE.Vector3, base: number, bore: number, openings: Opening[]): THREE.BufferGeometry {
   const outer = plenumSection(size.x, size.y, base, PLENUM_ROUNDING);
@@ -243,13 +244,15 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
     Math.max(PLENUM_ROUNDING - PLENUM_WALL, 0.002),
   );
   const n = outer.points.length;
+  // The length its sides run straight, between its rounded ends.
+  const straight = size.z - 2 * PLENUM_ROUNDING;
   const open = (['right', 'left', 'rightFlank', 'leftFlank', 'bottom'] as const).filter((face) =>
     openings.some((o) => o.face === face),
   );
   const parts: THREE.BufferGeometry[] = [];
   const extrude = (shape: THREE.Shape) => {
-    const g = new THREE.ExtrudeGeometry(shape, { depth: size.z, bevelEnabled: false, curveSegments: 1 });
-    g.translate(0, 0, -size.z / 2);
+    const g = new THREE.ExtrudeGeometry(shape, { depth: straight, bevelEnabled: false, curveSegments: 1 });
+    g.translate(0, 0, -straight / 2);
     parts.push(g.toNonIndexed());
   };
 
@@ -279,10 +282,10 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
         const [p, q] = section.faces[face]!.map((i) => section.points[i]!);
         const length = p!.distanceTo(q!);
         const plate = new THREE.Shape([
-          new THREE.Vector2(-size.z / 2, 0),
-          new THREE.Vector2(size.z / 2, 0),
-          new THREE.Vector2(size.z / 2, length),
-          new THREE.Vector2(-size.z / 2, length),
+          new THREE.Vector2(-straight / 2, 0),
+          new THREE.Vector2(straight / 2, 0),
+          new THREE.Vector2(straight / 2, length),
+          new THREE.Vector2(-straight / 2, length),
         ]);
         for (const o of openings.filter((o) => o.face === face)) {
           const hole = new THREE.Path();
@@ -303,18 +306,60 @@ function plenumGeometry(size: THREE.Vector3, base: number, bore: number, opening
     }
   }
 
-  const back = new THREE.ShapeGeometry(new THREE.Shape(outer.points), 8).toNonIndexed();
-  back.translate(0, 0, size.z / 2);
-  parts.push(back);
-  const plate = new THREE.Shape(outer.points);
-  const hole = new THREE.Path();
-  hole.absarc(0, 0, bore / 2, 0, Math.PI * 2, true);
-  plate.holes.push(hole);
-  const front = new THREE.ShapeGeometry(plate, 24).toNonIndexed();
-  front.translate(0, 0, -size.z / 2);
-  parts.push(front);
+  // Each end rounded over as its sides are: the section drawn in a little further at each step round the
+  // quarter, to a plate across the end, the front one with the throttle body's bore through it. Inside, a
+  // plate closes each end where the sides stop, the bore's rim between the two at the front.
+  const rings = Array.from({ length: END_ARC + 1 }, (_, k) => {
+    const t = (k / END_ARC) * (Math.PI / 2);
+    const d = PLENUM_ROUNDING * (1 - Math.cos(t));
+    return {
+      points: plenumSection(size.x - 2 * d, size.y - 2 * d, base, Math.max(PLENUM_ROUNDING - d, 1e-4)).points,
+      z: straight / 2 + PLENUM_ROUNDING * Math.sin(t),
+    };
+  });
+  const bored = (points: THREE.Vector2[], hole: boolean) => {
+    const shape = new THREE.Shape(points);
+    if (hole) shape.holes.push(new THREE.Path().absarc(0, 0, bore / 2, 0, Math.PI * 2, true));
+    return new THREE.ShapeGeometry(shape, 24).toNonIndexed();
+  };
+  for (const side of [1, -1]) {
+    const positions: number[] = [];
+    for (let k = 0; k < END_ARC; k++) {
+      const [a, b] = [rings[k]!, rings[k + 1]!];
+      for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const quad = [
+          [a.points[i]!, a.z],
+          [a.points[j]!, a.z],
+          [b.points[j]!, b.z],
+          [a.points[i]!, a.z],
+          [b.points[j]!, b.z],
+          [b.points[i]!, b.z],
+        ] as const;
+        for (const [p, z] of quad) positions.push(p.x, p.y, side * z);
+      }
+    }
+    const band = new THREE.BufferGeometry();
+    band.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+    band.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array((positions.length / 3) * 2), 2));
+    band.computeVertexNormals();
+    parts.push(band);
+    const end = bored(rings[END_ARC]!.points, side < 0);
+    end.translate(0, 0, side * (size.z / 2));
+    parts.push(end);
+    const inside = bored(inner.points, side < 0);
+    inside.translate(0, 0, side * (straight / 2));
+    parts.push(inside);
+  }
+  const rim = new THREE.CylinderGeometry(bore / 2, bore / 2, PLENUM_ROUNDING, 32, 1, true).toNonIndexed();
+  rim.rotateX(Math.PI / 2);
+  rim.translate(0, 0, -(straight + PLENUM_ROUNDING) / 2);
+  parts.push(rim);
   return toCreasedNormals(mergeGeometries(parts), Math.PI / 5);
 }
+
+/** How many steps round the quarter the plenum's ends are rounded over in. */
+const END_ARC = 6;
 
 /** A round hole through one of a box's faces: the face, by its outward axis, and the hole's middle and radius, m. */
 interface BoxHole {
