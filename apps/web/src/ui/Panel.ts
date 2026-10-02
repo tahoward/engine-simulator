@@ -67,7 +67,8 @@ import {
   speedOfSound,
   totalPipeLength,
 } from '../model/spec.js';
-import { airboxVolumeOf, plenumVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
+import { airboxVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
+import { solvedPlenum, solvedPlenumVolume } from '../scene/inletLayout.js';
 import { autoLaunchSettings, type LaunchSettings } from '../model/launchSettings.js';
 import { SECTION_ICONS, TOOL_ICONS, toolButton } from './toolbar.js';
 
@@ -1332,20 +1333,80 @@ export class Panel {
     }).row.title =
       'At 0 it passes the intake valves\' area, a little narrowed, as a port does. Narrower ' +
       'speeds the air up and rams harder at low rpm; wider breathes better at the top.';
+    // The plenum, solved along its length: its size, and what that makes of it.
+    const plenumReadout = el('div', 'readout', intake);
+    let plenumKey = '';
+    const showPlenum = () => {
+      const e = this.config.engine;
+      const p = solvedPlenum(e);
+      const mm = (v: number) => Math.round(v * 1000);
+      const text =
+        `Plenum ${mm(p.plenumLength)} × ${mm(p.plenumWidth)} × ${mm(p.plenumHeight)} mm, ` +
+        `${(solvedPlenumVolume(p) * 1000).toFixed(1)} L, ringing along its length at about ` +
+        `${Math.round(343 / (2 * p.plenumLength))} Hz`;
+      if (text === plenumKey) return;
+      plenumKey = text;
+      plenumReadout.textContent = text;
+    };
+    showPlenum();
+    const refreshRunners = this.refreshIntake;
+    this.refreshIntake = () => {
+      refreshRunners();
+      showPlenum();
+    };
+    plenumReadout.title =
+      'The plenum the runners draw from, downstream of the throttle, solved along its length: a wave ' +
+      'takes a millisecond or so to cross it, so the cylinders at its far end draw from air its waves ' +
+      'leave different from that by the throttle, and it rings at the speed a wave crosses it and back.';
+    const plenumSize = (label: string, key: 'plenumLength' | 'plenumWidth' | 'plenumHeight', max: number, auto: () => number, title: string) => {
+      this.slider(intake, {
+        label,
+        min: 0,
+        max,
+        step: 0.001,
+        value: spec[key],
+        sync: () => this.config.engine[key],
+        format: (v) => (v > 0 ? `${Math.round(v * 1000)} mm` : `auto (${Math.round(auto() * 1000)} mm)`),
+        onInput: (v) => this.cb.onEngine({ [key]: v }),
+      }).row.title = title;
+    };
+    plenumSize(
+      'Plenum length',
+      'plenumLength',
+      0.9,
+      () => solvedPlenum(this.config.engine).plenumLength,
+      'Along the engine, the throttle body at its front. At 0 it runs past every runner, along most of the ' +
+        'engine. Longer, it rings lower, and its far cylinders breathe further from the near ones.',
+    );
+    plenumSize(
+      'Plenum width',
+      'plenumWidth',
+      0.3,
+      () => solvedPlenum(this.config.engine).plenumWidth,
+      'Across it at its front. At 0 it is as wide as holds one and a half times the engine\u2019s ' +
+        'displacement at its length and height, within the room the engine leaves it. Its volume holds ' +
+        'what the cylinders push back up their runners and hands it back next cycle.',
+    );
+    plenumSize(
+      'Plenum height',
+      'plenumHeight',
+      0.3,
+      () => solvedPlenum(this.config.engine).plenumHeight,
+      'How high it is at its front. At 0, and at least, high enough for the throttle body\u2019s flange.',
+    );
     this.slider(intake, {
-      label: 'Plenum volume',
+      label: 'Plenum taper',
       min: 0,
-      max: 0.02,
-      step: 0.0001,
-      value: spec.plenumVolume,
-      sync: () => this.config.engine.plenumVolume,
-      format: (v) =>
-        v > 0 ? `${(v * 1000).toFixed(1)} L` : `auto (${(plenumVolumeOf(this.config.engine) * 1000).toFixed(1)} L)`,
-      onInput: (v) => this.cb.onEngine({ plenumVolume: v }),
+      max: 0.8,
+      step: 0.01,
+      value: spec.plenumTaper,
+      sync: () => this.config.engine.plenumTaper,
+      format: (v) => `${Math.round(v * 100)}%`,
+      onInput: (v) => this.cb.onEngine({ plenumTaper: v }),
     }).row.title =
-      'The manifold the runners draw from, downstream of the throttle. It holds what the cylinders ' +
-      'push back up their runners and hands it back next cycle. At 0 it is one and a half times ' +
-      'the engine\u2019s displacement.';
+      'How much of its section it has lost at its back, narrowing evenly from its front: beside an ' +
+      'inline head its side away from the head drawn in, on a V or a boxer its top dropped. The far ' +
+      'cylinders draw from a narrower box.';
     this.slider(intake, {
       label: 'Throttle bore',
       min: 0,

@@ -322,8 +322,9 @@ mod two_stage_intake {
         let short_length = common::engine_preset("V8, Chevrolet LT6").config.engine.intake_runner_short_length;
         let short_only = || json!({ "intakeRunnerLength": short_length, "intakeRunnerShortLength": 0 });
         let (both, short) = (torque_at(7800.0, json!({})), torque_at(7800.0, short_only()));
-        // Measures about 1.8% more, the airbox and snorkel taking a little of the long runners' edge.
-        assert!(both > 1.015 * short, "at 7800: two-stage {both} short only {short}");
+        // Measures about 0.6% more: the airbox and snorkel take a little of the long runners' edge, and the
+        // plenum's own waves, along its length, more.
+        assert!(both > 1.003 * short, "at 7800: two-stage {both} short only {short}");
         let ratio = torque_at(8400.0, json!({})) / torque_at(8400.0, short_only());
         assert!((ratio - 1.0).abs() < 0.005, "at 8400: ratio {ratio}");
     }
@@ -395,5 +396,71 @@ mod torque_curve {
                 assert!(change < 0.04, "rises {:.1}% from {a} to {b} rpm: {torque:?}", 100.0 * change);
             }
         }
+    }
+}
+
+mod plenum {
+    use super::*;
+    use engine_sim::plenum::{plenum_shape_of, plenum_volume_of};
+
+    /// The F20C at full throttle, settled, and its plenum's front and back zones' gauge pressure over
+    /// the next quarter second.
+    fn front_and_back(over: Value) -> (Vec<f64>, Vec<f64>) {
+        let preset = common::engine_preset("Inline four, Honda F20C");
+        let mut cfg = preset.config.clone();
+        cfg.engine = common::with(
+            &cfg.engine,
+            merged(json!({ "rpm": 6000, "throttle": 1, "freeRunning": false, "combustionVariability": 0 }), over),
+        );
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(FS as usize);
+        let (mut front, mut back) = (Vec::new(), Vec::new());
+        for _ in 0..FS as usize / 4 {
+            sim.tick();
+            let zones: Vec<f64> = sim.plenum().zone_pressures().collect();
+            front.push(zones[0]);
+            back.push(*zones.last().unwrap());
+        }
+        (front, back)
+    }
+
+    fn mean(v: &[f64]) -> f64 {
+        v.iter().sum::<f64>() / v.len() as f64
+    }
+
+    /// holds as much as it is set to, from its size or from its volume
+    #[test]
+    fn holds_as_much_as_it_is_set_to_from_its_size_or_from_its_volume() {
+        let spec = v8_spec(json!({}));
+        let auto = plenum_volume_of(&spec);
+        let swept = displacement(&spec) * 8.0;
+        assert!((auto / swept - 1.5).abs() < 1e-9, "auto {auto} swept {swept}");
+        let sized = v8_spec(json!({ "plenumLength": 0.5, "plenumWidth": 0.25, "plenumHeight": 0.2, "plenumTaper": 0.4 }));
+        assert!((plenum_volume_of(&sized) - 0.5 * 0.25 * 0.2 * 0.8).abs() < 1e-12);
+        // Left to work out its width, it holds the volume asked for at any length.
+        let long = v8_spec(json!({ "plenumLength": 0.7, "plenumVolume": 0.004 }));
+        assert!((plenum_volume_of(&long) - 0.004).abs() < 1e-12);
+        assert_eq!(plenum_shape_of(&long).length, 0.7);
+    }
+
+    /// is solved along its length: its ends breathe apart, but feed the runners the same air on average
+    #[test]
+    fn is_solved_along_its_length() {
+        let (front, back) = front_and_back(json!({}));
+        let swing: f64 = (front.iter().zip(&back).map(|(f, b)| (f - b) * (f - b)).sum::<f64>() / front.len() as f64).sqrt();
+        assert!(swing > 500.0, "front and back differ by {swing} Pa rms");
+        let (f, b) = (mean(&front), mean(&back));
+        assert!((f - b).abs() < 100.0, "front {f} back {b}");
+    }
+
+    /// breathes apart along it more the longer it is
+    #[test]
+    fn breathes_apart_along_it_more_the_longer_it_is() {
+        let apart = |length: f64| {
+            let (front, back) = front_and_back(json!({ "plenumLength": length }));
+            (front.iter().zip(&back).map(|(f, b)| (f - b) * (f - b)).sum::<f64>() / front.len() as f64).sqrt()
+        };
+        let (short, long) = (apart(0.2), apart(0.8));
+        assert!(long > short * 1.5, "short {short} long {long}");
     }
 }

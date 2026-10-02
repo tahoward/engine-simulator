@@ -611,10 +611,11 @@ fn and_the_spacing_has_to_be_off_the_mouths_own_axis_to_do_anything() {
 
 /// Unequal cylinder breathing restores the low orders.
 ///
-/// With identical cylinders the cancellation of the non-multiple orders is not merely strong but
-/// *exact* — measured 70 dB down, where real engines sit 20 to 35 dB down, because no two cylinders
-/// breathe alike. Without this an inline four is a pure tone on its firing frequency with no rumble
-/// underneath, which is the other half of sounding wrong.
+/// With identical cylinders the non-multiple orders nearly cancel: what is left of them, about 35 dB
+/// down, comes only from the plenum, the cylinders at its far end drawing from air its waves leave
+/// slightly different from that by the throttle. Real engines sit 20 to 35 dB down, because no two
+/// cylinders breathe alike. Without this an inline four is all but a pure tone on its firing frequency
+/// with little rumble underneath, which is the other half of sounding wrong.
 #[test]
 fn unequal_cylinder_breathing_restores_the_low_orders() {
     let rpm = 3400.0;
@@ -629,7 +630,7 @@ fn unequal_cylinder_breathing_restores_the_low_orders() {
 
     // The third order — 1.5 times per revolution — is the strongest of the cancelled ones.
     assert!(
-        ratio(&real, 3.0) > ratio(&matched, 3.0) * 10.0,
+        ratio(&real, 3.0) > ratio(&matched, 3.0) * 5.0,
         "real {} vs matched {}",
         ratio(&real, 3.0),
         ratio(&matched, 3.0)

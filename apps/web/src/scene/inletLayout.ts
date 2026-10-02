@@ -21,8 +21,16 @@ import {
   sharedHead,
   valvetrainTop,
 } from '../model/geometry.js';
-import { airboxVolumeOf, inletSegments, plenumVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
-import { cylinderZ, intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
+import {
+  PLENUM_ROUNDING,
+  THROTTLE_WALL,
+  airboxVolumeOf,
+  inletSegments,
+  plenumShapeOf,
+  snorkelDiaOf,
+  throttleDiaOf,
+} from '../model/intakeSizing.js';
+import { intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
 
 export interface Runner {
   /** Where it leaves the plenum, and where it meets the head. */
@@ -70,15 +78,10 @@ export interface InletLayout {
   segments: PipeSegment[];
 }
 
-/** How high the plenum is at least, m, and how round its edges are. */
-const PLENUM_HEIGHT = 0.1;
-export const PLENUM_ROUNDING = 0.012;
+export { PLENUM_ROUNDING, THROTTLE_WALL };
 
 /** How thick the plenum's casting is, m. */
 export const PLENUM_WALL = 0.005;
-
-/** The throttle body's wall, round its bore, m. */
-export const THROTTLE_WALL = 0.006;
 
 /** The `t` in `lo..hi` at which `f(t)` is `target`, `f` rising with `t`: by bisection. */
 function fit(f: (t: number) => number, target: number, lo: number, hi: number): number {
@@ -116,13 +119,6 @@ export function taperAlong(length: number, z: number): number {
   return Math.min(Math.max(z / length + 0.5, 0), 1);
 }
 
-/**
- * How far in an inline plenum's outer side is at its back, as a fraction of its width, and how far a V's or
- * a boxer's top drops there, of its height.
- */
-const PLENUM_TAPER = 0.45;
-const PLENUM_DROP = 0.4;
-
 export function inletLayout(spec: EngineSpec): InletLayout {
   const shell = engineShell(spec);
   const segments = inletSegments(spec);
@@ -132,21 +128,16 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   const exhaustSide = Math.sign(exhaustPortOf(spec, 0).direction[0]) || 1;
   const intakeSide = vee ? 1 : -exhaustSide;
 
-  // The plenum: across the valley of a V or a boxer, or along the intake side of an inline head. Its
-  // footprint holds the plenum's volume at its height, within what the engine leaves room for, and its
-  // front face takes the throttle body, wall and all, inside its rounded edges.
+  // The plenum: across the valley of a V or a boxer, or along the intake side of an inline head, the size
+  // the simulation solves it at (`plenumShapeOf`), and its front face takes the throttle body, wall and all,
+  // inside its rounded edges. Left to work its width out, it is kept within what the engine leaves room for.
   const bore = throttleDiaOf(spec);
   const face = bore + 2 * THROTTLE_WALL + 2 * PLENUM_ROUNDING + 0.01;
-  // Most of the engine's length, and at least past every runner: by its flare where it leaves the plenum, so
-  // each opening is on the flat of the side, clear of where the ends round over, and a little more.
   const radius = intakeRunnerOf(spec).diameter / 2;
-  const zs = Array.from({ length: spec.cylinders }, (_, b) => cylinderZ(spec, b));
-  const lastRunner = Math.max(...zs.map(Math.abs)) + radius * 1.5 + PLENUM_ROUNDING + 0.006;
-  const length = Math.max(shell.length * 0.85, 2 * lastRunner);
-  const height = Math.max(PLENUM_HEIGHT, face);
-  // Narrowing towards the back, it holds about as much as a box half its taper less.
-  const footprint = plenumVolumeOf(spec) / (height * length * (1 - (vee ? PLENUM_DROP : PLENUM_TAPER) / 2));
-  let width = Math.max(Math.min(Math.max(footprint, 0.07), vee ? shell.width * 0.9 : 0.12), face);
+  const shape = plenumShapeOf(spec);
+  const { length, height } = shape;
+  const sized = spec.plenumWidth > 0;
+  let width = sized ? shape.width : Math.max(Math.min(Math.max(shape.width, 0.07), vee ? shell.width * 0.9 : 0.12), face);
   const runners: Runner[] = [];
   let centre: THREE.Vector3;
   // How wide its underside is against its top: a V's narrows to its banks.
@@ -159,7 +150,7 @@ export function inletLayout(spec: EngineSpec): InletLayout {
       // flanks, already heading down and out to them: the plenum sits low, those flanks just clear above the
       // ports, and narrow enough to stand between the intake cams rather than over them.
       const cams = intakeCamsOf(spec);
-      width = Math.max(face, Math.min(width, 2 * (cams.x - cams.reach - 0.008)));
+      if (!sized) width = Math.max(face, Math.min(width, 2 * (cams.x - cams.reach - 0.008)));
       // The flanks run parallel to the banks, so the underside is the V's own shape: each drops from 0.3 of
       // the way down to the underside, 0.7 of the half-height, coming in by that times the half-angle's tan.
       const drop = 0.7 * (height / 2) * Math.tan(((spec.vAngle / 2) * Math.PI) / 180);
@@ -277,12 +268,12 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   // flanks too short to be sides.
   let taper: PlenumTaper | null = null;
   if (!vee) {
-    const inwards = Math.min(PLENUM_TAPER * width, width - 4 * PLENUM_ROUNDING - 2 * PLENUM_WALL);
+    const inwards = Math.min(shape.taper * width, width - 4 * PLENUM_ROUNDING - 2 * PLENUM_WALL);
     if (inwards > 0) taper = { side: intakeSide, inwards, drop: 0 };
   } else {
     const half = height / 2;
     const sides = base < 1 ? -0.3 * half : -half;
-    let drop = Math.min(PLENUM_DROP * height, half - sides - 2 * PLENUM_ROUNDING - 0.006);
+    let drop = Math.min(shape.taper * height, half - sides - 2 * PLENUM_ROUNDING - 0.006);
     for (const r of runners) {
       if (r.exit !== 'side') continue;
       const need = r.from.y - centre.y + 1.5 * r.radius + PLENUM_ROUNDING + 0.004;
@@ -368,4 +359,30 @@ export function inletLayout(spec: EngineSpec): InletLayout {
     mouth,
     segments,
   };
+}
+
+/**
+ * The plenum's size as it is drawn, for the simulation to solve the plenum the app shows: its length, its
+ * width and height at its front, and how much of its section it has lost at its back, a fraction. Each the
+ * spec leaves at 0 is worked out as the drawing works it out, within the room the engine leaves it.
+ */
+export function solvedPlenum(
+  spec: EngineSpec,
+): Pick<EngineSpec, 'plenumLength' | 'plenumWidth' | 'plenumHeight' | 'plenumTaper'> {
+  // Asked for on every readout, and on every change to the engine: laid out again only when it has moved.
+  const key = JSON.stringify(spec);
+  if (key !== solvedFor) {
+    const { size, taper } = inletLayout(spec).plenum;
+    const lost = !taper ? 0 : taper.side !== 0 ? taper.inwards / size.x : taper.drop / size.y;
+    solved = { plenumLength: size.z, plenumWidth: size.x, plenumHeight: size.y, plenumTaper: lost };
+    solvedFor = key;
+  }
+  return { ...solved! };
+}
+let solvedFor = '';
+let solved: ReturnType<typeof solvedPlenum> | null = null;
+
+/** How much `plenum`, as `solvedPlenum` gives it, holds, m^3, as the simulation solves it. */
+export function solvedPlenumVolume(plenum: ReturnType<typeof solvedPlenum>): number {
+  return plenum.plenumLength * plenum.plenumWidth * plenum.plenumHeight * (1 - plenum.plenumTaper / 2);
 }

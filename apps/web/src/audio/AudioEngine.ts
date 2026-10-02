@@ -8,6 +8,7 @@
 import { solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
 import type { LaunchConfig, EngineConfig, EngineSpec, SoundSources } from '../model/spec.js';
 import { CONTROL_PARAMS } from './worklet/controls.js';
+import { solvedPlenum } from '../scene/inletLayout.js';
 import type { FromWorklet, ToWorklet } from './worklet/processor.js';
 
 // `?worker&url` bundles the processor and everything it imports into one ES module
@@ -122,7 +123,7 @@ export class AudioEngine implements EngineHost {
       numberOfInputs: 0,
       numberOfOutputs: 1,
       outputChannelCount: [1],
-      processorOptions: this.config,
+      processorOptions: this.startConfig(),
       // Without these the parameters start at their default of 0, and the first block would drop the
       // engine to zero throttle and zero load.
       parameterData: { throttle: eng.throttle, load: eng.load },
@@ -240,9 +241,35 @@ export class AudioEngine implements EngineHost {
     return () => this.listeners.delete(listener);
   }
 
+  /** The plenum the simulation is given last: as it is drawn (`solvedPlenum`). */
+  private plenumSent: ReturnType<typeof solvedPlenum> | null = null;
+
+  /**
+   * `partial`, with the plenum's size as drawn wherever that has moved since it was last given: the
+   * simulation solves the plenum the app shows, whose size follows much of the engine where it is left to
+   * work itself out.
+   */
+  private withPlenum(partial: Partial<EngineSpec>): Partial<EngineSpec> {
+    // The controls alone move nothing it is sized by.
+    if (Object.keys(partial).every((k) => (CONTROL_PARAMS as readonly string[]).includes(k))) return partial;
+    const solved = solvedPlenum(this.config.engine);
+    const was = this.plenumSent;
+    this.plenumSent = solved;
+    const moved = (Object.keys(solved) as Array<keyof typeof solved>).filter((k) => !was || was[k] !== solved[k]);
+    if (moved.length === 0) return partial;
+    return { ...partial, ...Object.fromEntries(moved.map((k) => [k, solved[k]])) };
+  }
+
+  /** The config to start the simulation from: the plenum as drawn. */
+  private startConfig(): EngineConfig {
+    this.plenumSent = solvedPlenum(this.config.engine);
+    return { ...this.config, engine: { ...this.config.engine, ...this.plenumSent } };
+  }
+
   /** Update engine parameters. Safe to call before the context exists. */
   setEngine(partial: Partial<EngineSpec>): void {
     Object.assign(this.config.engine, partial);
+    partial = this.withPlenum(partial);
     // The continuous controls go as parameters, which an overloaded audio thread still reads; see
     // `CONTROL_PARAMS`. Everything else, and only if there is anything else, as a message.
     let rest: Partial<EngineSpec> | null = null;

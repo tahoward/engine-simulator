@@ -405,9 +405,28 @@ export interface EngineSpec {
    * temperature collapses at light load. Give the plenum a volume and the back-flow is
    * retained, re-inducted next stroke, and the dilution appears on its own.
    *
-   * Typically one to two times displacement for a single.
+   * Typically one to two times displacement for a single. Sets the plenum's width where that is left at
+   * 0 (`plenumShapeOf`); with every dimension set, the volume is theirs and this goes unused.
    */
   plenumVolume: number;
+  /**
+   * The plenum's size, m: its length along the engine, and its width and height at its front, where the
+   * throttle body is. 0 or less works each out (`plenumShapeOf`): the length past every runner, the
+   * height to take the throttle body's flange, and the width to hold `plenumVolume`.
+   *
+   * The plenum is solved along its length, not as one volume: a pressure wave takes a millisecond or so
+   * to cross it, so the cylinders at its far end draw from air its waves leave different from that by the
+   * throttle, and the box rings along its length. A longer plenum rings lower, and its far cylinders
+   * breathe further from the near ones.
+   */
+  plenumLength: number;
+  plenumWidth: number;
+  plenumHeight: number;
+  /**
+   * How much of its section the plenum has lost at its back, 0..0.8, narrowing evenly from none at the
+   * front: beside an inline head its side away from the head drawn in, on a V or a boxer its top dropped.
+   */
+  plenumTaper: number;
   /**
    * Volume of the airbox the throttle draws from, m^3. 0 or less sizes it at four times the engine's
    * displacement; see `airboxVolumeOf`.
@@ -704,8 +723,10 @@ export interface EngineSnapshot {
   inletPressure: Float32Array;
   /** Air speed in every cell of the inlet tract, m/s, the same way: positive out towards the snorkel's mouth. */
   inletVelocity: Float32Array;
-  /** Gauge pressure in the plenum, Pa: below zero, the manifold's vacuum. */
+  /** Gauge pressure in the plenum, Pa, over its volume: below zero, the manifold's vacuum. */
   plenumPressure: number;
+  /** Gauge pressure in each zone along the plenum, Pa, from the throttle at its front to its back. */
+  plenumZones: Float32Array;
   /**
    * Gauge pressure in every cell of every intake runner, Pa, in cylinder order, each from its valve end,
    * taking `runnerCells` values in turn.
@@ -1292,6 +1313,10 @@ export const DEFAULT_ENGINE: EngineSpec = {
   // A fixed figure here would be a single-cylinder's, and wrong for everything else.
   throttleDia: 0,
   plenumVolume: 0,
+  plenumLength: 0,
+  plenumWidth: 0,
+  plenumHeight: 0,
+  plenumTaper: 0.4,
   airboxVolume: 0,
   snorkelLength: 0.3,
   snorkelDia: 0,

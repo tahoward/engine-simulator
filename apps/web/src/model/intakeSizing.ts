@@ -2,12 +2,21 @@
  * What an intake left at "auto" is sized to, for the panel to show.
  *
  * The same rules the simulation sizes it by (`plenum.rs` and `inlet.rs` in `crates/engine-sim`): a
- * plenum of 1.5 times the engine's swept volume, a throttle bore that passes the engine's airflow at
+ * plenum of 1.5 times the engine's swept volume, along most of the engine's length, a throttle bore that passes the engine's airflow at
  * 7000 rpm at 25 m/s, an airbox of four times the swept volume, and a snorkel 1.1 times the throttle's
  * bore.
  */
 
-import { type EngineSpec, type PipeSegment, displacement, makeSegment } from './spec.js';
+import {
+  type EngineSpec,
+  type PipeSegment,
+  crankPins,
+  cylinderSpacing,
+  cylinderZ,
+  displacement,
+  intakeRunnerOf,
+  makeSegment,
+} from './spec.js';
 
 const PLENUM_VOLUME_RATIO = 1.5;
 const AIRBOX_VOLUME_RATIO = 4;
@@ -16,14 +25,54 @@ const THROTTLE_DUCT_LENGTH = 0.35;
 const THROTTLE_DESIGN_VELOCITY = 25;
 const THROTTLE_DESIGN_RPM = 7000;
 
+/** The plenum's least height, its rounded edges, and the throttle body's wall, m. */
+export const PLENUM_HEIGHT = 0.1;
+export const PLENUM_ROUNDING = 0.012;
+export const THROTTLE_WALL = 0.006;
+
 function totalDisplacement(spec: EngineSpec): number {
   return displacement(spec) * Math.max(spec.cylinders, 1);
 }
 
-/** Plenum volume, m^3. `spec.plenumVolume` overrides; 0 or less means "size it for me". */
+/**
+ * A plenum's size, m: along the engine, across and high at its front, and how much of its section it has
+ * lost at its back, a fraction, narrowing evenly from none at the front.
+ */
+export interface PlenumShape {
+  length: number;
+  width: number;
+  height: number;
+  taper: number;
+}
+
+/**
+ * The plenum's size: the spec's, each that is 0 or less worked out, as the simulation works it out
+ * (`plenum_shape_of`). Its length runs past every runner by its flared mouth, along most of the engine; its
+ * height takes the throttle body's flange; its width holds `plenumVolume`, or one and a half times the
+ * engine's displacement, at that length and height. A width or height given is no less than the flange.
+ */
+export function plenumShapeOf(spec: EngineSpec): PlenumShape {
+  const taper = Math.min(Math.max(spec.plenumTaper, 0), 0.8);
+  let length = spec.plenumLength;
+  if (!(length > 0)) {
+    const spacing = cylinderSpacing(spec);
+    const block = (crankPins(spec).length - 1) * spacing + Math.max(spacing, spec.bore * 1.3);
+    const reach = Math.max(0, ...Array.from({ length: spec.cylinders }, (_, c) => Math.abs(cylinderZ(spec, c))));
+    const last = reach + (1.5 * intakeRunnerOf(spec).diameter) / 2 + PLENUM_ROUNDING + 0.006;
+    length = Math.max(block * 0.85, 2 * last);
+  }
+  // No smaller across or high than takes the throttle body's flange on its front.
+  const face = throttleDiaOf(spec) + 2 * THROTTLE_WALL + 2 * PLENUM_ROUNDING + 0.01;
+  const height = spec.plenumHeight > 0 ? Math.max(spec.plenumHeight, face) : Math.max(PLENUM_HEIGHT, face);
+  const target = spec.plenumVolume > 0 ? spec.plenumVolume : PLENUM_VOLUME_RATIO * totalDisplacement(spec);
+  const width = spec.plenumWidth > 0 ? Math.max(spec.plenumWidth, face) : target / (height * length * (1 - taper / 2));
+  return { length, width, height, taper };
+}
+
+/** Plenum volume, m^3, of the plenum as `plenumShapeOf` sizes it. */
 export function plenumVolumeOf(spec: EngineSpec): number {
-  if (spec.plenumVolume > 0) return spec.plenumVolume;
-  return PLENUM_VOLUME_RATIO * totalDisplacement(spec);
+  const s = plenumShapeOf(spec);
+  return s.width * s.height * s.length * (1 - s.taper / 2);
 }
 
 /** Throttle bore, m. `spec.throttleDia` overrides; 0 or less means "size it for me". */
