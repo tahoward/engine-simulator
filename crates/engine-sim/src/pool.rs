@@ -59,6 +59,19 @@ impl<'a, T> Disjoint<'a, T> {
         assert!(i < self.len);
         unsafe { &mut *self.ptr.add(i) }
     }
+
+    /// A copy of element `i`, for any thread to read once the one that writes it is done with it.
+    ///
+    /// # Safety
+    ///
+    /// No thread may be writing element `i` while it is read.
+    pub unsafe fn read(&self, i: usize) -> T
+    where
+        T: Copy,
+    {
+        assert!(i < self.len);
+        unsafe { std::ptr::read(self.ptr.add(i)) }
+    }
 }
 
 struct Shared {
