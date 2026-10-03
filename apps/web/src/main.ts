@@ -1126,13 +1126,23 @@ function loadConfig(saved: unknown): EngineConfig {
   }
 }
 
-/** Save the engine as it stands, exhaust and all, as a file the user can keep and import again. */
+/**
+ * Save the engine as it stands, exhaust and all, as a file the user can keep and import again. The
+ * desktop app's webview drops downloads, so there it goes through the app's own save dialog.
+ */
 function exportEngine(): void {
+  const name = `${engineFileName(config.engine)}.json`;
+  if (import.meta.env.VITE_TARGET === 'desktop') {
+    void import('@tauri-apps/api/core')
+      .then(({ invoke }) => invoke<boolean>('save_engine_file', { name, contents: engineFile(config) }))
+      .catch((e: unknown) => panel.notify(`The engine could not be saved: ${String(e)}`));
+    return;
+  }
   const blob = new Blob([engineFile(config)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
-  link.download = `${engineFileName(config.engine)}.json`;
+  link.download = name;
   document.body.appendChild(link);
   link.click();
   link.remove();
