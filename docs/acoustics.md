@@ -313,7 +313,8 @@ the exhaust. Its mouth radiates the way a tailpipe's does, through its own far f
 from where it is drawn. The view draws it as a car has it: a plenum in the valley of a V, or beside an
 inline engine's head on the side away from its exhaust, with a runner to each port; a throttle body on
 the plenum's front, its butterfly turning with the throttle, or with dual plenums a wall down the
-plenum's middle, its balance valves turning in it, and a throttle body and tube to each half; a rubber tube with a bellows coupler and
+plenum's middle, its balance valves turning in it, and a throttle body to each half, each with the
+rest of the tract its own, mirrored either side; a rubber tube with a bellows coupler and
 hose clamps, looping up into an airbox across the top of the engine's front; and a snorkel from the
 airbox's far end, turning forwards, flattened and flaring at its mouth just ahead of the engine. The airbox holds the solver's volume over the solver's
 length, and the tube and the snorkel are drawn as long as the solver's and at its bores, the snorkel

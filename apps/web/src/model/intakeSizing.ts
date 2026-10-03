@@ -106,34 +106,29 @@ export function throttleDiaOf(spec: EngineSpec): number {
   return Math.sqrt((4 * area) / (Math.PI * plenumCountOf(spec)));
 }
 
-/** The bore of one duct with the throttle bodies' area together, m: what the inlet tract is solved as up to them. */
-export function throttleDuctDiaOf(spec: EngineSpec): number {
-  return throttleDiaOf(spec) * Math.sqrt(plenumCountOf(spec));
-}
-
-/** Airbox volume, m^3. `spec.airboxVolume` overrides; 0 or less means "size it for me" (`inlet.rs`). */
+/**
+ * Airbox volume, m^3: dual plenums' two airboxes' together. `spec.airboxVolume` overrides; 0 or less means
+ * "size it for me" (`inlet.rs`).
+ */
 export function airboxVolumeOf(spec: EngineSpec): number {
   if (spec.airboxVolume > 0) return spec.airboxVolume;
   return AIRBOX_VOLUME_RATIO * totalDisplacement(spec);
 }
 
-/**
- * The snorkel's bore, m. `spec.snorkelDia` overrides; 0 or less makes it a little wider than the throttle,
- * or the throttles together.
- */
+/** Each snorkel's bore, m. `spec.snorkelDia` overrides; 0 or less makes it a little wider than its throttle. */
 export function snorkelDiaOf(spec: EngineSpec): number {
   if (spec.snorkelDia > 0) return spec.snorkelDia;
-  return SNORKEL_BORE_RATIO * throttleDuctDiaOf(spec);
+  return SNORKEL_BORE_RATIO * throttleDiaOf(spec);
 }
 
 /**
  * The inlet tract from the throttle out to the snorkel's mouth, as the simulation builds it (`inlet_segments`
- * in `inlet.rs`): a duct at the throttle's bore, or with dual plenums' two throttle bodies' area together,
- * the airbox, a round can about as long as it is wide, and the snorkel.
+ * in `inlet.rs`): a duct at the throttle's bore, the airbox, a round can about as long as it is wide, and the
+ * snorkel. Dual plenums have one for each throttle body, alike, each airbox with half the volume.
  */
 export function inletSegments(spec: EngineSpec): PipeSegment[] {
-  const throttle = throttleDuctDiaOf(spec);
-  const volume = airboxVolumeOf(spec);
+  const throttle = throttleDiaOf(spec);
+  const volume = airboxVolumeOf(spec) / plenumCountOf(spec);
   const length = Math.min(Math.max(Math.cbrt(volume) * 1.5, 0.15), 0.6);
   const body = Math.max(Math.sqrt((4 * volume) / (Math.PI * length)), throttle * 1.5);
   return [

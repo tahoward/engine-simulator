@@ -15,7 +15,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import { mergeGeometries, toCreasedNormals } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 import type { EngineSnapshot, EngineSpec } from '../model/spec.js';
-import { PLENUM_ROUNDING, PLENUM_WALL, taperAlong, type PlenumTaper, SNORKEL_ASPECT, SNORKEL_WALL, THROTTLE_WALL, inletLayout, type InletLayout } from './inletLayout.js';
+import { PLENUM_ROUNDING, PLENUM_WALL, taperAlong, type PlenumTaper, SNORKEL_ASPECT, SNORKEL_WALL, THROTTLE_WALL, inletLayout, type InletLayout, type TractLayout } from './inletLayout.js';
 import { pressureColor } from './PipeMesh.js';
 
 const PLASTIC = { color: 0x2c2f35, metalness: 0.05, roughness: 0.62 };
@@ -770,15 +770,19 @@ export class InletMesh {
     const pos = this.specks.geometry.getAttribute('position') as THREE.BufferAttribute;
     const arr = pos.array as Float32Array;
     const p = new THREE.Vector3();
+    // Each tract's cells one after the other, as many each.
+    const tracts = l.tracts.length;
+    const cells = Math.floor(v.length / tracts);
     for (let i = 0; i < SPECKS; i++) {
       let s = this.along[i]!;
-      if (v.length > 0 && dt > 0) {
-        const u = v[Math.min(v.length - 1, Math.max(0, Math.floor(s * v.length)))]!;
+      const k = i % tracts;
+      if (cells > 0 && dt > 0) {
+        const u = v[k * cells + Math.min(cells - 1, Math.max(0, Math.floor(s * cells)))]!;
         s += (u / total) * (dt / FLOW_SLOWDOWN);
         s -= Math.floor(s);
         this.along[i] = s;
       }
-      this.speckAt(l, i % l.tubes.length, s, this.offset[i * 2]!, this.offset[i * 2 + 1]!, p);
+      this.speckAt(l.tracts[k]!, l, s, this.offset[i * 2]!, this.offset[i * 2 + 1]!, p);
       arr[i * 3] = p.x;
       arr[i * 3 + 1] = p.y;
       arr[i * 3 + 2] = p.z;
@@ -786,25 +790,22 @@ export class InletMesh {
     pos.needsUpdate = true;
   }
 
-  /**
-   * Where a speck `s` along the tract is, through tube `tube` of dual plenums' two, `a` and `b` across it as
-   * fractions of its half-width and -height.
-   */
-  private speckAt(l: InletLayout, tube: number, s: number, a: number, b: number, out: THREE.Vector3): void {
+  /** Where a speck `s` along `tract` is, `a` and `b` across it as fractions of its half-width and -height. */
+  private speckAt(tract: TractLayout, l: InletLayout, s: number, a: number, b: number, out: THREE.Vector3): void {
     const segs = l.segments;
     const total = segs.reduce((sum, x) => sum + x.length, 0);
     const e1 = segs[0]!.length / total;
     const e2 = (segs[0]!.length + segs[1]!.length) / total;
     if (s >= e1 && s < e2) {
-      const { centre, size } = l.airbox;
+      const { centre, size } = tract.airbox;
       const f = (s - e1) / (e2 - e1) - 0.5;
-      out.set(centre.x + l.side * f * size.x, centre.y + b * size.y * 0.45, centre.z + a * size.z * 0.45);
+      out.set(centre.x + tract.side * f * size.x, centre.y + b * size.y * 0.45, centre.z + a * size.z * 0.45);
       return;
     }
     const [curve, u, r] =
       s < e1
-        ? [l.tubes[tube]!, s / e1, l.tubeRadius]
-        : [l.snorkel, (s - e2) / (1 - e2), Math.sqrt(l.snorkelArea / Math.PI)];
+        ? [tract.tube, s / e1, l.tubeRadius]
+        : [tract.snorkel, (s - e2) / (1 - e2), Math.sqrt(l.snorkelArea / Math.PI)];
     out.copy(curve.getPointAt(u));
     const t = curve.getTangentAt(u);
     const across = new THREE.Vector3(-t.z, 0, t.x);
@@ -832,7 +833,7 @@ export class InletMesh {
     const l = inletLayout(spec);
     this.layout = l;
     this.buildEngineSide(l);
-    this.buildTract(l);
+    for (const tract of l.tracts) this.buildTract(tract, l);
     this.tract.add(this.specks);
     this.setThrottle(spec.throttle);
     this.paint(null);
@@ -976,37 +977,35 @@ export class InletMesh {
     this.group.add(body);
   }
 
-  /** The tube, the airbox and the snorkel. */
-  private buildTract(l: InletLayout): void {
-    // Each tube: a bellows coupler off the throttle body, then smooth, a clamp at each end.
+  /** One tract's tube, airbox and snorkel. */
+  private buildTract(t: TractLayout, l: InletLayout): void {
+    // The tube: a bellows coupler off the throttle body, then smooth, a clamp at each end.
     const r = l.tubeRadius + WALL;
-    for (const curve of l.tubes) {
-      const tubeLength = curve.getLength();
-      const ribs = BELLOWS / tubeLength;
-      const tube = new THREE.Mesh(
-        sweep(curve, (u) => {
-          const s = u * tubeLength;
-          const rib = u < ribs && s > 0.02 ? 0.0045 * Math.max(0, Math.sin((s / RIB_PITCH) * Math.PI * 2)) : 0;
-          return [r + rib, r + rib];
-        }, false, Math.ceil(tubeLength / RIB_STATION)),
-        this.rubber,
-      );
-      this.tract.add(tube);
-      this.tract.add(band(curve, 0.012, r + 0.0015, this.clamp));
-      this.tract.add(band(curve, Math.min(ribs + 0.02, 0.5), r + 0.0015, this.clamp));
-      this.tract.add(band(curve, 0.985, r + 0.0015, this.clamp));
-      // The air flow meter on the tube, ahead of the airbox: a small housing with its plug.
-      const at = curve.getPointAt(0.7);
-      const maf = new THREE.Mesh(new RoundedBoxGeometry(0.03, 0.022, 0.04, 2, 0.004), this.plastic);
-      maf.position.copy(at).add(new THREE.Vector3(0, r + 0.008, 0));
-      maf.lookAt(maf.position.clone().add(curve.getTangentAt(0.7)));
-      this.tract.add(maf);
-    }
+    const tubeLength = t.tube.getLength();
+    const ribs = BELLOWS / tubeLength;
+    const tube = new THREE.Mesh(
+      sweep(t.tube, (u) => {
+        const s = u * tubeLength;
+        const rib = u < ribs && s > 0.02 ? 0.0045 * Math.max(0, Math.sin((s / RIB_PITCH) * Math.PI * 2)) : 0;
+        return [r + rib, r + rib];
+      }, false, Math.ceil(tubeLength / RIB_STATION)),
+      this.rubber,
+    );
+    this.tract.add(tube);
+    this.tract.add(band(t.tube, 0.012, r + 0.0015, this.clamp));
+    this.tract.add(band(t.tube, Math.min(ribs + 0.02, 0.5), r + 0.0015, this.clamp));
+    this.tract.add(band(t.tube, 0.985, r + 0.0015, this.clamp));
+    // The air flow meter on the tube, ahead of the airbox: a small housing with its plug.
+    const at = t.tube.getPointAt(0.7);
+    const maf = new THREE.Mesh(new RoundedBoxGeometry(0.03, 0.022, 0.04, 2, 0.004), this.plastic);
+    maf.position.copy(at).add(new THREE.Vector3(0, r + 0.008, 0));
+    maf.lookAt(maf.position.clone().add(t.tube.getTangentAt(0.7)));
+    this.tract.add(maf);
 
     // The airbox: a rounded black plastic box, hollow, open where the tube and the snorkel join it so they can
     // be seen into, its lid's seam a lip round it, clipped down front and back. It stays black in the pressure
     // view: its cells would show only as their mean.
-    const { centre, size } = l.airbox;
+    const { centre, size } = t.airbox;
     const round = Math.sqrt(l.snorkelArea / Math.PI);
     // Where each pipe meets it, on the face it comes in square to.
     const holeAt = (at: THREE.Vector3, outwards: THREE.Vector3, radius: number): BoxHole => {
@@ -1014,8 +1013,8 @@ export class InletMesh {
       return { axis, sign: outwards.getComponent(axis) > 0 ? 1 : -1, centre: at.clone().sub(centre), radius };
     };
     const holes = [
-      ...l.tubes.map((tube) => holeAt(tube.getPointAt(1), tube.getTangentAt(1).negate(), l.tubeRadius)),
-      holeAt(l.snorkel.getPointAt(0), l.snorkel.getTangentAt(0), round),
+      holeAt(t.tube.getPointAt(1), t.tube.getTangentAt(1).negate(), l.tubeRadius),
+      holeAt(t.snorkel.getPointAt(0), t.snorkel.getTangentAt(0), round),
     ];
     // Rounded as far as leaves each hole on the flat of its face.
     const clear = Math.min(
@@ -1053,9 +1052,9 @@ export class InletMesh {
     }
     // A spigot each end, where the tube and the snorkel join it: a collar round each, open through.
     for (const [curve, u, radius] of [
-      ...l.tubes.map((tube) => [tube, 1, r + 0.004] as const),
-      [l.snorkel, 0, round + SNORKEL_WALL + 0.004] as const,
-    ]) {
+      [t.tube, 1, r + 0.004],
+      [t.snorkel, 0, round + SNORKEL_WALL + 0.004],
+    ] as const) {
       const spigot = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.03, 32, 1, true), this.plastic);
       spigot.position.copy(curve.getPointAt(u));
       spigot.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), curve.getTangentAt(u).normalize());
@@ -1065,9 +1064,9 @@ export class InletMesh {
     // The snorkel: round where it leaves the airbox, flattening over its first stretch to fit under the
     // bonnet with the solver's area kept, and flaring at its mouth.
     const aspect = SNORKEL_ASPECT;
-    const snorkelLength = l.snorkel.getLength();
+    const snorkelLength = t.snorkel.getLength();
     const snorkel = new THREE.Mesh(
-      sweep(l.snorkel, (u) => {
+      sweep(t.snorkel, (u) => {
         const fromMouth = (1 - u) * snorkelLength;
         const flare = fromMouth < 0.04 ? 1 + 0.35 * (1 - fromMouth / 0.04) ** 2 : 1;
         const flat = Math.min(1, (u * snorkelLength) / 0.08);
@@ -1082,8 +1081,8 @@ export class InletMesh {
     const [wide, high] = [round * Math.sqrt(aspect) * 1.35 + SNORKEL_WALL, (round / Math.sqrt(aspect)) * 1.35 + SNORKEL_WALL];
     const rim = new THREE.Mesh(new THREE.TorusGeometry(1, 0.0035 / Math.min(wide, high), 8, 48), this.plastic);
     rim.scale.set(wide, high, Math.min(wide, high));
-    rim.position.copy(l.mouth);
-    rim.lookAt(l.mouth.clone().add(l.snorkel.getTangentAt(1)));
+    rim.position.copy(t.mouth);
+    rim.lookAt(t.mouth.clone().add(t.snorkel.getTangentAt(1)));
     this.tract.add(rim);
   }
 

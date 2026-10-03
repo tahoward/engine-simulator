@@ -59,14 +59,19 @@ describe('the inlet tract as drawn', () => {
     for (const preset of ENGINE_PRESETS) {
       const cfg = presetConfig(preset);
       const at = inletLayout(cfg.engine);
-      const { intake } = configSources(cfg);
-      expect(intake, preset.name).toEqual([at.mouth.x, at.mouth.y, at.mouth.z]);
-      for (const tube of at.tubes) expect(tube.getLength(), preset.name).toBeCloseTo(at.segments[0]!.length, 2);
-      expect(at.snorkel.getLength(), preset.name).toBeCloseTo(at.segments[2]!.length, 2);
-      // The airbox over the engine rather than out in front of it, the snorkel's mouth ahead of it.
+      const { intake, secondIntake } = configSources(cfg);
+      // Each tract's mouth heard from where it is drawn: dual plenums' second too.
+      const xyz = (v: { x: number; y: number; z: number }) => [v.x, v.y, v.z];
+      expect(intake, preset.name).toEqual(xyz(at.tracts[0]!.mouth));
+      expect(secondIntake, preset.name).toEqual(at.tracts[1] ? xyz(at.tracts[1].mouth) : undefined);
       const half = engineShell(cfg.engine).length / 2;
-      expect(Math.abs(at.airbox.centre.z), preset.name).toBeLessThan(half);
-      expect(at.mouth.z, preset.name).toBeLessThan(at.airbox.centre.z);
+      for (const t of at.tracts) {
+        expect(t.tube.getLength(), preset.name).toBeCloseTo(at.segments[0]!.length, 2);
+        expect(t.snorkel.getLength(), preset.name).toBeCloseTo(at.segments[2]!.length, 2);
+        // The airbox over the engine rather than out in front of it, the snorkel's mouth ahead of it.
+        expect(Math.abs(t.airbox.centre.z), preset.name).toBeLessThan(half);
+        expect(t.mouth.z, preset.name).toBeLessThan(t.airbox.centre.z);
+      }
     }
   });
 

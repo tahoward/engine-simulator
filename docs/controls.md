@@ -143,17 +143,20 @@ speeding up its own flywheel, and the curve comes out close to what the engine m
   engine's displacement.
 - **Dual plenums**, on a V or a boxer whose banks have heads of their own, divides the plenum down its
   middle: each bank's runners draw from their own half, each with its own throttle body. **Open
-  balance valves at** joins the halves through two valves in the wall between them at that speed, and
-  **Shut balance valves at** parts them again at that one; coming down, each happens 150 rpm lower. At 0
-  the first keeps them shut, and the second leaves them open to the rev limit. See
+  balance valves at** joins the halves through two valves in the wall between them at that speed,
+  **Shut balance valves at** parts them again at that one, and **Reopen balance valves at** joins them
+  again from there to the rev limit; coming down, each happens 150 rpm lower. At 0 the first keeps them
+  shut, the second leaves them open to the rev limit, and the third leaves them as the other two do. See
   [The intake](engine.md#the-intake).
 - **Throttle bore** sets the throttle's size: each throttle body's, with dual plenums. At 0 it is sized
   for the engine's airflow at full throttle and 7000 rpm, through both together with dual plenums.
 - **Airbox volume**, **Snorkel length** and **Snorkel bore** shape the inlet tract the throttle draws
   its air through, and so the intake's note and its hiss. The view draws it, with the plenum, the
   throttle body and its butterfly, on top of the engine. At 0
-  the airbox is four times the engine's displacement and the snorkel a little wider than the throttle. A
-  turbocharged engine has none.
+  the airbox is four times the engine's displacement and the snorkel a little wider than the throttle. With
+  dual plenums each throttle body has a tract of its own, mirrored either side of the engine: the airbox
+  volume is the two airboxes' together, and the snorkel's length and bore each one's. A turbocharged
+  engine has none.
 
 ## Turbocharger
 

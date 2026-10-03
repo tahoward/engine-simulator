@@ -1,5 +1,5 @@
 /**
- * Where the engine makes its sound, as it is drawn: each tailpipe's outlet, the intake, the casing and the
+ * Where the engine makes its sound, as it is drawn: each tailpipe's outlet, each intake, the casing and the
  * turbos, in the scene's frame (x across the crank, y up, z along it, rearwards). The simulation times and
  * levels each source's path to the listener from these, so what is heard is what is on screen.
  */
@@ -68,14 +68,21 @@ export function soundSources(graph: ExhaustGraph, placement: ExhaustPlacement, s
 
   const shell = engineShell(spec);
   const casing: Vec3 = [0, (shell.top + shell.bottom) / 2, 0];
-  const intake = vec3(inletLayout(spec).mouth);
+  const [first, second] = inletLayout(spec).tracts;
+  const intake = vec3(first!.mouth);
 
   const placed = (graph.turbos ?? []).flatMap((t) => (t.position ? [t.position] : []));
   const turbo: Vec3 | undefined =
     placed.length > 0
       ? [0, 1, 2].map((i) => placed.reduce((sum, p) => sum + p[i]!, 0) / placed.length) as Vec3
       : undefined;
-  return { mouths, intake, engine: casing, ...(turbo ? { turbo } : {}) };
+  return {
+    mouths,
+    intake,
+    ...(second ? { secondIntake: vec3(second.mouth) } : {}),
+    engine: casing,
+    ...(turbo ? { turbo } : {}),
+  };
 }
 
 /**

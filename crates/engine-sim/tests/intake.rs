@@ -266,7 +266,7 @@ mod variable_valve_timing {
         let fixed = || json!({ "vvtIntakeLow": 0, "vvtExhaustLow": 0 });
         let (phased, still) = (torque_at(4500.0, json!({})), torque_at(4500.0, fixed()));
         assert!(phased > 1.1 * still, "at 4500: phased {phased} fixed {still}");
-        // At the top the map has the cams at rest, so it changes nothing there.
+        // At the top the map takes its high-speed settings, which the low-speed ones leave alone.
         let ratio = torque_at(8400.0, json!({})) / torque_at(8400.0, fixed());
         assert!((ratio - 1.0).abs() < 0.005, "at 8400: ratio {ratio}");
     }
@@ -401,7 +401,7 @@ mod torque_curve {
 
 mod plenum {
     use super::*;
-    use engine_sim::plenum::{plenum_count_of, plenum_shape_of, plenum_volume_of, throttle_dia_of, throttle_duct_dia_of};
+    use engine_sim::plenum::{plenum_count_of, plenum_shape_of, plenum_volume_of, throttle_dia_of};
 
     /// The F20C at full throttle, settled, and its plenum's front and back zones' gauge pressure over
     /// the next quarter second.
@@ -498,7 +498,6 @@ mod plenum {
         assert_eq!(plenum_count_of(&dual), 2);
         assert!((plenum_volume_of(&dual) / plenum_volume_of(&single) - 1.0).abs() < 1e-9);
         // Each throttle sized for half the air, the two together as one would be.
-        assert!((throttle_duct_dia_of(&dual) - throttle_dia_of(&single)).abs() < 1e-12);
         assert!((throttle_dia_of(&dual) * 2f64.sqrt() - throttle_dia_of(&single)).abs() < 1e-12);
         // An 87 mm bore given is each one's.
         let lt6 = v8_spec(json!({ "dualPlenum": true, "throttleDia": 0.087 }));
