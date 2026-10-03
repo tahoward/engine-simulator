@@ -33,7 +33,7 @@ use crate::listener::{Listener, SoundSources, Vec3};
 use crate::math::{self, PI, clamp};
 use crate::plenum::{IntakePlenum, throttle_dia_of};
 use crate::pool::{CachePadded, Disjoint, ThreadPool};
-use crate::radiation::{FarField, Steepening};
+use crate::radiation::{FarField, MouthJet, Steepening};
 use crate::shell::ChamberShell;
 use crate::spec::{
     BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout, FUEL_CUT_RPM,
@@ -262,6 +262,7 @@ pub struct EngineSim {
     cyls: Vec<Cylinder>,
     far_fields: Vec<FarField>,
     steepening: Vec<Steepening>,
+    jets: Vec<MouthJet>,
     /// Every chamber's shell, ringing with the gas inside it.
     shells: Vec<ChamberShell>,
     /// Each cylinder's valves and what they did this sample.
@@ -587,6 +588,7 @@ impl EngineSim {
             wg,
             cyls: Vec::new(),
             far_fields: Vec::new(),
+            jets: Vec::new(),
             steepening: Vec::new(),
             shells: Vec::new(),
             banks: Vec::new(),
@@ -728,17 +730,19 @@ impl EngineSim {
         self.load_torque_nm = load_torque_of(spec, self.turbo.is_some());
     }
 
-    /// One far field and one steepening run per mouth, tuned to that mouth, keeping existing filters'
-    /// state; and every chamber's shell, afresh.
+    /// One far field, one steepening run and one jet per mouth, tuned to that mouth, keeping existing
+    /// filters' state; and every chamber's shell, afresh.
     fn refresh_far_fields(&mut self) {
         let count = self.wg.mouth_count().max(1);
         while self.far_fields.len() < count {
             let m = self.far_fields.len();
             self.far_fields.push(FarField::new(self.sample_rate, self.wg.mouth_cutoff_rad_of(m)));
             self.steepening.push(Steepening::new(self.sample_rate));
+            self.jets.push(MouthJet::new(0x3c6ef372 as f64 + m as f64 * 7919.0));
         }
         self.far_fields.truncate(count);
         self.steepening.truncate(count);
+        self.jets.truncate(count);
         for m in 0..count {
             let (c, b) = (self.wg.mouth_cutoff_rad_of(m), self.wg.plane_wave_cutoff_rad_of(m));
             self.far_fields[m].set_cutoff(c, b);
@@ -863,6 +867,7 @@ impl EngineSim {
         let prev_port_dia = exhaust_port_diameter(prev);
         let prev_cell_size = prev.pipe_cell_size;
         let prev_wall_thickness = prev.pipe_wall_thickness;
+        let prev_material = prev.pipe_material;
         let prev_runner: RunnerSize = intake_runner_of(prev);
         let prev_short_runner = prev.intake_runner_short_length;
         let prev_inlet = inlet_key(prev);
@@ -892,7 +897,8 @@ impl EngineSim {
         let exhaust_changed = spec.port_gas_temp != prev_temp
             || spec.port_length != prev_port_length
             || exhaust_port_diameter(spec) != prev_port_dia
-            || spec.pipe_wall_thickness != prev_wall_thickness;
+            || spec.pipe_wall_thickness != prev_wall_thickness
+            || spec.pipe_material != prev_material;
         if !intake_changed && inlet_key(spec) != prev_inlet {
             // The tract alone: the runners and the exhaust keep their gas.
             let opts = EulerPipeOptions {
@@ -1852,6 +1858,9 @@ impl EngineSim {
         let pockets = Disjoint::new(pockets);
         let steepening = Disjoint::new(&mut self.steepening);
         let far_fields = Disjoint::new(&mut self.far_fields);
+        let jets = Disjoint::new(&mut self.jets);
+        let jet_noise = self.spec.spec.jet_noise;
+        let sample_rate = self.sample_rate;
         let shells = Disjoint::new(&mut self.shells);
         let paths = self.listener.paths();
         let bank_out = Disjoint::new(&mut self.bank_out);
@@ -1951,9 +1960,12 @@ impl EngineSim {
                     }
                 }
                 CloseItem::Mouth(m) => {
-                    let (_, t, a) = wg.radiating_duct(m).read_mouth();
-                    let q = steepening.get(m).process(wg.result.mouth_flows[m], a, t);
-                    *mouth_out.get(m) = CachePadded(paths.process(m, far_fields.get(m).process(q)));
+                    let duct = wg.radiating_duct(m);
+                    let (_, t, a) = duct.read_mouth();
+                    let flow = wg.result.mouth_flows[m];
+                    let q = steepening.get(m).process(flow, a, t);
+                    let jet = jets.get(m).process(flow, duct.mouth_area(), t, jet_noise, sample_rate);
+                    *mouth_out.get(m) = CachePadded(paths.process(m, far_fields.get(m).process(q) + jet));
                 }
                 CloseItem::Shell(k) => {
                     let shell = shells.get(k);
@@ -2148,6 +2160,7 @@ fn build_options_for(
         cell_size: Some(budgeted_cell_size(spec, &graph, sample_rate, wg_options, budget_scale)),
         single_step: Some(true),
         wall_thickness: Some(spec.pipe_wall_thickness),
+        material: Some(spec.pipe_material.wall()),
         air_speed: Some(spec.air_speed),
         inherit_wall: inherit,
         ..Default::default()

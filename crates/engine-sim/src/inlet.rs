@@ -125,6 +125,8 @@ impl InletTract {
             linear_damping: Some(damping),
             port: None,
             inherit_wall: None,
+            // The exhaust's material is the exhaust's alone.
+            material: None,
             ..opts.clone()
         };
         InletTract {

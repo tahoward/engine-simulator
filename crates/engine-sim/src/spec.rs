@@ -101,6 +101,50 @@ pub enum BlowOff {
     None,
 }
 
+/// What the exhaust is made of. See `PipeMaterial::wall`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PipeMaterial {
+    MildSteel,
+    Stainless,
+    CastIron,
+    Titanium,
+}
+
+/// The properties of a pipe wall the gas dynamics feel.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WallMaterial {
+    /// Density, kg/m^3, and specific heat, J/(kg K): the wall's thermal mass.
+    pub density: f64,
+    pub specific_heat: f64,
+    /// Emissivity of the outer surface, as it is once the pipe has run hot.
+    pub emissivity: f64,
+    /// Equivalent sand-grain roughness of the bore, m: what sets the friction factor and lifts the
+    /// heat transfer of the turbulent flow along it.
+    pub roughness: f64,
+}
+
+impl PipeMaterial {
+    /// Handbook values. The roughnesses are Moody's: commercial steel tube 0.045 mm, as-cast iron
+    /// 0.26 mm, drawn stainless and titanium tube far smoother.
+    pub fn wall(self) -> WallMaterial {
+        match self {
+            PipeMaterial::MildSteel => {
+                WallMaterial { density: 7800.0, specific_heat: 490.0, emissivity: 0.8, roughness: 45e-6 }
+            }
+            PipeMaterial::Stainless => {
+                WallMaterial { density: 8000.0, specific_heat: 500.0, emissivity: 0.6, roughness: 15e-6 }
+            }
+            PipeMaterial::CastIron => {
+                WallMaterial { density: 7200.0, specific_heat: 460.0, emissivity: 0.9, roughness: 260e-6 }
+            }
+            PipeMaterial::Titanium => {
+                WallMaterial { density: 4500.0, specific_heat: 520.0, emissivity: 0.5, roughness: 5e-6 }
+            }
+        }
+    }
+}
+
 /// How the exhausts are plumbed, as `exhaust_layout_of` normalises it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ExhaustLayout {
@@ -219,6 +263,7 @@ pub struct EngineSpec {
     pub port_gas_temp: f64,
     pub pipe_cell_size: f64,
     pub pipe_wall_thickness: f64,
+    pub pipe_material: PipeMaterial,
     pub air_speed: f64,
     pub exhaust_height: f64,
     pub cylinder_spread: f64,
@@ -226,6 +271,7 @@ pub struct EngineSpec {
     pub output_gain: f64,
     pub mech_noise: f64,
     pub throat_noise: f64,
+    pub jet_noise: f64,
 }
 
 /// A 500cc-ish thumper: 89 mm bore, 80 mm stroke. The web app's `DEFAULT_ENGINE`.
@@ -312,6 +358,7 @@ impl Default for EngineSpec {
             port_gas_temp: 950.0,
             pipe_cell_size: 0.035,
             pipe_wall_thickness: 0.0012,
+            pipe_material: PipeMaterial::MildSteel,
             air_speed: 0.0,
             exhaust_height: 0.35,
             cylinder_spread: 0.3,
@@ -319,6 +366,7 @@ impl Default for EngineSpec {
             output_gain: 0.77,
             mech_noise: 0.45,
             throat_noise: 0.5,
+            jet_noise: 0.5,
         }
     }
 }

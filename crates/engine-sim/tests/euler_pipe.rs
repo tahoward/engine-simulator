@@ -9,12 +9,14 @@
 
 mod common;
 
-use common::{FS, find_peaks, magnitude_spectrum};
+use common::{FS, find_peaks, hann, magnitude_spectrum};
+use engine_sim::dsp::Noise;
 use engine_sim::euler_pipe::{
-    EulerPipe, EulerPipeOptions, GAMMA, HeadPort, SlopeLimiter, ValveState, launch_radius, limit_area_ratio,
+    EulerPipe, EulerPipeOptions, GAMMA, HeadPort, SlopeLimiter, ValveState, darcy_factor, launch_radius,
+    limit_area_ratio,
 };
 use engine_sim::math;
-use engine_sim::spec::{PipeSegment, SegmentKind, SegmentPartial, gas, make_segment, speed_of_sound_exh};
+use engine_sim::spec::{PipeMaterial, PipeSegment, SegmentKind, SegmentPartial, gas, make_segment, speed_of_sound_exh};
 use std::f64::consts::PI;
 
 const FFT: usize = 32768;
@@ -815,10 +817,59 @@ mod wall_temperature_is_solved_not_assumed {
         );
         assert!((rebuilt.mean_wall_temp() - warm).abs() < 5.0, "rebuilt {} vs {warm}", rebuilt.mean_wall_temp());
     }
+
+    /// a light titanium wall warms faster than a cast-iron one of the same thickness
+    #[test]
+    fn a_light_titanium_wall_warms_faster_than_a_cast_iron_one_of_the_same_thickness() {
+        let after = |material: PipeMaterial| {
+            let mut p = duct(EulerPipeOptions {
+                material: Some(material.wall()),
+                initial_wall_temp: Some(gas::T_AMB),
+                ..Default::default()
+            });
+            run(&mut p, 10.0);
+            p.mean_wall_temp()
+        };
+        let titanium = after(PipeMaterial::Titanium);
+        let iron = after(PipeMaterial::CastIron);
+        assert!(titanium > iron + 20.0, "titanium {titanium} cast iron {iron}");
+    }
 }
 
 mod friction_acts_on_what_it_physically_should {
     use super::*;
+
+    /// the friction factor is the Moody chart's
+    #[test]
+    fn the_friction_factor_is_the_moody_charts() {
+        // Colebrook's values, which Haaland's form tracks to within 2%.
+        for (re, rel, colebrook) in [(1e5, 0.0, 0.0180), (1e5, 1e-3, 0.0222), (1e5, 5e-3, 0.0313), (1e6, 1e-4, 0.0134)]
+        {
+            let f = darcy_factor(re, rel);
+            assert!((f - colebrook).abs() / colebrook < 0.03, "Re {re} e/D {rel}: {f} vs {colebrook}");
+        }
+    }
+
+    /// a rough bore drags more on a steady flow than a smooth one
+    #[test]
+    fn a_rough_bore_drags_more_on_a_steady_flow_than_a_smooth_one() {
+        let steady = |material: PipeMaterial| {
+            let mut p = EulerPipe::new(
+                &[pipe(1.5, 0.035)],
+                FS,
+                900.0,
+                &EulerPipeOptions { material: Some(material.wall()), ..Default::default() },
+            );
+            let v = valve(6e-4, 2.5e5, 1100.0);
+            for _ in 0..upto(FS * 0.5) {
+                p.advance(1.0 / FS, &v);
+            }
+            p.velocity_at(p.n / 2)
+        };
+        let smooth = steady(PipeMaterial::Titanium);
+        let rough = steady(PipeMaterial::CastIron);
+        assert!(rough < smooth * 0.98, "cast iron {rough} m/s vs titanium {smooth} m/s");
+    }
 
     /// a steady mean flow is barely touched by the acoustic damping term
     #[test]
@@ -982,6 +1033,52 @@ mod the_open_end_reflects_less_at_high_frequency_as_a_real_one_does {
         let many_substeps = mode_decay_ms(10, 0.05, Some(0.2));
         assert!(many_substeps > two_substeps * 0.7, "{many_substeps} vs {two_substeps}");
         assert!(many_substeps < two_substeps * 1.4, "{many_substeps} vs {two_substeps}");
+    }
+
+    /// driven with noise, a pipe rings at its first few modes and barely above
+    #[test]
+    fn driven_with_noise_a_pipe_rings_at_its_first_few_modes_and_barely_above() {
+        // The comb a too-perfect open end gives: every mode of the pipe standing out of the
+        // noise driving it, all the way up, where a real tube's only ring at the bottom.
+        const N: usize = 8192;
+        let mut p = EulerPipe::new(
+            &[pipe(1.0, 0.05)],
+            FS,
+            900.0,
+            &EulerPipeOptions { heat_transfer: Some(false), single_step: Some(true), ..Default::default() },
+        );
+        let mut noise = Noise::new(1234.0);
+        let mut drive = |p: &mut EulerPipe| {
+            let v = ValveState { extra_mass_flow: 0.002 * noise.next(), ..Default::default() };
+            p.advance(1.0 / FS, &v).mouth_flow as f32
+        };
+        for _ in 0..upto(FS * 0.1) {
+            drive(&mut p);
+        }
+        let mut power = vec![0.0; N / 2];
+        for _ in 0..24 {
+            let block: Vec<f32> = (0..N).map(|_| drive(&mut p)).collect();
+            for (a, m) in power.iter_mut().zip(magnitude_spectrum(&hann(&block), N)) {
+                *a += m * m;
+            }
+        }
+        let bin = FS / N as f64;
+        let level = |lo: f64, hi: f64, pick: fn(f64, f64) -> f64, from: f64| {
+            ((lo / bin) as usize..=(hi / bin) as usize).map(|k| 10.0 * power[k].max(1e-30).log10()).fold(from, pick)
+        };
+        // How far each mode stands above the dip after it, dB.
+        let f1 = p.quarter_wave_hz();
+        let depth = |mode: f64| {
+            let f = (2.0 * mode - 1.0) * f1;
+            level(f - 0.5 * f1, f + 0.5 * f1, f64::max, f64::MIN)
+                - level(f + 0.5 * f1, f + 1.5 * f1, f64::min, f64::MAX)
+        };
+        let fundamental = depth(1.0);
+        let high: Vec<f64> =
+            (1..40).map(f64::from).filter(|&m| (2.0 * m - 1.0) * f1 > 1500.0).take(12).map(depth).collect();
+        let high_mean = high.iter().sum::<f64>() / high.len() as f64;
+        assert!(fundamental > 12.0, "fundamental stands {fundamental:.1} dB out");
+        assert!(high_mean < 8.0, "modes above 1.5 kHz stand {high_mean:.1} dB out on average");
     }
 
     /// a wider mouth radiates high frequencies away sooner
