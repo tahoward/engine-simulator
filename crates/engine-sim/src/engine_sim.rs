@@ -14,6 +14,7 @@
 //! ```
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
 use crate::afterfire::Afterfire;
@@ -177,7 +178,13 @@ const CAM_SPREAD_DEG: f64 = 2.2;
 
 /// What the inlet tracts are built from: how many, the throttles' bore, the airbox and the snorkel.
 fn inlet_key(spec: &EngineSpec) -> [f64; 5] {
-    [inlet_count_of(spec) as f64, throttle_dia_of(spec), airbox_volume_of(spec), spec.snorkel_length, snorkel_dia_of(spec)]
+    [
+        inlet_count_of(spec) as f64,
+        throttle_dia_of(spec),
+        airbox_volume_of(spec),
+        spec.snorkel_length,
+        snorkel_dia_of(spec),
+    ]
 }
 
 /// The inlet tracts for `spec`, one for each throttle body.
@@ -366,6 +373,10 @@ pub struct EngineSim {
     mouth_out: Vec<CachePadded<f64>>,
     shell_out: Vec<CachePadded<f64>>,
     turbo_out: CachePadded<Option<TurboOut>>,
+    /// What the plenum's step left this sample, and the sample it was left for, by `close_stamp`.
+    plenum_out: CachePadded<PlenumOut>,
+    plenum_done: CachePadded<AtomicU64>,
+    close_stamp: u64,
     /// What each of `close_sample`'s parts took in a timed sample, ns: cylinders, mouths, shells.
     close_ns: Vec<CachePadded<f64>>,
 }
@@ -509,10 +520,32 @@ impl ValveCtx<'_> {
 #[derive(Clone, Copy, Debug)]
 enum CloseItem {
     Bank(usize),
-    /// The inlet tract, or the turbo.
-    Air,
+    /// The plenum, then once it is stepped each inlet tract or the turbo, which draw through it.
+    Plenum,
+    Inlet(usize),
+    Turbo,
     Mouth(usize),
     Shell(usize),
+}
+
+/// What the plenum's step leaves for the inlet tracts and the turbo: the flow in through the
+/// throttles, kg/s, in all and through each; each throttle body's area, m^2; and the pressure at the
+/// throttles, Pa.
+#[derive(Clone, Copy, Debug, Default)]
+struct PlenumOut {
+    throttle_flow: f64,
+    flows: [f64; 2],
+    area: f64,
+    pressure: f64,
+}
+
+/// What the plenum left, once its step for sample `stamp` is done.
+fn wait_for(done: &CachePadded<AtomicU64>, stamp: u64, out: &Disjoint<PlenumOut>) -> PlenumOut {
+    while done.0.load(Ordering::Acquire) != stamp {
+        std::hint::spin_loop();
+    }
+    // Written once, before `done` was marked, and only read after.
+    unsafe { out.read(0) }
 }
 
 /// What a cylinder gave over a sample: its torque, N m, and its pressure's rate of rise, Pa/s.
@@ -636,6 +669,9 @@ impl EngineSim {
             mouth_out: Vec::new(),
             shell_out: Vec::new(),
             turbo_out: CachePadded(None),
+            plenum_out: CachePadded(PlenumOut::default()),
+            plenum_done: CachePadded(AtomicU64::new(0)),
+            close_stamp: 0,
             close_ns: Vec::new(),
             port_pressure: Vec::new(),
         };
@@ -1495,20 +1531,8 @@ impl EngineSim {
         }
         self.substeps = self.wg.result.substeps;
 
-        // --- Plenum ---
-        // Each plenum draws from its inlet tract's throttle end, stepped below with its throttle's flow.
-        let throttle_flow = if self.turbo.is_none() && !self.inlets.is_empty() {
-            let mut p_up = [gas::P_AMB; 2];
-            for (p, inlet) in p_up.iter_mut().zip(&self.inlets) {
-                *p = inlet.upstream_pressure();
-            }
-            self.plenum.step(dt, &p_up[..self.inlets.len()], gas::T_AMB, &intake.runners)
-        } else {
-            self.plenum.step(dt, &[self.charge_p], self.charge_t, &intake.runners)
-        };
-
-        // --- Cylinders and afterfire, the inlet tract or the turbo, and the radiation ---
-        self.close_sample(dt, throttle_flow);
+        // --- Cylinders and afterfire, the plenum and its inlet tracts or the turbo, and the radiation ---
+        let throttle_flow = self.close_sample(dt);
         for out in &self.bank_out {
             torque_sum += out.0.torque;
             dpdt_sum += out.0.dpdt;
@@ -1759,11 +1783,12 @@ impl EngineSim {
     }
 
     /// The rest of a sample once its gas dynamics are done, in parts that each read only their own
-    /// state and the pipes': each cylinder with its afterfire pocket, the inlet tract or the turbo, each
-    /// mouth's radiation and each chamber shell's. Across the pool's threads, each part on the thread
-    /// that stepped the duct it reads, whose cache holds it. What each gives is left in `bank_out`,
-    /// `mouth_out`, `shell_out` and `turbo_out`, to be gathered in order.
-    fn close_sample(&mut self, dt: f64, throttle_flow: f64) {
+    /// state and the pipes': each cylinder with its afterfire pocket, the plenum, each inlet tract or
+    /// the turbo, each mouth's radiation and each chamber shell's. Across the pool's threads, each part
+    /// on the thread that stepped the duct it reads, whose cache holds it; the tracts and the turbo
+    /// draw through the plenum, so they wait for it. What each gives is left in `bank_out`, `mouth_out`,
+    /// `shell_out` and `turbo_out`, to be gathered in order. Returns the flow in through the throttles.
+    fn close_sample(&mut self, dt: f64) -> f64 {
         let banks = self.cyls.len();
         let mouths = self.wg.result.mouth_flows.len();
         let shell_count = self.shells.len();
@@ -1790,10 +1815,24 @@ impl EngineSim {
             for (k, shell) in self.shells.iter().enumerate() {
                 self.close_groups[self.wg.owner_of(shell.duct())].push(CloseItem::Shell(k));
             }
-            // The tract or turbo onto the thread with the least else to do.
-            let air = (0..threads).min_by(|&a, &b| self.wg.thread_load(a).total_cmp(&self.wg.thread_load(b))).unwrap();
-            self.close_groups[air].push(CloseItem::Air);
+            // The plenum first on the thread with the least else to do, and what waits for it last on
+            // the next least busy, so the wait is spent on that thread's own parts.
+            let load = |g: &Vec<CloseItem>| -> usize {
+                g.iter().map(|item| if matches!(item, CloseItem::Bank(_)) { 4 } else { 1 }).sum()
+            };
+            let mut by_load: Vec<usize> = (0..threads).collect();
+            by_load.sort_by_key(|&w| (load(&self.close_groups[w]), w));
+            self.close_groups[by_load[0]].insert(0, CloseItem::Plenum);
+            let waiting = (0..if self.turbo.is_none() { self.inlets.len() } else { 0 })
+                .map(CloseItem::Inlet)
+                .chain(self.turbo.is_some().then_some(CloseItem::Turbo));
+            for (n, item) in waiting.enumerate() {
+                self.close_groups[by_load[(n + 1) % threads]].push(item);
+            }
         }
+        self.close_stamp += 1;
+        let stamp = self.close_stamp;
+        let plenum_done = &self.plenum_done;
 
         let cam_spec = if self.on_high_cam { self.high_cam_spec.as_ref().unwrap() } else { &self.spec };
         let intake = if self.on_short_runners { self.intake_short.as_ref().unwrap() } else { &self.intake_long };
@@ -1801,9 +1840,11 @@ impl EngineSim {
         // Timed, each item's time is put to the duct it reads, for the threads' balance.
         let timing = threads > 1 && wg.timing();
         let omega = self.omega;
-        let (area, bore) = (self.plenum.throttle_area_each(), throttle_dia_of(&self.spec.spec));
+        let bore = throttle_dia_of(&self.spec.spec);
         let throat_noise = self.spec.spec.throat_noise;
-        let plenum_p = self.plenum.throttle_pressure();
+        let (charge_p, charge_t) = (self.charge_p, self.charge_t);
+        let plenum = Disjoint::new(std::slice::from_mut(&mut self.plenum));
+        let plenum_out = Disjoint::new(std::slice::from_mut(&mut self.plenum_out.0));
         let cyls = Disjoint::new(&mut self.cyls);
         let bank_state = Disjoint::new(&mut self.banks);
         let close_ns = Disjoint::new(&mut self.close_ns);
@@ -1820,8 +1861,7 @@ impl EngineSim {
         let inlets = if self.turbo.is_none() { &mut self.inlets[..] } else { &mut [] };
         let inlet_count = inlets.len();
         let inlets = Disjoint::new(inlets);
-        let mut flows = [0.0; 2];
-        flows[..self.plenum.count()].copy_from_slice(self.plenum.throttle_flows());
+        let has_turbo = self.turbo.is_some();
         let turbo = self.turbo.as_mut().map(|t| Disjoint::new(std::slice::from_mut(t)));
         let turbo_out = Disjoint::new(std::slice::from_mut(&mut self.turbo_out));
 
@@ -1876,13 +1916,38 @@ impl EngineSim {
                     bank.prev_ex_lift = bank.ex_lift;
                     bank.prev_in_lift = bank.in_lift;
                 }
-                CloseItem::Air => {
-                    for k in 0..inlet_count {
-                        inlets.get(k).advance(dt, flows[k], area, bore, throat_noise);
-                    }
+                CloseItem::Plenum => {
+                    // Each plenum draws from its inlet tract's throttle end, from before the tract is
+                    // stepped with its throttle's flow; with a turbo, from its charge air.
+                    let plenum = plenum.get(0);
+                    let throttle_flow = if inlet_count > 0 {
+                        let mut p_up = [gas::P_AMB; 2];
+                        for (k, p) in p_up.iter_mut().enumerate().take(inlet_count) {
+                            *p = inlets.get(k).upstream_pressure();
+                        }
+                        plenum.step(dt, &p_up[..inlet_count], gas::T_AMB, &intake.runners)
+                    } else {
+                        plenum.step(dt, &[charge_p], charge_t, &intake.runners)
+                    };
+                    let mut flows = [0.0; 2];
+                    flows[..plenum.count()].copy_from_slice(plenum.throttle_flows());
+                    *plenum_out.get(0) = PlenumOut {
+                        throttle_flow,
+                        flows,
+                        area: plenum.throttle_area_each(),
+                        pressure: plenum.throttle_pressure(),
+                    };
+                    plenum_done.0.store(stamp, Ordering::Release);
+                }
+                CloseItem::Inlet(k) => {
+                    let p = wait_for(plenum_done, stamp, &plenum_out);
+                    inlets.get(k).advance(dt, p.flows[k], p.area, bore, throat_noise);
+                }
+                CloseItem::Turbo => {
+                    let p = wait_for(plenum_done, stamp, &plenum_out);
                     if let Some(turbo) = &turbo {
-                        *turbo_out.get(0) =
-                            CachePadded(Some(turbo.get(0).step(dt, &wg.result.turbines, throttle_flow, plenum_p)));
+                        let step = turbo.get(0).step(dt, &wg.result.turbines, p.throttle_flow, p.pressure);
+                        *turbo_out.get(0) = CachePadded(Some(step));
                     }
                 }
                 CloseItem::Mouth(m) => {
@@ -1900,7 +1965,7 @@ impl EngineSim {
                     CloseItem::Bank(b) => Some(b),
                     CloseItem::Mouth(m) => Some(banks + m),
                     CloseItem::Shell(k) => Some(banks + mouths + k),
-                    CloseItem::Air => None,
+                    CloseItem::Plenum | CloseItem::Inlet(_) | CloseItem::Turbo => None,
                 };
                 if let Some(slot) = slot {
                     close_ns.get(slot).0 = t0.elapsed().as_nanos() as f64;
@@ -1918,7 +1983,13 @@ impl EngineSim {
             for b in 0..banks {
                 run(CloseItem::Bank(b));
             }
-            run(CloseItem::Air);
+            run(CloseItem::Plenum);
+            for k in 0..inlet_count {
+                run(CloseItem::Inlet(k));
+            }
+            if has_turbo {
+                run(CloseItem::Turbo);
+            }
             for m in 0..mouths {
                 run(CloseItem::Mouth(m));
             }
@@ -1937,6 +2008,7 @@ impl EngineSim {
                 self.wg.note_time(self.shells[k].duct(), self.close_ns[banks + mouths + k].0);
             }
         }
+        self.plenum_out.0.throttle_flow
     }
 
     /// Step the exhaust's ducts and the intake runners across `pool`'s threads, or with `None` on the
