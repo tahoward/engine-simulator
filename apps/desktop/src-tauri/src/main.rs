@@ -16,6 +16,7 @@ use std::sync::mpsc;
 use audio::{Audio, Command, Frame, StreamInfo};
 use engine_sim::EngineConfig;
 use tauri::ipc::{Channel, InvokeResponseBody};
+use tauri_plugin_dialog::DialogExt;
 
 #[derive(Default)]
 struct State {
@@ -69,10 +70,27 @@ fn audio_stop(state: tauri::State<'_, State>) -> Result<(), String> {
     Ok(())
 }
 
+/// Ask where to save an exported engine, suggesting `name`, and write `contents` there. False if the
+/// user cancels.
+///
+/// The webview will not save a download itself, so the file goes through a native save dialog. Async,
+/// so it runs off the main thread, which the dialog needs free while this waits on it.
+#[tauri::command]
+async fn save_engine_file(app: tauri::AppHandle, name: String, contents: String) -> Result<bool, String> {
+    let Some(path) = app.dialog().file().set_file_name(&name).add_filter("Engine", &["json"]).blocking_save_file()
+    else {
+        return Ok(false);
+    };
+    let path = path.into_path().map_err(|e| e.to_string())?;
+    std::fs::write(&path, contents).map_err(|e| format!("could not write {}: {e}", path.display()))?;
+    Ok(true)
+}
+
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(State::default())
-        .invoke_handler(tauri::generate_handler![audio_start, audio_command, audio_stop])
+        .invoke_handler(tauri::generate_handler![audio_start, audio_command, audio_stop, save_engine_file])
         .run(tauri::generate_context!())
         .expect("the app failed to start");
 }
