@@ -131,6 +131,21 @@ full-throttle torque rises and falls by 5-8% every 1500 rpm or so as the runner'
 in and out of step with the cycle. The exhaust's damping is fitted to hot gas in steel pipes and is
 two and a half times the runners'.
 
+**What a cylinder pushes back stays by its valve.** The solver carries no composition, so each runner's
+spent gas and fuel are carried alongside it, cell by cell, by the mass flows the solver finds across each
+face. The exhaust a cylinder pushes back up its runner at overlap is drawn back in first on the next
+intake stroke, as in a real port, and only what is pushed further than the runner is long reaches the
+plenum. At idle the presets trap 21 to 34% spent gas, their manifolds 22 to 33 kPa absolute, as a real
+engine's idle does, and the plenum stays clean. The injector meters on the fresh air drawn, net of what
+was pushed back, so the mixture each cylinder traps is the one asked for.
+
+**The idle air valve holds the idle speed.** With the throttle shut, a PI controller opens a valve round
+the plate. The air it lets in takes the plenum's time to reach the cylinders, so on its own the
+controller would carry the speed past the idle and back, round and round, worse the bigger the plenum.
+A dashpot answers the speed's rate of change: it opens the valve further as the engine falls, so one
+dropping off a lift catches itself at the idle, and closes it as the engine rises. On the LT6, whose
+dual plenums hold 19 litres, the idle holds within about 680 to 850 rpm.
+
 **Switched off, the vacuum bleeds away.** With the throttle shut, an idle air valve round the plate
 holds the idle speed. When the ignition goes off it stays where it was, as a stepper motor or a
 drive-by-wire throttle's own motor does without power, so air goes on leaking into the plenum through
@@ -230,7 +245,9 @@ part of the gas dynamics; the rest is lumped, one state each, and stepped every 
   no longer hold.
 - **The wastegate** opens a bypass around the turbine as the boost reaches its target, over a few
   hundredths of a bar, so the turbine takes less of the exhaust. It is a spring and diaphragm with a
-  40 ms lag, not a controller, so the boost settles near the target rather than exactly on it.
+  40 ms lag, not a controller, so the boost settles near the target rather than exactly on it. Its hose
+  and diaphragm feel the boost smoothed over 20 ms: the boost's mean, not the pulses the runners and
+  the plenum's waves ride on it, which at 6500 rpm on the RB26 swing it by about 0.15 bar either way.
 - **The compressor** is Moore and Greitzer's model. Its characteristic is a cubic in the flow, scaled
   with the square of the shaft speed, with its peak pressure rise at 44% of the choke flow at full
   speed: its surge line. To the left of that the pressure it makes falls as the flow falls, which is
@@ -292,18 +309,18 @@ comparison:
 
 ```
                           2000   3000   4000   5000   6000   7500 rpm   full throttle, N·m
-naturally aspirated        216    211    216    240    243    199
-twin turbos, 0.7 bar       273    381    385    405    390    307
-boost, bar                0.24   0.66   0.68   0.70   0.70   0.69
+naturally aspirated        215    211    218    235    209    174
+twin turbos, 0.7 bar       277    374    384    399    350    279
+boost, bar                0.26   0.67   0.69   0.70   0.69   0.69
 ```
 
 Its turbos are sized to what is known of the real engine's T28s (see the preset), and each is fed the
-pulses of three cylinders: full boost from 3000 rpm, and at their full speed at the top, about 128k
-rpm, where the exhaust ahead of them is 0.65 bar above the pressure past them. The power, less
-friction, peaks at 345 PS at 6400 rpm; past that the torque falls about as fast as the speed rises,
-so it holds near 328 PS to the limit, as a stock engine's does on the dyno. Compressors too small for it reach their choke instead: with ones
-passing 0.12 kg/s each, the shafts run half as fast again as their full speed by 6400 rpm, and the
-power falls from 7000 to 7900. At 4400 rpm each pulse arriving at a turbine swings the pressure there
+pulses of three cylinders: full boost from 3000 rpm, and at their full speed at the top, about 125k
+rpm, where the exhaust ahead of them is about 0.7 bar above the atmosphere. The power, less friction,
+reaches 299 PS at 6000 rpm; past that the torque falls about as fast as the speed rises, so it holds
+near 297 PS to the limit, as a stock engine's does on the dyno. Compressors too small for it reach
+their choke instead: with ones passing 0.12 kg/s each, the shafts run a third faster than these by
+6400 rpm, and the power falls from 7000 to 7900. At 4400 rpm each pulse arriving at a turbine swings the pressure there
 by about 15 kPa; past it, by 8.
 
 ## The flame

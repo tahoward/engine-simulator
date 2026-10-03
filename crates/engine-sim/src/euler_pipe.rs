@@ -668,6 +668,25 @@ impl EulerPipe {
         if travel > 0.0 { 1.0 / (4.0 * travel) } else { 0.0 }
     }
 
+    /// Gas mass in cell `i`, kg.
+    #[inline]
+    pub fn cell_mass(&self, i: usize) -> f64 {
+        self.rho[i] * self.area_cell[i] * self.dx
+    }
+
+    /// Mass flow through face `face` over the last substep, kg/s, positive towards the mouth: face 0 is
+    /// the inlet's, face `n` the mouth's. What a valve hands cell 0 is `valve_source_flow`.
+    #[inline]
+    pub fn face_mass_flow(&self, face: usize) -> f64 {
+        self.f0[face] * self.area_face[face]
+    }
+
+    /// Mass flow the valve handed cell 0 over the last substep, kg/s, positive into the duct.
+    #[inline]
+    pub fn valve_source_flow(&self) -> f64 {
+        self.source_flow * self.source_scale
+    }
+
     /// Total gas mass in the duct, kg.
     pub fn total_mass(&self) -> f64 {
         let mut m = 0.0;

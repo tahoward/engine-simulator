@@ -2510,7 +2510,7 @@
     "ivc": 592,
     "boostTarget": 70000,
     "turboSize": 0.16,
-    "intercooler": 0.7,
+    "intercooler": 0.6,
     "blowOff": "atmospheric",
     "outputGain": 1.23
    },
@@ -2580,7 +2580,7 @@
      "intakeSwitchRpm": 5000,
      "boostTarget": 70000,
      "turboSize": 0.16,
-     "intercooler": 0.7,
+     "intercooler": 0.6,
      "blowOff": "atmospheric",
      "turboNoise": 1,
      "rpm": 800,

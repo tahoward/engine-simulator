@@ -178,6 +178,9 @@ const WASTEGATE_CRACK: f64 = 0.04e5;
 const WASTEGATE_SPAN: f64 = 0.12e5;
 /// Response time of the wastegate actuator and of the blow-off valve, s.
 const WASTEGATE_TAU: f64 = 0.04;
+/// How long the wastegate actuator's diaphragm, fed through its hose, takes to follow the boost, s: it
+/// answers the boost's mean, not the pulses the runners and the plenum's waves ride on it.
+const WASTEGATE_SENSE_TAU: f64 = 0.02;
 const BLOW_OFF_TAU: f64 = 0.004;
 
 /// Pressure across the throttle, charge side over plenum, at which the blow-off valve starts to open,
@@ -768,6 +771,8 @@ pub struct Turbo {
     energy: f64,
     /// Seconds since a compressor's flow last ran backwards.
     since_reverse: f64,
+    /// The boost the wastegate actuators feel, gauge, Pa.
+    sensed_boost: f64,
 
     // Sound
     noise: Noise,
@@ -800,6 +805,7 @@ impl Turbo {
             mass,
             energy: mass * gas_energy(gas::T_AMB),
             since_reverse: f64::INFINITY,
+            sensed_boost: 0.0,
             noise: Noise::new(0x7ab0_c3d1 as f64),
             inlet: FarField::new(sample_rate, (2.0 * c) / inlet_radius),
             vent: FarField::new(sample_rate, (2.0 * c) / vent_radius),
@@ -993,7 +999,8 @@ impl Turbo {
     /// its pressure, Pa.
     pub fn step(&mut self, dt: f64, turbines: &[TurbineResult], throttle_flow: f64, plenum_p: f64) -> TurboOut {
         let charge = self.charge;
-        let boost = self.boost();
+        self.sensed_boost += (1.0 - math::exp(-dt / WASTEGATE_SENSE_TAU)) * (self.boost() - self.sensed_boost);
+        let boost = self.sensed_boost;
         let p2 = self.charge_pressure();
         let t2 = self.charge_temp();
         let h2 = gas_enthalpy(t2);
@@ -1027,7 +1034,7 @@ impl Turbo {
             r.drive = d;
             let turbine = d;
 
-            // --- Wastegate: opens on boost over its spring ---
+            // --- Wastegate: opens on the boost its actuator feels over its spring ---
             let wg_target = clamp((boost - (size.boost_target - WASTEGATE_CRACK)) / WASTEGATE_SPAN, 0.0, 1.0);
             r.wastegate += (dt / WASTEGATE_TAU) * (wg_target - r.wastegate);
             r.wastegate = clamp(r.wastegate, 0.0, 1.0);

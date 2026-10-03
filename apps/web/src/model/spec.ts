@@ -2276,7 +2276,8 @@ const NISSAN_RB26: Partial<EngineSpec> = {
   // full boost from 3000 rpm.
   boostTarget: 0.7e5,
   turboSize: 0.16,
-  intercooler: 0.7,
+  // Estimated, like the turbos: the stock core is a small one in front of the radiator.
+  intercooler: 0.6,
   // The factory valve recirculates; this is the atmospheric one so many are fitted with instead.
   blowOff: 'atmospheric',
   // Level-matched to the inline four, as the other presets are.
@@ -2660,7 +2661,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: false,
     },
     description:
-      'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.7 bar, one for each three cylinders, spool from 2000 rpm, on full boost by 3000, and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 391 N\u00b7m at 4400 rpm and 328 PS at 6800, about 323 hp, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
+      'The 2.6 litre twin-turbo six in the R32, R33 and R34 Skyline GT-R: 86 x 73.7 mm, 8.5:1, four valves a cylinder and an 8000 rpm redline. It fires every 120\u00b0, 1-5-3-6-2-4, its throws paired 1-6, 2-5 and 3-4: perfectly balanced and evenly fired, so the smooth, silky one. Two small turbos on 0.7 bar, one for each three cylinders, spool from 2000 rpm, on full boost by 3000, and whistle as they do, and every exhaust pulse passes through their turbines, which take the edge off the note; lift off on boost and the blow-off valve vents with a hiss, or with it set to none the compressors surge and flutter. It makes 395 N\u00b7m at 4400 rpm and 296 PS at 6800, about 292 hp, against the real engine\u2019s 368 N\u00b7m and a rated 280 PS. It has one throttle into a plenum where the real one has six individual throttle bodies, and its turbo sizes and exhaust are estimates.',
     engine: NISSAN_RB26,
     pipe: () => fittedExhaust(fullSpec(NISSAN_RB26)).pipe,
     collector: () => fittedExhaust(fullSpec(NISSAN_RB26)).collector,

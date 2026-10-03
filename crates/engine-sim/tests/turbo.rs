@@ -89,10 +89,19 @@ fn taking_the_turbos_out_leaves_the_engine_breathing_the_atmosphere() {
 /// Boost builds with the exhaust flow, and the wastegate holds it at its target.
 #[test]
 fn builds_boost_with_the_exhaust_and_the_wastegate_holds_it() {
+    // Read as a gauge reads it, over a tenth of a second: the runners and the plenum's waves ride on it.
     let at = |rpm: f64| {
         let mut sim = rb26(json!({ "throttle": 1, "rpm": rpm }));
         sim.render(3 * FS as usize);
-        (boost(&sim), sim.turbo().unwrap().wastegate())
+        let samples = FS as usize / 10;
+        let mean = (0..samples)
+            .map(|_| {
+                sim.render(1);
+                boost(&sim)
+            })
+            .sum::<f64>()
+            / samples as f64;
+        (mean, sim.turbo().unwrap().wastegate())
     };
     let (low, wg_low) = at(1500.0);
     let (mid, wg_mid) = at(4000.0);
@@ -116,12 +125,13 @@ fn reaches_a_higher_boost_target() {
         let mut sim = rb26(json!({ "throttle": 1, "rpm": 4000, "boostTarget": target * 1e5, "turboSize": 0 }));
         sim.render(4 * FS as usize);
         let n = FS as usize / 2;
-        let mut t = 0.0;
+        let (mut t, mut b) = (0.0, 0.0);
         for _ in 0..n {
             sim.render(1);
             t += sim.snapshot().torque;
+            b += boost(&sim);
         }
-        (boost(&sim), t / n as f64)
+        (b / n as f64, t / n as f64)
     };
     let (low, t_low) = at(0.7);
     let (high, t_high) = at(2.0);
@@ -397,16 +407,26 @@ fn starting_a_launch_does_not_click() {
 }
 
 /// The throttle shutting is felt at the compressor only once its pressure wave has run back up the
-/// charge pipe: for the first few milliseconds the compressor goes on delivering as before.
+/// charge pipe: for the first few milliseconds the compressor goes on delivering as it would have with
+/// the throttle held open, pulses and all.
 #[test]
 fn the_throttle_shutting_reaches_the_compressor_as_a_wave() {
     let (_, flow) = lift_off(json!({ "blowOff": "none" }));
-    let before = flow[0];
+    let mut held = rb26(json!({ "throttle": 1, "rpm": 4000, "blowOff": "none" }));
+    held.render(3 * FS as usize);
     let unaware = (0.007 * FS) as usize;
+    let open: Vec<f64> = (0..unaware)
+        .map(|_| {
+            held.render(1);
+            held.turbo().unwrap().compressor_flow()
+        })
+        .collect();
+    let before = open.iter().sum::<f64>() / unaware as f64;
     assert!(
-        flow[..unaware].iter().all(|&m| (m - before).abs() < 0.03 * before),
-        "unchanged for 7 ms: {:?}",
-        &flow[..unaware]
+        flow[..unaware].iter().zip(&open).all(|(&m, &o)| (m - o).abs() < 0.03 * before),
+        "as if still open for 7 ms: {:?} against {:?}",
+        &flow[..unaware],
+        open
     );
     let reached = flow.iter().position(|&m| m < 0.5 * before).unwrap() as f64 / FS;
     assert!(reached < 0.02, "the flow falls once the wave arrives, after {reached} s");
@@ -505,8 +525,15 @@ fn the_turbine_map_peaks_at_its_best_blade_speed_ratio() {
 fn the_turbine_runs_on_its_map() {
     let mut sim = rb26(json!({ "throttle": 1, "rpm": 4400 }));
     sim.render(3 * FS as usize);
-    let t = sim.turbo().unwrap();
-    let (eta, bsr) = (t.turbine_efficiency(), t.blade_speed_ratio());
+    // Over a tenth of a second: each pulse swings them.
+    let n = FS as usize / 10;
+    let (mut eta, mut bsr) = (0.0, 0.0);
+    for _ in 0..n {
+        sim.render(1);
+        let t = sim.turbo().unwrap();
+        eta += t.turbine_efficiency() / n as f64;
+        bsr += t.blade_speed_ratio() / n as f64;
+    }
     assert!(bsr > 0.35 && bsr < 0.7, "blade speed ratio on boost: {bsr}");
     assert!(eta > 0.6 && eta < 0.78, "efficiency on boost: {eta}");
     sim.set_controls(0.0, 0.0);
