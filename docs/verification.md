@@ -122,7 +122,7 @@ matters.
   Heard through the Wasm build it must make boost, with a pipe drawn from its outlet or
   without. The RB26, its exhaust compiled, must have one turbo with every cylinder through it. Turned a
   quarter turn about an axis, a turbo's outlet must turn by that, with its pipe still meeting its inlet.
-- **Turbos a layout seats.** Switched to any entry of the Cylinders menu, with headers or manifolds and
+- **Turbos a layout seats.** Switched to any layout of one or two banks, with headers or manifolds and
   one turbo or two, the engine must have one turbo for each bank, its outlet facing rearwards, halfway
   along the engine and out from its bank's ports the way they point, with every port of the bank piped
   straight into its inlet and meeting it. Each must be clear of the engine's outline, of every pipe but its

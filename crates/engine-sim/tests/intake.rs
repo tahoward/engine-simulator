@@ -517,7 +517,7 @@ mod plenum {
         let narrow = v8_spec(json!({ "dualPlenum": true, "throttleDia": 0.087, "plenumWidth": 0.1 }));
         assert!(plenum_shape_of(&narrow).width > 2.0 * 0.087);
         // An inline engine has only the one.
-        let inline = common::with(&common::presets().default_engine, json!({ "cylinders": 4, "dualPlenum": true }));
+        let inline = common::with(&common::presets().default_engine, json!({ "cylinders": 4, "vAngle": 0, "dualPlenum": true }));
         assert_eq!(plenum_count_of(&inline), 1);
         let mut cfg = common::engine_preset("V8, Chevrolet LT6").config.clone();
         let zones = |cfg: &engine_sim::spec::EngineConfig| EngineSim::new(FS, cfg).plenum().zone_count();

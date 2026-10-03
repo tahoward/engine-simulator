@@ -326,7 +326,7 @@ mod arrangements_primaries_and_collectors_cannot_express {
         let mut cfg = common::default_config();
         cfg.engine = common::with(
             &cfg.engine,
-            json!({ "cylinders": 4, "exhaustLayout": "2into1", "rpm": 4000, "throttle": 1, "freeRunning": false }),
+            json!({ "cylinders": 4, "vAngle": 0, "exhaustLayout": "2into1", "rpm": 4000, "throttle": 1, "freeRunning": false }),
         );
         EngineSim::with_options(FS, &cfg, EulerPipeOptions::default(), Some(graph))
     }
@@ -414,7 +414,7 @@ mod walking_the_graph_for_the_panel_and_the_url {
     /// a compiled path is the runner plus its collector
     #[test]
     fn a_compiled_path_is_the_runner_plus_its_collector() {
-        let spec = spec_of(json!({ "cylinders": 4, "exhaustLayout": "2into1" }));
+        let spec = spec_of(json!({ "cylinders": 4, "vAngle": 0, "exhaustLayout": "2into1" }));
         let graph = compile_collector_layout(&spec, &[pipe(0.45, 0.038)], &[pipe(0.6, 0.055)]);
 
         let path = path_to_air(&graph, 0);

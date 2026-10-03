@@ -8,10 +8,17 @@
 - **Engine preset** loads a complete engine: its layout, firing order, sizes and a matching exhaust.
   It starts idling at 800 rpm in neutral, on a throttle opening found for that engine. Open the
   throttle and add load to go from there.
-- **Layout → Cylinders** changes only the layout: single, parallel twin, V-twin, inline three to six, V6,
-  V8, or a four- or six-cylinder boxer. A V-twin, V6 or V8 has a **V angle**, from 15 to 120 degrees; a
-  V-twin chosen from a parallel twin starts at 90. It also builds an exhaust to suit: a single pipe on a
-  single, one collector per bank on a V6, a V8 or a boxer, and one collector for all cylinders otherwise.
+- **Layout → Banks** and **Cylinders per bank** change only the layout: one bank of 1 to 6 is an inline
+  engine, two banks of 1 to 6 each a V. Two banks have a **Bank angle**, from 15 to 180 degrees; a second
+  bank starts at the angle its real engines have, 60 for a V6 or V12, 72 for a V10 and 90 otherwise. At
+  180 degrees **Crank** offers a boxer, opposed pins making it a flat engine; on a V8 it is crossplane or
+  flatplane. Changing the layout also builds an exhaust to suit: a single pipe on a single, one collector
+  per bank on two banks, and one collector for all cylinders otherwise.
+- **Layout → Firing order** and **Firing intervals** set how the engine fires, as "1-5-3-6-2-4" and
+  "180-270-180-90": the cylinders, numbered front to back alternating between the banks, and the crank
+  degrees from each firing to the next, adding up to 720. Left empty, the layout's own, shown faintly;
+  **Layout's own firing** clears both. An order or intervals the engine cannot fire are pointed out, and
+  the layout's own is used until they are fixed.
 - **Operating point** has no speed control: the engine turns as fast as its torque drives it
   against friction and the **Load**, so the **Throttle**, the load and the exhaust tuning all set
   it. **Flywheel inertia** sets how quickly it responds.
