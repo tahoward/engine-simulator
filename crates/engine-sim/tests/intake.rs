@@ -321,10 +321,10 @@ mod two_stage_intake {
     fn has_the_long_runners_torque_below_its_switch_speed_and_the_short_runners_above_it() {
         let short_length = common::engine_preset("V8, Chevrolet LT6").config.engine.intake_runner_short_length;
         let short_only = || json!({ "intakeRunnerLength": short_length, "intakeRunnerShortLength": 0 });
-        let (both, short) = (torque_at(7800.0, json!({})), torque_at(7800.0, short_only()));
-        // Measures about 0.6% more: the airbox and snorkel take a little of the long runners' edge, and the
-        // plenum's own waves, along its length, more.
-        assert!(both > 1.003 * short, "at 7800: two-stage {both} short only {short}");
+        // Just below the switch, where the two sets are nearest each other.
+        let below = switch_rpm() - 100.0;
+        let (both, short) = (torque_at(below, json!({})), torque_at(below, short_only()));
+        assert!(both > 1.003 * short, "at {below}: two-stage {both} short only {short}");
         let ratio = torque_at(8400.0, json!({})) / torque_at(8400.0, short_only());
         assert!((ratio - 1.0).abs() < 0.005, "at 8400: ratio {ratio}");
     }
@@ -401,7 +401,7 @@ mod torque_curve {
 
 mod plenum {
     use super::*;
-    use engine_sim::plenum::{plenum_shape_of, plenum_volume_of};
+    use engine_sim::plenum::{plenum_count_of, plenum_shape_of, plenum_volume_of, throttle_dia_of, throttle_duct_dia_of};
 
     /// The F20C at full throttle, settled, and its plenum's front and back zones' gauge pressure over
     /// the next quarter second.
@@ -462,5 +462,85 @@ mod plenum {
         };
         let (short, long) = (apart(0.2), apart(0.8));
         assert!(long > short * 1.5, "short {short} long {long}");
+    }
+
+    /// The LT6 at full throttle and `rpm`, settled, with dual plenums whose balance valves open at
+    /// `balance` rpm: whether they are open, and the rms of the difference between the two plenums' mean
+    /// gauge pressures over the next quarter second, Pa.
+    fn dual_apart(rpm: f64, balance: f64) -> (bool, f64) {
+        let preset = common::engine_preset("V8, Chevrolet LT6");
+        let mut cfg = preset.config.clone();
+        cfg.engine = common::with(
+            &cfg.engine,
+            json!({ "rpm": rpm, "throttle": 1, "freeRunning": false, "combustionVariability": 0,
+                    "dualPlenum": true, "plenumBalanceRpm": balance, "plenumBalanceShutRpm": 0 }),
+        );
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(FS as usize);
+        let mut sum = 0.0;
+        let count = FS as usize / 4;
+        for _ in 0..count {
+            sim.tick();
+            let zones: Vec<f64> = sim.plenum().zone_pressures().collect();
+            let (a, b) = zones.split_at(zones.len() / 2);
+            let d = mean(a) - mean(b);
+            sum += d * d;
+        }
+        (sim.snapshot().plenum_balanced, (sum / count as f64).sqrt())
+    }
+
+    /// dual plenums: one for each bank, holding between them what one would, each with its own throttle
+    #[test]
+    fn dual_plenums_are_one_for_each_bank_holding_what_one_would() {
+        let single = v8_spec(json!({}));
+        let dual = v8_spec(json!({ "dualPlenum": true }));
+        assert_eq!(plenum_count_of(&single), 1);
+        assert_eq!(plenum_count_of(&dual), 2);
+        assert!((plenum_volume_of(&dual) / plenum_volume_of(&single) - 1.0).abs() < 1e-9);
+        // Each throttle sized for half the air, the two together as one would be.
+        assert!((throttle_duct_dia_of(&dual) - throttle_dia_of(&single)).abs() < 1e-12);
+        assert!((throttle_dia_of(&dual) * 2f64.sqrt() - throttle_dia_of(&single)).abs() < 1e-12);
+        // An 87 mm bore given is each one's.
+        let lt6 = v8_spec(json!({ "dualPlenum": true, "throttleDia": 0.087 }));
+        assert_eq!(throttle_dia_of(&lt6), 0.087);
+        // Wide enough for both flanges side by side.
+        let narrow = v8_spec(json!({ "dualPlenum": true, "throttleDia": 0.087, "plenumWidth": 0.1 }));
+        assert!(plenum_shape_of(&narrow).width > 2.0 * 0.087);
+        // An inline engine has only the one.
+        let inline = common::with(&common::presets().default_engine, json!({ "cylinders": 4, "dualPlenum": true }));
+        assert_eq!(plenum_count_of(&inline), 1);
+        let mut cfg = common::engine_preset("V8, Chevrolet LT6").config.clone();
+        let zones = |cfg: &engine_sim::spec::EngineConfig| EngineSim::new(FS, cfg).plenum().zone_count();
+        cfg.engine = common::with(&cfg.engine, json!({ "dualPlenum": false }));
+        let one = zones(&cfg);
+        cfg.engine = common::with(&cfg.engine, json!({ "dualPlenum": true }));
+        assert_eq!(zones(&cfg), 2 * one);
+    }
+
+    /// dual plenums breathe apart, each with its own bank, until the balance valves join them
+    #[test]
+    fn dual_plenums_breathe_apart_until_the_balance_valves_join_them() {
+        let (open, shut) = (dual_apart(6000.0, 5000.0), dual_apart(6000.0, 7000.0));
+        assert!(open.0 && !shut.0, "open {open:?} shut {shut:?}");
+        assert!(shut.1 > 1.3 * open.1, "apart by {} Pa shut, {} Pa open", shut.1, open.1);
+        // Never, at 0.
+        assert!(!dual_apart(6000.0, 0.0).0);
+    }
+
+    /// dual plenums' balance valves open across their band, and shut above it and below it
+    #[test]
+    fn dual_plenums_balance_valves_open_across_their_band() {
+        let at = |rpm: f64| {
+            let preset = common::engine_preset("V8, Chevrolet LT6");
+            let mut cfg = preset.config.clone();
+            cfg.engine = common::with(
+                &cfg.engine,
+                json!({ "rpm": rpm, "throttle": 1, "freeRunning": false, "plenumBalanceRpm": 4000, "plenumBalanceShutRpm": 6000 }),
+            );
+            let mut sim = EngineSim::new(FS, &cfg);
+            sim.render(FS as usize / 10);
+            sim.snapshot().plenum_balanced
+        };
+        assert_eq!([at(3000.0), at(5000.0), at(7000.0)], [false, true, false]);
     }
 }

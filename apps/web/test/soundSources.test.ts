@@ -61,7 +61,7 @@ describe('the inlet tract as drawn', () => {
       const at = inletLayout(cfg.engine);
       const { intake } = configSources(cfg);
       expect(intake, preset.name).toEqual([at.mouth.x, at.mouth.y, at.mouth.z]);
-      expect(at.tube.getLength(), preset.name).toBeCloseTo(at.segments[0]!.length, 2);
+      for (const tube of at.tubes) expect(tube.getLength(), preset.name).toBeCloseTo(at.segments[0]!.length, 2);
       expect(at.snorkel.getLength(), preset.name).toBeCloseTo(at.segments[2]!.length, 2);
       // The airbox over the engine rather than out in front of it, the snorkel's mouth ahead of it.
       const half = engineShell(cfg.engine).length / 2;

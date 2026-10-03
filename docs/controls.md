@@ -141,8 +141,14 @@ speeding up its own flywheel, and the curve comes out close to what the engine m
   it is on.
 - **Plenum volume** is the manifold the runners draw from. At 0 it is one and a half times the
   engine's displacement.
-- **Throttle bore** sets the throttle's size. At 0 it is sized for the engine's airflow at full
-  throttle and 7000 rpm.
+- **Dual plenums**, on a V or a boxer whose banks have heads of their own, divides the plenum down its
+  middle: each bank's runners draw from their own half, each with its own throttle body. **Open
+  balance valves at** joins the halves through two valves in the wall between them at that speed, and
+  **Shut balance valves at** parts them again at that one; coming down, each happens 150 rpm lower. At 0
+  the first keeps them shut, and the second leaves them open to the rev limit. See
+  [The intake](engine.md#the-intake).
+- **Throttle bore** sets the throttle's size: each throttle body's, with dual plenums. At 0 it is sized
+  for the engine's airflow at full throttle and 7000 rpm, through both together with dual plenums.
 - **Airbox volume**, **Snorkel length** and **Snorkel bore** shape the inlet tract the throttle draws
   its air through, and so the intake's note and its hiss. The view draws it, with the plenum, the
   throttle body and its butterfly, on top of the engine. At 0

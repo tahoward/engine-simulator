@@ -187,6 +187,9 @@ pub struct EngineSpec {
     pub plenum_width: f64,
     pub plenum_height: f64,
     pub plenum_taper: f64,
+    pub dual_plenum: bool,
+    pub plenum_balance_rpm: f64,
+    pub plenum_balance_shut_rpm: f64,
     pub airbox_volume: f64,
     pub snorkel_length: f64,
     pub snorkel_dia: f64,
@@ -280,6 +283,9 @@ impl Default for EngineSpec {
             plenum_width: 0.0,
             plenum_height: 0.0,
             plenum_taper: 0.4,
+            dual_plenum: false,
+            plenum_balance_rpm: 0.0,
+            plenum_balance_shut_rpm: 0.0,
             airbox_volume: 0.0,
             snorkel_length: 0.3,
             snorkel_dia: 0.0,
@@ -426,8 +432,11 @@ pub struct EngineSnapshot {
     pub inlet_velocity: Vec<f32>,
     /// Gauge pressure in the plenum, Pa, over its volume: below zero, the manifold's vacuum.
     pub plenum_pressure: f64,
-    /// Gauge pressure in each zone along the plenum, Pa, from the throttle at its front to its back.
+    /// Gauge pressure in each zone along the plenum, Pa, from the throttle at its front to its back: with
+    /// dual plenums, bank 0's and then bank 1's, as many each.
     pub plenum_zones: Vec<f32>,
+    /// Whether dual plenums' balance valve is open, joining them.
+    pub plenum_balanced: bool,
     /// Gauge pressure in every cell of every intake runner, Pa, in cylinder order, each from its valve
     /// end, taking `runner_cells` values in turn.
     pub runner_pressure: Vec<f32>,

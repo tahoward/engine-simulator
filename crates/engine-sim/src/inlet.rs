@@ -25,7 +25,7 @@ use crate::dsp::Noise;
 use crate::euler_pipe::{EulerPipe, EulerPipeOptions, InletKind, OutletKind, ValveState};
 use crate::intake::runner_damping;
 use crate::math::{self, PI, clamp};
-use crate::plenum::throttle_dia_of;
+use crate::plenum::throttle_duct_dia_of;
 use crate::spec::{EngineSpec, PipeSegment, SegmentKind, SegmentPartial, displacement, gas, make_segment};
 
 /// Airbox volume as a multiple of the engine's swept volume, when not given.
@@ -53,18 +53,19 @@ pub fn airbox_volume_of(spec: &EngineSpec) -> f64 {
     AIRBOX_VOLUME_RATIO * displacement(spec) * math::max(spec.cylinders as f64, 1.0)
 }
 
-/// The snorkel's bore, m: the spec's, or a little wider than the throttle.
+/// The snorkel's bore, m: the spec's, or a little wider than the throttle, or the throttles together.
 pub fn snorkel_dia_of(spec: &EngineSpec) -> f64 {
     if spec.snorkel_dia > 0.0 {
         return spec.snorkel_dia;
     }
-    SNORKEL_BORE_RATIO * throttle_dia_of(spec)
+    SNORKEL_BORE_RATIO * throttle_duct_dia_of(spec)
 }
 
-/// The tract from the throttle out to the snorkel's mouth: a duct at the throttle's bore, the airbox, a
-/// round can about as long as it is wide, and the snorkel.
+/// The tract from the throttle out to the snorkel's mouth: a duct at the throttle's bore, or with dual
+/// plenums' two throttle bodies' area together, the airbox, a round can about as long as it is wide, and
+/// the snorkel.
 pub fn inlet_segments(spec: &EngineSpec) -> Vec<PipeSegment> {
-    let throttle = throttle_dia_of(spec);
+    let throttle = throttle_duct_dia_of(spec);
     let volume = airbox_volume_of(spec);
     let length = clamp(math::cbrt(volume) * 1.5, 0.15, 0.6);
     let body = math::max(math::sqrt((4.0 * volume) / (PI * length)), throttle * 1.5);

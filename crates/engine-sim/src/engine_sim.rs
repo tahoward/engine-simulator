@@ -30,7 +30,7 @@ use crate::inlet::{InletTract, airbox_volume_of, snorkel_dia_of};
 use crate::intake::{IntakeRunners, RunnerIo};
 use crate::listener::{Listener, SoundSources, Vec3};
 use crate::math::{self, PI, clamp};
-use crate::plenum::{IntakePlenum, throttle_dia_of};
+use crate::plenum::{IntakePlenum, throttle_dia_of, throttle_duct_dia_of};
 use crate::pool::{CachePadded, Disjoint, ThreadPool};
 use crate::radiation::{FarField, Steepening};
 use crate::shell::ChamberShell;
@@ -173,9 +173,9 @@ const STRUCTURE_PA_PER_GPA_S: f64 = 0.55;
 /// Per-cylinder valve-timing spread at `cylinder_spread = 1`, crank degrees peak.
 const CAM_SPREAD_DEG: f64 = 2.2;
 
-/// What the inlet tract is built from: the throttle's bore, the airbox and the snorkel.
+/// What the inlet tract is built from: the throttles' bore, the airbox and the snorkel.
 fn inlet_key(spec: &EngineSpec) -> [f64; 4] {
-    [throttle_dia_of(spec), airbox_volume_of(spec), spec.snorkel_length, snorkel_dia_of(spec)]
+    [throttle_duct_dia_of(spec), airbox_volume_of(spec), spec.snorkel_length, snorkel_dia_of(spec)]
 }
 
 /// The sources heard after the mouths, in the order of their paths to the ear.
@@ -1206,7 +1206,7 @@ impl EngineSim {
             }
             None => {
                 let c = ambient_sound_speed();
-                let radius = throttle_dia_of(&self.spec.spec) / 2.0;
+                let radius = throttle_duct_dia_of(&self.spec.spec) / 2.0;
                 self.intake_far_field.set_cutoff((2.0 * c) / radius, (1.8412 * c) / radius);
             }
         }
@@ -1341,6 +1341,7 @@ impl EngineSim {
         if self.intake_short.is_some() {
             self.update_intake_stage();
         }
+        self.plenum.update_balance(dt, (self.omega_mean * 60.0) / (2.0 * PI));
         if self.high_cam_spec.is_some() {
             self.update_cam_profile();
         }
@@ -1670,6 +1671,7 @@ impl EngineSim {
             }),
             plenum_pressure: self.plenum.pressure() - gas::P_AMB,
             plenum_zones: self.plenum.zone_pressures().map(|p| p as f32).collect(),
+            plenum_balanced: self.plenum.balanced(),
             runner_pressure,
             runner_cells,
             peak: self.peak,
@@ -1769,7 +1771,9 @@ impl EngineSim {
         // Timed, each item's time is put to the duct it reads, for the threads' balance.
         let timing = threads > 1 && wg.timing();
         let omega = self.omega;
-        let (area, bore) = (self.plenum.area(), throttle_dia_of(&self.spec.spec));
+        // Every throttle plate's area, and their edges' length together: the gap the jets pass through is
+        // each plate's.
+        let (area, bore) = (self.plenum.area(), throttle_dia_of(&self.spec.spec) * self.plenum.count() as f64);
         let throat_noise = self.spec.spec.throat_noise;
         let plenum_p = self.plenum.throttle_pressure();
         let cyls = Disjoint::new(&mut self.cyls);

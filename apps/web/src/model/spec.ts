@@ -389,7 +389,8 @@ export interface EngineSpec {
    */
   throttle: number;
   /**
-   * Throttle bore, m. With `throttle` this fixes the flow area into the plenum.
+   * Throttle bore, m: each throttle body's, with dual plenums. With `throttle` this fixes the flow area
+   * into the plenum.
    *
    * Sized for the engine's airflow at peak rpm, which is why a 500 cc single wants about
    * 40 mm and why that same 40 mm is nearly wide open, in flow terms, at a third of travel.
@@ -427,6 +428,27 @@ export interface EngineSpec {
    * front: beside an inline head its side away from the head drawn in, on a V or a boxer its top dropped.
    */
   plenumTaper: number;
+  /**
+   * Dual plenums, as the LT6 has: on a V or a boxer, the plenum's casting divided down its middle, each
+   * bank's runners drawing from their own half, each half with its own throttle body of `throttleDia`
+   * on its front. The size above is the casting's, both halves together. An engine of one bank, or a V
+   * so narrow its banks share a head, has the one plenum whatever this says (`plenumCountOf`).
+   *
+   * Apart, each half feeds only its own bank, and rings with that bank's pulses alone: on an engine
+   * whose banks each fire evenly, at its bank's even spacing, not the engine's. That tunes the intake
+   * differently from one shared box, better at some speeds and worse at others, and the balance valves
+   * between the halves (`plenumBalanceRpm`) choose between the two.
+   */
+  dualPlenum: boolean;
+  /**
+   * With dual plenums, the speed the balance valves through the wall between them open at, rev/min,
+   * joining the halves into one box, and the speed they shut again at, parting them; each 0 or less for
+   * never, so at 0 they stay shut, and with only the first they stay open above it. They open at the one
+   * and shut at the other going up, and back 150 rev/min below each coming down, so they do not flap
+   * back and forth at either.
+   */
+  plenumBalanceRpm: number;
+  plenumBalanceShutRpm: number;
   /**
    * Volume of the airbox the throttle draws from, m^3. 0 or less sizes it at four times the engine's
    * displacement; see `airboxVolumeOf`.
@@ -725,8 +747,13 @@ export interface EngineSnapshot {
   inletVelocity: Float32Array;
   /** Gauge pressure in the plenum, Pa, over its volume: below zero, the manifold's vacuum. */
   plenumPressure: number;
-  /** Gauge pressure in each zone along the plenum, Pa, from the throttle at its front to its back. */
+  /**
+   * Gauge pressure in each zone along the plenum, Pa, from the throttle at its front to its back: with
+   * dual plenums, bank 0's and then bank 1's, as many each.
+   */
   plenumZones: Float32Array;
+  /** Whether dual plenums' balance valves are open, joining them. */
+  plenumBalanced: boolean;
   /**
    * Gauge pressure in every cell of every intake runner, Pa, in cylinder order, each from its valve end,
    * taking `runnerCells` values in turn.
@@ -1317,6 +1344,9 @@ export const DEFAULT_ENGINE: EngineSpec = {
   plenumWidth: 0,
   plenumHeight: 0,
   plenumTaper: 0.4,
+  dualPlenum: false,
+  plenumBalanceRpm: 0,
+  plenumBalanceShutRpm: 0,
   airboxVolume: 0,
   snorkelLength: 0.3,
   snorkelDia: 0,
@@ -2733,7 +2763,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: true,
     },
     description:
-      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Its tailpipes exit together in the middle, as the Z06’s do. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. Its cam, short runners and headers are tuned for the top end, where it makes about 665 hp at 8200 rpm against the real engine’s 670 at 8400. Below that its variable cam timing and long runners, also estimates, give back the mid-range: 623 N·m at 6000 against 624 at 6300.',
+      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Its tailpipes exit together in the middle, as the Z06’s do. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. It breathes through dual plenums, one for each bank, each with its own 87 mm throttle body, as the real one does, their balance valves joining them from 3800 to 6000 rpm. Its cam, short runners and headers are tuned for the top end, where it makes about 670 hp at 8400 rpm, as the real engine does. Below that its variable cam timing, long runners and plenums, also estimates, give back the mid-range: 611 N·m at 6900 against 624 at 6300.',
     engine: {
       cylinders: 8,
       vAngle: 90,
@@ -2756,26 +2786,31 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       inValveDia: 0.042,
       inValveCount: 2,
       // Estimated: a race-bred cam, the intake closing late because the runners and headers are tuned
-      // to ram the charge in after bottom dead centre at the top end. Tuned with them and the cam map for
-      // power at 8400 and the flattest curve below it.
-      maxLift: 0.0135,
+      // to ram the charge in after bottom dead centre at the top end. Tuned with them, the plenums and the
+      // cam map for power at 8400 and the flattest curve below it.
+      maxLift: 0.0155,
       evo: 104,
       evc: 397,
       ivo: 327,
-      ivc: 614,
-      // Estimated: a two-stage manifold, as the real one has. The short runners are tuned for 8400 rpm; the
-      // long ones, two centimetres longer, fill it better from 7200 to 7800, by up to 20 N·m, and fall
-      // behind above that. Longer long runners peak higher in the mid-range, 632 N·m at 6300 for 450 mm
-      // ones, but fall away sooner above it: these give the flattest curve.
-      intakeRunnerLength: 0.365,
-      intakeRunnerShortLength: 0.345,
-      intakeSwitchRpm: 7900,
-      // Estimated, like the cams, and tuned on the dyno at full throttle: the intake advanced 25 degrees up
-      // to 4550 rpm, easing back to rest by 7750, which gives back the mid-range a cam tuned for 8400 costs
-      // it. The best advance, found point by point, is about 40 degrees at 4000-4500, 20 at 5000-5500, 10
-      // at 6000 and little or none from 6500 and below 3500; holding 25 below 4550 rather than 40 costs up
-      // to 28 N·m at 4000 and keeps the dip around 3300 shallower. Retarding the exhaust cam 10 degrees as
-      // well adds up to 36 N·m at 4000 but costs 15 below 3500; advancing it loses torque at 4000-4500.
+      ivc: 620,
+      // Estimated: a two-stage manifold. The short runners are tuned for 8400 rpm; the long ones, 55 mm
+      // longer, lift the mid-range from 6500 to 7500 rpm and fall behind above that, where it switches.
+      intakeRunnerLength: 0.39,
+      intakeRunnerShortLength: 0.335,
+      intakeSwitchRpm: 7600,
+      intakeRunnerDia: 0.06,
+      // Dual plenums, one for each bank, as the real manifold has, each with an 87 mm throttle body. The
+      // casting is as wide as the two throttle bodies' flanges side by side, and as long and high as it is
+      // drawn left to itself. Estimated: the balance valves, joined from 3800 to 6000 rpm, where one box
+      // fills the cylinders better; below and above, each bank's plenum ringing with its own pulses does.
+      dualPlenum: true,
+      throttleDia: 0.087,
+      plenumWidth: 0.266,
+      plenumTaper: 0.2,
+      plenumBalanceRpm: 3800,
+      plenumBalanceShutRpm: 6000,
+      // Estimated, like the cams: the intake advanced 25 degrees up to 4550 rpm, easing back to rest by
+      // 7750, which gives back the mid-range a cam tuned for 8400 costs it.
       vvtIntakeLow: 25,
       vvtLowRpm: 4550,
       vvtHighRpm: 7750,

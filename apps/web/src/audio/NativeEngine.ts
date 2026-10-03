@@ -146,7 +146,11 @@ export class NativeEngine implements EngineHost {
     const solved = solvedPlenum(this.config.engine);
     const was = this.plenumSent;
     this.plenumSent = solved;
-    const moved = (Object.keys(solved) as Array<keyof typeof solved>).filter((k) => !was || was[k] !== solved[k]);
+    // And any the change itself sets, which the drawing may take otherwise: dual plenums asked for of an
+    // engine that cannot have them, or a size left to work itself out.
+    const moved = (Object.keys(solved) as Array<keyof typeof solved>).filter(
+      (k) => !was || was[k] !== solved[k] || k in partial,
+    );
     if (moved.length === 0) return partial;
     return { ...partial, ...Object.fromEntries(moved.map((k) => [k, solved[k]])) };
   }
