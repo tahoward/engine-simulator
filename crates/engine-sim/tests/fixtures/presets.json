@@ -47,6 +47,13 @@
   "throttle": 0.75,
   "throttleDia": 0,
   "plenumVolume": 0,
+  "plenumLength": 0,
+  "plenumWidth": 0,
+  "plenumHeight": 0,
+  "plenumTaper": 0.4,
+  "dualPlenum": false,
+  "plenumBalanceRpm": 0,
+  "plenumBalanceShutRpm": 0,
   "airboxVolume": 0,
   "snorkelLength": 0.3,
   "snorkelDia": 0,
@@ -125,6 +132,13 @@
    "throttle": 0.75,
    "throttleDia": 0,
    "plenumVolume": 0,
+   "plenumLength": 0,
+   "plenumWidth": 0,
+   "plenumHeight": 0,
+   "plenumTaper": 0.4,
+   "dualPlenum": false,
+   "plenumBalanceRpm": 0,
+   "plenumBalanceShutRpm": 0,
    "airboxVolume": 0,
    "snorkelLength": 0.3,
    "snorkelDia": 0,
@@ -206,9 +220,9 @@
     }
    ],
    "intake": [
-    0.0041206090119072225,
+    -0.011814840515626854,
     0.40202171497872385,
-    -0.274409462644186
+    -0.2842493160940161
    ],
    "engine": [
     0,
@@ -299,6 +313,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -380,9 +401,9 @@
       }
      ],
      "intake": [
-      0.0041206090119072225,
+      -0.011814840515626854,
       0.40202171497872385,
-      -0.274409462644186
+      -0.2842493160940161
      ],
      "engine": [
       0,
@@ -505,6 +526,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -586,9 +614,9 @@
       }
      ],
      "intake": [
-      0.23774307845294787,
+      0.23387013765244566,
       0.4819645389447247,
-      -0.2767594241644984
+      -0.2771467952337444
      ],
      "engine": [
       0,
@@ -736,6 +764,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -825,9 +860,9 @@
       }
      ],
      "intake": [
-      0.23774307845294787,
+      0.23387013765244566,
       0.42971018528355254,
-      -0.2602844241644984
+      -0.2606717952337444
      ],
      "engine": [
       0,
@@ -970,6 +1005,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -1060,9 +1102,9 @@
       }
      ],
      "intake": [
-      0.09406986497560615,
+      0.11114690431141695,
       0.43730328531857154,
-      -0.4307507538886828
+      -0.41630001636748126
      ],
      "engine": [
       0,
@@ -1227,6 +1269,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -1475,9 +1524,9 @@
       }
      ],
      "intake": [
-      0.09524932156676946,
+      0.11234152148725061,
       0.4271866823785281,
-      -0.4278394284073642
+      -0.4133780183081711
      ],
      "engine": [
       0,
@@ -1650,6 +1699,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -1875,9 +1931,9 @@
       }
      ],
      "intake": [
-      0.07754944775366401,
+      0.0846040958366837,
       0.42025677775969805,
-      -0.3687591084583576
+      -0.3612617063619611
      ],
      "engine": [
       0,
@@ -2047,6 +2103,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -2318,9 +2381,9 @@
       }
      ],
      "intake": [
-      0.11533875936663096,
+      0.14086406438361715,
       0.4314715230163827,
-      -0.4712798918522458
+      -0.450810967156267
      ],
      "engine": [
       0,
@@ -2491,6 +2554,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -3016,9 +3086,9 @@
       }
      ],
      "intake": [
-      0.11400747158154345,
+      0.14097909085786717,
       0.4020566642543335,
-      -0.5452651237226761
+      -0.5237518175640631
      ],
      "engine": [
       0,
@@ -3185,6 +3255,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -3829,9 +3906,9 @@
       }
      ],
      "intake": [
-      0.3505291112273643,
+      0.39077075768769776,
       0.5830427589480373,
-      -0.36614209709005374
+      -0.3348586360173642
      ],
      "engine": [
       0,
@@ -3994,6 +4071,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -4092,9 +4176,9 @@
       }
      ],
      "intake": [
-      0.42031546582792506,
+      0.4923858637591186,
       0.5800825787731254,
-      -0.4394963557824929
+      -0.3834484420734305
      ],
      "engine": [
       0,
@@ -4204,14 +4288,21 @@
     "exValveCount": 2,
     "inValveDia": 0.042,
     "inValveCount": 2,
-    "maxLift": 0.0135,
+    "maxLift": 0.0155,
     "evo": 104,
     "evc": 397,
     "ivo": 327,
-    "ivc": 614,
-    "intakeRunnerLength": 0.365,
-    "intakeRunnerShortLength": 0.345,
-    "intakeSwitchRpm": 7900,
+    "ivc": 620,
+    "intakeRunnerLength": 0.39,
+    "intakeRunnerShortLength": 0.335,
+    "intakeSwitchRpm": 7600,
+    "intakeRunnerDia": 0.06,
+    "dualPlenum": true,
+    "throttleDia": 0.087,
+    "plenumWidth": 0.266,
+    "plenumTaper": 0.2,
+    "plenumBalanceRpm": 3800,
+    "plenumBalanceShutRpm": 6000,
     "vvtIntakeLow": 25,
     "vvtLowRpm": 4550,
     "vvtHighRpm": 7750,
@@ -4235,11 +4326,11 @@
      "portLength": 0.055,
      "inValveDia": 0.042,
      "inValveCount": 2,
-     "maxLift": 0.0135,
+     "maxLift": 0.0155,
      "evo": 104,
      "evc": 397,
      "ivo": 327,
-     "ivc": 614,
+     "ivc": 620,
      "camSwitchRpm": 0,
      "highEvo": 128,
      "highEvc": 378,
@@ -4264,15 +4355,22 @@
      "combustionVariability": 1,
      "recipMass": 0.55,
      "throttle": 0,
-     "throttleDia": 0,
+     "throttleDia": 0.087,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0.266,
+     "plenumHeight": 0,
+     "plenumTaper": 0.2,
+     "dualPlenum": true,
+     "plenumBalanceRpm": 3800,
+     "plenumBalanceShutRpm": 6000,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
-     "intakeRunnerLength": 0.365,
-     "intakeRunnerDia": 0,
-     "intakeRunnerShortLength": 0.345,
-     "intakeSwitchRpm": 7900,
+     "intakeRunnerLength": 0.39,
+     "intakeRunnerDia": 0.06,
+     "intakeRunnerShortLength": 0.335,
+     "intakeSwitchRpm": 7600,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -4934,9 +5032,9 @@
       }
      ],
      "intake": [
-      0.4046565610714606,
-      0.5653633991772736,
-      -0.447279412806328
+      0.46614729869291727,
+      0.584546207487299,
+      -0.39985651156519375
      ],
      "engine": [
       0,
@@ -5098,6 +5196,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -5188,9 +5293,9 @@
       }
      ],
      "intake": [
-      0.315211935310656,
+      0.34035157568480784,
       0.3140901299096406,
-      -0.3491111873374292
+      -0.3289200607715328
      ],
      "engine": [
       0,
@@ -5350,6 +5455,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -5448,9 +5560,9 @@
       }
      ],
      "intake": [
-      0.35544791537846926,
+      0.39784802315996864,
       0.34393622553903125,
-      -0.40510493984096396
+      -0.37220074651898977
      ],
      "engine": [
       0,
@@ -5603,6 +5715,13 @@
      "throttle": 0,
      "throttleDia": 0,
      "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
@@ -5684,9 +5803,9 @@
       }
      ],
      "intake": [
-      0.04520312932954321,
+      0.041330188529040995,
       0.4129208865422269,
-      -0.3248094241644983
+      -0.32519679523374434
      ],
      "engine": [
       0,

@@ -252,8 +252,10 @@ function alongFace(p: THREE.Vector2, q: THREE.Vector2, start: THREE.Vector2, dir
 /**
  * The plenum as a hollow casting, centred on the origin, `size` along x, y and z: a shell `PLENUM_WALL`
  * thick round its section, run along z, narrowing towards the back by `taper` (`PlenumTaper`), and rounded
- * over at each end as its sides are. It is closed at the back, and at the front with the throttle
- * body's bore, `bore` across, through it at the section's middle. Where runners leave it, the upright side
+ * over at each end as its sides are. It is closed at the back, and at the front with a throttle body's
+ * bore, `bore` across, through it at each of `bores`, how far across from the section's middle each is.
+ * Dual plenums' wall down its middle stands between its ends, with a hole through it for each of
+ * `balances`, where along it and how high, and its radius. Where runners leave it, the upright side
  * they leave by is a plate of its own, inside and out, with an opening for each, so the runners can be seen
  * into from inside. Its rounded edges and corners shade smoothly, as a pipe's curve does, and its square ones
  * stay sharp.
@@ -262,8 +264,10 @@ function plenumGeometry(
   size: THREE.Vector3,
   base: number,
   bore: number,
+  bores: number[],
   openings: Opening[],
   taper: PlenumTaper | null,
+  balances: { z: number; y: number; radius: number }[] | null,
 ): THREE.BufferGeometry {
   // Where its sides run straight between its rounded ends, and its section anywhere along there, drawn in by
   // `inset` all round: by its wall, inside.
@@ -372,7 +376,7 @@ function plenumGeometry(
   // plate closes each end where the sides stop, the bore's rim between the two at the front.
   const bored = (points: THREE.Vector2[], hole: boolean) => {
     const shape = new THREE.Shape(points);
-    if (hole) shape.holes.push(new THREE.Path().absarc(0, 0, bore / 2, 0, Math.PI * 2, true));
+    if (hole) for (const x of bores) shape.holes.push(new THREE.Path().absarc(x, 0, bore / 2, 0, Math.PI * 2, true));
     return new THREE.ShapeGeometry(shape, 24).toNonIndexed();
   };
   for (const [z0, side] of [
@@ -392,10 +396,28 @@ function plenumGeometry(
     inside.translate(0, 0, z0);
     parts.push(inside);
   }
-  const rim = new THREE.CylinderGeometry(bore / 2, bore / 2, PLENUM_ROUNDING, 32, 1, true).toNonIndexed();
-  rim.rotateX(Math.PI / 2);
-  rim.translate(0, 0, front - PLENUM_ROUNDING / 2);
-  parts.push(rim);
+  for (const x of bores) {
+    const rim = new THREE.CylinderGeometry(bore / 2, bore / 2, PLENUM_ROUNDING, 32, 1, true).toNonIndexed();
+    rim.rotateX(Math.PI / 2);
+    rim.translate(x, 0, front - PLENUM_ROUNDING / 2);
+    parts.push(rim);
+  }
+  // The wall between dual plenums: across the inside from end to end and from the floor to the top, which
+  // falls with the taper towards the back, drawn in its own plane, along z and up, then stood in the middle.
+  if (balances) {
+    const [h, drop] = [size.y / 2 - PLENUM_WALL, taper ? taper.drop : 0];
+    const topAt = (z: number) => h - drop * taperAlong(size.z, z);
+    const wall = new THREE.Shape([
+      new THREE.Vector2(front, -h),
+      new THREE.Vector2(back, -h),
+      new THREE.Vector2(back, topAt(back)),
+      new THREE.Vector2(front, topAt(front)),
+    ]);
+    for (const b of balances) wall.holes.push(new THREE.Path().absarc(b.z, b.y, b.radius, 0, Math.PI * 2, true));
+    const g = new THREE.ShapeGeometry(wall, 24).toNonIndexed();
+    g.applyMatrix4(new THREE.Matrix4().makeBasis(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0)));
+    parts.push(g);
+  }
   return toCreasedNormals(mergeGeometries(parts), Math.PI / 5);
 }
 
@@ -666,7 +688,10 @@ export class InletMesh {
   });
   private readonly clamp = new THREE.MeshStandardMaterial(CLAMP);
   private readonly plate = new THREE.MeshStandardMaterial({ ...CAST, color: 0xc9ced4, side: THREE.DoubleSide });
-  private butterfly: THREE.Object3D | null = null;
+  private butterflies: THREE.Object3D[] = [];
+  /** Dual plenums' balance valves' plates, and whether they are shown open. */
+  private balanceValves: THREE.Object3D[] = [];
+  private balanced = false;
   /** The plenum and the boss on its face, which take its colour. */
   private plenum: THREE.Mesh[] = [];
   private runners: THREE.Mesh[] = [];
@@ -719,6 +744,7 @@ export class InletMesh {
   /** Show a snapshot's pressures, on `scale`, Pa, the exhaust's, and its air speeds, in the pressure view. */
   show(s: EngineSnapshot, scale: number): void {
     this.velocity = s.inletVelocity;
+    this.setBalanced(!!s.plenumBalanced);
     if (!this.showPressure) return;
     this.paint(s, scale);
   }
@@ -752,7 +778,7 @@ export class InletMesh {
         s -= Math.floor(s);
         this.along[i] = s;
       }
-      this.speckAt(l, s, this.offset[i * 2]!, this.offset[i * 2 + 1]!, p);
+      this.speckAt(l, i % l.tubes.length, s, this.offset[i * 2]!, this.offset[i * 2 + 1]!, p);
       arr[i * 3] = p.x;
       arr[i * 3 + 1] = p.y;
       arr[i * 3 + 2] = p.z;
@@ -760,8 +786,11 @@ export class InletMesh {
     pos.needsUpdate = true;
   }
 
-  /** Where a speck `s` along the tract is, `a` and `b` across it as fractions of its half-width and -height. */
-  private speckAt(l: InletLayout, s: number, a: number, b: number, out: THREE.Vector3): void {
+  /**
+   * Where a speck `s` along the tract is, through tube `tube` of dual plenums' two, `a` and `b` across it as
+   * fractions of its half-width and -height.
+   */
+  private speckAt(l: InletLayout, tube: number, s: number, a: number, b: number, out: THREE.Vector3): void {
     const segs = l.segments;
     const total = segs.reduce((sum, x) => sum + x.length, 0);
     const e1 = segs[0]!.length / total;
@@ -774,7 +803,7 @@ export class InletMesh {
     }
     const [curve, u, r] =
       s < e1
-        ? [l.tube, s / e1, l.tubeRadius]
+        ? [l.tubes[tube]!, s / e1, l.tubeRadius]
         : [l.snorkel, (s - e2) / (1 - e2), Math.sqrt(l.snorkelArea / Math.PI)];
     out.copy(curve.getPointAt(u));
     const t = curve.getTangentAt(u);
@@ -785,11 +814,17 @@ export class InletMesh {
     out.addScaledVector(across, a * r).addScaledVector(lift, b * r);
   }
 
-  /** Turn the butterfly to the throttle's opening, 0..1: nearly square to the bore shut, edge-on open. */
+  /** Turn the butterflies to the throttle's opening, 0..1: nearly square to the bore shut, edge-on open. */
   setThrottle(opening: number): void {
-    if (!this.butterfly) return;
     const open = 1 - Math.cos(Math.max(0, Math.min(1, opening)) * (Math.PI / 2));
-    this.butterfly.rotation.x = ((8 + 82 * open) * Math.PI) / 180;
+    for (const b of this.butterflies) b.rotation.x = ((8 + 82 * open) * Math.PI) / 180;
+  }
+
+  /** Turn dual plenums' balance valves open, edge-on to the wall's holes, or shut across them. */
+  private setBalanced(open: boolean): void {
+    if (open === this.balanced) return;
+    this.balanced = open;
+    for (const v of this.balanceValves) v.rotation.y = open ? 0 : Math.PI / 2;
   }
 
   rebuild(spec: EngineSpec): void {
@@ -833,14 +868,26 @@ export class InletMesh {
       inside: runnerRadius(r.radius, 0, flares[k]!),
       outside: runnerRadius(r.radius, PLENUM_WALL, flares[k]!),
     }));
+    const { bore } = l.throttles[0]!;
+    const walled = l.balances.length > 0;
     const plenum = new THREE.Mesh(
-      colourable(plenumGeometry(size, l.plenum.base, l.throttle.bore, openings, l.plenum.taper)),
+      colourable(
+        plenumGeometry(
+          size,
+          l.plenum.base,
+          bore,
+          l.throttles.map((t) => t.centre.x - centre.x),
+          openings,
+          l.plenum.taper,
+          walled ? l.balances.map((b) => ({ z: b.centre.z - centre.z, y: b.centre.y - centre.y, radius: b.radius })) : null,
+        ),
+      ),
       this.pipeMetal,
     );
     plenum.position.copy(centre);
     this.group.add(plenum);
-    // The boss on its front face the throttle body bolts to, cast with it, standing a little proud.
-    const { bore } = l.throttle;
+    this.plenum = [plenum];
+    // The boss on its front face each throttle body bolts to, cast with it, standing a little proud.
     const front = centre.z - size.z / 2;
     // A ring round the bore, its inside the bore's own wall, so the throttle body opens into the plenum.
     const [inside, outside] = [bore / 2, bore / 2 + THROTTLE_WALL + 0.008];
@@ -851,11 +898,24 @@ export class InletMesh {
       new THREE.Vector2(inside, 0.03),
       new THREE.Vector2(inside, 0),
     ];
-    const boss = new THREE.Mesh(colourable(new THREE.LatheGeometry(ring, 40)), this.pipeMetal);
-    boss.rotation.x = -Math.PI / 2;
-    boss.position.set(l.throttle.centre.x, l.throttle.centre.y, front + 0.01);
-    this.group.add(boss);
-    this.plenum = [plenum, boss];
+    for (const t of l.throttles) {
+      const boss = new THREE.Mesh(colourable(new THREE.LatheGeometry(ring, 40)), this.pipeMetal);
+      boss.rotation.x = -Math.PI / 2;
+      boss.position.set(t.centre.x, t.centre.y, front + 0.01);
+      this.group.add(boss);
+      this.plenum.push(boss);
+    }
+    // Each balance valve: a plate on an upright shaft in its hole through the wall.
+    for (const b of l.balances) {
+      const valve = new THREE.Object3D();
+      valve.position.copy(b.centre);
+      valve.add(new THREE.Mesh(new THREE.CircleGeometry(b.radius - 0.0005, 32), this.plate));
+      const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.003, 0.003, 2 * b.radius + 0.01, 8), this.clamp);
+      valve.add(shaft);
+      valve.rotation.y = this.balanced ? 0 : Math.PI / 2;
+      this.group.add(valve);
+      this.balanceValves.push(valve);
+    }
 
 
     for (const [k, r] of l.runners.entries()) {
@@ -881,10 +941,15 @@ export class InletMesh {
       this.runners.push(runner);
     }
 
-    // The throttle body: a cast barrel with a flange each end, a shaft across, and the butterfly on it.
-    const { length } = l.throttle;
+    // Each throttle body: a cast barrel with a flange each end, a shaft across, and the butterfly on it.
+    for (const t of l.throttles) this.buildThrottle(t);
+  }
+
+  /** A throttle body, as `inletLayout` places it. */
+  private buildThrottle(t: InletLayout['throttles'][number]): void {
+    const { bore, length } = t;
     const body = new THREE.Group();
-    body.position.copy(l.throttle.centre);
+    body.position.copy(t.centre);
     const barrel = new THREE.Mesh(
       new THREE.CylinderGeometry(bore / 2 + THROTTLE_WALL, bore / 2 + THROTTLE_WALL, length, 32, 1, true),
       this.cast,
@@ -907,34 +972,36 @@ export class InletMesh {
     const disc = new THREE.Mesh(new THREE.CircleGeometry(bore / 2 - 0.0005, 32), this.plate);
     butterfly.add(disc);
     body.add(butterfly);
-    this.butterfly = butterfly;
+    this.butterflies.push(butterfly);
     this.group.add(body);
   }
 
   /** The tube, the airbox and the snorkel. */
   private buildTract(l: InletLayout): void {
-    // The tube: a bellows coupler off the throttle body, then smooth, a clamp at each end.
+    // Each tube: a bellows coupler off the throttle body, then smooth, a clamp at each end.
     const r = l.tubeRadius + WALL;
-    const tubeLength = l.tube.getLength();
-    const ribs = BELLOWS / tubeLength;
-    const tube = new THREE.Mesh(
-      sweep(l.tube, (u) => {
-        const s = u * tubeLength;
-        const rib = u < ribs && s > 0.02 ? 0.0045 * Math.max(0, Math.sin((s / RIB_PITCH) * Math.PI * 2)) : 0;
-        return [r + rib, r + rib];
-      }, false, Math.ceil(tubeLength / RIB_STATION)),
-      this.rubber,
-    );
-    this.tract.add(tube);
-    this.tract.add(band(l.tube, 0.012, r + 0.0015, this.clamp));
-    this.tract.add(band(l.tube, Math.min(ribs + 0.02, 0.5), r + 0.0015, this.clamp));
-    this.tract.add(band(l.tube, 0.985, r + 0.0015, this.clamp));
-    // The air flow meter on the tube, ahead of the airbox: a small housing with its plug.
-    const at = l.tube.getPointAt(0.7);
-    const maf = new THREE.Mesh(new RoundedBoxGeometry(0.03, 0.022, 0.04, 2, 0.004), this.plastic);
-    maf.position.copy(at).add(new THREE.Vector3(0, r + 0.008, 0));
-    maf.lookAt(maf.position.clone().add(l.tube.getTangentAt(0.7)));
-    this.tract.add(maf);
+    for (const curve of l.tubes) {
+      const tubeLength = curve.getLength();
+      const ribs = BELLOWS / tubeLength;
+      const tube = new THREE.Mesh(
+        sweep(curve, (u) => {
+          const s = u * tubeLength;
+          const rib = u < ribs && s > 0.02 ? 0.0045 * Math.max(0, Math.sin((s / RIB_PITCH) * Math.PI * 2)) : 0;
+          return [r + rib, r + rib];
+        }, false, Math.ceil(tubeLength / RIB_STATION)),
+        this.rubber,
+      );
+      this.tract.add(tube);
+      this.tract.add(band(curve, 0.012, r + 0.0015, this.clamp));
+      this.tract.add(band(curve, Math.min(ribs + 0.02, 0.5), r + 0.0015, this.clamp));
+      this.tract.add(band(curve, 0.985, r + 0.0015, this.clamp));
+      // The air flow meter on the tube, ahead of the airbox: a small housing with its plug.
+      const at = curve.getPointAt(0.7);
+      const maf = new THREE.Mesh(new RoundedBoxGeometry(0.03, 0.022, 0.04, 2, 0.004), this.plastic);
+      maf.position.copy(at).add(new THREE.Vector3(0, r + 0.008, 0));
+      maf.lookAt(maf.position.clone().add(curve.getTangentAt(0.7)));
+      this.tract.add(maf);
+    }
 
     // The airbox: a rounded black plastic box, hollow, open where the tube and the snorkel join it so they can
     // be seen into, its lid's seam a lip round it, clipped down front and back. It stays black in the pressure
@@ -947,7 +1014,7 @@ export class InletMesh {
       return { axis, sign: outwards.getComponent(axis) > 0 ? 1 : -1, centre: at.clone().sub(centre), radius };
     };
     const holes = [
-      holeAt(l.tube.getPointAt(1), l.tube.getTangentAt(1).negate(), l.tubeRadius),
+      ...l.tubes.map((tube) => holeAt(tube.getPointAt(1), tube.getTangentAt(1).negate(), l.tubeRadius)),
       holeAt(l.snorkel.getPointAt(0), l.snorkel.getTangentAt(0), round),
     ];
     // Rounded as far as leaves each hole on the flat of its face.
@@ -986,9 +1053,9 @@ export class InletMesh {
     }
     // A spigot each end, where the tube and the snorkel join it: a collar round each, open through.
     for (const [curve, u, radius] of [
-      [l.tube, 1, r + 0.004],
-      [l.snorkel, 0, round + SNORKEL_WALL + 0.004],
-    ] as const) {
+      ...l.tubes.map((tube) => [tube, 1, r + 0.004] as const),
+      [l.snorkel, 0, round + SNORKEL_WALL + 0.004] as const,
+    ]) {
       const spigot = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, 0.03, 32, 1, true), this.plastic);
       spigot.position.copy(curve.getPointAt(u));
       spigot.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), curve.getTangentAt(u).normalize());
@@ -1028,9 +1095,11 @@ export class InletMesh {
       return;
     }
     const rgb = new THREE.Color();
-    // The plenum by the zone each point is in along it, front to back.
+    // The plenum by the zone each point is in along it, front to back: dual plenums' by the side of the
+    // wall between them it is on.
     const zones = snap.plenumZones?.length ? snap.plenumZones : [snap.plenumPressure];
-    const { centre, size } = this.layout.plenum;
+    const { centre, size, sides } = this.layout.plenum;
+    const per = Math.max(Math.floor(zones.length / sides.length), 1);
     for (const m of this.plenum) {
       const pos = m.geometry.getAttribute('position') as THREE.BufferAttribute;
       const c = m.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
@@ -1040,7 +1109,8 @@ export class InletMesh {
       for (let i = 0; i < pos.count; i++) {
         at.fromBufferAttribute(pos, i).applyMatrix4(m.matrix);
         const along = (at.z - centre.z) / size.z + 0.5;
-        const k = Math.min(Math.max(Math.floor(along * zones.length), 0), zones.length - 1);
+        const row = sides.length > 1 && Math.sign(at.x - centre.x) !== sides[0] ? 1 : 0;
+        const k = Math.min(row * per + Math.min(Math.max(Math.floor(along * per), 0), per - 1), zones.length - 1);
         pressureColor(zones[k]! / scale, rgb);
         arr[i * 3] = rgb.r;
         arr[i * 3 + 1] = rgb.g;
@@ -1088,7 +1158,8 @@ export class InletMesh {
     };
     drop(this.tract);
     drop(this.group);
-    this.butterfly = null;
+    this.butterflies = [];
+    this.balanceValves = [];
     this.plenum = [];
     this.runners = [];
   }

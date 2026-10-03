@@ -9,12 +9,17 @@
 //! from the throttle at its front to its back, each a finite volume of its own, the gas between each and
 //! the next carried by its momentum: the throttle feeds the first, and each runner draws from the zone it
 //! leaves by. Its section narrows towards the back by its taper, as the drawn plenum does.
+//!
+//! A V or a boxer can have dual plenums instead, as the LT6 does: the casting divided down its middle,
+//! each bank's runners drawing from their own half, each half with its own throttle body. Apart, each
+//! half sees only its own bank's pulses and rings with them; balance valves through the wall between
+//! them join them above a set speed, into one box.
 
 use crate::intake::Runner;
 use crate::math::{self, PI, clamp};
 use crate::spec::{
     EngineSpec, crank_pins, cylinder_spacing, cylinder_z, displacement, gas, gas_energy, gas_enthalpy, gas_gamma,
-    gas_temperature, intake_runner_of,
+    gas_temperature, intake_runner_of, physical_bank, physical_bank_count,
 };
 use crate::valve::orifice_mass_flow;
 
@@ -64,21 +69,42 @@ const MAX_ZONES: usize = 32;
 const MAX_SOUND_SPEED: f64 = 450.0;
 const MAX_COURANT: f64 = 0.5;
 
+/// The wall between dual plenums, m, which a balance valve's air flows through.
+const BALANCE_WALL: f64 = 0.008;
+/// How long a balance valve takes to swing open or shut, s.
+const BALANCE_TRAVEL: f64 = 0.1;
+/// How far below its opening speed the balance valve shuts again, rev/min.
+const BALANCE_HYSTERESIS: f64 = 150.0;
+
 fn total_displacement(spec: &EngineSpec) -> f64 {
     displacement(spec) * math::max(spec.cylinders as f64, 1.0)
 }
 
-/// Throttle bore, m: the spec's, or sized to pass peak airflow at the design velocity.
+/// How many plenums the runners draw from: two with `dual_plenum` on an engine of two banks, each bank's
+/// runners from their own, side by side in one casting; otherwise one.
+pub fn plenum_count_of(spec: &EngineSpec) -> usize {
+    if spec.dual_plenum && physical_bank_count(spec) > 1 { 2 } else { 1 }
+}
+
+/// Each throttle body's bore, m: the spec's, or sized for the throttles together to pass peak airflow at
+/// the design velocity. There is one on the front of each plenum.
 pub fn throttle_dia_of(spec: &EngineSpec) -> f64 {
     if spec.throttle_dia > 0.0 {
         return spec.throttle_dia;
     }
     let area = (total_displacement(spec) * (THROTTLE_DESIGN_RPM / 120.0)) / THROTTLE_DESIGN_VELOCITY;
-    math::sqrt((4.0 * area) / PI)
+    math::sqrt((4.0 * area) / (PI * plenum_count_of(spec) as f64))
+}
+
+/// The bore of one duct with the throttle bodies' area together, m: what the inlet tract is solved as up
+/// to them.
+pub fn throttle_duct_dia_of(spec: &EngineSpec) -> f64 {
+    throttle_dia_of(spec) * math::sqrt(plenum_count_of(spec) as f64)
 }
 
 /// A plenum's size, m: along the engine, across and high at its front, and how much of its section it has
-/// lost at its back, a fraction, narrowing evenly from none at the front.
+/// lost at its back, a fraction, narrowing evenly from none at the front. Dual plenums are one casting
+/// this size, divided down its middle.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlenumShape {
     pub length: f64,
@@ -101,7 +127,8 @@ impl PlenumShape {
 /// The plenum's size: the spec's, each that is 0 or less worked out, as `intakeSizing.ts` works it out
 /// for the drawn one. Its length runs past every runner by its flared mouth, along most of the engine; its
 /// height takes the throttle body's flange; its width holds `plenum_volume`, or one and a half times the
-/// engine's displacement, at that length and height. A width or height given is no less than the flange.
+/// engine's displacement, at that length and height. A width or height given is no less than the flange,
+/// nor a width less than a flange for each plenum side by side.
 pub fn plenum_shape_of(spec: &EngineSpec) -> PlenumShape {
     let taper = clamp(spec.plenum_taper, 0.0, 0.8);
     let length = if spec.plenum_length > 0.0 {
@@ -114,11 +141,12 @@ pub fn plenum_shape_of(spec: &EngineSpec) -> PlenumShape {
         let last = reach + 1.5 * intake_runner_of(spec).diameter / 2.0 + PLENUM_ROUNDING + 0.006;
         math::max(block * 0.85, 2.0 * last)
     };
-    // No smaller across or high than takes the throttle body's flange on its front.
+    // No smaller across or high than takes the throttle bodies' flanges on its front.
     let face = throttle_dia_of(spec) + 2.0 * THROTTLE_WALL + 2.0 * PLENUM_ROUNDING + 0.01;
+    let across = face * plenum_count_of(spec) as f64;
     let height = if spec.plenum_height > 0.0 { math::max(spec.plenum_height, face) } else { math::max(PLENUM_HEIGHT, face) };
     let width = if spec.plenum_width > 0.0 {
-        math::max(spec.plenum_width, face)
+        math::max(spec.plenum_width, across)
     } else {
         let target = if spec.plenum_volume > 0.0 { spec.plenum_volume } else { PLENUM_VOLUME_RATIO * total_displacement(spec) };
         target / (height * length * (1.0 - taper / 2.0))
@@ -126,10 +154,14 @@ pub fn plenum_shape_of(spec: &EngineSpec) -> PlenumShape {
     PlenumShape { length, width, height, taper }
 }
 
-/// Plenum volume, m^3, of the plenum as `plenum_shape_of` sizes it.
+/// Plenum volume, m^3, of the plenum as `plenum_shape_of` sizes it: dual plenums' together.
 pub fn plenum_volume_of(spec: &EngineSpec) -> f64 {
     plenum_shape_of(spec).volume()
 }
+
+/// Where along dual plenums the balance valves are, as fractions of their length from the front: two,
+/// each a throttle body's bore, through the wall between them.
+pub const BALANCE_VALVES: [f64; 2] = [1.0 / 3.0, 2.0 / 3.0];
 
 /// One zone along the plenum: its gas, and its share of the volume.
 #[derive(Clone, Copy, Debug)]
@@ -174,78 +206,145 @@ pub struct PlenumFeed {
     pub fuel: f64,
 }
 
-pub struct IntakePlenum {
-    shape: PlenumShape,
-    sample_rate: f64,
-    /// Front to back.
+/// One plenum, front to back: its zones, the mass flow from each zone into the next back, kg/s, its
+/// steady part, and the section it flows through, m^2.
+#[derive(Clone, Debug)]
+struct Row {
     zones: Vec<Zone>,
-    /// Mass flow from each zone into the next back, kg/s, its steady part, and the section it flows
-    /// through, m^2.
     flows: Vec<f64>,
     steady: Vec<f64>,
     face_areas: Vec<f64>,
-    /// How long each zone is, m, and how fast the waves in the flow between them die away, 1/s.
-    dx: f64,
-    damping: f64,
-    /// The zone each cylinder's runner leaves by.
-    attach: Vec<usize>,
-    /// The throttle plate's opening, 0..1, and the idle air valve's, as more of the plate's.
-    opening: f64,
-    bypass: f64,
-    /// Effective throttle area, m^2.
-    area: f64,
     /// Each zone's change over a sample, worked out before any is applied: mass, energy, spent gas, fuel.
     change: Vec<[f64; 4]>,
 }
 
-impl IntakePlenum {
-    pub fn new(spec: &EngineSpec, sample_rate: f64) -> IntakePlenum {
-        let mut plenum = IntakePlenum {
-            shape: plenum_shape_of(spec),
-            sample_rate,
-            zones: Vec::new(),
-            flows: Vec::new(),
-            steady: Vec::new(),
-            face_areas: Vec::new(),
-            dx: 0.0,
-            damping: 0.0,
-            attach: Vec::new(),
-            opening: spec.throttle,
-            bypass: 0.0,
-            area: IntakePlenum::throttle_area(spec),
-            change: Vec::new(),
-        };
-        plenum.lay_out(spec);
-        for z in plenum.zones.iter_mut() {
-            *z = Zone::ambient(z.volume);
-        }
-        plenum
-    }
+/// A balance valve between dual plenums: the zone of each it opens into, its bore over the length of the
+/// air it carries, m, wide open, and its flow from bank 0's plenum into bank 1's, kg/s.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Balance {
+    zone: usize,
+    reach: f64,
+    flow: f64,
+}
 
-    /// Divide the plenum into zones along its length, each as near `ZONE_LENGTH` long as a wave crossing
-    /// it in a sample allows, and find the zone each runner leaves by. The zones are left holding nothing.
-    fn lay_out(&mut self, spec: &EngineSpec) {
-        let shape = self.shape;
+/// How the plenum is divided: its plenums' zones, holding nothing, how long each zone is, m, how fast the
+/// waves in the flow between them die away, 1/s, the plenum and zone each cylinder's runner leaves by, and
+/// the balance valves.
+struct Layout {
+    rows: Vec<Row>,
+    dx: f64,
+    damping: f64,
+    attach: Vec<(usize, usize)>,
+    balances: Vec<Balance>,
+}
+
+impl Layout {
+    /// Divide each plenum into zones along its length, each as near `ZONE_LENGTH` long as a wave crossing
+    /// it in a sample allows, and find the zone each runner leaves by.
+    fn new(spec: &EngineSpec, shape: PlenumShape, sample_rate: f64) -> Layout {
+        let count = plenum_count_of(spec);
+        let share = 1.0 / count as f64;
         let length = math::max(shape.length, 1e-3);
-        let shortest = (MAX_SOUND_SPEED / self.sample_rate) / MAX_COURANT;
+        let shortest = (MAX_SOUND_SPEED / sample_rate) / MAX_COURANT;
         let n = clamp((length / ZONE_LENGTH).round(), 1.0, math::max((length / shortest).floor(), 1.0)) as usize;
         let n = n.min(MAX_ZONES);
         let dx = length / n as f64;
         let floor = 1e-5 / n as f64;
-        self.zones = (0..n)
-            .map(|i| Zone { mass: 0.0, energy: 0.0, burned_mass: 0.0, fuel_mass: 0.0, volume: math::max(shape.area_at((i as f64 + 0.5) * dx) * dx, floor) })
-            .collect();
-        self.face_areas = (1..n).map(|i| math::max(shape.area_at(i as f64 * dx), 1e-6)).collect();
-        self.flows = vec![0.0; n.saturating_sub(1)];
-        self.steady = vec![0.0; n.saturating_sub(1)];
-        self.change = vec![[0.0; 4]; n];
-        self.dx = dx;
+        let row = Row {
+            zones: (0..n)
+                .map(|i| Zone {
+                    mass: 0.0,
+                    energy: 0.0,
+                    burned_mass: 0.0,
+                    fuel_mass: 0.0,
+                    volume: math::max(shape.area_at((i as f64 + 0.5) * dx) * share * dx, floor),
+                })
+                .collect(),
+            face_areas: (1..n).map(|i| math::max(shape.area_at(i as f64 * dx) * share, 1e-6)).collect(),
+            flows: vec![0.0; n - 1],
+            steady: vec![0.0; n - 1],
+            change: vec![[0.0; 4]; n],
+        };
         let c = math::sqrt(gas::GAMMA_AIR * gas::R * gas::T_AMB);
-        self.damping = (2.0 * PI * (c / (2.0 * length))) / PLENUM_Q;
-        // The runners leave it where their cylinders are along the engine, its middle the engine's.
-        self.attach = (0..spec.cylinders as usize)
-            .map(|c| (((cylinder_z(spec, c) + length / 2.0) / dx).floor() as isize).clamp(0, n as isize - 1) as usize)
+        let damping = (2.0 * PI * (c / (2.0 * length))) / PLENUM_Q;
+        // The runners leave it where their cylinders are along the engine, its middle the engine's: dual
+        // plenums' each from its own bank's.
+        let attach = (0..spec.cylinders as usize)
+            .map(|c| {
+                let row = if count > 1 { (physical_bank(spec, c) as usize).min(count - 1) } else { 0 };
+                let zone = (((cylinder_z(spec, c) + length / 2.0) / dx).floor() as isize).clamp(0, n as isize - 1);
+                (row, zone as usize)
+            })
             .collect();
+        // Each balance valve's air, a throttle bore across, carried through the wall and the end corrections
+        // either side of it; no freer than the plenum's own section from one zone to the next, which keeps
+        // it as stable as they are.
+        let bore = throttle_dia_of(spec);
+        let carried = BALANCE_WALL + 1.7 * (bore / 2.0);
+        let reach = math::min((PI * bore * bore) / 4.0 / carried, (shape.area_at(0.0) * share) / dx);
+        let balances = if count > 1 {
+            BALANCE_VALVES
+                .iter()
+                .map(|f| Balance { zone: ((f * n as f64).floor() as usize).min(n - 1), reach, flow: 0.0 })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Layout { rows: vec![row; count], dx, damping, attach, balances }
+    }
+}
+
+pub struct IntakePlenum {
+    shape: PlenumShape,
+    sample_rate: f64,
+    /// One plenum, or dual plenums, bank 0's first.
+    rows: Vec<Row>,
+    /// How long each zone is, m, and how fast the waves in the flow between them die away, 1/s.
+    dx: f64,
+    damping: f64,
+    /// The plenum and zone each cylinder's runner leaves by.
+    attach: Vec<(usize, usize)>,
+    balances: Vec<Balance>,
+    /// The speeds the balance valves open at and shut again at, rev/min, 0 or less for never; whether
+    /// they are opening, and how far open they are, 0..1.
+    balance_rpm: f64,
+    balance_shut_rpm: f64,
+    balance_open: bool,
+    balance_opening: f64,
+    /// The throttle plate's opening, 0..1, and the idle air valve's, as more of the plate's.
+    opening: f64,
+    bypass: f64,
+    /// Effective area of each throttle body, m^2.
+    area: f64,
+}
+
+impl IntakePlenum {
+    pub fn new(spec: &EngineSpec, sample_rate: f64) -> IntakePlenum {
+        let shape = plenum_shape_of(spec);
+        let layout = Layout::new(spec, shape, sample_rate);
+        let open = balance_wanted(spec.plenum_balance_rpm, spec.plenum_balance_shut_rpm, spec.rpm, false);
+        let mut plenum = IntakePlenum {
+            shape,
+            sample_rate,
+            rows: layout.rows,
+            dx: layout.dx,
+            damping: layout.damping,
+            attach: layout.attach,
+            balances: layout.balances,
+            balance_rpm: spec.plenum_balance_rpm,
+            balance_shut_rpm: spec.plenum_balance_shut_rpm,
+            balance_open: open,
+            balance_opening: if open { 1.0 } else { 0.0 },
+            opening: spec.throttle,
+            bypass: 0.0,
+            area: IntakePlenum::throttle_area(spec),
+        };
+        plenum.reset();
+        plenum
+    }
+
+    fn zones(&self) -> impl Iterator<Item = &Zone> + '_ {
+        self.rows.iter().flat_map(|r| r.zones.iter())
     }
 
     /// Set the throttle to `opening`, 0..1, in place of the spec's, until the next `set_geometry`.
@@ -269,17 +368,29 @@ impl IntakePlenum {
     pub fn set_geometry(&mut self, spec: &EngineSpec) {
         self.opening = spec.throttle;
         self.area = IntakePlenum::throttle_area_at(spec, self.opening + self.bypass);
+        self.balance_rpm = spec.plenum_balance_rpm;
+        self.balance_shut_rpm = spec.plenum_balance_shut_rpm;
         let shape = plenum_shape_of(spec);
-        if shape == self.shape && self.attach.len() == spec.cylinders as usize {
+        let layout = Layout::new(spec, shape, self.sample_rate);
+        let reaches = |b: &[Balance]| b.iter().map(|b| (b.zone, b.reach)).collect::<Vec<_>>();
+        if shape == self.shape
+            && layout.rows.len() == self.rows.len()
+            && layout.attach == self.attach
+            && reaches(&layout.balances) == reaches(&self.balances)
+        {
             return;
         }
-        let total = |f: fn(&Zone) -> f64| self.zones.iter().map(f).sum::<f64>();
+        let total = |f: fn(&Zone) -> f64| self.zones().map(f).sum::<f64>();
         let (mass, energy, burned, fuel, volume) =
             (total(|z| z.mass), total(|z| z.energy), total(|z| z.burned_mass), total(|z| z.fuel_mass), total(|z| z.volume));
         self.shape = shape;
-        self.lay_out(spec);
+        self.rows = layout.rows;
+        self.dx = layout.dx;
+        self.damping = layout.damping;
+        self.attach = layout.attach;
+        self.balances = layout.balances;
         // Each zone at the mean density and state the old plenum held.
-        for z in self.zones.iter_mut() {
+        for z in self.rows.iter_mut().flat_map(|r| r.zones.iter_mut()) {
             let share = z.volume / math::max(volume, 1e-12);
             z.mass = mass * share;
             z.energy = energy * share;
@@ -288,52 +399,80 @@ impl IntakePlenum {
         }
     }
 
-    /// Its zones, front to back: how many.
-    pub fn zone_count(&self) -> usize {
-        self.zones.len()
+    /// Open or shut the balance valves between dual plenums for the engine's speed, `rpm`, as `dt` passes:
+    /// open from their opening speed up to their shutting speed (`balance_wanted`), swinging over
+    /// `BALANCE_TRAVEL`.
+    pub fn update_balance(&mut self, dt: f64, rpm: f64) {
+        if self.balances.is_empty() {
+            return;
+        }
+        self.balance_open = balance_wanted(self.balance_rpm, self.balance_shut_rpm, rpm, self.balance_open);
+        let swing = dt / BALANCE_TRAVEL;
+        self.balance_opening = if self.balance_open {
+            math::min(self.balance_opening + swing, 1.0)
+        } else {
+            math::max(self.balance_opening - swing, 0.0)
+        };
     }
 
-    /// Gauge pressure in each zone, front to back, Pa.
+    /// How many plenums it is: 2 for dual plenums.
+    pub fn count(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Whether dual plenums' balance valves are open, or opening.
+    pub fn balanced(&self) -> bool {
+        !self.balances.is_empty() && self.balance_open
+    }
+
+    /// Its zones, front to back, every plenum's: how many.
+    pub fn zone_count(&self) -> usize {
+        self.rows.iter().map(|r| r.zones.len()).sum()
+    }
+
+    /// Gauge pressure in each zone, Pa: front to back, bank 0's plenum and then bank 1's.
     pub fn zone_pressures(&self) -> impl Iterator<Item = f64> + '_ {
-        self.zones.iter().map(|z| z.pressure() - gas::P_AMB)
+        self.zones().map(|z| z.pressure() - gas::P_AMB)
     }
 
     /// What cylinder `c`'s runner draws from.
     pub fn feed(&self, c: usize) -> PlenumFeed {
-        let z = &self.zones[self.attach.get(c).copied().unwrap_or(0)];
+        let (row, zone) = self.attach.get(c).copied().unwrap_or((0, 0));
+        let z = &self.rows[row].zones[zone];
         let p = z.pressure();
         PlenumFeed { p, rho: p / (gas::R * z.temp()), burned: z.burned(), fuel: z.fuel() }
     }
 
     /// Its mean temperature, K.
     pub fn temp(&self) -> f64 {
-        let mass: f64 = self.zones.iter().map(|z| z.mass).sum();
-        let energy: f64 = self.zones.iter().map(|z| z.energy).sum();
+        let mass: f64 = self.zones().map(|z| z.mass).sum();
+        let energy: f64 = self.zones().map(|z| z.energy).sum();
         clamp(gas_temperature(energy / math::max(mass, MIN_MASS)), 150.0, 3000.0)
     }
 
     /// Its mean absolute pressure, Pa, over its volume.
     pub fn pressure(&self) -> f64 {
-        let volume: f64 = self.zones.iter().map(|z| z.volume).sum();
-        self.zones.iter().map(|z| z.pressure() * z.volume).sum::<f64>() / volume
+        let volume: f64 = self.zones().map(|z| z.volume).sum();
+        self.zones().map(|z| z.pressure() * z.volume).sum::<f64>() / volume
     }
 
-    /// Absolute pressure by the throttle, at its front, Pa.
+    /// Absolute pressure by the throttles, at the plenums' fronts, Pa, on average.
     pub fn throttle_pressure(&self) -> f64 {
-        self.zones[0].pressure()
+        self.rows.iter().map(|r| r.zones[0].pressure()).sum::<f64>() / self.rows.len() as f64
     }
 
     pub fn burned_fraction(&self) -> f64 {
-        let mass: f64 = self.zones.iter().map(|z| z.mass).sum();
-        clamp(self.zones.iter().map(|z| z.burned_mass).sum::<f64>() / math::max(mass, MIN_MASS), 0.0, 1.0)
+        let mass: f64 = self.zones().map(|z| z.mass).sum();
+        clamp(self.zones().map(|z| z.burned_mass).sum::<f64>() / math::max(mass, MIN_MASS), 0.0, 1.0)
     }
 
     pub fn fuel_fraction(&self) -> f64 {
-        let mass: f64 = self.zones.iter().map(|z| z.mass).sum();
-        clamp(self.zones.iter().map(|z| z.fuel_mass).sum::<f64>() / math::max(mass, MIN_MASS), 0.0, 1.0)
+        let mass: f64 = self.zones().map(|z| z.mass).sum();
+        clamp(self.zones().map(|z| z.fuel_mass).sum::<f64>() / math::max(mass, MIN_MASS), 0.0, 1.0)
     }
 
-    /// Effective throttle flow area, m^2: geometric area times the plate's discharge coefficient.
+    /// Effective flow area of one throttle body, m^2: geometric area times the plate's discharge
+    /// coefficient.
     pub fn throttle_area(spec: &EngineSpec) -> f64 {
         IntakePlenum::throttle_area_at(spec, spec.throttle)
     }
@@ -346,123 +485,186 @@ impl IntakePlenum {
         geometric * (CD_CLOSED + (CD_OPEN - CD_CLOSED) * open)
     }
 
-    /// Effective throttle flow area, m^2, as the plate is set.
+    /// Effective throttle flow area, m^2, as the plates are set: every throttle body's together.
     pub fn area(&self) -> f64 {
-        self.area
+        self.area * self.rows.len() as f64
     }
 
-    /// Advance by `dt`, drawing through the throttle into the front zone from air at `p_up` (Pa) and
-    /// `t_up` (K): the atmosphere, or a turbocharger's charge air. Each of `runners`, a cylinder's, takes
-    /// from or gives back to the zone it leaves by what flowed out of its plenum end over the sample, at
-    /// its own temperature and composition where it flows back in. Returns the flow in through the
-    /// throttle, kg/s.
+    /// Advance by `dt`, drawing through each plenum's throttle into its front zone from air at `p_up` (Pa)
+    /// and `t_up` (K): the atmosphere, or a turbocharger's charge air. Each of `runners`, a cylinder's,
+    /// takes from or gives back to the zone it leaves by what flowed out of its plenum end over the
+    /// sample, at its own temperature and composition where it flows back in. Returns the flow in through
+    /// the throttles, kg/s.
     pub fn step(&mut self, dt: f64, p_up: f64, t_up: f64, runners: &[Runner]) -> f64 {
-        let n = self.zones.len();
-        for c in self.change.iter_mut() {
-            *c = [0.0; 4];
-        }
-
-        // The flow between each zone and the next back, driven by the pressure across it, its waves about
-        // its steady part losing their strength, taken implicitly.
         let follow = dt / STEADY_FLOW_TIME;
-        for f in 0..n.saturating_sub(1) {
-            let push = (self.face_areas[f] / self.dx) * (self.zones[f].pressure() - self.zones[f + 1].pressure());
-            let steady = self.steady[f];
-            self.flows[f] = steady + (self.flows[f] - steady + dt * push) / (1.0 + dt * self.damping);
-            self.steady[f] += follow * (self.flows[f] - steady);
-        }
+        let (dx, damping, area) = (self.dx, self.damping, self.area);
+        let mut throttle_flow = 0.0;
+        for row in self.rows.iter_mut() {
+            let n = row.zones.len();
+            for c in row.change.iter_mut() {
+                *c = [0.0; 4];
+            }
 
-        // The throttle, into the front zone.
-        let front = self.zones[0];
-        let (p, t) = (front.pressure(), front.temp());
-        let area = self.area;
-        let throttle_flow = if p < p_up {
-            orifice_mass_flow(area, 1.0, p_up, t_up, p, gas::GAMMA_AIR)
-        } else {
-            -orifice_mass_flow(area, 1.0, p, t, p_up, gas_gamma(t))
-        };
-        {
-            let c = &mut self.change[0];
-            c[0] += throttle_flow;
-            c[1] += throttle_flow * gas_enthalpy(if throttle_flow >= 0.0 { t_up } else { t });
-            if throttle_flow < 0.0 {
-                c[2] += throttle_flow * front.burned();
-                c[3] += throttle_flow * front.fuel();
+            // The flow between each zone and the next back, driven by the pressure across it, its waves
+            // about its steady part losing their strength, taken implicitly.
+            for f in 0..n - 1 {
+                let push = (row.face_areas[f] / dx) * (row.zones[f].pressure() - row.zones[f + 1].pressure());
+                let steady = row.steady[f];
+                row.flows[f] = steady + (row.flows[f] - steady + dt * push) / (1.0 + dt * damping);
+                row.steady[f] += follow * (row.flows[f] - steady);
+            }
+
+            // The throttle, into the front zone.
+            let front = row.zones[0];
+            let (p, t) = (front.pressure(), front.temp());
+            let through = if p < p_up {
+                orifice_mass_flow(area, 1.0, p_up, t_up, p, gas::GAMMA_AIR)
+            } else {
+                -orifice_mass_flow(area, 1.0, p, t, p_up, gas_gamma(t))
+            };
+            throttle_flow += through;
+            {
+                let c = &mut row.change[0];
+                c[0] += through;
+                c[1] += through * gas_enthalpy(if through >= 0.0 { t_up } else { t });
+                if through < 0.0 {
+                    c[2] += through * front.burned();
+                    c[3] += through * front.fuel();
+                }
+            }
+
+            // From each zone to the next, at the state of the one it leaves.
+            for f in 0..n - 1 {
+                let q = row.flows[f];
+                let from = if q >= 0.0 { row.zones[f] } else { row.zones[f + 1] };
+                let moved = [q, q * gas_enthalpy(from.temp()), q * from.burned(), q * from.fuel()];
+                for k in 0..4 {
+                    row.change[f][k] -= moved[k];
+                    row.change[f + 1][k] += moved[k];
+                }
+            }
+
+            // And mixing between each zone and the next: as much gas of each swapped for the other's, so
+            // their heat and makeup even out without moving any mass.
+            for f in 0..n - 1 {
+                let (a, b) = (row.zones[f], row.zones[f + 1]);
+                let swapped = mixing(&a, &b) * row.face_areas[f] / dx;
+                swap(&a, &b, swapped, &mut row.change, f, f + 1);
             }
         }
 
-        // From each zone to the next, at the state of the one it leaves.
-        for f in 0..n.saturating_sub(1) {
-            let q = self.flows[f];
-            let from = if q >= 0.0 { self.zones[f] } else { self.zones[f + 1] };
-            let moved = [q, q * gas_enthalpy(from.temp()), q * from.burned(), q * from.fuel()];
-            for k in 0..4 {
-                self.change[f][k] -= moved[k];
-                self.change[f + 1][k] += moved[k];
-            }
-        }
-
-        // And mixing between each zone and the next: as much gas of each swapped for the other's, so their
-        // heat and makeup even out without moving any mass.
-        for f in 0..n.saturating_sub(1) {
-            let (a, b) = (self.zones[f], self.zones[f + 1]);
-            let density = 0.5 * (a.mass / a.volume + b.mass / b.volume);
-            let swapped = density * PLENUM_MIXING * self.face_areas[f] / self.dx;
-            let per = |z: &Zone| [0.0, z.energy / math::max(z.mass, MIN_MASS), z.burned(), z.fuel()];
-            let (pa, pb) = (per(&a), per(&b));
-            for k in 1..4 {
-                let moved = swapped * (pa[k] - pb[k]);
-                self.change[f][k] -= moved;
-                self.change[f + 1][k] += moved;
+        // The balance valves, as far open as they are: the air through each carried by its momentum, as
+        // between the zones, and the gas either side mixing through it.
+        if let [first, second] = &mut self.rows[..] {
+            let open = self.balance_opening;
+            for b in self.balances.iter_mut() {
+                let (a, c) = (first.zones[b.zone], second.zones[b.zone]);
+                let push = open * b.reach * (a.pressure() - c.pressure());
+                b.flow = if open > 0.0 { (b.flow + dt * push) / (1.0 + dt * damping) } else { 0.0 };
+                let q = b.flow;
+                let from = if q >= 0.0 { a } else { c };
+                let moved = [q, q * gas_enthalpy(from.temp()), q * from.burned(), q * from.fuel()];
+                for k in 0..4 {
+                    first.change[b.zone][k] -= moved[k];
+                    second.change[b.zone][k] += moved[k];
+                }
+                let swapped = mixing(&a, &c) * open * b.reach;
+                let (per_a, per_c) = (per_mass(&a), per_mass(&c));
+                for k in 1..4 {
+                    let moved = swapped * (per_a[k] - per_c[k]);
+                    first.change[b.zone][k] -= moved;
+                    second.change[b.zone][k] += moved;
+                }
             }
         }
 
         // The runners: drawing from their zones, or pushing back into them what their cylinders sent up.
         for (c, r) in runners.iter().enumerate() {
-            let i = self.attach.get(c).copied().unwrap_or(0).min(n - 1);
+            let (row, i) = self.attach.get(c).copied().unwrap_or((0, 0));
+            let row = &mut self.rows[row];
+            let i = i.min(row.zones.len() - 1);
             let flow = r.plenum_flow;
-            let zone = self.zones[i];
+            let zone = row.zones[i];
             let moved = if flow >= 0.0 {
                 [flow, flow * gas_enthalpy(r.plenum_temp), flow * r.burned, flow * r.fuel]
             } else {
                 [flow, flow * gas_enthalpy(zone.temp()), flow * zone.burned(), flow * zone.fuel()]
             };
             for k in 0..4 {
-                self.change[i][k] += moved[k];
+                row.change[i][k] += moved[k];
             }
         }
 
         let mut broken = false;
-        for (z, c) in self.zones.iter_mut().zip(&self.change) {
-            let t = z.temp();
-            z.mass += c[0] * dt;
-            z.energy += c[1] * dt;
-            z.burned_mass += c[2] * dt;
-            z.fuel_mass += c[3] * dt;
-            if z.mass < MIN_MASS {
-                z.mass = MIN_MASS;
-                z.energy = MIN_MASS * gas_energy(math::max(t, 150.0));
+        for row in self.rows.iter_mut() {
+            for (z, c) in row.zones.iter_mut().zip(&row.change) {
+                let t = z.temp();
+                z.mass += c[0] * dt;
+                z.energy += c[1] * dt;
+                z.burned_mass += c[2] * dt;
+                z.fuel_mass += c[3] * dt;
+                if z.mass < MIN_MASS {
+                    z.mass = MIN_MASS;
+                    z.energy = MIN_MASS * gas_energy(math::max(t, 150.0));
+                }
+                z.burned_mass = clamp(z.burned_mass, 0.0, z.mass);
+                z.fuel_mass = clamp(z.fuel_mass, 0.0, z.mass - z.burned_mass);
+                let e_min = z.mass * gas_energy(150.0);
+                if z.energy < e_min {
+                    z.energy = e_min;
+                }
+                broken |= !z.energy.is_finite() || !z.mass.is_finite();
             }
-            z.burned_mass = clamp(z.burned_mass, 0.0, z.mass);
-            z.fuel_mass = clamp(z.fuel_mass, 0.0, z.mass - z.burned_mass);
-            let e_min = z.mass * gas_energy(150.0);
-            if z.energy < e_min {
-                z.energy = e_min;
-            }
-            broken |= !z.energy.is_finite() || !z.mass.is_finite();
+            broken |= row.flows.iter().chain(&row.steady).any(|q| !q.is_finite());
         }
-        if broken || self.flows.iter().chain(&self.steady).any(|q| !q.is_finite()) {
+        if broken || self.balances.iter().any(|b| !b.flow.is_finite()) {
             self.reset();
         }
         throttle_flow
     }
 
     pub fn reset(&mut self) {
-        for z in self.zones.iter_mut() {
-            *z = Zone::ambient(z.volume);
+        for row in self.rows.iter_mut() {
+            for z in row.zones.iter_mut() {
+                *z = Zone::ambient(z.volume);
+            }
+            for q in row.flows.iter_mut().chain(row.steady.iter_mut()) {
+                *q = 0.0;
+            }
         }
-        for q in self.flows.iter_mut().chain(self.steady.iter_mut()) {
-            *q = 0.0;
+        for b in self.balances.iter_mut() {
+            b.flow = 0.0;
         }
+    }
+}
+
+/// Whether balance valves opening at `open` rev/min, 0 or less for never, and shutting again at `shut`,
+/// 0 or less for never, want to be open at `rpm`, `was` whether they are: they stay as they are within
+/// `BALANCE_HYSTERESIS` below either speed, so they do not flap back and forth at it.
+fn balance_wanted(open: f64, shut: f64, rpm: f64, was: bool) -> bool {
+    let band = if was { BALANCE_HYSTERESIS } else { 0.0 };
+    let above = open > 0.0 && rpm >= open - band;
+    let below = shut <= 0.0 || rpm < shut - (BALANCE_HYSTERESIS - band);
+    above && below
+}
+
+/// The gas two neighbouring zones' mixing swaps, kg/s for each metre of the opening between them over the
+/// distance it is across, m: at their mean density, `PLENUM_MIXING`.
+fn mixing(a: &Zone, b: &Zone) -> f64 {
+    0.5 * (a.mass / a.volume + b.mass / b.volume) * PLENUM_MIXING
+}
+
+/// A zone's energy, spent gas and fuel per kilogram of its gas, after a place for its mass.
+fn per_mass(z: &Zone) -> [f64; 4] {
+    [0.0, z.energy / math::max(z.mass, MIN_MASS), z.burned(), z.fuel()]
+}
+
+/// `swapped` kg/s of zone `a`'s gas, at `change[i]`, traded for as much of zone `b`'s, at `change[j]`.
+fn swap(a: &Zone, b: &Zone, swapped: f64, change: &mut [[f64; 4]], i: usize, j: usize) {
+    let (pa, pb) = (per_mass(a), per_mass(b));
+    for k in 1..4 {
+        let moved = swapped * (pa[k] - pb[k]);
+        change[i][k] -= moved;
+        change[j][k] += moved;
     }
 }

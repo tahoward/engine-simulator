@@ -2,10 +2,12 @@
  * Where the intake's parts are drawn: the plenum on the engine, the throttle body on its front, the tube
  * from it up and over into the front of an airbox across the top of the engine's front, and the snorkel from the airbox forwards
  * to just ahead of the engine. Pure geometry, so what is drawn and where the intake is heard from (`soundSources`) agree.
+ * Dual plenums are one casting divided down its middle, with a throttle body and a tube each.
  *
  * The tube, the airbox and the snorkel are the inlet tract the simulation solves (`inletSegments`): the
- * airbox holds the solver's volume over its length, and the tube and snorkel have the solver's bores.
- * The solver is one-dimensional, so how they are routed changes nothing it hears.
+ * airbox holds the solver's volume over its length, and the tube and snorkel have the solver's bores, dual
+ * plenums' two tubes its duct's area between them. The solver is one-dimensional, so how they are routed
+ * changes nothing it hears.
  */
 
 import * as THREE from 'three';
@@ -26,11 +28,13 @@ import {
   THROTTLE_WALL,
   airboxVolumeOf,
   inletSegments,
+  plenumCountOf,
   plenumShapeOf,
   snorkelDiaOf,
   throttleDiaOf,
+  throttleFaceOf,
 } from '../model/intakeSizing.js';
-import { intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
+import { firingPlan, intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
 
 export interface Runner {
   /** Where it leaves the plenum, and where it meets the head. */
@@ -57,15 +61,23 @@ export interface InletLayout {
    * heads; beside an inline head it is a rounded box, its `base` 1. It narrows towards the back, as a cast
    * plenum does (`taper`): beside an inline head, its side away from the head, opposite its runners, drawn in;
    * on a V or a boxer, whose runners leave both sides, its top dropping.
+   *
+   * Dual plenums are this casting divided down its middle by a wall, `sides` the side of it, -1 or +1 in
+   * x, each bank's plenum is on, bank 0's first; one plenum's `sides` is `[0]`.
    */
-  plenum: { centre: THREE.Vector3; size: THREE.Vector3; base: number; taper: PlenumTaper | null };
+  plenum: { centre: THREE.Vector3; size: THREE.Vector3; base: number; taper: PlenumTaper | null; sides: number[] };
   /** One runner a cylinder from the plenum into the head: straight on an inline engine, curved on a vee. */
   runners: Runner[];
-  /** The throttle body: its middle, on the plenum's front face, its bore and its length along -z, m. */
-  throttle: { centre: THREE.Vector3; bore: number; length: number };
-  /** The tube from the throttle body to the airbox, and its bore, m. */
-  tube: THREE.CubicBezierCurve3;
+  /**
+   * The throttle body on each plenum, as `plenum.sides`: its middle, on the plenum's front face, its bore
+   * and its length along -z, m.
+   */
+  throttles: { centre: THREE.Vector3; bore: number; length: number }[];
+  /** The tube from each throttle body to the airbox, and their bore, m. */
+  tubes: THREE.CubicBezierCurve3[];
   tubeRadius: number;
+  /** Dual plenums' balance valves, in the wall between them: each one's middle and its radius, m. */
+  balances: { centre: THREE.Vector3; radius: number }[];
   /** The airbox: its middle and its size, its length along x, m. */
   airbox: { centre: THREE.Vector3; size: THREE.Vector3 };
   /** Which way across the car the airbox runs from the tube: +1 or -1. */
@@ -97,6 +109,11 @@ function fit(f: (t: number) => number, target: number, lo: number, hi: number): 
 const TUBE_INSET = 0.03;
 /** How much further the tube reaches forwards over the top of its U than out of the throttle body. */
 const TUBE_TOP_REACH = 1.6;
+/** How far apart dual plenums' tubes go into the airbox, wall to wall, m. */
+const TUBE_GAP = 0.025;
+
+/** Where along dual plenums their balance valves are, as fractions of its length: `BALANCE_VALVES` in `plenum.rs`. */
+export const BALANCE_VALVES = [1 / 3, 2 / 3];
 
 /** How much wider than high the snorkel is flattened to fit under the bonnet, its area kept. */
 export const SNORKEL_ASPECT = 1.8;
@@ -132,7 +149,9 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   // the simulation solves it at (`plenumShapeOf`), and its front face takes the throttle body, wall and all,
   // inside its rounded edges. Left to work its width out, it is kept within what the engine leaves room for.
   const bore = throttleDiaOf(spec);
-  const face = bore + 2 * THROTTLE_WALL + 2 * PLENUM_ROUNDING + 0.01;
+  const count = plenumCountOf(spec);
+  // Dual plenums' front takes a throttle body's flange on each side of the wall between them.
+  const face = throttleFaceOf(spec) * count;
   const radius = intakeRunnerOf(spec).diameter / 2;
   const shape = plenumShapeOf(spec);
   const { length, height } = shape;
@@ -282,16 +301,39 @@ export function inletLayout(spec: EngineSpec): InletLayout {
     }
     if (drop > 0) taper = { side: 0, inwards: 0, drop };
   }
-  const plenum = { centre, size: new THREE.Vector3(width, height, length), base, taper };
+  // Each bank's plenum on the side its ports are.
+  const plan = firingPlan(spec);
+  const sides =
+    count > 1
+      ? [0, 1].map((bank) => {
+          const b = Math.max(plan.banks.indexOf(bank), 0);
+          return Math.sign(portOf(spec, b).position.x - centre.x) || (bank === 0 ? -1 : 1);
+        })
+      : [0];
+  const plenum = { centre, size: new THREE.Vector3(width, height, length), base, taper, sides };
 
-  // The throttle body on the plenum's front face, looking forwards.
+  // The throttle body on each plenum's front face, looking forwards: in the middle of its half.
   const throttleLength = 0.05 + bore * 0.3;
   const plenumFront = centre.z - length / 2;
-  const throttle = {
-    centre: new THREE.Vector3(centre.x, centre.y, plenumFront - throttleLength / 2),
+  const throttles = sides.map((side) => ({
+    centre: new THREE.Vector3(centre.x + (side * width) / 4, centre.y, plenumFront - throttleLength / 2),
     bore,
     length: throttleLength,
-  };
+  }));
+
+  // The balance valves, a throttle bore across, through the wall between dual plenums where the simulation
+  // has them along it (`BALANCE_VALVES` in `plenum.rs`), each in the middle of the wall's height there, and
+  // no bigger than leaves it a rim.
+  const balances =
+    count > 1
+      ? BALANCE_VALVES.map((f) => {
+          const z = centre.z - length / 2 + f * length;
+          const drop = taper ? taper.drop * taperAlong(length, z - centre.z) : 0;
+          const [top, bottom] = [height / 2 - PLENUM_WALL - drop, -height / 2 + PLENUM_WALL];
+          const radius = Math.max(Math.min(bore / 2, (top - bottom) / 2 - 0.006), 0.005);
+          return { centre: new THREE.Vector3(centre.x, centre.y + (top + bottom) / 2, z), radius };
+        })
+      : [];
 
   // The airbox across the top of the engine's front, clear above the plenum and the heads: its length the
   // solver's chamber, its section holding the solver's volume, half again as deep as it is high. It runs
@@ -300,7 +342,6 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   const area = airboxVolumeOf(spec) / chamber.length;
   const boxHeight = Math.sqrt(area / 1.5);
   const depth = boxHeight * 1.5;
-  const start = new THREE.Vector3(centre.x, centre.y, plenumFront - throttleLength);
   const run = vee ? 1 : -intakeSide;
   const side = run;
   const across = new THREE.Vector3(run, 0, 0);
@@ -317,13 +358,25 @@ export function inletLayout(spec: EngineSpec): InletLayout {
 
   // The tube: forwards out of the throttle body, then up and back over into the front of the airbox, by its
   // end, in one U, as long as the solver's. Into the airbox's end instead, it would have to double back on
-  // itself in a bend tighter than its own bore.
-  const intoBox = inlet.clone().addScaledVector(across, bore / 2 + TUBE_INSET);
-  intoBox.z = boxZ - depth / 2;
+  // itself in a bend tighter than its own bore. Dual plenums' two go in side by side, the one from the
+  // throttle body nearer the airbox's end nearer it, each as long as the solver's duct.
   const forwards = new THREE.Vector3(0, 0, -1);
-  const tubeAt = (k: number) =>
-    new THREE.CubicBezierCurve3(start, start.clone().addScaledVector(forwards, k), intoBox.clone().addScaledVector(forwards, k * TUBE_TOP_REACH), intoBox);
-  const tube = tubeAt(fit((k) => tubeAt(k).getLength(), segments[0]!.length, 0, 1));
+  const order = throttles.map((_, k) => k).sort((a, b) => run * (throttles[a]!.centre.x - throttles[b]!.centre.x));
+  const tubes: THREE.CubicBezierCurve3[] = [];
+  order.forEach((k, place) => {
+    const start = throttles[k]!.centre.clone().setZ(plenumFront - throttleLength);
+    const along = Math.min(bore / 2 + TUBE_INSET + place * (bore + TUBE_GAP), chamber.length - bore / 2 - 0.01);
+    const intoBox = inlet.clone().addScaledVector(across, along);
+    intoBox.z = boxZ - depth / 2;
+    const tubeAt = (reach: number) =>
+      new THREE.CubicBezierCurve3(
+        start,
+        start.clone().addScaledVector(forwards, reach),
+        intoBox.clone().addScaledVector(forwards, reach * TUBE_TOP_REACH),
+        intoBox,
+      );
+    tubes[k] = tubeAt(fit((reach) => tubeAt(reach).getLength(), segments[0]!.length, 0, 1));
+  });
 
   // The snorkel: out of the airbox's far end, round to face forwards, its mouth ahead of the engine, as long
   // as the solver's. It runs forwards clear of the airbox's end by its own flattened width, so it does not
@@ -349,9 +402,10 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   return {
     plenum,
     runners,
-    throttle,
-    tube,
+    throttles,
+    tubes,
     tubeRadius: bore / 2,
+    balances,
     airbox,
     side,
     snorkel,
@@ -364,17 +418,18 @@ export function inletLayout(spec: EngineSpec): InletLayout {
 /**
  * The plenum's size as it is drawn, for the simulation to solve the plenum the app shows: its length, its
  * width and height at its front, and how much of its section it has lost at its back, a fraction. Each the
- * spec leaves at 0 is worked out as the drawing works it out, within the room the engine leaves it.
+ * spec leaves at 0 is worked out as the drawing works it out, within the room the engine leaves it. And
+ * whether it is dual plenums, as it is drawn only on an engine that can have them (`plenumCountOf`).
  */
 export function solvedPlenum(
   spec: EngineSpec,
-): Pick<EngineSpec, 'plenumLength' | 'plenumWidth' | 'plenumHeight' | 'plenumTaper'> {
+): Pick<EngineSpec, 'plenumLength' | 'plenumWidth' | 'plenumHeight' | 'plenumTaper' | 'dualPlenum'> {
   // Asked for on every readout, and on every change to the engine: laid out again only when it has moved.
   const key = JSON.stringify(spec);
   if (key !== solvedFor) {
-    const { size, taper } = inletLayout(spec).plenum;
+    const { size, taper, sides } = inletLayout(spec).plenum;
     const lost = !taper ? 0 : taper.side !== 0 ? taper.inwards / size.x : taper.drop / size.y;
-    solved = { plenumLength: size.z, plenumWidth: size.x, plenumHeight: size.y, plenumTaper: lost };
+    solved = { plenumLength: size.z, plenumWidth: size.x, plenumHeight: size.y, plenumTaper: lost, dualPlenum: sides.length > 1 };
     solvedFor = key;
   }
   return { ...solved! };
@@ -382,7 +437,7 @@ export function solvedPlenum(
 let solvedFor = '';
 let solved: ReturnType<typeof solvedPlenum> | null = null;
 
-/** How much `plenum`, as `solvedPlenum` gives it, holds, m^3, as the simulation solves it. */
+/** How much `plenum`, as `solvedPlenum` gives it, holds, m^3, as the simulation solves it: dual plenums' together. */
 export function solvedPlenumVolume(plenum: ReturnType<typeof solvedPlenum>): number {
   return plenum.plenumLength * plenum.plenumWidth * plenum.plenumHeight * (1 - plenum.plenumTaper / 2);
 }

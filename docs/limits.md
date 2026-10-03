@@ -8,9 +8,11 @@ Where the model is simplified, and by how much.
   creates are real, but the sharpest edge of an exhaust pulse is blunter than in reality.
 - **The intake runners are simplified.** Each is one straight duct, solved like the exhaust but
   with some things left out:
-  - They all draw from one plenum, and the plenum is one well-mixed volume, with no waves of its
-    own. Their pulses reach the air only through it and the inlet tract, as on a real engine with a
-    plenum; there are no individual throttle bodies, with each runner open to the air.
+  - They all draw from one plenum, or from dual plenums one for each bank, solved along its length
+    only, as a row of zones: a wave across it is not solved. Their pulses reach the air only through it
+    and the inlet tract, as on a real engine with a plenum; there are no individual throttle bodies,
+    with each runner open to the air. Dual plenums' throttle bodies draw from the one tract, solved as a
+    single duct of their area together.
   - What their waves lose to turbulence, the bend into the port and the valve seat is not worked out
     one loss at a time: it is one factor, five times the boundary-layer loss of a smooth tube, chosen
     so a wave dies away over a few cycles as it does in a real runner.

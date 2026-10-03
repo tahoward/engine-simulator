@@ -76,21 +76,41 @@ path to the plenum, and the manifold switches to it at **Switch to short runners
 flap opens. It switches back 150 rpm lower, so it does not flap back and forth at the switch speed.
 Both sets are solved, on the same grid; the gas in the one being left, measured from the valve, is
 laid onto the other, so the charge in the ports and its flow carry on through the switch. On the LT6,
-with 365 mm runners switching to 345 mm ones at 7900 rpm:
+with 390 mm runners switching to 335 mm ones at 7600 rpm, on a dyno pull:
 
 ```
-                          3000   4500   5500   6300   7800   8400 rpm      full throttle, N·m
-345 mm runners only        449    544    591    616    580    554
-two-stage                  450    555    597    610    594    554
+                          3000   4500   5500   6300   7000   7800   8400 rpm      crank torque, N·m
+335 mm runners only        420    463    564    561    571    581    568
+two-stage                  430    516    570    593    609    583    568
 ```
-
-Longer long runners peak higher on it, 632 N·m at 6300 for 450 mm ones, but fall away sooner above
-that, to 520 at 7800: 365 mm gives the flattest curve.
 
 The runners are solved on the finest grid the sample rate allows, 35 mm at 48 kHz, even where the
 cost budget coarsens the exhaust. A runner is only a few hundred millimetres long, and its ends are a
 good part of it, so its ramming depends on resolution far more than the exhaust's sound does: on 70
 mm cells, at the speed they are tuned for, the LT2 fills three points less and the LT6 one.
+
+**Dual plenums split the intake by bank.** With **Dual plenums** on a V or a boxer, the plenum's
+casting is divided down its middle, as the LT6's is: each bank's runners draw from their own half, and
+each half has its own throttle body of the **Throttle bore**, both fed from the one airbox. Apart, each
+half carries only its own bank's pulses, evenly spaced on an engine whose banks each fire evenly, and
+rings with them alone, which tunes the intake differently from one shared box. Two balance valves
+through the wall between them, each a throttle bore across, at a third and two thirds of its length,
+open at **Open balance valves at**, joining the halves, and shut again at **Shut balance valves at**,
+parting them; coming down they shut and open again 150 rpm below each. They swing over a tenth of a
+second, and the air through them is carried by its momentum, as along the plenum. The LT6 has them,
+with two 87 mm throttles; on a dyno pull, crank torque:
+
+```
+                          3500   4000   4500   5000   6500   7500   8400 rpm      N·m
+valves always shut         398    416    473    519    598    596    568
+valves always open         391    432    517    554    584    599    570
+open 3800 to 6000          398    432    516    554    598    596    568
+```
+
+Joined, they fill it better from 4000 to 5500; apart, each bank's plenum ringing with its own pulses
+does below that and from 6500 to 7500, so its valves are open only across the middle. Open, the halves
+are still joined only through the valves, so they are not quite one box: at the top they keep their own
+tuning.
 
 **Headers scavenge.** With equal-length headers, each cylinder's primary runs all the way to one
 merge per collector, instead of joining a manifold along the ports. The **Equal-length header** tool

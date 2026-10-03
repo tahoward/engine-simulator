@@ -67,7 +67,7 @@ import {
   speedOfSound,
   totalPipeLength,
 } from '../model/spec.js';
-import { airboxVolumeOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
+import { airboxVolumeOf, plenumCountOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
 import { solvedPlenum, solvedPlenumVolume } from '../scene/inletLayout.js';
 import { autoLaunchSettings, type LaunchSettings } from '../model/launchSettings.js';
 import { SECTION_ICONS, TOOL_ICONS, toolButton } from './toolbar.js';
@@ -336,6 +336,8 @@ export class Panel {
   private lobeText = '';
   /** Whether a two-stage intake was on its short runners at the last readout. */
   private shortRunnersNow = false;
+  /** Whether dual plenums' balance valves were open at the last readout. */
+  private plenumBalancedNow = false;
   private camText = '';
   /** Rewrites the intake section's tuning readout if anything it shows has changed. */
   private refreshIntake: () => void = () => {};
@@ -1336,17 +1338,26 @@ export class Panel {
     // The plenum, solved along its length: its size, and what that makes of it.
     const plenumReadout = el('div', 'readout', intake);
     let plenumKey = '';
+    // Dual plenums' controls, shown only on an engine that can have them.
+    let dualRows: HTMLElement[] = [];
+    let balanceRows: HTMLElement[] = [];
     const showPlenum = () => {
       const e = this.config.engine;
       const p = solvedPlenum(e);
+      const can = plenumCountOf({ ...e, dualPlenum: true }) > 1;
       const mm = (v: number) => Math.round(v * 1000);
-      const text =
-        `Plenum ${mm(p.plenumLength)} × ${mm(p.plenumWidth)} × ${mm(p.plenumHeight)} mm, ` +
-        `${(solvedPlenumVolume(p) * 1000).toFixed(1)} L, ringing along its length at about ` +
-        `${Math.round(343 / (2 * p.plenumLength))} Hz`;
-      if (text === plenumKey) return;
-      plenumKey = text;
+      const ringing = `ringing along its length at about ${Math.round(343 / (2 * p.plenumLength))} Hz`;
+      const litres = (solvedPlenumVolume(p) * 1000).toFixed(1);
+      const text = p.dualPlenum
+        ? `Dual plenums ${mm(p.plenumLength)} × ${mm(p.plenumWidth)} × ${mm(p.plenumHeight)} mm together, ` +
+          `${litres} L, each ${ringing} · balance valves ${this.plenumBalancedNow ? 'open' : 'shut'}`
+        : `Plenum ${mm(p.plenumLength)} × ${mm(p.plenumWidth)} × ${mm(p.plenumHeight)} mm, ${litres} L, ${ringing}`;
+      const key = `${text}|${can}`;
+      if (key === plenumKey) return;
+      plenumKey = key;
       plenumReadout.textContent = text;
+      for (const row of dualRows) row.classList.toggle('hidden', !can);
+      for (const row of balanceRows) row.classList.toggle('hidden', !p.dualPlenum);
     };
     showPlenum();
     const refreshRunners = this.refreshIntake;
@@ -1407,6 +1418,48 @@ export class Panel {
       'How much of its section it has lost at its back, narrowing evenly from its front: beside an ' +
       'inline head its side away from the head drawn in, on a V or a boxer its top dropped. The far ' +
       'cylinders draw from a narrower box.';
+    const dual = toggle(intake, 'Dual plenums', spec.dualPlenum, (on) => {
+      this.cb.onEngine({ dualPlenum: on });
+      showPlenum();
+    });
+    dual.title =
+      'As the LT6 has: the plenum divided down its middle, each bank\u2019s runners drawing from their own ' +
+      'half, each half with its own throttle body of the bore below. Apart, each half rings with its own ' +
+      'bank\u2019s pulses alone, which tunes the intake differently from one shared box; the balance ' +
+      'valves between them join them above their speed. Only a V or a boxer whose banks have heads of ' +
+      'their own can have them.';
+    this.resyncers.push(() => (checkbox(dual).checked = this.config.engine.dualPlenum));
+    const balance = this.slider(intake, {
+      label: 'Open balance valves at',
+      min: 0,
+      max: 10000,
+      step: 100,
+      value: spec.plenumBalanceRpm,
+      sync: () => this.config.engine.plenumBalanceRpm,
+      format: (v) => (v > 0 ? `${Math.round(v)} rpm` : 'never'),
+      onInput: (v) => this.cb.onEngine({ plenumBalanceRpm: v }),
+    }).row;
+    balance.title =
+      'Where the two valves through the wall between dual plenums open, each a throttle bore across, ' +
+      'joining the halves into one box; they shut again 150 rpm lower. Best where the two make the same ' +
+      'torque: apart they fill better at some speeds, joined at others. At 0 they stay shut.';
+    const shut = this.slider(intake, {
+      label: 'Shut balance valves at',
+      min: 0,
+      max: 10000,
+      step: 100,
+      value: spec.plenumBalanceShutRpm,
+      sync: () => this.config.engine.plenumBalanceShutRpm,
+      format: (v) => (v > 0 ? `${Math.round(v)} rpm` : 'never'),
+      onInput: (v) => this.cb.onEngine({ plenumBalanceShutRpm: v }),
+    }).row;
+    shut.title =
+      'Where the balance valves shut again going up, parting the halves for the top end, and open again ' +
+      '150 rpm lower coming down. At 0 they stay open from where they open to the rev limit.';
+    dualRows = [dual, balance, shut];
+    balanceRows = [balance, shut];
+    plenumKey = '';
+    showPlenum();
     this.slider(intake, {
       label: 'Throttle bore',
       min: 0,
@@ -1420,7 +1473,8 @@ export class Panel {
     }).row.title =
       'At 0 it is sized so the engine can breathe at full throttle and 7000 rpm, with the air at ' +
       '25 m/s through it. Smaller chokes the top end; larger makes the throttle touchier at small ' +
-      'openings.';
+      'openings. With dual plenums it is each throttle body\u2019s, the two sized at 0 to pass that ' +
+      'air together.';
     this.slider(intake, {
       label: 'Airbox volume',
       min: 0,
@@ -2923,6 +2977,7 @@ export class Panel {
 
   updateReadouts(s: EngineSnapshot): void {
     this.shortRunnersNow = s.shortRunners;
+    this.plenumBalancedNow = !!s.plenumBalanced;
     this.refreshIntake();
     const cams =
       Math.abs(s.intakeCamAdvance) < 0.5 && Math.abs(s.exhaustCamRetard) < 0.5
