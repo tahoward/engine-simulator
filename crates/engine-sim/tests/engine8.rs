@@ -15,7 +15,7 @@ use engine_sim::exhaust_graph::{compile_collector_layout, radiating_ducts};
 use engine_sim::listener::{MouthPlace, SoundSources};
 use engine_sim::spec::{
     EngineSpec, ExhaustLayout, PipeSegment, SegmentKind, SegmentPartial, collector_groups, crank_pins,
-    exhaust_layout_of, firing_plan, gas, make_segment,
+    cylinders_per_bank, exhaust_layout_of, firing_plan, gas, has_two_banks, is_boxer, make_segment, valid_layout,
 };
 use engine_sim::{EngineConfig, EngineSim};
 use serde_json::{Value, json};
@@ -214,7 +214,7 @@ fn spreads_every_cylinder_count() {
 /// An inline four fires 1-3-4-2, evenly every 180 degrees on one bank.
 #[test]
 fn an_inline_four_fires_1_3_4_2_evenly_every_180_degrees_on_one_bank() {
-    let s = spec(json!({ "cylinders": 4 }));
+    let s = spec(json!({ "cylinders": 4, "vAngle": 0 }));
     let plan = firing_plan(&s);
     assert_eq!(plan.offsets, vec![0.0, 540.0, 180.0, 360.0]);
     assert_eq!(plan.bank_count, 1);
@@ -250,7 +250,7 @@ fn every_cylinder_fires_exactly_once_per_cycle_at_a_distinct_angle() {
     for over in [
         json!({ "cylinders": 1 }),
         json!({ "cylinders": 2 }),
-        json!({ "cylinders": 4 }),
+        json!({ "cylinders": 4, "vAngle": 0 }),
         v8(json!({ "crankType": "crossplane" })),
         v8(json!({ "crankType": "flatplane" })),
     ] {
@@ -302,7 +302,7 @@ fn and_a_flatplane_crank_from_the_flatplane_one() {
 #[test]
 fn gives_a_v_twin_one_shared_pin_and_an_inline_four_a_pin_each() {
     assert_eq!(crank_pins(&spec(json!({ "cylinders": 2, "vAngle": 45, "firingOffset": null }))).len(), 1);
-    assert_eq!(crank_pins(&spec(json!({ "cylinders": 4 }))).len(), 4);
+    assert_eq!(crank_pins(&spec(json!({ "cylinders": 4, "vAngle": 0 }))).len(), 4);
 }
 
 /// Refuses to pair cylinders no shared pin could carry.
@@ -322,7 +322,7 @@ fn accounts_for_every_cylinder_exactly_once_whatever_the_layout() {
     for over in [
         json!({ "cylinders": 1 }),
         json!({ "cylinders": 2, "firingOffset": 270 }),
-        json!({ "cylinders": 4 }),
+        json!({ "cylinders": 4, "vAngle": 0 }),
         v8(json!({ "crankType": "crossplane" })),
         v8(json!({ "crankType": "flatplane" })),
     ] {
@@ -372,7 +372,10 @@ fn accepts_the_singles_and_twins_layout_names() {
 /// Collapses per-bank to merged when there is only one bank.
 #[test]
 fn collapses_per_bank_to_merged_when_there_is_only_one_bank() {
-    assert_eq!(exhaust_layout_of(&spec(json!({ "cylinders": 4, "exhaustLayout": "perBank" }))), ExhaustLayout::Merged);
+    assert_eq!(
+        exhaust_layout_of(&spec(json!({ "cylinders": 4, "vAngle": 0, "exhaustLayout": "perBank" }))),
+        ExhaustLayout::Merged
+    );
 }
 
 // --- a V8 runs ---
@@ -504,6 +507,131 @@ fn a_flatplane_bank_concentrates_on_the_fourth_order_where_a_crossplane_bank_spr
     assert!(flat > cross * 20.0, "flat {flat} vs cross {cross}");
 }
 
+// --- banks of any size ---
+
+/// Every layout the engine can be: one bank of 1 to 6, two banks of 1 to 6 at 90 degrees, and flat.
+fn every_layout() -> Vec<Value> {
+    let mut out = Vec::new();
+    for n in 1..=6 {
+        out.push(json!({ "cylinders": n, "vAngle": 0, "crankType": "shared" }));
+        out.push(json!({ "cylinders": 2 * n, "vAngle": 90, "crankType": "shared" }));
+        out.push(json!({ "cylinders": 2 * n, "vAngle": 180, "crankType": "boxer" }));
+    }
+    out
+}
+
+/// Every layout fires each cylinder once a cycle, on the banks it says, and its crank carries every cylinder.
+#[test]
+fn every_layout_fires_each_cylinder_once_a_cycle() {
+    for over in every_layout() {
+        let s = spec(over.clone());
+        assert!(valid_layout(&s), "{over}");
+        let plan = firing_plan(&s);
+        let n = s.cylinders as usize;
+        assert_eq!(plan.offsets.len(), n, "{over}");
+        let distinct: BTreeSet<i64> = plan.offsets.iter().map(|o| (o * 1000.0).round() as i64).collect();
+        assert_eq!(distinct.len(), n, "{over}: two cylinders fire together");
+        assert!(intervals(&s).iter().all(|g| *g > 0.0), "{over}");
+        assert!((intervals(&s).iter().sum::<f64>() - 720.0).abs() < 1e-9, "{over}");
+        let carried: usize = crank_pins(&s).iter().map(|p| p.cylinders.len()).sum();
+        assert_eq!(carried, n, "{over}");
+        if has_two_banks(&s) {
+            assert_eq!(plan.banks.iter().filter(|b| **b == 1).count(), n / 2, "{over}");
+            assert_eq!(cylinders_per_bank(&s) as usize, n / 2);
+        }
+    }
+    assert!(!valid_layout(&spec(json!({ "cylinders": 7, "vAngle": 0 }))));
+    assert!(!valid_layout(&spec(json!({ "cylinders": 14, "vAngle": 90 }))));
+}
+
+/// A V12 at 60 degrees fires every 60, on throws its banks share.
+#[test]
+fn a_60_degree_v12_fires_every_60_on_shared_throws() {
+    let s = spec(json!({ "cylinders": 12, "vAngle": 60 }));
+    assert_eq!(intervals(&s), vec![60.0; 12]);
+    assert_eq!(crank_pins(&s).len(), 6);
+}
+
+/// A V10 fires evenly at 72 degrees and 54-90 at 90, as the Viper does.
+#[test]
+fn a_v10_fires_evenly_at_72_and_54_90_at_90() {
+    let even = spec(json!({ "cylinders": 10, "vAngle": 72 }));
+    for g in intervals(&even) {
+        assert!((g - 72.0).abs() < 1e-9, "{g}");
+    }
+    let viper = spec(json!({ "cylinders": 10, "vAngle": 90 }));
+    let gaps: BTreeSet<i64> = intervals(&viper).iter().map(|g| g.round() as i64).collect();
+    assert_eq!(gaps, BTreeSet::from([54, 90]));
+}
+
+/// A 90-degree V4 fires 180-270-180-90, as the Honda VFR does.
+#[test]
+fn a_90_degree_v4_fires_as_the_honda_vfr() {
+    assert_eq!(intervals(&spec(json!({ "cylinders": 4, "vAngle": 90 }))), vec![180.0, 270.0, 180.0, 90.0]);
+}
+
+/// A flat engine of any size fires evenly, each cylinder on a throw of its own.
+#[test]
+fn a_flat_engine_fires_evenly_on_a_throw_a_cylinder() {
+    for n in [2u32, 8, 10, 12] {
+        let s = spec(json!({ "cylinders": n, "vAngle": 180, "crankType": "boxer" }));
+        assert!(is_boxer(&s));
+        for g in intervals(&s) {
+            assert!((g - 720.0 / n as f64).abs() < 1e-9, "flat-{n}: {g}");
+        }
+        assert_eq!(crank_pins(&s).len(), n as usize, "flat-{n}");
+    }
+    // Off 180 degrees a boxer crank is a V's.
+    assert!(!is_boxer(&spec(json!({ "cylinders": 4, "vAngle": 170, "crankType": "boxer" }))));
+}
+
+/// A firing order and intervals of its own replace the layout's, and one it cannot fire leaves the layout's.
+#[test]
+fn a_firing_order_of_its_own_replaces_the_layouts() {
+    let own = spec(json!({ "cylinders": 6, "vAngle": 0 }));
+    let set = spec(json!({ "cylinders": 6, "vAngle": 0, "firingOrder": [1, 4, 2, 6, 3, 5] }));
+    let plan = firing_plan(&set);
+    assert_eq!(plan.offsets, vec![0.0, 240.0, 480.0, 120.0, 600.0, 360.0]);
+    // Big-bang: uneven gaps in the layout's own order.
+    let bang = spec(json!({ "cylinders": 4, "vAngle": 0, "firingIntervals": [90, 90, 270, 270] }));
+    assert_eq!(firing_plan(&bang).offsets, vec![0.0, 450.0, 90.0, 180.0]);
+    for bad in [
+        json!({ "firingOrder": [1, 2, 3] }),
+        json!({ "firingOrder": [1, 2, 2, 4, 5, 6] }),
+        json!({ "firingOrder": [1, 2, 3, 4, 5, 7] }),
+        json!({ "firingIntervals": [120, 120, 120, 120, 120, 100] }),
+        json!({ "firingIntervals": [250, 120, 120, 120, 120, -10] }),
+    ] {
+        assert_eq!(
+            firing_plan(&spec(merge(json!({ "cylinders": 6, "vAngle": 0 }), bad.clone()))),
+            firing_plan(&own),
+            "{bad}"
+        );
+    }
+}
+
+/// Every new layout runs clean and audible.
+#[test]
+fn every_new_layout_runs_clean_and_audible() {
+    for over in [
+        json!({ "cylinders": 4, "vAngle": 90, "exhaustLayout": "perBank" }),
+        json!({ "cylinders": 10, "vAngle": 90, "exhaustLayout": "perBank" }),
+        json!({ "cylinders": 12, "vAngle": 60, "exhaustLayout": "perBank" }),
+        json!({ "cylinders": 2, "vAngle": 180, "crankType": "boxer", "exhaustLayout": "perBank" }),
+        json!({ "cylinders": 12, "vAngle": 180, "crankType": "boxer", "exhaustLayout": "perBank" }),
+        json!({ "cylinders": 6, "vAngle": 0, "firingOrder": [1, 4, 2, 6, 3, 5], "firingIntervals": [90, 150, 120, 90, 150, 120] }),
+    ] {
+        let mut sim = build(over.clone(), 1);
+        let buf = sim.render(FS_N / 2);
+        let peak = buf.iter().fold(0.0f32, |m, v| {
+            assert!(v.is_finite(), "{over}");
+            m.max(v.abs())
+        });
+        assert!(peak > 1e-3 && peak < 1.0, "{over}: peak {peak}");
+        assert_eq!(sim.pipe_solver().recoveries(), 0, "{over}");
+    }
+}
+
 // --- every preset ---
 
 /// Runs clean and audible.
@@ -620,7 +748,7 @@ fn and_the_spacing_has_to_be_off_the_mouths_own_axis_to_do_anything() {
 fn unequal_cylinder_breathing_restores_the_low_orders() {
     let rpm = 3400.0;
     let half = rpm / 120.0;
-    let base = json!({ "cylinders": 4, "exhaustLayout": "merged", "rpm": rpm });
+    let base = json!({ "cylinders": 4, "vAngle": 0, "exhaustLayout": "merged", "rpm": rpm });
     let matched = render(merge(base.clone(), json!({ "cylinderSpread": 0 })), 2);
     let real = render(merge(base, json!({ "cylinderSpread": 1 })), 2);
 

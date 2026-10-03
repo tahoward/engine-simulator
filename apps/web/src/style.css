@@ -404,7 +404,8 @@ input[type="range"]:disabled::-webkit-slider-thumb {
 }
 
 select,
-input[type="number"] {
+input[type="number"],
+input[type="text"] {
   width: 100%;
   padding: 5px 7px;
   border: 1px solid var(--line);
@@ -418,6 +419,10 @@ input[type="number"] {
 input[type="number"] {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   -moz-appearance: textfield;
+}
+
+input[type="text"] {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 input[type="number"]::-webkit-outer-spin-button,

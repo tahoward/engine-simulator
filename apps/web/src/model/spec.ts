@@ -103,10 +103,10 @@ export function arcHandle(angle: number): number {
 }
 
 /**
- * Cylinder counts with a firing plan defined. Six is an inline six at a zero V angle and a V6 otherwise,
- * the way two is a parallel twin or a V-twin.
+ * A cylinder count: one bank of 1 to 6, or two banks of 1 to 6 each (`validLayout`). Two banks are an even
+ * count at a V angle above zero, so two is a parallel twin or a V-twin, and six an inline six or a V6.
  */
-export type CylinderCount = 1 | 2 | 3 | 4 | 5 | 6 | 8;
+export type CylinderCount = number;
 
 /** Valves on one side of a cylinder: one for a two-valve head, two for a four-valve head. */
 export type ValveCount = 1 | 2;
@@ -119,9 +119,8 @@ export type ValveCount = 1 | 2;
  * crank, so on a single collector they sound much the same. The difference is in which bank
  * each firing belongs to — see `firingPlan`.
  *
- * `boxer` is a flat four or flat six: the banks 180 degrees apart, every cylinder on a throw of its
- * own, and each opposed pair's throws half a turn apart so the two pistons move out and in together.
- * See `boxerPlan`.
+ * `boxer` is a flat engine: two banks 180 degrees apart, every cylinder on a throw of its own, and each
+ * opposed pair's throws half a turn apart so the two pistons move out and in together. See `boxerPlan`.
  *
  * `shared` is the default, and means the engine's only crank: the others are ignored where they do not
  * apply.
@@ -164,14 +163,14 @@ export const PIPE_MATERIALS: PipeMaterial[] = ['mildSteel', 'stainless', 'castIr
 export interface EngineSpec {
   // --- Layout ---
   /**
-   * Number of cylinders: 1, 2, 3, 4, 5, 6 or 8.
-   *
-   * Restricted to those because the firing plan is real engine data rather than something
-   * derived — see `firingPlan`. Any other count would need its own entry, not a formula.
+   * Number of cylinders, all banks together: 1 to 6 on one bank, or an even 2 to 12 on two (`validLayout`).
+   * Each layout fires as the real engines of its kind do (`defaultFiringPlan`) unless `firingOrder` or
+   * `firingIntervals` say otherwise.
    */
   cylinders: CylinderCount;
   /**
-   * Included angle between the cylinders, degrees. 0 is a parallel twin.
+   * Included angle between the two banks, degrees, 15 to 180; 0 for one bank. An even cylinder count at
+   * an angle is two banks of half of them; 0 is an inline engine or a parallel twin.
    *
    * 45 is the classic Harley, 90 the Ducati L-twin. With a shared crankpin the angle also
    * sets the firing interval, so this is the only control most twins need.
@@ -187,12 +186,24 @@ export interface EngineSpec {
    */
   firingOffset: number | null;
   /**
-   * Crank arrangement, for engines with more than two cylinders.
+   * The order the cylinders fire in, by number from 1, or `null` for the layout's own. Cylinders are numbered
+   * front to back along the crank, alternating between the banks on two: 1 the first bank's front, 2 the
+   * second's. Every cylinder once, or it is ignored.
+   */
+  firingOrder: number[] | null;
+  /**
+   * Crank degrees from each firing in `firingOrder` to the next, one per cylinder, summing to 720; `null` for
+   * even firing (or, with no order set either, the layout's own). Uneven gaps make an odd-fire or big-bang
+   * engine, and a gap of 0 fires two cylinders together.
+   */
+  firingIntervals: number[] | null;
+  /**
+   * Crank arrangement, where the layout has a choice.
    *
    * On a V8 it is the whole difference between an American V8 and a Ferrari. Both fire every 90
    * degrees; what differs is *which bank* each of those firings belongs to, so it only becomes
-   * audible once each bank has its own collector. On a four or a six, `boxer` makes it a flat engine
-   * (with `vAngle` 180). Ignored for every other cylinder count, whose plans are fixed.
+   * audible once each bank has its own collector. On two banks at 180 degrees, `boxer` makes it a flat
+   * engine rather than a 180-degree V. Ignored elsewhere.
    */
   crankType: CrankType;
   /**
@@ -1314,6 +1325,8 @@ export const DEFAULT_ENGINE: EngineSpec = {
   cylinders: 1,
   vAngle: 45,
   firingOffset: null,
+  firingOrder: null,
+  firingIntervals: null,
   crankType: 'shared',
   exhaustLayout: 'open',
   exhaustHeaders: false,
@@ -1615,6 +1628,13 @@ const V6_THROWS = [0, 0, 1, 1, 2, 2];
  * opposite 1: pairs at 0, 120 and 240, a firing every 120. Cylinders are indexed by throw from the
  * front, so here index 1 is the Porsche's 4, index 2 its 2, and so on.
  */
+/** The Honda VFR's V4: a 180-degree crank, each throw shared by both banks, firing 180-270-180-90 at 90 degrees. */
+const V4_180: V8Crank = {
+  pins: [0, 0, 180, 180],
+  revs: [0, 1, 0, 1],
+  banks: [0, 1, 0, 1],
+};
+
 const BOXER_4: V8Crank = {
   pins: [0, 180, 180, 0],
   revs: [0, 0, 0, 1],
@@ -1626,64 +1646,170 @@ const BOXER_6: V8Crank = {
   banks: [0, 1, 0, 1, 0, 1],
 };
 
-/** Whether the spec is a flat four or flat six. */
+/**
+ * The first bank's pins of a flat engine with no crank of its own in the tables: spread evenly round the
+ * shaft, so with each opposite pin half a turn from its partner's the engine fires evenly.
+ */
+function boxerBankPins(perBank: number): number[] {
+  if (perBank === 1) return [0];
+  if (perBank === 4) return [0, 180, 90, 270];
+  if (perBank === 5) return [0, 144, 288, 72, 216];
+  return [0, 240, 120, 300, 60, 180];
+}
+
+const wrap720 = (deg: number) => ((deg % 720) + 720) % 720;
+
+const pinOffsets = (crank: V8Crank, vAngle: number) =>
+  crank.pins.map((pin, i) => (((pin + vAngle * crank.banks[i]! + 360 * crank.revs[i]!) % 720) + 720) % 720);
+
+/** Whether the engine has two banks of cylinders: a V or a flat engine, with an even count and a vee. */
+export function hasTwoBanks(spec: EngineSpec): boolean {
+  return spec.vAngle > 0 && spec.cylinders >= 2 && spec.cylinders % 2 === 0;
+}
+
+/** Cylinders on each bank. */
+export function cylindersPerBank(spec: EngineSpec): number {
+  return hasTwoBanks(spec) ? spec.cylinders / 2 : spec.cylinders;
+}
+
+/** Whether the layout is one the engine can be: one bank of 1 to 6, or two of 1 to 6 each. */
+export function validLayout(spec: EngineSpec): boolean {
+  const n = cylindersPerBank(spec);
+  return Number.isInteger(n) && n >= 1 && n <= 6;
+}
+
+/** Whether the spec is a flat engine: two banks laid flat, 180 degrees apart, on a boxer crank. */
 export function isBoxer(spec: EngineSpec): boolean {
-  return spec.crankType === 'boxer' && (spec.cylinders === 4 || spec.cylinders === 6);
+  return spec.crankType === 'boxer' && hasTwoBanks(spec) && Math.abs(spec.vAngle - 180) < 1e-9;
 }
 
-/** A boxer's plan: offsets from the pins as for a V, and a throw of its own for every cylinder. */
+/**
+ * A boxer's plan: offsets from the pins as for a V, and a throw of its own for every cylinder. The four and
+ * the six are the tables'; any other fires each opposed pair a revolution apart, the first bank's pin then
+ * its partner's.
+ */
 function boxerPlan(spec: EngineSpec): FiringPlan {
-  const crank = spec.cylinders === 6 ? BOXER_6 : BOXER_4;
-  const offsets = crank.pins.map(
-    (pin, i) => (((pin + spec.vAngle * crank.banks[i]! + 360 * crank.revs[i]!) % 720) + 720) % 720,
-  );
-  return { offsets, banks: [...crank.banks], bankCount: 2, throws: crank.pins.map((_, i) => i) };
+  const perBank = cylindersPerBank(spec);
+  let offsets: number[];
+  if (perBank === 2) offsets = pinOffsets(BOXER_4, spec.vAngle);
+  else if (perBank === 3) offsets = pinOffsets(BOXER_6, spec.vAngle);
+  else offsets = boxerBankPins(perBank).flatMap((pin) => [wrap720(pin), wrap720(pin + 180 + spec.vAngle)]);
+  return { offsets, banks: offsets.map((_, i) => i % 2), bankCount: 2, throws: offsets.map((_, i) => i) };
 }
 
+/** Inline engines' firing offsets by cylinder, read off the usual firing orders. */
 const INLINE_OFFSETS: Record<number, number[]> = {
+  1: [0],
   3: [0, 480, 240],
+  4: [0, 540, 180, 360],
   5: [0, 144, 576, 288, 432],
   6: [0, 480, 240, 600, 120, 360],
 };
 
-export function firingPlan(spec: EngineSpec): FiringPlan {
+/**
+ * A V of two banks of an inline engine's crank, each throw shared: the second bank's cylinder fires the bank
+ * angle after its partner, in the same revolution. On an inline five's crank that is the even 72-degree
+ * firing of a 72-degree V10 and the 54-90 of the Viper's 90; on an inline six's, a 60-degree V12's even 60.
+ */
+function doubledInline(inline: number[], vAngle: number): FiringPlan {
+  const offsets = inline.flatMap((o) => [o, wrap720(o + vAngle)]);
+  return { offsets, banks: offsets.map((_, i) => i % 2), bankCount: 2 };
+}
+
+/** The layout's own firing plan, from real engines' cranks, before any firing order the spec sets. */
+export function defaultFiringPlan(spec: EngineSpec): FiringPlan {
   if (isBoxer(spec)) return boxerPlan(spec);
-  switch (spec.cylinders) {
-    case 3:
-    case 5: {
-      const offsets = INLINE_OFFSETS[spec.cylinders]!;
-      return { offsets: [...offsets], banks: offsets.map(() => 0), bankCount: 1 };
-    }
-    case 6: {
-      if (!(spec.vAngle > 0)) {
-        const offsets = INLINE_OFFSETS[6]!;
-        return { offsets: [...offsets], banks: offsets.map(() => 0), bankCount: 1 };
-      }
-      const crank = V6_SPLIT_PIN;
-      const offsets = crank.pins.map(
-        (pin, i) =>
-          (((pin + spec.vAngle * crank.banks[i]! + 360 * crank.revs[i]!) % 720) + 720) % 720,
-      );
-      return { offsets, banks: [...crank.banks], bankCount: 2, throws: [...V6_THROWS] };
-    }
-    case 1:
-      return { offsets: [0], banks: [0], bankCount: 1 };
-    case 2:
-      // Two banks of one: a V-twin's cylinders are each their own bank.
-      return { offsets: [0, firingOffsetDeg(spec)], banks: [0, 1], bankCount: 2 };
-    case 4:
-      // Inline four on a flat crank, pins 0/180/180/0 so the outer pair and the inner pair each
-      // share a throw: fires 1-3-4-2, every 180 degrees, one bank.
-      return { offsets: [0, 540, 180, 360], banks: [0, 0, 0, 0], bankCount: 1 };
-    case 8: {
-      const crank = spec.crankType === 'flatplane' ? V8_FLATPLANE : V8_CROSSPLANE;
-      const offsets = crank.pins.map(
-        (pin, i) =>
-          (((pin + spec.vAngle * crank.banks[i]! + 360 * crank.revs[i]!) % 720) + 720) % 720,
-      );
-      return { offsets, banks: [...crank.banks], bankCount: 2 };
+  const crank = (c: V8Crank, throws?: number[]): FiringPlan => ({
+    offsets: pinOffsets(c, spec.vAngle),
+    banks: [...c.banks],
+    bankCount: 2,
+    ...(throws ? { throws } : {}),
+  });
+  // Two of one is a twin either way: a V-twin's cylinders are each their own bank, and a parallel twin's
+  // firing offset is expressed the same way.
+  if (spec.cylinders === 2) return { offsets: [0, firingOffsetDeg(spec)], banks: [0, 1], bankCount: 2 };
+  if (hasTwoBanks(spec)) {
+    if (spec.cylinders === 4) return crank(V4_180);
+    if (spec.cylinders === 6) return crank(V6_SPLIT_PIN, [...V6_THROWS]);
+    if (spec.cylinders === 8) return crank(spec.crankType === 'flatplane' ? V8_FLATPLANE : V8_CROSSPLANE);
+    if (spec.cylinders === 10 || spec.cylinders === 12) {
+      return doubledInline(INLINE_OFFSETS[spec.cylinders / 2] ?? [0], spec.vAngle);
     }
   }
+  const inline = INLINE_OFFSETS[spec.cylinders];
+  if (inline) return { offsets: [...inline], banks: inline.map(() => 0), bankCount: 1 };
+  // A layout the engine cannot be: an even firing, one bank, so it still runs.
+  const n = Math.max(spec.cylinders, 1);
+  return { offsets: Array.from({ length: n }, (_, i) => (i * 720) / n), banks: Array(n).fill(0), bankCount: 1 };
+}
+
+/** The order `plan` fires its cylinders in, by number from 1. */
+export function firingOrderOf(plan: FiringPlan): number[] {
+  return plan.offsets
+    .map((_, i) => i)
+    .sort((a, b) => plan.offsets[a]! - plan.offsets[b]!)
+    .map((i) => i + 1);
+}
+
+/** The gaps from each of `plan`'s firings to the next, in firing order, crank degrees. */
+export function firingIntervalsOf(plan: FiringPlan): number[] {
+  const fires = [...plan.offsets].sort((a, b) => a - b);
+  return fires.map((f, i) => (i + 1 < fires.length ? fires[i + 1]! : fires[0]! + 720) - f);
+}
+
+/**
+ * Why the spec's own firing order or intervals cannot be fired, or `null` where they can or it sets neither:
+ * an order must name every cylinder once, and the intervals be one per cylinder, none negative, summing to 720.
+ * A gap of 0 fires two cylinders together.
+ */
+export function firingOrderProblem(spec: EngineSpec): string | null {
+  const n = defaultFiringPlan(spec).offsets.length;
+  const order = spec.firingOrder;
+  if (order) {
+    if (order.length !== n) return `The firing order needs all ${n} cylinders.`;
+    const seen = new Set<number>();
+    for (const c of order) {
+      if (!Number.isInteger(c) || c < 1 || c > n) return `There is no cylinder ${c}: they are numbered 1 to ${n}.`;
+      if (seen.has(c)) return `Cylinder ${c} is in the firing order twice.`;
+      seen.add(c);
+    }
+  }
+  const gaps = spec.firingIntervals;
+  if (gaps) {
+    if (gaps.length !== n) return `The intervals need one per cylinder, ${n} of them.`;
+    if (gaps.some((g) => !Number.isFinite(g) || g < 0)) return 'No interval can be less than 0°.';
+    const sum = gaps.reduce((a, b) => a + b, 0);
+    if (Math.abs(sum - 720) > 1e-6) return `The intervals add up to ${Math.round(sum)}°, not 720°.`;
+  }
+  return null;
+}
+
+/** The firing offsets the spec's own firing order and intervals give, cylinder 1 at 0, or `null`. */
+function customOffsets(spec: EngineSpec, plan: FiringPlan): number[] | null {
+  if (!spec.firingOrder && !spec.firingIntervals) return null;
+  if (firingOrderProblem(spec)) return null;
+  const n = plan.offsets.length;
+  const order = (spec.firingOrder ?? firingOrderOf(plan)).map((c) => c - 1);
+  const intervals = spec.firingIntervals ?? Array<number>(n).fill(720 / n);
+  const offsets = Array<number>(n).fill(0);
+  let at = 0;
+  order.forEach((c, k) => {
+    offsets[c] = at;
+    at += intervals[k]!;
+  });
+  const first = offsets[0]!;
+  return offsets.map((o) => wrap720(o - first));
+}
+
+/** Which firings happen when: the layout's own plan, or the spec's firing order and intervals on it. */
+export function firingPlan(spec: EngineSpec): FiringPlan {
+  const plan = defaultFiringPlan(spec);
+  const offsets = customOffsets(spec, plan);
+  if (!offsets) return plan;
+  // Every cylinder of a flat engine keeps its own throw; on any other a pin is shared where the order lets
+  // two cylinders share one.
+  const { throws, ...rest } = plan;
+  return { ...rest, offsets, ...(isBoxer(spec) && throws ? { throws } : {}) };
 }
 
 /**

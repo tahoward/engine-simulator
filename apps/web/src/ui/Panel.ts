@@ -47,7 +47,12 @@ import {
   MIN_GEARS,
   intakeRunnerOf,
   runnerTunedRpm,
-  isBoxer,
+  cylindersPerBank,
+  defaultFiringPlan,
+  firingIntervalsOf,
+  firingOrderOf,
+  firingOrderProblem,
+  hasTwoBanks,
   presetEngine,
   type BlowOff,
   type Car,
@@ -230,26 +235,17 @@ export function cellSizeForRate(cell: number, hz: number): number {
   return defaults.includes(cell) ? defaultCellSize(hz) : cell;
 }
 
-/** What the Cylinders menu offers: a count, and for a twin or a six whether it is a V. */
-const ENGINE_TYPES: Array<[string, string]> = [
-  ['1', 'Single'],
-  ['2', 'Parallel twin'],
-  ['2v', 'V-twin'],
-  ['3', 'Inline three'],
-  ['4', 'Inline four'],
-  ['5', 'Inline five'],
-  ['6', 'Inline six'],
-  ['6v', 'V6'],
-  ['8', 'V8'],
-  ['4b', 'Boxer four'],
-  ['6b', 'Boxer six'],
-];
+/** The bank angle a layout is given when it first gets a second bank: the angle its real engines have. */
+function defaultBankAngle(perBank: number): number {
+  if (perBank === 3 || perBank === 6) return 60;
+  if (perBank === 5) return 72;
+  return 90;
+}
 
-/** The Cylinders menu entry for an engine. */
-function engineTypeOf(eng: EngineSpec): string {
-  if (isBoxer(eng)) return `${eng.cylinders}b`;
-  if ((eng.cylinders === 2 || eng.cylinders === 6) && eng.vAngle > 0) return `${eng.cylinders}v`;
-  return String(eng.cylinders);
+/** Text as a list of whole numbers, "1-5-3-6-2-4" or "1 5 3", or `null` for none. */
+function parseList(text: string): number[] | null {
+  const parts = text.trim().split(/[^0-9.]+/).filter((p) => p !== '');
+  return parts.length === 0 ? null : parts.map(Number);
 }
 
 /** What draw mode says before a route has started. */
@@ -329,7 +325,8 @@ export class Panel {
    * what it was built for, so it is rebuilt only when that changes, and the exhaust's figures.
    */
   private segMenu: { el: HTMLElement; row: SegmentRow | null; key: string; stats: HTMLElement | null } | null = null;
-  private cylSel!: HTMLSelectElement;
+  private bankSel!: HTMLSelectElement;
+  private perBankSel!: HTMLSelectElement;
   private twinWrap!: HTMLElement;
   private crankSel!: HTMLSelectElement;
   private crankRow!: HTMLElement;
@@ -686,88 +683,111 @@ export class Panel {
     // ---- Layout ----------------------------------------------------------
     const layout = section('Layout', 'layout', 'Cylinders, crank and firing order, headers and turbos.');
 
-    const cylRow = el('div', 'row', layout);
-    el('label', '', cylRow).textContent = 'Cylinders';
-    const cylSel = el('select', '', cylRow) as HTMLSelectElement;
-    this.cylSel = cylSel;
-    for (const [value, label] of ENGINE_TYPES) cylSel.appendChild(option(value, label));
-    cylSel.value = engineTypeOf(spec);
+    // Banks and cylinders on each: one bank is an inline engine, two a V, or at 180 degrees a flat engine.
+    const bankRow = el('div', 'row', layout);
+    el('label', '', bankRow).textContent = 'Banks';
+    const bankSel = el('select', '', bankRow) as HTMLSelectElement;
+    this.bankSel = bankSel;
+    bankSel.appendChild(option('1', 'One · inline'));
+    bankSel.appendChild(option('2', 'Two · V or flat'));
+    bankSel.value = hasTwoBanks(spec) ? '2' : '1';
+    bankRow.title = 'One bank is an inline engine. Two are a V, or laid flat at 180 degrees a boxer.';
+    const perBankRow = el('div', 'row', layout);
+    el('label', '', perBankRow).textContent = 'Cylinders per bank';
+    const perBankSel = el('select', '', perBankRow) as HTMLSelectElement;
+    this.perBankSel = perBankSel;
+    for (let n = 1; n <= 6; n++) perBankSel.appendChild(option(String(n), String(n)));
+    perBankSel.value = String(cylindersPerBank(spec));
+    perBankRow.title =
+      'Each layout fires as the real engines of its kind do — an inline six 1-5-3-6-2-4, a V12 every 60 ' +
+      'degrees at a 60-degree vee — until a firing order of its own is set below.';
 
     const multiWrap = el('div', 'subgroup', layout);
     this.twinWrap = multiWrap;
     const showMulti = () => multiWrap.classList.toggle('hidden', this.config.engine.cylinders < 2);
 
-    cylSel.addEventListener('change', () => {
-      const boxer = cylSel.value.endsWith('b');
-      const vTwin = cylSel.value === '2v';
-      const vee = cylSel.value === '6v' || cylSel.value === '8' || boxer;
-      const n = parseInt(cylSel.value, 10) as EngineSpec['cylinders'];
+    const setLayout = () => {
+      const banks = Number(bankSel.value);
+      const perBank = Number(perBankSel.value);
+      const n = banks * perBank;
       const eng = this.config.engine;
+      // Two banks of the same size keep their angle, and a flat engine stays flat; any other gets the
+      // angle its real engines have, as a V12 its 60 degrees. One bank has none.
+      const keep = hasTwoBanks(eng) && (cylindersPerBank(eng) === perBank || eng.vAngle === 180);
+      const vAngle = banks === 1 ? 0 : keep ? eng.vAngle : defaultBankAngle(perBank);
+      const flat = banks === 2 && vAngle === 180;
+      // A crank is kept only where the new layout can have it.
+      const crankType =
+        eng.crankType === 'boxer' && !flat
+          ? n === 8 ? ('crossplane' as const) : ('shared' as const)
+          : (eng.crankType === 'crossplane' || eng.crankType === 'flatplane') && n !== 8
+            ? ('shared' as const)
+            : eng.crankType;
       this.cb.onEngine({
         cylinders: n,
-        // Keep the plumbing sensible for the new count: a single has nothing to merge, and a
-        // V engine's default is a collector per bank.
-        exhaustLayout: n === 1 ? 'open' : vee ? 'perBank' : 'merged',
-        // A V angle is what makes a twin a V-twin or a six a V6, and means nothing on an inline engine. A
-        // V-twin keeps the angle it had, and one from a parallel twin gets a Ducati's 90. A boxer is its
-        // banks laid flat, 180 degrees apart, on a crank of its own.
-        ...(vTwin ? { vAngle: eng.cylinders === 2 && eng.vAngle > 0 && !isBoxer(eng) ? eng.vAngle : 90 } : {}),
-        ...(cylSel.value === '8' ? { vAngle: 90 } : {}),
-        ...(cylSel.value === '6v' ? { vAngle: 60 } : {}),
-        ...(boxer ? { vAngle: 180, crankType: 'boxer' as const } : {}),
-        ...(!vTwin && !vee ? { vAngle: 0 } : {}),
-        // Leaving a boxer hands the crank back: a V8 gets the crank its menu shows.
-        ...(!boxer && eng.crankType === 'boxer'
-          ? { crankType: n === 8 ? ('crossplane' as const) : ('shared' as const) }
-          : {}),
+        vAngle,
+        crankType,
+        // Keep the plumbing sensible for the new count: a single has nothing to merge, and two banks'
+        // default is a collector each.
+        exhaustLayout: n === 1 ? 'open' : banks === 2 ? 'perBank' : 'merged',
+        // The order of one layout means nothing on another.
+        firingOrder: null,
+        firingIntervals: null,
       });
       showMulti();
       this.syncLayoutOptions();
       this.rebuildPipeList();
       this.syncStats();
-    });
+    };
+    bankSel.addEventListener('change', setLayout);
+    perBankSel.addEventListener('change', setLayout);
 
     const crankRow = el('div', 'row', multiWrap);
     this.crankRow = crankRow;
     el('label', '', crankRow).textContent = 'Crank';
     const crankSel = el('select', '', crankRow) as HTMLSelectElement;
     this.crankSel = crankSel;
-    crankSel.appendChild(option('crossplane', 'Crossplane (American V8)'));
-    crankSel.appendChild(option('flatplane', 'Flatplane (Ferrari)'));
-    crankSel.value = spec.crankType === 'flatplane' ? 'flatplane' : 'crossplane';
     crankSel.addEventListener('change', () => {
       this.cb.onEngine({ crankType: crankSel.value as EngineSpec['crankType'] });
+      this.syncLayoutOptions();
+      this.rebuildPipeList();
       this.syncStats();
     });
     crankRow.title =
-      'Both fire every 90 degrees, so through one collector they sound much the same. The ' +
+      'On a V8 both cranks fire every 90 degrees, so through one collector they sound much the same. The ' +
       'difference is which bank each firing belongs to: a crossplane deals them out 180-90-180-270 ' +
       'down each bank, a flatplane evenly every 180. Give each bank its own collector and that ' +
-      'is the burble against the shriek.';
+      'is the burble against the shriek. At 180 degrees a boxer crank gives each cylinder its own throw, ' +
+      'opposite its partner\u2019s, so the two pistons move out and in together; a shared one makes a 180-degree V.';
 
     const vRow = this.slider(multiWrap, {
-      label: 'V angle',
-      // A V stays a V: at no angle it is an inline engine, which has its own entry in the Cylinders menu.
+      label: 'Bank angle',
+      // Two banks stay two: at no angle it is an inline engine, which is one bank.
       min: 15,
-      max: 120,
+      max: 180,
       step: 1,
       value: spec.vAngle,
       sync: () => this.config.engine.vAngle,
       format: (v) => {
+        if (this.config.engine.cylinders !== 2) return `${v.toFixed(0)}\u00b0`;
         const off = firingOffsetDeg({ ...this.config.engine, vAngle: v });
         const named = v === 45 ? ' Harley' : v === 90 ? ' Ducati' : '';
         return `${v.toFixed(0)}\u00b0${named} \u2192 fires ${off.toFixed(0)}/${(720 - off).toFixed(0)}`;
       },
       onInput: (v) => {
-        this.cb.onEngine({ vAngle: v });
+        const eng = this.config.engine;
+        // A boxer crank only has opposed pins at 180 degrees; off it, the V's own crank.
+        const crank = eng.crankType === 'boxer' && v !== 180 ? { crankType: eng.cylinders === 8 ? 'crossplane' as const : 'shared' as const } : {};
+        this.cb.onEngine({ vAngle: v, ...crank });
+        this.syncLayoutOptions();
         this.syncStats();
       },
     });
     this.vAngleRow = vRow.row;
     vRow.row.title =
-      'The included angle between the cylinders. With a shared crankpin it also sets the firing ' +
-      'interval: 45 degrees gives the 405/315 of a Harley, 90 the 450/270 of a Ducati L-twin. ' +
-      'The more uneven those two intervals, the stronger the half-order thump.';
+      'The included angle between the banks. With shared crankpins it also sets the firing ' +
+      'intervals: on a twin 45 degrees gives the 405/315 of a Harley, 90 the 450/270 of a Ducati L-twin, ' +
+      'and a V10 fires evenly at 72 and 54-90 at 90, as the Viper does. At 180 the banks lie flat.';
 
     const offsetToggle = toggle(multiWrap, 'Override firing offset', spec.firingOffset !== null, (on) => {
       this.cb.onEngine({ firingOffset: on ? firingOffsetDeg(this.config.engine) : null });
@@ -796,6 +816,63 @@ export class Panel {
         this.syncStats();
       },
     });
+
+    // The firing order and the gaps between firings, the layout's own unless set here.
+    const orderRow = el('div', 'row', layout);
+    el('label', '', orderRow).textContent = 'Firing order';
+    const orderInput = el('input', '', orderRow) as HTMLInputElement;
+    orderInput.type = 'text';
+    orderInput.spellcheck = false;
+    orderRow.title =
+      'The order the cylinders fire in, as "1-5-3-6-2-4". They are numbered front to back along the crank, ' +
+      'alternating between the banks on two: 1 the first bank\u2019s front cylinder, 2 the second\u2019s. ' +
+      'Empty, the layout\u2019s own order, shown faintly.';
+    const gapsRow = el('div', 'row', layout);
+    el('label', '', gapsRow).textContent = 'Firing intervals';
+    const gapsInput = el('input', '', gapsRow) as HTMLInputElement;
+    gapsInput.type = 'text';
+    gapsInput.spellcheck = false;
+    gapsRow.title =
+      'Crank degrees from each firing to the next, one per cylinder, adding up to 720: "180-270-180-90" for a ' +
+      'VFR\u2019s V4, uneven for a big-bang. "even", or empty with a firing order set, spaces them evenly.';
+    const orderNote = el('div', 'hint', layout);
+    const resetBtn = el('button', '', el('div', 'row buttons', layout)) as HTMLButtonElement;
+    resetBtn.textContent = 'Layout\u2019s own firing';
+    resetBtn.title = 'Clear the firing order and intervals, back to how this layout\u2019s real engines fire.';
+    resetBtn.addEventListener('click', () => {
+      this.cb.onEngine({ firingOrder: null, firingIntervals: null });
+      this.syncFiring();
+      this.rebuildPipeList();
+      this.syncStats();
+    });
+    const commitFiring = () => {
+      const gaps = gapsInput.value.trim().toLowerCase();
+      this.cb.onEngine({
+        firingOrder: parseList(orderInput.value),
+        firingIntervals: gaps === 'even' ? null : parseList(gaps),
+      });
+      this.syncFiring();
+      this.rebuildPipeList();
+      this.syncStats();
+    };
+    orderInput.addEventListener('change', commitFiring);
+    gapsInput.addEventListener('change', commitFiring);
+    this.syncFiring = () => {
+      const eng = this.config.engine;
+      const own = defaultFiringPlan(eng);
+      orderInput.value = eng.firingOrder?.join('-') ?? '';
+      orderInput.placeholder = firingOrderOf(own).join('-');
+      gapsInput.value = eng.firingIntervals?.join('-') ?? '';
+      const ownGaps = firingIntervalsOf(own);
+      gapsInput.placeholder =
+        eng.firingOrder || new Set(ownGaps).size === 1 ? 'even' : ownGaps.map((g) => g.toFixed(0)).join('-');
+      const problem = firingOrderProblem(eng);
+      orderNote.textContent = problem ? `${problem} Firing as the layout does until it is.` : '';
+      orderNote.classList.toggle('hidden', !problem);
+      resetBtn.disabled = !eng.firingOrder && !eng.firingIntervals;
+      const one = eng.cylinders === 1;
+      for (const row of [orderRow, gapsRow, resetBtn.parentElement!]) row.classList.toggle('hidden', one);
+    };
     showMulti();
     this.syncLayoutOptions();
 
@@ -2071,9 +2148,8 @@ export class Panel {
    * individual slider callbacks would each fire a rebuild and the selects would go stale.
    */
   rebuildAll(): void {
-    this.cylSel.value = engineTypeOf(this.config.engine);
-    this.crankSel.value =
-      this.config.engine.crankType === 'flatplane' ? 'flatplane' : 'crossplane';
+    this.bankSel.value = hasTwoBanks(this.config.engine) ? '2' : '1';
+    this.perBankSel.value = String(cylindersPerBank(this.config.engine));
     this.twinWrap.classList.toggle('hidden', this.config.engine.cylinders < 2);
     this.syncLayoutOptions();
     for (const r of this.resyncers) r();
@@ -2083,21 +2159,32 @@ export class Panel {
   /**
    * Offer only the controls that mean something for this engine.
    *
-   * An inline engine's V angle is meaningless; only a V8 has a crank choice; and the firing-offset
-   * override is a twin's shared-crankpin escape hatch, not a general control.
+   * One bank has no bank angle; a crank choice exists only on a V8 and at 180 degrees; and the
+   * firing-offset override is a twin's shared-crankpin escape hatch, the firing order the general one.
    */
   private syncLayoutOptions(): void {
     const eng = this.config.engine;
     const n = eng.cylinders;
-    const plan = firingPlan(eng);
+    const two = hasTwoBanks(eng);
 
-    this.crankRow.classList.toggle('hidden', n !== 8);
-    // A boxer's banks are flat by definition; at any other angle it would be a V on a boxer's crank.
-    // Nor has a parallel twin one: it is the V-twin's entry that has.
-    this.vAngleRow.classList.toggle('hidden', plan.bankCount < 2 || isBoxer(eng) || (n === 2 && eng.vAngle === 0));
+    // A crank choice only where the layout has one: a V8's crossplane or flatplane, and at 180 degrees
+    // a boxer's opposed pins against a 180-degree V's shared ones.
+    const cranks: Array<[EngineSpec['crankType'], string]> =
+      two && n === 8 ? [['crossplane', 'Crossplane (American V8)'], ['flatplane', 'Flatplane (Ferrari)']] : [['shared', 'Shared pins']];
+    if (two && eng.vAngle === 180) cranks.push(['boxer', 'Boxer (opposed pins)']);
+    this.crankSel.replaceChildren(...cranks.map(([value, label]) => option(value, label)));
+    const current = eng.crankType === 'shared' && n === 8 ? 'crossplane' : eng.crankType;
+    this.crankSel.value = cranks.some(([v]) => v === current) ? current : cranks[0]![0];
+    this.crankRow.classList.toggle('hidden', cranks.length < 2);
+    // The bank angle is a second bank's; one bank has none.
+    this.vAngleRow.classList.toggle('hidden', !two);
     this.offsetToggleEl.classList.toggle('hidden', n !== 2);
     this.offsetWrapEl.classList.toggle('hidden', n !== 2 || eng.firingOffset === null);
+    this.syncFiring();
   }
+
+  /** Show the firing order and intervals, the layout's own as placeholders. */
+  private syncFiring: () => void = () => {};
 
   get viewOptions(): ViewOptions {
     return this.view;
@@ -3400,8 +3487,11 @@ function firingNote(eng: EngineSpec): string {
     const fire = firingOffsetDeg(eng);
     return `fires ${fire.toFixed(0)}/${(720 - fire).toFixed(0)}`;
   }
-  const every = 720 / eng.cylinders;
-  const base = `fires every ${every.toFixed(0)}\u00b0`;
+  const gaps = firingIntervalsOf(plan);
+  const base =
+    new Set(gaps.map((g) => g.toFixed(3))).size === 1
+      ? `fires every ${gaps[0]!.toFixed(0)}\u00b0`
+      : `fires ${gaps.map((g) => g.toFixed(0)).join('-')}`;
   if (plan.bankCount < 2 || layout !== 'perBank') return base;
   const per = bankFiringIntervals(eng, 0).join('-');
   const even = new Set(bankFiringIntervals(eng, 0)).size === 1;

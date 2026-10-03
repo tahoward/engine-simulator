@@ -701,6 +701,8 @@ function touchesTopology(partial: Partial<EngineSpec>): boolean {
     'exhaustHeaders' in partial ||
     'crankType' in partial ||
     'firingOffset' in partial ||
+    'firingOrder' in partial ||
+    'firingIntervals' in partial ||
     'vAngle' in partial
   );
 }
@@ -717,6 +719,8 @@ function touchesGeometry(partial: Partial<EngineSpec>): boolean {
     'vAngle' in partial ||
     'crankType' in partial ||
     'firingOffset' in partial ||
+    'firingOrder' in partial ||
+    'firingIntervals' in partial ||
     'exhaustLayout' in partial
   );
 }

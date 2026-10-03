@@ -491,10 +491,22 @@ not just quieter.
 Every cylinder uses the same model on the same crank. So, for sound purposes, an engine layout is
 just two lists: **when each cylinder fires**, and **which bank it belongs to**.
 
-For more than two cylinders, both lists are taken from the real engines, not calculated. Real
-[firing orders](glossary.md#firing-order) are chosen for crankshaft balance and bearing loads, and no formula recovers them.
-So each engine has its own entry. The twin is the exception: there, the shared crankpin really
-does set the firing interval, and you can hear the V angle in it.
+An engine is one bank of 1 to 6 cylinders, or two banks of 1 to 6 each: a V, or at a 180-degree bank
+angle on a boxer crank a flat engine. Each layout fires the way the real engines of its kind do. Real
+[firing orders](glossary.md#firing-order) are chosen for crankshaft balance and bearing loads, and no formula recovers them,
+so the inline engines, the V4, V6, V8s and the flat four and six each have their own crank, taken from the
+real engines. The twin is the exception: there, the shared crankpin really does set the firing interval,
+and you can hear the V angle in it.
+
+The other V engines are two banks of an inline crank, each throw shared by both banks, the second bank's
+cylinder firing the bank angle after its partner. On an inline five's crank that gives the even 72-degree
+firing of a 72-degree V10 and the 54-90 of a 90-degree one, the Viper's; on an inline six's, a 60-degree
+V12's even 60. The flat eight, ten and twelve fire evenly, each opposed pair a revolution apart.
+
+The firing order and the gap before each firing can also be set by hand (**Layout → Firing order** and
+**Firing intervals**), over any layout: an odd-fire or big-bang engine is the same crank with uneven gaps.
+Cylinders are numbered front to back along the crank, alternating between the banks on two. Pins are
+shared by two cylinders wherever their firings let them, and each other cylinder has a pin of its own.
 
 ```
               fires at                          banks         each bank fires
@@ -504,11 +516,14 @@ inline three  0, 240, 480                         A A A        every 240
 inline four   0, 180, 360, 540                   A A A A      every 180
 inline five   0, 144, 288, 432, 576              A A A A A    every 144
 inline six    0, 120, 240, 360, 480, 600         A A A A A A  every 120
+V4 90°        0, 180, 450, 630                   A B A B      180 / 540 apart
 V6 60°        0, 120, 240, 360, 480, 600         A B A B A B  every 240
 boxer four    0, 180, 360, 540                   A A B B      180 / 540 apart
 boxer six     0, 120, 240, 360, 480, 600         A B A B A B  every 240
 V8 flatplane  0, 90, 180, 270, 360, 450, 540, 630  A B A B A B A B    every 180, even
 V8 crossplane 0, 90, 180, 270, 360, 450, 540, 630  A B A A B A B B    180-90-180-270, uneven
+V10 90°       0, 90, 144, 234, ... every 54 and 90  A B A B ...         every 144
+V12 60°       every 60                             A B A B ...         every 120
 ```
 
 The two V8s are the most interesting case. **Both fire at exactly the same eight crank angles.**

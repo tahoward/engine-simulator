@@ -178,6 +178,8 @@ pub struct EngineSpec {
     pub cylinders: u32,
     pub v_angle: f64,
     pub firing_offset: Option<f64>,
+    pub firing_order: Option<Vec<u32>>,
+    pub firing_intervals: Option<Vec<f64>>,
     pub crank_type: CrankType,
     pub exhaust_layout: ExhaustLayoutSpec,
     pub exhaust_headers: bool,
@@ -281,6 +283,8 @@ impl Default for EngineSpec {
             cylinders: 1,
             v_angle: 45.0,
             firing_offset: None,
+            firing_order: None,
+            firing_intervals: None,
             crank_type: CrankType::Shared,
             exhaust_layout: ExhaustLayoutSpec::Open,
             exhaust_headers: false,
@@ -1079,6 +1083,10 @@ const V6_SPLIT_PIN: PinCrank = PinCrank {
 };
 const V6_THROWS: [usize; 6] = [0, 0, 1, 1, 2, 2];
 
+/// The Honda VFR's V4: a 180-degree crank, each throw shared by both banks.
+const V4_180: PinCrank =
+    PinCrank { pins: &[0.0, 0.0, 180.0, 180.0], revs: &[0.0, 1.0, 0.0, 1.0], banks: &[0, 1, 0, 1] };
+
 const BOXER_4: PinCrank =
     PinCrank { pins: &[0.0, 180.0, 180.0, 0.0], revs: &[0.0, 0.0, 0.0, 1.0], banks: &[0, 1, 0, 1] };
 const BOXER_6: PinCrank = PinCrank {
@@ -1086,6 +1094,34 @@ const BOXER_6: PinCrank = PinCrank {
     revs: &[0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
     banks: &[0, 1, 0, 1, 0, 1],
 };
+
+/// The pins of the first bank of a flat engine with `per_bank` cylinders a side and no crank of its own
+/// in the tables: spread evenly round the shaft, so with each opposite pin half a turn round from its
+/// partner's the engine fires evenly.
+fn boxer_bank_pins(per_bank: usize) -> &'static [f64] {
+    match per_bank {
+        1 => &[0.0],
+        4 => &[0.0, 180.0, 90.0, 270.0],
+        5 => &[0.0, 144.0, 288.0, 72.0, 216.0],
+        _ => &[0.0, 240.0, 120.0, 300.0, 60.0, 180.0],
+    }
+}
+
+/// Inline engines' firing offsets by cylinder, read off the usual firing orders.
+fn inline_offsets(cylinders: u32) -> Option<&'static [f64]> {
+    match cylinders {
+        1 => Some(&[0.0]),
+        3 => Some(&[0.0, 480.0, 240.0]),
+        4 => Some(&[0.0, 540.0, 180.0, 360.0]),
+        5 => Some(&[0.0, 144.0, 576.0, 288.0, 432.0]),
+        6 => Some(&[0.0, 480.0, 240.0, 600.0, 120.0, 360.0]),
+        _ => None,
+    }
+}
+
+fn wrap720(deg: f64) -> f64 {
+    ((deg % 720.0) + 720.0) % 720.0
+}
 
 fn pin_offsets(crank: &PinCrank, v_angle: f64) -> Vec<f64> {
     crank
@@ -1096,60 +1132,174 @@ fn pin_offsets(crank: &PinCrank, v_angle: f64) -> Vec<f64> {
         .collect()
 }
 
-/// Whether the spec is a flat four or flat six.
+/// Whether the engine has two banks of cylinders: a V or a flat engine, with an even count and a vee.
+pub fn has_two_banks(spec: &EngineSpec) -> bool {
+    spec.v_angle > 0.0 && spec.cylinders >= 2 && spec.cylinders.is_multiple_of(2)
+}
+
+/// Cylinders on each bank.
+pub fn cylinders_per_bank(spec: &EngineSpec) -> u32 {
+    if has_two_banks(spec) { spec.cylinders / 2 } else { spec.cylinders }
+}
+
+/// Whether the layout is one the engine can be: one bank of 1 to 6, or two of 1 to 6 each.
+pub fn valid_layout(spec: &EngineSpec) -> bool {
+    (1..=6).contains(&cylinders_per_bank(spec))
+}
+
+/// Whether the spec is a flat engine: two banks laid flat, 180 degrees apart, on a boxer crank.
 pub fn is_boxer(spec: &EngineSpec) -> bool {
-    spec.crank_type == CrankType::Boxer && (spec.cylinders == 4 || spec.cylinders == 6)
+    spec.crank_type == CrankType::Boxer && has_two_banks(spec) && (spec.v_angle - 180.0).abs() < 1e-9
 }
 
 fn boxer_plan(spec: &EngineSpec) -> FiringPlan {
-    let crank = if spec.cylinders == 6 { &BOXER_6 } else { &BOXER_4 };
+    let per_bank = cylinders_per_bank(spec) as usize;
+    let offsets = match per_bank {
+        2 => pin_offsets(&BOXER_4, spec.v_angle),
+        3 => pin_offsets(&BOXER_6, spec.v_angle),
+        _ => {
+            // Each opposed pair fires a revolution apart: the first bank's pin, then its partner's.
+            let mut offsets = Vec::with_capacity(2 * per_bank);
+            for &pin in boxer_bank_pins(per_bank) {
+                offsets.push(wrap720(pin));
+                offsets.push(wrap720(pin + 180.0 + spec.v_angle));
+            }
+            offsets
+        }
+    };
+    let n = offsets.len();
     FiringPlan {
-        offsets: pin_offsets(crank, spec.v_angle),
-        banks: crank.banks.to_vec(),
+        offsets,
+        banks: (0..n).map(|i| (i % 2) as u32).collect(),
         bank_count: 2,
-        throws: Some((0..crank.pins.len()).collect()),
+        throws: Some((0..n).collect()),
     }
 }
 
-pub fn firing_plan(spec: &EngineSpec) -> FiringPlan {
+/// A V of two banks of an inline engine's crank, each throw shared: the second bank's cylinder fires the
+/// bank angle after its partner, in the same revolution. On an inline five's crank that is the even 72-degree
+/// firing of a 72-degree V10 and the 54-90 of the Viper's 90; on an inline six's, a 60-degree V12's even 60.
+fn doubled_inline(inline: &[f64], v_angle: f64) -> FiringPlan {
+    let mut offsets = Vec::with_capacity(2 * inline.len());
+    for &o in inline {
+        offsets.push(o);
+        offsets.push(wrap720(o + v_angle));
+    }
+    let n = offsets.len();
+    FiringPlan { offsets, banks: (0..n).map(|i| (i % 2) as u32).collect(), bank_count: 2, throws: None }
+}
+
+/// The layout's own firing plan, from real engines' cranks, before any firing order the spec sets.
+pub fn default_firing_plan(spec: &EngineSpec) -> FiringPlan {
     if is_boxer(spec) {
         return boxer_plan(spec);
     }
-    let inline = |offsets: &[f64]| FiringPlan {
-        offsets: offsets.to_vec(),
-        banks: vec![0; offsets.len()],
-        bank_count: 1,
-        throws: None,
+    let crank = |crank: &PinCrank, throws: Option<Vec<usize>>| FiringPlan {
+        offsets: pin_offsets(crank, spec.v_angle),
+        banks: crank.banks.to_vec(),
+        bank_count: 2,
+        throws,
     };
-    match spec.cylinders {
-        3 => inline(&[0.0, 480.0, 240.0]),
-        5 => inline(&[0.0, 144.0, 576.0, 288.0, 432.0]),
-        6 => {
-            if !(spec.v_angle > 0.0) {
-                return inline(&[0.0, 480.0, 240.0, 600.0, 120.0, 360.0]);
+    // Two of one is a twin either way: a V-twin's cylinders are each their own bank, and a parallel twin's
+    // firing offset is expressed the same way.
+    if spec.cylinders == 2 {
+        return FiringPlan {
+            offsets: vec![0.0, firing_offset_deg(spec)],
+            banks: vec![0, 1],
+            bank_count: 2,
+            throws: None,
+        };
+    }
+    if has_two_banks(spec) {
+        match spec.cylinders {
+            4 => return crank(&V4_180, None),
+            6 => return crank(&V6_SPLIT_PIN, Some(V6_THROWS.to_vec())),
+            8 => {
+                return crank(
+                    if spec.crank_type == CrankType::Flatplane { &V8_FLATPLANE } else { &V8_CROSSPLANE },
+                    None,
+                );
             }
-            FiringPlan {
-                offsets: pin_offsets(&V6_SPLIT_PIN, spec.v_angle),
-                banks: V6_SPLIT_PIN.banks.to_vec(),
-                bank_count: 2,
-                throws: Some(V6_THROWS.to_vec()),
-            }
+            10 | 12 => return doubled_inline(inline_offsets(spec.cylinders / 2).unwrap_or(&[0.0]), spec.v_angle),
+            _ => {}
         }
-        2 => FiringPlan { offsets: vec![0.0, firing_offset_deg(spec)], banks: vec![0, 1], bank_count: 2, throws: None },
-        4 => {
-            FiringPlan { offsets: vec![0.0, 540.0, 180.0, 360.0], banks: vec![0, 0, 0, 0], bank_count: 1, throws: None }
+    }
+    match inline_offsets(spec.cylinders) {
+        Some(offsets) => {
+            FiringPlan { offsets: offsets.to_vec(), banks: vec![0; offsets.len()], bank_count: 1, throws: None }
         }
-        8 => {
-            let crank = if spec.crank_type == CrankType::Flatplane { &V8_FLATPLANE } else { &V8_CROSSPLANE };
+        // A layout the engine cannot be: an even firing, one bank, so it still runs.
+        None => {
+            let n = spec.cylinders.max(1) as usize;
             FiringPlan {
-                offsets: pin_offsets(crank, spec.v_angle),
-                banks: crank.banks.to_vec(),
-                bank_count: 2,
+                offsets: (0..n).map(|i| i as f64 * 720.0 / n as f64).collect(),
+                banks: vec![0; n],
+                bank_count: 1,
                 throws: None,
             }
         }
-        // 1, and anything the plans do not cover, is a single.
-        _ => FiringPlan { offsets: vec![0.0], banks: vec![0], bank_count: 1, throws: None },
+    }
+}
+
+/// The firing offsets the spec's own firing order and intervals give, cylinder 1 at 0, or `None` where it
+/// sets neither or they do not make a cycle: an order that is not every cylinder once, or intervals that
+/// are not one per cylinder, none negative, summing to 720. A gap of 0 fires two cylinders together.
+pub fn custom_offsets(spec: &EngineSpec, default: &FiringPlan) -> Option<Vec<f64>> {
+    if spec.firing_order.is_none() && spec.firing_intervals.is_none() {
+        return None;
+    }
+    let n = default.offsets.len();
+    let order: Vec<usize> = match &spec.firing_order {
+        Some(order) => {
+            let mut seen = vec![false; n];
+            for &c in order {
+                let c = c as usize;
+                if c == 0 || c > n || seen[c - 1] {
+                    return None;
+                }
+                seen[c - 1] = true;
+            }
+            if order.len() != n {
+                return None;
+            }
+            order.iter().map(|&c| c as usize - 1).collect()
+        }
+        None => {
+            // The layout's own order: its cylinders by when they fire.
+            let mut order: Vec<usize> = (0..n).collect();
+            order.sort_by(|&a, &b| default.offsets[a].total_cmp(&default.offsets[b]));
+            order
+        }
+    };
+    let even = 720.0 / n as f64;
+    let intervals: Vec<f64> = match &spec.firing_intervals {
+        Some(gaps) => {
+            let sum: f64 = gaps.iter().sum();
+            if gaps.len() != n || gaps.iter().any(|g| !g.is_finite() || *g < 0.0) || (sum - 720.0).abs() > 1e-6 {
+                return None;
+            }
+            gaps.clone()
+        }
+        None => vec![even; n],
+    };
+    let mut offsets = vec![0.0; n];
+    let mut at = 0.0;
+    for (k, &c) in order.iter().enumerate() {
+        offsets[c] = at;
+        at += intervals[k];
+    }
+    let first = offsets[0];
+    Some(offsets.iter().map(|&o| wrap720(o - first)).collect())
+}
+
+/// Which firings happen when: the layout's own plan, or the spec's firing order and intervals on it.
+pub fn firing_plan(spec: &EngineSpec) -> FiringPlan {
+    let default = default_firing_plan(spec);
+    match custom_offsets(spec, &default) {
+        // Every cylinder of a flat engine keeps its own throw; on any other a pin is shared where the
+        // order lets two cylinders share one.
+        Some(offsets) => FiringPlan { offsets, throws: if is_boxer(spec) { default.throws } else { None }, ..default },
+        None => default,
     }
 }
 

@@ -1,7 +1,7 @@
 # engine-simulator
 
-A single, a twin, an inline three, four, five or six, a V6, a V8 or a flat four or six whose sound is
-**simulated from physics**, in the browser or as a desktop app, with an exhaust system you build
+An engine of one or two banks of up to six cylinders — a single, an inline six, a V4, V8 or V12, a flat
+twin or flat twelve — whose sound is **simulated from physics**, in the browser or as a desktop app, with an exhaust system you build
 yourself.
 
 **[Live Demo](https://tahoward.github.io/engine-simulator/app/)** · **[Documentation](https://tahoward.github.io/engine-simulator/)**
@@ -16,8 +16,9 @@ filter cutoff.
 
 ## Features
 
-- Every common layout, each with its real firing order and crank: single, parallel and V-twins,
-  inline three to six, a 60° V6, crossplane and flatplane V8s, and flat four and six boxers
+- One or two banks of one to six cylinders, each layout with its real firing order and crank — inline
+  one to six, V4, 60° V6, crossplane and flatplane V8s, V10, V12, and flat twin to flat twelve — and a
+  firing order and intervals of your own on any of them
 - An exhaust you build: drag, resize and draw pipes, and snap them into junctions — what you draw is
   what is solved
 - Nonlinear gas dynamics with wall heat transfer, friction and radiation to an outdoor listener

@@ -10,7 +10,16 @@
 
 import { graphFromJson, validateGraph } from './exhaustGraph.js';
 import { isTurbocharged } from './turbo.js';
-import { fullLoadTorque, makeSegment, type EngineConfig, type EngineSpec } from './spec.js';
+import {
+  firingOrderProblem,
+  fullLoadTorque,
+  hasTwoBanks,
+  isBoxer,
+  makeSegment,
+  validLayout,
+  type EngineConfig,
+  type EngineSpec,
+} from './spec.js';
 
 /** What an exported engine file says it is, so an import can tell one from any other JSON. */
 export const ENGINE_FILE_FORMAT = 'engine-simulator/engine';
@@ -31,14 +40,13 @@ export function engineFile(config: EngineConfig): string {
 
 /** A file name for an engine, without its extension: its cylinders and layout, "engine-v8-crossplane", say. */
 export function engineFileName(spec: EngineSpec): string {
-  const kind =
-    spec.crankType === 'boxer'
-      ? `flat-${spec.cylinders}`
-      : spec.cylinders > 2 && spec.vAngle > 0
-        ? `v${spec.cylinders}${spec.cylinders === 8 ? `-${spec.crankType}` : ''}`
-        : spec.cylinders === 1
-          ? 'single'
-          : `inline-${spec.cylinders}`;
+  const kind = isBoxer(spec)
+    ? `flat-${spec.cylinders}`
+    : hasTwoBanks(spec) && spec.cylinders > 2
+      ? `v${spec.cylinders}${spec.cylinders === 8 ? `-${spec.crankType === 'flatplane' ? 'flatplane' : 'crossplane'}` : ''}`
+      : spec.cylinders === 1
+        ? 'single'
+        : `inline-${spec.cylinders}`;
   return `engine-${kind}`;
 }
 
@@ -69,7 +77,16 @@ export function readConfig(raw: unknown, base: EngineConfig): { config: EngineCo
   const parsed = raw as Partial<EngineConfig>;
   if (!parsed.engine || typeof parsed.engine !== 'object') throw new Error('not an engine');
 
+  const { cylinders, vAngle } = base.engine;
   Object.assign(base.engine, parsed.engine);
+  // A layout the engine cannot be keeps the one it had; a firing order it cannot fire, the layout's own.
+  if (!validLayout(base.engine)) Object.assign(base.engine, { cylinders, vAngle });
+  base.engine.firingOrder ??= null;
+  base.engine.firingIntervals ??= null;
+  if (firingOrderProblem(base.engine)) {
+    base.engine.firingOrder = null;
+    base.engine.firingIntervals = null;
+  }
   // A link may carry the load as a torque in N*m, `loadTorque`, rather than as a fraction.
   const loadTorque = (parsed.engine as { loadTorque?: unknown }).loadTorque;
   if (typeof loadTorque === 'number' && parsed.engine.load === undefined) {
