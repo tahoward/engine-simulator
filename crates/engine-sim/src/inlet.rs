@@ -1,5 +1,6 @@
 //! The air's way in, on an engine without a turbo: from the snorkel's open mouth, through the airbox,
-//! to the throttle, solved with the same gas dynamics as the exhaust.
+//! to the throttle, solved with the same gas dynamics as the exhaust. Dual plenums' two throttle bodies
+//! have a tract each, mirrored either side of the engine, each with its own airbox and snorkel.
 //!
 //! The throttle draws from the tract's closed end: air is drawn through it as the plenum's pressure
 //! falls below the pressure there, chokes at a small opening, and is pushed back out when the plenum is
@@ -25,7 +26,7 @@ use crate::dsp::Noise;
 use crate::euler_pipe::{EulerPipe, EulerPipeOptions, InletKind, OutletKind, ValveState};
 use crate::intake::runner_damping;
 use crate::math::{self, PI, clamp};
-use crate::plenum::throttle_duct_dia_of;
+use crate::plenum::{plenum_count_of, throttle_dia_of};
 use crate::spec::{EngineSpec, PipeSegment, SegmentKind, SegmentPartial, displacement, gas, make_segment};
 
 /// Airbox volume as a multiple of the engine's swept volume, when not given.
@@ -45,7 +46,7 @@ const THROTTLE_TURBULENCE: f64 = 0.1;
 /// firing frequency.
 const MEAN_TAU: f64 = 0.5;
 
-/// Airbox volume, m^3: the spec's, or sized for the engine.
+/// Airbox volume, m^3: the spec's, or sized for the engine; dual plenums' two airboxes' together.
 pub fn airbox_volume_of(spec: &EngineSpec) -> f64 {
     if spec.airbox_volume > 0.0 {
         return spec.airbox_volume;
@@ -53,20 +54,24 @@ pub fn airbox_volume_of(spec: &EngineSpec) -> f64 {
     AIRBOX_VOLUME_RATIO * displacement(spec) * math::max(spec.cylinders as f64, 1.0)
 }
 
-/// The snorkel's bore, m: the spec's, or a little wider than the throttle, or the throttles together.
+/// The snorkel's bore, m, each tract's: the spec's, or a little wider than its throttle.
 pub fn snorkel_dia_of(spec: &EngineSpec) -> f64 {
     if spec.snorkel_dia > 0.0 {
         return spec.snorkel_dia;
     }
-    SNORKEL_BORE_RATIO * throttle_duct_dia_of(spec)
+    SNORKEL_BORE_RATIO * throttle_dia_of(spec)
 }
 
-/// The tract from the throttle out to the snorkel's mouth: a duct at the throttle's bore, or with dual
-/// plenums' two throttle bodies' area together, the airbox, a round can about as long as it is wide, and
-/// the snorkel.
+/// How many inlet tracts there are: one for each throttle body.
+pub fn inlet_count_of(spec: &EngineSpec) -> usize {
+    plenum_count_of(spec)
+}
+
+/// Each tract from its throttle out to its snorkel's mouth: a duct at the throttle's bore, the airbox,
+/// a round can about as long as it is wide, holding its share of `airbox_volume_of`, and the snorkel.
 pub fn inlet_segments(spec: &EngineSpec) -> Vec<PipeSegment> {
-    let throttle = throttle_duct_dia_of(spec);
-    let volume = airbox_volume_of(spec);
+    let throttle = throttle_dia_of(spec);
+    let volume = airbox_volume_of(spec) / inlet_count_of(spec) as f64;
     let length = clamp(math::cbrt(volume) * 1.5, 0.15, 0.6);
     let body = math::max(math::sqrt((4.0 * volume) / (PI * length)), throttle * 1.5);
     let pipe = |length: f64, dia: f64| {
@@ -103,6 +108,11 @@ pub struct InletTract {
 
 impl InletTract {
     pub fn new(spec: &EngineSpec, sample_rate: f64, opts: &EulerPipeOptions) -> InletTract {
+        InletTract::nth(spec, sample_rate, opts, 0)
+    }
+
+    /// Tract `k` of `inlet_count_of`: each the same, but for its jet noise's seed.
+    pub fn nth(spec: &EngineSpec, sample_rate: f64, opts: &EulerPipeOptions, k: usize) -> InletTract {
         let segments = inlet_segments(spec);
         let length: f64 = segments.iter().map(|s| s.length).sum();
         let c = crate::spec::speed_of_sound(gas::T_AMB, gas::GAMMA_AIR);
@@ -122,7 +132,7 @@ impl InletTract {
             mouth_flow: 0.0,
             mean_p: gas::P_AMB,
             mean_c: 1.0 - math::exp(-1.0 / (MEAN_TAU * sample_rate)),
-            noise: Noise::new(0x51ab3c as f64),
+            noise: Noise::new((0x51ab3c + 7919 * k) as f64),
             turb1: 0.0,
             turb2: 0.0,
         }

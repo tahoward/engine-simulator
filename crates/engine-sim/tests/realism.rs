@@ -368,6 +368,7 @@ fn heard_from(at: [f64; 3], ear: [f64; 3]) -> EngineSim {
     s.set_sources(SoundSources {
         mouths: vec![MouthPlace { duct, position: at }],
         intake: Some(at),
+        second_intake: None,
         engine: Some(at),
         turbo: Some(at),
     });

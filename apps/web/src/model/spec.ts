@@ -442,13 +442,14 @@ export interface EngineSpec {
   dualPlenum: boolean;
   /**
    * With dual plenums, the speed the balance valves through the wall between them open at, rev/min,
-   * joining the halves into one box, and the speed they shut again at, parting them; each 0 or less for
-   * never, so at 0 they stay shut, and with only the first they stay open above it. They open at the one
-   * and shut at the other going up, and back 150 rev/min below each coming down, so they do not flap
-   * back and forth at either.
+   * joining the halves into one box, the speed they shut again at, parting them, and the speed they open
+   * again at for the top end; each 0 or less for never, so at 0 they stay shut, and with only the first
+   * they stay open above it. Each happens at its speed going up, and 150 rev/min below it coming down, so
+   * they do not flap back and forth at any.
    */
   plenumBalanceRpm: number;
   plenumBalanceShutRpm: number;
+  plenumBalanceReopenRpm: number;
   /**
    * Volume of the airbox the throttle draws from, m^3. 0 or less sizes it at four times the engine's
    * displacement; see `airboxVolumeOf`.
@@ -457,6 +458,9 @@ export interface EngineSpec {
    * pulses travel up it from the throttle, ring in it and leave the snorkel's mouth as the intake's
    * note, and the jet past the throttle plate hisses through it. A turbocharged engine draws through
    * its compressors instead, and has none.
+   *
+   * Dual plenums' two throttle bodies each have a tract of their own, mirrored either side of the
+   * engine: this is their two airboxes' volume together, and the snorkel's length and bore each one's.
    */
   airboxVolume: number;
   /** Length of the snorkel from the airbox to its open mouth, m. Longer tunes the tract lower. */
@@ -668,6 +672,8 @@ export interface SoundSources {
   mouths: Array<{ duct: string; position: [number, number, number] }>;
   /** Where the engine draws its air: its snorkel's mouth. */
   intake?: [number, number, number];
+  /** Where dual plenums' other inlet tract draws its air: its snorkel's mouth. */
+  secondIntake?: [number, number, number];
   /** The middle of the engine, where its casing radiates from. */
   engine?: [number, number, number];
   /** Where the turbochargers are. */
@@ -1347,6 +1353,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
   dualPlenum: false,
   plenumBalanceRpm: 0,
   plenumBalanceShutRpm: 0,
+  plenumBalanceReopenRpm: 0,
   airboxVolume: 0,
   snorkelLength: 0.3,
   snorkelDia: 0,
@@ -2763,7 +2770,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: true,
     },
     description:
-      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Its tailpipes exit together in the middle, as the Z06’s do. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. It breathes through dual plenums, one for each bank, each with its own 87 mm throttle body, as the real one does, their balance valves joining them from 3800 to 6000 rpm. Its cam, short runners and headers are tuned for the top end, where it makes about 670 hp at 8400 rpm, as the real engine does. Below that its variable cam timing, long runners and plenums, also estimates, give back the mid-range: 611 N·m at 6900 against 624 at 6300.',
+      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Its tailpipes exit together in the middle, as the Z06’s do. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. It breathes through dual plenums, one for each bank, each with its own 87 mm throttle body and its own airbox and snorkel, mirrored either side, as the real one does, their balance valves joining them from 3500 to 5700 rpm and again from 7500. Its cam, short runners and headers are tuned for the top end, where it makes about 670 hp at 8350 rpm, as the real engine does at 8400. Below that its variable cam timing, long runners and plenums, also estimates, give back the mid-range: 636 N·m at 6500 against 624 at 6300.',
     engine: {
       cylinders: 8,
       vAngle: 90,
@@ -2787,31 +2794,41 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       inValveCount: 2,
       // Estimated: a race-bred cam, the intake closing late because the runners and headers are tuned
       // to ram the charge in after bottom dead centre at the top end. Tuned with them, the plenums and the
-      // cam map for power at 8400 and the flattest curve below it.
-      maxLift: 0.0155,
-      evo: 104,
-      evc: 397,
-      ivo: 327,
-      ivc: 620,
-      // Estimated: a two-stage manifold. The short runners are tuned for 8400 rpm; the long ones, 55 mm
+      // cam map for power at 8400 and the flattest curve below it. These are the cams at rest, as they
+      // idle, with 15 degrees less overlap than the phasers give them under load (below): at rest with
+      // 70 degrees of it, the exhaust it pushes back up the runners at idle dilutes the charge until the
+      // idle hunts and stalls.
+      maxLift: 0.015,
+      evo: 87,
+      evc: 372,
+      ivo: 342,
+      ivc: 635,
+      // Estimated: a two-stage manifold. The short runners are tuned for 8400 rpm; the long ones, 80 mm
       // longer, lift the mid-range from 6500 to 7500 rpm and fall behind above that, where it switches.
       intakeRunnerLength: 0.39,
-      intakeRunnerShortLength: 0.335,
+      intakeRunnerShortLength: 0.31,
       intakeSwitchRpm: 7600,
       intakeRunnerDia: 0.06,
-      // Dual plenums, one for each bank, as the real manifold has, each with an 87 mm throttle body. The
-      // casting is as wide as the two throttle bodies' flanges side by side, and as long and high as it is
-      // drawn left to itself. Estimated: the balance valves, joined from 3800 to 6000 rpm, where one box
-      // fills the cylinders better; below and above, each bank's plenum ringing with its own pulses does.
+      // Dual plenums, one for each bank, as the real manifold has, each with an 87 mm throttle body and an
+      // inlet tract of its own, the casting as wide as the two throttle bodies' flanges. Estimated: the
+      // balance valves, joined from 3500 to 5700 rpm and again from 7500, where one box fills the cylinders
+      // better; from 5700 to 7500 each bank's plenum ringing with its own pulses does, by up to 40 N·m. A
+      // bigger plenum makes a few more horsepower at the top, but idles worse: its air answers the idle
+      // valve more slowly.
       dualPlenum: true,
       throttleDia: 0.087,
       plenumWidth: 0.266,
       plenumTaper: 0.2,
-      plenumBalanceRpm: 3800,
-      plenumBalanceShutRpm: 6000,
-      // Estimated, like the cams: the intake advanced 25 degrees up to 4550 rpm, easing back to rest by
-      // 7750, which gives back the mid-range a cam tuned for 8400 costs it.
-      vvtIntakeLow: 25,
+      plenumBalanceRpm: 3500,
+      plenumBalanceShutRpm: 5700,
+      plenumBalanceReopenRpm: 7500,
+      // Estimated, like the cams: under load the exhaust retarded 25 degrees, and the intake advanced 40 up
+      // to 4550 rpm, easing back to 15 by 7750, which gives back the mid-range a cam tuned for 8400 costs it;
+      // at idle and light load both at rest.
+      vvtIntakeLow: 40,
+      vvtIntakeHigh: 15,
+      vvtExhaustLow: 25,
+      vvtExhaustHigh: 25,
       vvtLowRpm: 4550,
       vvtHighRpm: 7750,
       outputGain: LT6_GAIN,

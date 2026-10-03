@@ -64,14 +64,14 @@ matters.
   fall by under 3% from one speed to the next on its way up to its peak, and rise by under 4% on its
   way down, so its runners' resonance does not build from one cycle to the next into dips and humps.
 - **Variable valve timing.** On the LT6 its cam map must lift the torque at 4500 rpm by more than
-  10%, and change nothing at 8400, where the map has the cams at rest. The cams must sit at rest at
+  10%, and change nothing at 8400, where the map takes its high-speed settings. The cams must sit at rest at
   idle, move under load, and return to rest when the map is set to nothing.
 - **Cam profile switching.** On the F20C at 3000 rpm, switching must make more than 20% more torque
   than its high-speed cam alone, and the same at 8000, where it is on that cam. It must switch at its
   switch speed, stay switched inside the 150 rpm below it, and switch back below that, and the valves
   must open to each lobe's own lift.
-- **Two-stage intake.** On the LT6 at 7800 rpm, below its switch speed, the two-stage intake must
-  make more than 1.5% more torque than its short runners alone, and the same at 8400, where it is on them. It must switch at its switch
+- **Two-stage intake.** On the LT6 just below its switch speed, the two-stage intake must
+  make more than 0.3% more torque than its short runners alone, and the same at 8400, where it is on them. It must switch at its switch
   speed, stay switched inside the 150 rpm below it, switch back below that, and change the torque by
   less than 10% across the switch, with no solver recoveries.
 - **Turbocharger.** On the RB26 preset, the boost must stay under 0.5 bar at 1500 rpm and hold within

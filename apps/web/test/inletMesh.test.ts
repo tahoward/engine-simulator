@@ -26,8 +26,10 @@ describe('the airbox', () => {
         return hits[0]?.distance ?? Infinity;
       };
       // Through to the far side of the box, not stopped at the wall the pipe joins.
-      for (const tube of l.tubes) expect(into(tube, 1, 1), preset.name).toBeGreaterThan(l.airbox.size.z * 0.8);
-      expect(into(l.snorkel, 0, -1), preset.name).toBeGreaterThan(l.airbox.size.x * 0.8);
+      for (const t of l.tracts) {
+        expect(into(t.tube, 1, 1), preset.name).toBeGreaterThan(t.airbox.size.z * 0.8);
+        expect(into(t.snorkel, 0, -1), preset.name).toBeGreaterThan(t.airbox.size.x * 0.8);
+      }
     }
   });
 });
@@ -62,14 +64,25 @@ describe('dual plenums', () => {
     const l = inletLayout(spec);
     expect([...l.plenum.sides].sort()).toEqual([-1, 1]);
     expect(l.throttles).toHaveLength(2);
-    expect(l.tubes).toHaveLength(2);
+    expect(l.tracts).toHaveLength(2);
     expect(l.balances).toHaveLength(2);
     expect(l.plenum.size.x).toBeGreaterThanOrEqual(2 * throttleFaceOf(spec) - 1e-12);
     // Each throttle body on its own side of the wall, on its bank's side.
     l.throttles.forEach((t, k) => expect(Math.sign(t.centre.x - l.plenum.centre.x)).toBe(l.plenum.sides[k]));
-    // Each tube as long as the solver's duct, into the airbox apart from the other.
-    for (const tube of l.tubes) expect(tube.getLength()).toBeCloseTo(l.segments[0]!.length, 2);
-    expect(l.tubes[0]!.getPointAt(1).distanceTo(l.tubes[1]!.getPointAt(1))).toBeGreaterThan(2 * l.tubeRadius);
+    // Each tract on its own side, mirrored: its tube as long as the solver's duct, its airbox and its
+    // snorkel's mouth the other's reflected across the engine's middle.
+    l.tracts.forEach((t, k) => {
+      expect(t.side).toBe(l.plenum.sides[k]);
+      expect(t.tube.getLength()).toBeCloseTo(l.segments[0]!.length, 2);
+      expect(t.snorkel.getLength()).toBeCloseTo(l.segments[2]!.length, 2);
+      expect(Math.sign(t.airbox.centre.x)).toBe(t.side);
+    });
+    const [a, b] = l.tracts;
+    expect(a!.mouth.x).toBeCloseTo(-b!.mouth.x, 9);
+    expect([a!.mouth.y, a!.mouth.z]).toEqual([b!.mouth.y, b!.mouth.z]);
+    expect(a!.airbox.centre.x).toBeCloseTo(-b!.airbox.centre.x, 9);
+    // The two airboxes clear of each other across the middle.
+    expect(Math.abs(a!.airbox.centre.x) - a!.airbox.size.x / 2).toBeGreaterThan(0);
     expect(solvedPlenum(spec).dualPlenum).toBe(true);
     const mesh = new InletMesh();
     mesh.rebuild(spec);

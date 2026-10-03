@@ -96,12 +96,6 @@ pub fn throttle_dia_of(spec: &EngineSpec) -> f64 {
     math::sqrt((4.0 * area) / (PI * plenum_count_of(spec) as f64))
 }
 
-/// The bore of one duct with the throttle bodies' area together, m: what the inlet tract is solved as up
-/// to them.
-pub fn throttle_duct_dia_of(spec: &EngineSpec) -> f64 {
-    throttle_dia_of(spec) * math::sqrt(plenum_count_of(spec) as f64)
-}
-
 /// A plenum's size, m: along the engine, across and high at its front, and how much of its section it has
 /// lost at its back, a fraction, narrowing evenly from none at the front. Dual plenums are one casting
 /// this size, divided down its middle.
@@ -305,24 +299,24 @@ pub struct IntakePlenum {
     /// The plenum and zone each cylinder's runner leaves by.
     attach: Vec<(usize, usize)>,
     balances: Vec<Balance>,
-    /// The speeds the balance valves open at and shut again at, rev/min, 0 or less for never; whether
-    /// they are opening, and how far open they are, 0..1.
-    balance_rpm: f64,
-    balance_shut_rpm: f64,
+    /// The speeds the balance valves open at, shut again at and open again at, rev/min, each 0 or less
+    /// for never (`balance_wanted`); whether they are opening, and how far open they are, 0..1.
+    balance_rpms: [f64; 3],
     balance_open: bool,
     balance_opening: f64,
     /// The throttle plate's opening, 0..1, and the idle air valve's, as more of the plate's.
     opening: f64,
     bypass: f64,
-    /// Effective area of each throttle body, m^2.
+    /// Effective area of each throttle body, m^2, and the flow through each last sample, kg/s.
     area: f64,
+    throttle_flows: [f64; 2],
 }
 
 impl IntakePlenum {
     pub fn new(spec: &EngineSpec, sample_rate: f64) -> IntakePlenum {
         let shape = plenum_shape_of(spec);
         let layout = Layout::new(spec, shape, sample_rate);
-        let open = balance_wanted(spec.plenum_balance_rpm, spec.plenum_balance_shut_rpm, spec.rpm, false);
+        let open = balance_wanted(balance_rpms_of(spec), spec.rpm, false);
         let mut plenum = IntakePlenum {
             shape,
             sample_rate,
@@ -331,13 +325,13 @@ impl IntakePlenum {
             damping: layout.damping,
             attach: layout.attach,
             balances: layout.balances,
-            balance_rpm: spec.plenum_balance_rpm,
-            balance_shut_rpm: spec.plenum_balance_shut_rpm,
+            balance_rpms: balance_rpms_of(spec),
             balance_open: open,
             balance_opening: if open { 1.0 } else { 0.0 },
             opening: spec.throttle,
             bypass: 0.0,
             area: IntakePlenum::throttle_area(spec),
+            throttle_flows: [0.0; 2],
         };
         plenum.reset();
         plenum
@@ -368,8 +362,7 @@ impl IntakePlenum {
     pub fn set_geometry(&mut self, spec: &EngineSpec) {
         self.opening = spec.throttle;
         self.area = IntakePlenum::throttle_area_at(spec, self.opening + self.bypass);
-        self.balance_rpm = spec.plenum_balance_rpm;
-        self.balance_shut_rpm = spec.plenum_balance_shut_rpm;
+        self.balance_rpms = balance_rpms_of(spec);
         let shape = plenum_shape_of(spec);
         let layout = Layout::new(spec, shape, self.sample_rate);
         let reaches = |b: &[Balance]| b.iter().map(|b| (b.zone, b.reach)).collect::<Vec<_>>();
@@ -400,13 +393,13 @@ impl IntakePlenum {
     }
 
     /// Open or shut the balance valves between dual plenums for the engine's speed, `rpm`, as `dt` passes:
-    /// open from their opening speed up to their shutting speed (`balance_wanted`), swinging over
-    /// `BALANCE_TRAVEL`.
+    /// open from their opening speed up to their shutting speed, and again from their reopening speed
+    /// (`balance_wanted`), swinging over `BALANCE_TRAVEL`.
     pub fn update_balance(&mut self, dt: f64, rpm: f64) {
         if self.balances.is_empty() {
             return;
         }
-        self.balance_open = balance_wanted(self.balance_rpm, self.balance_shut_rpm, rpm, self.balance_open);
+        self.balance_open = balance_wanted(self.balance_rpms, rpm, self.balance_open);
         let swing = dt / BALANCE_TRAVEL;
         self.balance_opening = if self.balance_open {
             math::min(self.balance_opening + swing, 1.0)
@@ -485,21 +478,33 @@ impl IntakePlenum {
         geometric * (CD_CLOSED + (CD_OPEN - CD_CLOSED) * open)
     }
 
+    /// The flow in through each throttle body last sample, kg/s, as the plenums are ordered.
+    pub fn throttle_flows(&self) -> &[f64] {
+        &self.throttle_flows[..self.rows.len()]
+    }
+
+    /// Effective flow area of each throttle body, m^2, as its plate is set.
+    pub fn throttle_area_each(&self) -> f64 {
+        self.area
+    }
+
     /// Effective throttle flow area, m^2, as the plates are set: every throttle body's together.
     pub fn area(&self) -> f64 {
         self.area * self.rows.len() as f64
     }
 
-    /// Advance by `dt`, drawing through each plenum's throttle into its front zone from air at `p_up` (Pa)
-    /// and `t_up` (K): the atmosphere, or a turbocharger's charge air. Each of `runners`, a cylinder's,
-    /// takes from or gives back to the zone it leaves by what flowed out of its plenum end over the
-    /// sample, at its own temperature and composition where it flows back in. Returns the flow in through
-    /// the throttles, kg/s.
-    pub fn step(&mut self, dt: f64, p_up: f64, t_up: f64, runners: &[Runner]) -> f64 {
+    /// Advance by `dt`, drawing through each plenum's throttle into its front zone from air at `p_up` (Pa),
+    /// each throttle's own or, where there are fewer, the last, and `t_up` (K): the atmosphere through an
+    /// inlet tract, or a turbocharger's charge air. Each of `runners`, a cylinder's, takes from or gives
+    /// back to the zone it leaves by what flowed out of its plenum end over the sample, at its own
+    /// temperature and composition where it flows back in. Returns the flow in through the throttles,
+    /// kg/s, each one's after in `throttle_flows`.
+    pub fn step(&mut self, dt: f64, p_up: &[f64], t_up: f64, runners: &[Runner]) -> f64 {
         let follow = dt / STEADY_FLOW_TIME;
         let (dx, damping, area) = (self.dx, self.damping, self.area);
         let mut throttle_flow = 0.0;
-        for row in self.rows.iter_mut() {
+        for (k, row) in self.rows.iter_mut().enumerate() {
+            let p_up = p_up[k.min(p_up.len() - 1)];
             let n = row.zones.len();
             for c in row.change.iter_mut() {
                 *c = [0.0; 4];
@@ -523,6 +528,7 @@ impl IntakePlenum {
                 -orifice_mass_flow(area, 1.0, p, t, p_up, gas_gamma(t))
             };
             throttle_flow += through;
+            self.throttle_flows[k] = through;
             {
                 let c = &mut row.change[0];
                 c[0] += through;
@@ -638,14 +644,20 @@ impl IntakePlenum {
     }
 }
 
-/// Whether balance valves opening at `open` rev/min, 0 or less for never, and shutting again at `shut`,
-/// 0 or less for never, want to be open at `rpm`, `was` whether they are: they stay as they are within
-/// `BALANCE_HYSTERESIS` below either speed, so they do not flap back and forth at it.
-fn balance_wanted(open: f64, shut: f64, rpm: f64, was: bool) -> bool {
+/// The speeds `spec`'s balance valves open at, shut again at and open again at, rev/min.
+fn balance_rpms_of(spec: &EngineSpec) -> [f64; 3] {
+    [spec.plenum_balance_rpm, spec.plenum_balance_shut_rpm, spec.plenum_balance_reopen_rpm]
+}
+
+/// Whether balance valves opening at `open` rev/min, shutting again at `shut` and opening again at
+/// `reopen`, each 0 or less for never, want to be open at `rpm`, `was` whether they are: open from the
+/// first up to the second, and from the third up. They stay as they are within `BALANCE_HYSTERESIS`
+/// below each speed, so they do not flap back and forth at it.
+fn balance_wanted([open, shut, reopen]: [f64; 3], rpm: f64, was: bool) -> bool {
     let band = if was { BALANCE_HYSTERESIS } else { 0.0 };
-    let above = open > 0.0 && rpm >= open - band;
-    let below = shut <= 0.0 || rpm < shut - (BALANCE_HYSTERESIS - band);
-    above && below
+    let first = open > 0.0 && rpm >= open - band && (shut <= 0.0 || rpm < shut - (BALANCE_HYSTERESIS - band));
+    let again = reopen > 0.0 && rpm >= reopen - band;
+    first || again
 }
 
 /// The gas two neighbouring zones' mixing swaps, kg/s for each metre of the opening between them over the

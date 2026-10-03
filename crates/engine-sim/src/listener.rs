@@ -25,6 +25,9 @@ pub struct SoundSources {
     /// Where the engine draws its air: its snorkel's mouth.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub intake: Option<Vec3>,
+    /// Where dual plenums' other inlet tract draws its air: its snorkel's mouth.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub second_intake: Option<Vec3>,
     /// The middle of the engine, where its casing radiates from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub engine: Option<Vec3>,

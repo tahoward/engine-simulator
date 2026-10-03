@@ -1454,10 +1454,23 @@ export class Panel {
       onInput: (v) => this.cb.onEngine({ plenumBalanceShutRpm: v }),
     }).row;
     shut.title =
-      'Where the balance valves shut again going up, parting the halves for the top end, and open again ' +
-      '150 rpm lower coming down. At 0 they stay open from where they open to the rev limit.';
-    dualRows = [dual, balance, shut];
-    balanceRows = [balance, shut];
+      'Where the balance valves shut again going up, parting the halves, and open again 150 rpm lower ' +
+      'coming down. At 0 they stay open from where they open to the rev limit.';
+    const reopen = this.slider(intake, {
+      label: 'Reopen balance valves at',
+      min: 0,
+      max: 10000,
+      step: 100,
+      value: spec.plenumBalanceReopenRpm,
+      sync: () => this.config.engine.plenumBalanceReopenRpm,
+      format: (v) => (v > 0 ? `${Math.round(v)} rpm` : 'never'),
+      onInput: (v) => this.cb.onEngine({ plenumBalanceReopenRpm: v }),
+    }).row;
+    reopen.title =
+      'Where the balance valves open again for the top end, joining the halves up to the rev limit, and ' +
+      'shut 150 rpm lower coming down. At 0 they stay as the two above leave them.';
+    dualRows = [dual, balance, shut, reopen];
+    balanceRows = [balance, shut, reopen];
     plenumKey = '';
     showPlenum();
     this.slider(intake, {
@@ -1488,7 +1501,9 @@ export class Panel {
     }).row.title =
       'The box the throttle draws its air from, fed by the snorkel. The runners\u2019 pulses ring in it ' +
       'and leave by the snorkel as the intake\u2019s note, and it muffles the hiss of the air past the ' +
-      'throttle. At 0 it is four times the engine\u2019s displacement. A turbocharged engine has none.';
+      'throttle. At 0 it is four times the engine\u2019s displacement. With dual plenums each throttle ' +
+      'body has its own, mirrored either side of the engine, holding half each. A turbocharged engine ' +
+      'has none.';
     this.slider(intake, {
       label: 'Snorkel length',
       min: 0.05,

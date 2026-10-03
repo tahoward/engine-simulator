@@ -76,12 +76,12 @@ path to the plenum, and the manifold switches to it at **Switch to short runners
 flap opens. It switches back 150 rpm lower, so it does not flap back and forth at the switch speed.
 Both sets are solved, on the same grid; the gas in the one being left, measured from the valve, is
 laid onto the other, so the charge in the ports and its flow carry on through the switch. On the LT6,
-with 390 mm runners switching to 335 mm ones at 7600 rpm, on a dyno pull:
+with 390 mm runners switching to 310 mm ones at 7600 rpm, on a dyno pull:
 
 ```
                           3000   4500   5500   6300   7000   7800   8400 rpm      crank torque, N·m
-335 mm runners only        420    463    564    561    571    581    568
-two-stage                  430    516    570    593    609    583    568
+310 mm runners only        425    496    578    556    569    565    568
+two-stage                  432    550    570    619    611    568    567
 ```
 
 The runners are solved on the finest grid the sample rate allows, 35 mm at 48 kHz, even where the
@@ -91,26 +91,27 @@ mm cells, at the speed they are tuned for, the LT2 fills three points less and t
 
 **Dual plenums split the intake by bank.** With **Dual plenums** on a V or a boxer, the plenum's
 casting is divided down its middle, as the LT6's is: each bank's runners draw from their own half, and
-each half has its own throttle body of the **Throttle bore**, both fed from the one airbox. Apart, each
+each half has its own throttle body of the **Throttle bore** and its own inlet tract, airbox and
+snorkel, mirrored either side of the engine, each heard from its own snorkel's mouth. Apart, each
 half carries only its own bank's pulses, evenly spaced on an engine whose banks each fire evenly, and
 rings with them alone, which tunes the intake differently from one shared box. Two balance valves
 through the wall between them, each a throttle bore across, at a third and two thirds of its length,
-open at **Open balance valves at**, joining the halves, and shut again at **Shut balance valves at**,
-parting them; coming down they shut and open again 150 rpm below each. They swing over a tenth of a
-second, and the air through them is carried by its momentum, as along the plenum. The LT6 has them,
-with two 87 mm throttles; on a dyno pull, crank torque:
+open at **Open balance valves at**, joining the halves, shut again at **Shut balance valves at**,
+parting them, and open again for the top end at **Reopen balance valves at**; coming down, each happens
+150 rpm below its speed. They swing over a tenth of a second, and the air through them is carried by
+its momentum, as along the plenum. The LT6 has them, with two 87 mm throttles; on a dyno pull, crank
+torque:
 
 ```
                           3500   4000   4500   5000   6500   7500   8400 rpm      N·m
-valves always shut         398    416    473    519    598    596    568
-valves always open         391    432    517    554    584    599    570
-open 3800 to 6000          398    432    516    554    598    596    568
+valves always shut         406    435    504    542    628    587    560
+valves always open         409    463    550    571    592    595    567
+open 3500-5700, 7500 up    412    463    550    571    628    590    567
 ```
 
-Joined, they fill it better from 4000 to 5500; apart, each bank's plenum ringing with its own pulses
-does below that and from 6500 to 7500, so its valves are open only across the middle. Open, the halves
-are still joined only through the valves, so they are not quite one box: at the top they keep their own
-tuning.
+Joined, they fill it better from 4000 to 5500 and above 7500; apart, each bank's plenum ringing with
+its own pulses does from 5700 to 7500, by up to 40 N·m, so its valves are shut across that band alone.
+Open, the halves are still joined only through the valves, so they are not quite one box.
 
 **Headers scavenge.** With equal-length headers, each cylinder's primary runs all the way to one
 merge per collector, instead of joining a manifold along the ports. The **Equal-length header** tool
@@ -121,7 +122,7 @@ charge through the cylinder after its exhaust. On the LT6, whose cam holds both 
 
 A runner's sound dies away through the viscous and thermal boundary layer at its walls, and through
 the turbulence, the bend into the port and the valve seat. The first is worked out from the runner's
-own bore and air, using Kirchhoff's formula for a tube: about 12 /s for the LT6's 53 mm runners.
+own bore and air, using Kirchhoff's formula for a tube: about 10 /s for the LT6's 60 mm runners.
 Kirchhoff's formula is for a small wave in a smooth, straight tube of still air, and the rest are not
 modelled one by one, so the damping is five times that. A wave then loses more than half its strength
 over one cycle at 8400 rpm and is gone within a few, as the pressure measured in real runners is.
@@ -177,18 +178,16 @@ the idle. Load is read from the throttle rather than from the manifold pressure,
 ECU weighs the air by, because the overlap itself raises that pressure at idle. A map reading that as
 load would advance the cam further and stall an engine with a big cam.
 
-What it buys depends on the cam. On the LT6, whose cam is tuned for 8400 rpm, the intake cam is
-advanced 25° up to 4550 rpm and eased back to rest by 7750. That map was found by running the engine
-at a fixed cam position at each speed: the best advance is about 40° at 4000-4500 rpm, 20° at
-5000-5500, 10° at 6000, and little or none from 6500 or below 3500. Holding 25° rather than 40° below
-4550 gives up to 28 N·m at 4000 and keeps the dip around 3300 shallower. Retarding the exhaust cam
-10° as well adds up to 36 N·m at 4000 but costs 15 below 3500; advancing it loses torque at
-4000-4500.
+What it buys depends on the cam. On the LT6, whose cam is tuned for 8400 rpm, the phasers under load
+retard the exhaust cam 25° and advance the intake 40° up to 4550 rpm, easing back to 15° by 7750. At
+rest, as it idles, its cams have 15° less overlap than that: with all 70° of it at idle, the exhaust
+it pushes back up the runners dilutes the charge until the idle hunts and stalls. With the cams held at
+their top-end setting instead:
 
 ```
-                          3000   4000   4500   5500   6300   8400 rpm      full throttle, N·m
-cam fixed                  452    421    484    574    611    554
-intake map                 450    466    555    597    610    554
+                          3000   4500   5500   6300   8400 rpm      full throttle, N·m
+cams at top-end setting    406    465    541    600    568
+cam map                    432    550    570    619    567
 ```
 
 On the 2GR, the cam rests late, so its runners ram the charge in at the top end, and the phaser

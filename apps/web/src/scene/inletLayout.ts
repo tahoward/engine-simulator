@@ -2,12 +2,12 @@
  * Where the intake's parts are drawn: the plenum on the engine, the throttle body on its front, the tube
  * from it up and over into the front of an airbox across the top of the engine's front, and the snorkel from the airbox forwards
  * to just ahead of the engine. Pure geometry, so what is drawn and where the intake is heard from (`soundSources`) agree.
- * Dual plenums are one casting divided down its middle, with a throttle body and a tube each.
+ * Dual plenums are one casting divided down its middle, with a throttle body and an inlet tract each, the
+ * tracts mirrored either side of the engine.
  *
  * The tube, the airbox and the snorkel are the inlet tract the simulation solves (`inletSegments`): the
- * airbox holds the solver's volume over its length, and the tube and snorkel have the solver's bores, dual
- * plenums' two tubes its duct's area between them. The solver is one-dimensional, so how they are routed
- * changes nothing it hears.
+ * airbox holds the solver's volume over its length, and the tube and snorkel have the solver's bores.
+ * The solver is one-dimensional, so how they are routed changes nothing it hears.
  */
 
 import * as THREE from 'three';
@@ -73,21 +73,31 @@ export interface InletLayout {
    * and its length along -z, m.
    */
   throttles: { centre: THREE.Vector3; bore: number; length: number }[];
-  /** The tube from each throttle body to the airbox, and their bore, m. */
-  tubes: THREE.CubicBezierCurve3[];
-  tubeRadius: number;
   /** Dual plenums' balance valves, in the wall between them: each one's middle and its radius, m. */
   balances: { centre: THREE.Vector3; radius: number }[];
+  /**
+   * The inlet tract to each throttle body, as `throttles`: dual plenums' two mirrored either side of the
+   * engine, each with its own airbox and snorkel.
+   */
+  tracts: TractLayout[];
+  /** Each tract's tube's bore, m, and its snorkel's cross-section's area, m^2. */
+  tubeRadius: number;
+  snorkelArea: number;
+  /** The solver's tract, throttle first, for the cells each part shows: each tract's alike. */
+  segments: PipeSegment[];
+}
+
+/** One inlet tract as drawn. */
+export interface TractLayout {
+  /** The tube from the throttle body to the airbox. */
+  tube: THREE.CubicBezierCurve3;
   /** The airbox: its middle and its size, its length along x, m. */
   airbox: { centre: THREE.Vector3; size: THREE.Vector3 };
   /** Which way across the car the airbox runs from the tube: +1 or -1. */
   side: number;
-  /** The snorkel from the airbox to its mouth, its cross-section's area, m^2, and its mouth. */
+  /** The snorkel from the airbox to its mouth, and its mouth. */
   snorkel: THREE.CubicBezierCurve3;
-  snorkelArea: number;
   mouth: THREE.Vector3;
-  /** The solver's tract, throttle first, for the cells each part shows. */
-  segments: PipeSegment[];
 }
 
 export { PLENUM_ROUNDING, THROTTLE_WALL };
@@ -109,8 +119,8 @@ function fit(f: (t: number) => number, target: number, lo: number, hi: number): 
 const TUBE_INSET = 0.03;
 /** How much further the tube reaches forwards over the top of its U than out of the throttle body. */
 const TUBE_TOP_REACH = 1.6;
-/** How far apart dual plenums' tubes go into the airbox, wall to wall, m. */
-const TUBE_GAP = 0.025;
+/** How far apart dual plenums' two airboxes are across the middle of the engine, m. */
+const AIRBOX_GAP = 0.03;
 
 /** Where along dual plenums their balance valves are, as fractions of its length: `BALANCE_VALVES` in `plenum.rs`. */
 export const BALANCE_VALVES = [1 / 3, 2 / 3];
@@ -335,38 +345,35 @@ export function inletLayout(spec: EngineSpec): InletLayout {
         })
       : [];
 
-  // The airbox across the top of the engine's front, clear above the plenum and the heads: its length the
+  // Each airbox across the top of the engine's front, clear above the plenum and the heads: its length the
   // solver's chamber, its section holding the solver's volume, half again as deep as it is high. It runs
-  // from the end the tube enters towards the engine's middle, or across a V from one side.
+  // from the end the tube enters towards the engine's middle, or across a V from one side; dual plenums'
+  // two run out from the middle, each to its own side, mirrored.
   const chamber = segments[1]!;
-  const area = airboxVolumeOf(spec) / chamber.length;
+  const area = airboxVolumeOf(spec) / count / chamber.length;
   const boxHeight = Math.sqrt(area / 1.5);
   const depth = boxHeight * 1.5;
-  const run = vee ? 1 : -intakeSide;
-  const side = run;
-  const across = new THREE.Vector3(run, 0, 0);
   const heads = Math.max(shell.top, valvetrainTop(spec)) * Math.cos(shell.straddle);
   const boxY = Math.max(centre.y + height / 2, heads) + boxHeight / 2 + 0.03;
   const boxZ = front + depth / 2;
-  // On a V it starts just short of the throttle body, so the tube stays short however big the airbox.
-  const inletX = vee ? -Math.min(chamber.length / 2, 0.06) : centre.x - run * 0.02;
-  const inlet = new THREE.Vector3(inletX, boxY, boxZ);
-  const airbox = {
-    centre: inlet.clone().addScaledVector(across, chamber.length / 2),
-    size: new THREE.Vector3(chamber.length, boxHeight, depth),
-  };
-
-  // The tube: forwards out of the throttle body, then up and back over into the front of the airbox, by its
-  // end, in one U, as long as the solver's. Into the airbox's end instead, it would have to double back on
-  // itself in a bend tighter than its own bore. Dual plenums' two go in side by side, the one from the
-  // throttle body nearer the airbox's end nearer it, each as long as the solver's duct.
   const forwards = new THREE.Vector3(0, 0, -1);
-  const order = throttles.map((_, k) => k).sort((a, b) => run * (throttles[a]!.centre.x - throttles[b]!.centre.x));
-  const tubes: THREE.CubicBezierCurve3[] = [];
-  order.forEach((k, place) => {
-    const start = throttles[k]!.centre.clone().setZ(plenumFront - throttleLength);
-    const along = Math.min(bore / 2 + TUBE_INSET + place * (bore + TUBE_GAP), chamber.length - bore / 2 - 0.01);
-    const intoBox = inlet.clone().addScaledVector(across, along);
+  const snorkelArea = (Math.PI * snorkelDiaOf(spec) ** 2) / 4;
+  const tracts = throttles.map((throttle, k): TractLayout => {
+    const run = count > 1 ? sides[k]! : vee ? 1 : -intakeSide;
+    const across = new THREE.Vector3(run, 0, 0);
+    // On a V one starts just short of the throttle body, so the tube stays short however big the airbox.
+    const inletX = count > 1 ? (run * AIRBOX_GAP) / 2 : vee ? -Math.min(chamber.length / 2, 0.06) : centre.x - run * 0.02;
+    const inlet = new THREE.Vector3(inletX, boxY, boxZ);
+    const airbox = {
+      centre: inlet.clone().addScaledVector(across, chamber.length / 2),
+      size: new THREE.Vector3(chamber.length, boxHeight, depth),
+    };
+
+    // The tube: forwards out of the throttle body, then up and back over into the front of the airbox, by
+    // its end, in one U, as long as the solver's. Into the airbox's end instead, it would have to double
+    // back on itself in a bend tighter than its own bore.
+    const start = throttle.centre.clone().setZ(plenumFront - throttleLength);
+    const intoBox = inlet.clone().addScaledVector(across, bore / 2 + TUBE_INSET);
     intoBox.z = boxZ - depth / 2;
     const tubeAt = (reach: number) =>
       new THREE.CubicBezierCurve3(
@@ -375,42 +382,38 @@ export function inletLayout(spec: EngineSpec): InletLayout {
         intoBox.clone().addScaledVector(forwards, reach * TUBE_TOP_REACH),
         intoBox,
       );
-    tubes[k] = tubeAt(fit((reach) => tubeAt(reach).getLength(), segments[0]!.length, 0, 1));
-  });
+    const tube = tubeAt(fit((reach) => tubeAt(reach).getLength(), segments[0]!.length, 0, 1));
 
-  // The snorkel: out of the airbox's far end, round to face forwards, its mouth ahead of the engine, as long
-  // as the solver's. It runs forwards clear of the airbox's end by its own flattened width, so it does not
-  // cut through the airbox's corner on its way past.
-  const snorkelArea = (Math.PI * snorkelDiaOf(spec) ** 2) / 4;
-  const outlet = inlet.clone().addScaledVector(across, chamber.length);
-  const halfWidth = Math.sqrt((snorkelArea / Math.PI) * SNORKEL_ASPECT) + SNORKEL_WALL;
-  const aside = halfWidth + SNORKEL_CLEAR;
-  const snorkelAt = (ahead: number) => {
-    const forward = depth / 2 + ahead;
-    const mouth = outlet.clone().addScaledVector(across, aside).add(new THREE.Vector3(0, -0.01, -forward));
-    const curve = new THREE.CubicBezierCurve3(
-      outlet,
-      outlet.clone().addScaledVector(across, aside * 1.15),
-      mouth.clone().add(new THREE.Vector3(0, 0, forward * 0.5)),
-      mouth,
-    );
-    return { mouth, curve };
-  };
-  const ahead = fit((a) => snorkelAt(a).curve.getLength(), segments[2]!.length, 0, 3);
-  const { mouth, curve: snorkel } = snorkelAt(ahead);
+    // The snorkel: out of the airbox's far end, round to face forwards, its mouth ahead of the engine, as
+    // long as the solver's. It runs forwards clear of the airbox's end by its own flattened width, so it
+    // does not cut through the airbox's corner on its way past.
+    const outlet = inlet.clone().addScaledVector(across, chamber.length);
+    const halfWidth = Math.sqrt((snorkelArea / Math.PI) * SNORKEL_ASPECT) + SNORKEL_WALL;
+    const aside = halfWidth + SNORKEL_CLEAR;
+    const snorkelAt = (ahead: number) => {
+      const forward = depth / 2 + ahead;
+      const mouth = outlet.clone().addScaledVector(across, aside).add(new THREE.Vector3(0, -0.01, -forward));
+      const curve = new THREE.CubicBezierCurve3(
+        outlet,
+        outlet.clone().addScaledVector(across, aside * 1.15),
+        mouth.clone().add(new THREE.Vector3(0, 0, forward * 0.5)),
+        mouth,
+      );
+      return { mouth, curve };
+    };
+    const ahead = fit((a) => snorkelAt(a).curve.getLength(), segments[2]!.length, 0, 3);
+    const { mouth, curve: snorkel } = snorkelAt(ahead);
+    return { tube, airbox, side: run, snorkel, mouth };
+  });
 
   return {
     plenum,
     runners,
     throttles,
-    tubes,
-    tubeRadius: bore / 2,
     balances,
-    airbox,
-    side,
-    snorkel,
+    tracts,
+    tubeRadius: bore / 2,
     snorkelArea,
-    mouth,
     segments,
   };
 }
