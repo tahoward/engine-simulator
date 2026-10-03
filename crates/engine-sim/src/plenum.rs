@@ -592,7 +592,7 @@ impl IntakePlenum {
             let flow = r.plenum_flow;
             let zone = row.zones[i];
             let moved = if flow >= 0.0 {
-                [flow, flow * gas_enthalpy(r.plenum_temp), flow * r.burned, flow * r.fuel]
+                [flow, flow * gas_enthalpy(r.plenum_temp), flow * r.mouth_burned, flow * r.mouth_fuel]
             } else {
                 [flow, flow * gas_enthalpy(zone.temp()), flow * zone.burned(), flow * zone.fuel()]
             };

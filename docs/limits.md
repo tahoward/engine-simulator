@@ -19,8 +19,8 @@ Where the model is simplified, and by how much.
     real one.
   - The solver carries a single gamma, 1.33, where cool air's is 1.40, so the air in them carries
     sound about 3% slower and their tuning sits about 3% low.
-  - Their spent gas and fuel are each tracked as one well-mixed fraction per runner, so gas pushed
-    back up a runner comes back spread through it rather than as a slug at the valve.
+  - Their spent gas and fuel are carried cell by cell, first-order in time, so a slug pushed back up a
+    runner keeps its place but its edges blur over a cell or two, more than a real one's do.
   - They are solved on the finest grid the sample rate allows. At the lower sample rates that grid is
     coarser, and they ram the charge in less.
   - A two-stage intake switches between its two sets of runners at once. A real flap takes a few tens

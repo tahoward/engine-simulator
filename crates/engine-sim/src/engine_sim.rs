@@ -93,7 +93,9 @@ const IDLE_TREND_TAU: f64 = 1.0;
 const IDLE_SETTLE_TIME: f64 = 2.0;
 /// The dashpot: how much further the valve opens, as more of the plate's, for each idle speed per
 /// second the engine is falling at, s, so an engine dropping off a lift has the air to catch itself at
-/// the idle rather than falling through it. And the time constant the rate is smoothed over, s.
+/// the idle rather than falling through it; and as much less for each it is rising at, so the air the
+/// plenum takes its time to pass on does not carry the idle up past its speed and back, round and
+/// round. And the time constant the rate is smoothed over, s.
 const IDLE_DASHPOT: f64 = 0.04;
 const IDLE_RATE_TAU: f64 = 0.05;
 
@@ -804,7 +806,8 @@ impl EngineSim {
             let unwind = IDLE_KI * (1.0 - IDLE_HOLD_ABOVE) * dt;
             self.idle_learned = clamp(self.idle_learned + unwind, 0.0, IDLE_VALVE_MAX);
         }
-        let falling = math::max(-self.idle_rate, 0.0) / spec.idle_rpm;
+        // How fast it is falling, in idle speeds per second: negative as it rises.
+        let falling = -self.idle_rate / spec.idle_rpm;
         let opening = clamp(self.idle_learned + IDLE_KP * error + IDLE_DASHPOT * falling, 0.0, IDLE_VALVE_MAX);
         self.plenum.set_bypass(spec, opening);
     }
@@ -1851,7 +1854,7 @@ impl EngineSim {
                         in_mdot,
                         intake_t: intake.runners[b].port_temp,
                         port_t: port_temp,
-                        intake_burned: intake.runners[b].burned,
+                        intake_burned: intake.runners[b].inflow_burned,
                         intake_fuel: intake.runners[b].inflow_fuel,
                     };
                     for _ in 0..n_sub as usize {
