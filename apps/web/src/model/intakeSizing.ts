@@ -59,20 +59,20 @@ export interface PlenumShape {
 
 /**
  * The plenum's size: the spec's, each that is 0 or less worked out, as the simulation works it out
- * (`plenum_shape_of`). Its length runs past every runner by its flared mouth, along most of the engine; its
+ * (`plenum_shape_of`). Its length runs past every runner by its flared mouth, along most of the engine, and
+ * one given is no shorter than that (`runnerSpanOf`); its
  * height takes the throttle body's flange; its width holds `plenumVolume`, or one and a half times the
  * engine's displacement, at that length and height. A width or height given is no less than the flange,
  * nor a width less than a flange for each plenum side by side.
  */
 export function plenumShapeOf(spec: EngineSpec): PlenumShape {
   const taper = Math.min(Math.max(spec.plenumTaper, 0), 0.8);
-  let length = spec.plenumLength;
-  if (!(length > 0)) {
+  const span = runnerSpanOf(spec);
+  let length = Math.max(spec.plenumLength, span);
+  if (!(spec.plenumLength > 0)) {
     const spacing = cylinderSpacing(spec);
     const block = (crankPins(spec).length - 1) * spacing + Math.max(spacing, spec.bore * 1.3);
-    const reach = Math.max(0, ...Array.from({ length: spec.cylinders }, (_, c) => Math.abs(cylinderZ(spec, c))));
-    const last = reach + (1.5 * intakeRunnerOf(spec).diameter) / 2 + PLENUM_ROUNDING + 0.006;
-    length = Math.max(block * 0.85, 2 * last);
+    length = Math.max(block * 0.85, span);
   }
   // No smaller across or high than takes the throttle bodies' flanges on its front.
   const face = throttleFaceOf(spec);
@@ -83,6 +83,15 @@ export function plenumShapeOf(spec: EngineSpec): PlenumShape {
       ? Math.max(spec.plenumWidth, face * plenumCountOf(spec))
       : target / (height * length * (1 - taper / 2));
   return { length, width, height, taper };
+}
+
+/**
+ * The shortest a plenum can be, m: as long as the runners it feeds are set out along the engine, from the
+ * far side of the first's flared mouth to the far side of the last's.
+ */
+export function runnerSpanOf(spec: EngineSpec): number {
+  const reach = Math.max(0, ...Array.from({ length: spec.cylinders }, (_, c) => Math.abs(cylinderZ(spec, c))));
+  return 2 * (reach + (1.5 * intakeRunnerOf(spec).diameter) / 2 + PLENUM_ROUNDING + 0.006);
 }
 
 /** How wide and high a plenum's front must be to take a throttle body's flange inside its rounded edges, m. */

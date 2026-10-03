@@ -36,7 +36,7 @@ describe('the airbox', () => {
 
 describe('the plenum', () => {
   it('is drawn the size the simulation solves it at, and holds one and a half times the displacement left to itself', async () => {
-    const { plenumShapeOf, plenumVolumeOf } = await import('../src/model/intakeSizing.js');
+    const { plenumShapeOf, plenumVolumeOf, runnerSpanOf } = await import('../src/model/intakeSizing.js');
     const { displacement } = await import('../src/model/spec.js');
     for (const preset of ENGINE_PRESETS) {
       const spec = presetEngine(preset, defaultConfig().engine);
@@ -46,10 +46,21 @@ describe('the plenum', () => {
       expect(l.plenum.size.y, preset.name).toBeCloseTo(shape.height, 12);
       const left = { ...spec, plenumWidth: 0, plenumHeight: 0, plenumVolume: 0 };
       expect(plenumVolumeOf(left) / (displacement(spec) * spec.cylinders), preset.name).toBeCloseTo(1.5, 9);
-      // Its size set, it is drawn that size.
-      const sized = { ...spec, plenumLength: 0.5, plenumWidth: 0.2, plenumHeight: 0.19 };
+      // Its size set, longer than its runners need, it is drawn that size.
+      const length = runnerSpanOf(spec) + 0.05;
+      const sized = { ...spec, plenumLength: length, plenumWidth: 0.2, plenumHeight: 0.19 };
       const drawn = inletLayout(sized).plenum.size;
-      expect([drawn.x, drawn.y, drawn.z], preset.name).toEqual([plenumShapeOf(sized).width, plenumShapeOf(sized).height, 0.5]);
+      expect([drawn.x, drawn.y, drawn.z], preset.name).toEqual([plenumShapeOf(sized).width, plenumShapeOf(sized).height, length]);
+    }
+  });
+
+  it('is never set shorter than the row of runners it feeds', async () => {
+    const { plenumShapeOf, runnerSpanOf } = await import('../src/model/intakeSizing.js');
+    for (const preset of ENGINE_PRESETS) {
+      const spec = presetEngine(preset, defaultConfig().engine);
+      const span = runnerSpanOf(spec);
+      expect(plenumShapeOf({ ...spec, plenumLength: 0.01 }).length, preset.name).toBe(span);
+      expect(inletLayout({ ...spec, plenumLength: 0.01 }).plenum.size.z, preset.name).toBeCloseTo(span, 12);
     }
   });
 });

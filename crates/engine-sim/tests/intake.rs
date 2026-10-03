@@ -401,7 +401,7 @@ mod torque_curve {
 
 mod plenum {
     use super::*;
-    use engine_sim::plenum::{plenum_count_of, plenum_shape_of, plenum_volume_of, throttle_dia_of};
+    use engine_sim::plenum::{plenum_count_of, plenum_shape_of, plenum_volume_of, runner_span_of, throttle_dia_of};
 
     /// The F20C at full throttle, settled, and its plenum's front and back zones' gauge pressure over
     /// the next quarter second.
@@ -435,12 +435,23 @@ mod plenum {
         let auto = plenum_volume_of(&spec);
         let swept = displacement(&spec) * 8.0;
         assert!((auto / swept - 1.5).abs() < 1e-9, "auto {auto} swept {swept}");
-        let sized = v8_spec(json!({ "plenumLength": 0.5, "plenumWidth": 0.25, "plenumHeight": 0.2, "plenumTaper": 0.4 }));
-        assert!((plenum_volume_of(&sized) - 0.5 * 0.25 * 0.2 * 0.8).abs() < 1e-12);
+        let sized = v8_spec(json!({ "plenumLength": 0.8, "plenumWidth": 0.25, "plenumHeight": 0.2, "plenumTaper": 0.4 }));
+        assert!((plenum_volume_of(&sized) - 0.8 * 0.25 * 0.2 * 0.8).abs() < 1e-12);
         // Left to work out its width, it holds the volume asked for at any length.
         let long = v8_spec(json!({ "plenumLength": 0.7, "plenumVolume": 0.004 }));
         assert!((plenum_volume_of(&long) - 0.004).abs() < 1e-12);
         assert_eq!(plenum_shape_of(&long).length, 0.7);
+    }
+
+    /// is never set shorter than the row of runners it feeds
+    #[test]
+    fn is_never_set_shorter_than_the_row_of_runners_it_feeds() {
+        let span = runner_span_of(&v8_spec(json!({})));
+        let short = v8_spec(json!({ "plenumLength": 0.05 }));
+        assert_eq!(plenum_shape_of(&short).length, span);
+        assert!(plenum_shape_of(&v8_spec(json!({}))).length >= span);
+        let long = v8_spec(json!({ "plenumLength": span + 0.1 }));
+        assert_eq!(plenum_shape_of(&long).length, span + 0.1);
     }
 
     /// is solved along its length: its ends breathe apart, but feed the runners the same air on average

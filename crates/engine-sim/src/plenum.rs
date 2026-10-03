@@ -124,21 +124,21 @@ impl PlenumShape {
 }
 
 /// The plenum's size: the spec's, each that is 0 or less worked out, as `intakeSizing.ts` works it out
-/// for the drawn one. Its length runs past every runner by its flared mouth, along most of the engine; its
+/// for the drawn one. Its length runs past every runner by its flared mouth, along most of the engine, and
+/// one given is no shorter than that (`runner_span_of`); its
 /// height takes the throttle body's flange; its width holds `plenum_volume`, or one and a half times the
 /// engine's displacement, at that length and height. A width or height given is no less than the flange,
 /// nor a width less than a flange for each plenum side by side.
 pub fn plenum_shape_of(spec: &EngineSpec) -> PlenumShape {
     let taper = clamp(spec.plenum_taper, 0.0, 0.8);
+    let span = runner_span_of(spec);
     let length = if spec.plenum_length > 0.0 {
-        spec.plenum_length
+        math::max(spec.plenum_length, span)
     } else {
         let spacing = cylinder_spacing(spec);
         let pins = crank_pins(spec).len() as f64;
         let block = (pins - 1.0) * spacing + math::max(spacing, spec.bore * 1.3);
-        let reach = (0..spec.cylinders as usize).map(|c| cylinder_z(spec, c).abs()).fold(0.0, f64::max);
-        let last = reach + 1.5 * intake_runner_of(spec).diameter / 2.0 + PLENUM_ROUNDING + 0.006;
-        math::max(block * 0.85, 2.0 * last)
+        math::max(block * 0.85, span)
     };
     // No smaller across or high than takes the throttle bodies' flanges on its front.
     let face = throttle_dia_of(spec) + 2.0 * THROTTLE_WALL + 2.0 * PLENUM_ROUNDING + 0.01;
@@ -151,6 +151,13 @@ pub fn plenum_shape_of(spec: &EngineSpec) -> PlenumShape {
         target / (height * length * (1.0 - taper / 2.0))
     };
     PlenumShape { length, width, height, taper }
+}
+
+/// The shortest a plenum can be, m: as long as the runners it feeds are set out along the engine, from
+/// the far side of the first's flared mouth to the far side of the last's.
+pub fn runner_span_of(spec: &EngineSpec) -> f64 {
+    let reach = (0..spec.cylinders as usize).map(|c| cylinder_z(spec, c).abs()).fold(0.0, f64::max);
+    2.0 * (reach + 1.5 * intake_runner_of(spec).diameter / 2.0 + PLENUM_ROUNDING + 0.006)
 }
 
 /// Plenum volume, m^3, of the plenum as `plenum_shape_of` sizes it: dual plenums' together.

@@ -1388,6 +1388,8 @@ export class Panel {
       for (const row of balanceRows) row.classList.toggle('hidden', !p.dualPlenum);
     };
     showPlenum();
+    // A preset or an import changes the plenum without touching its sliders.
+    this.resyncers.push(showPlenum);
     const refreshRunners = this.refreshIntake;
     this.refreshIntake = () => {
       refreshRunners();
@@ -1397,7 +1399,11 @@ export class Panel {
       'The plenum the runners draw from, downstream of the throttle, solved along its length: a wave ' +
       'takes a millisecond or so to cross it, so the cylinders at its far end draw from air its waves ' +
       'leave different from that by the throttle, and it rings at the speed a wave crosses it and back.';
-    const plenumSize = (label: string, key: 'plenumLength' | 'plenumWidth' | 'plenumHeight', max: number, auto: () => number, title: string) => {
+    // Each shows the size the plenum is drawn and solved at, which a setting below what the runners and
+    // the throttle bodies need is raised to.
+    const solvedAt = (key: 'plenumLength' | 'plenumWidth' | 'plenumHeight' | 'plenumTaper', v: number) =>
+      solvedPlenum({ ...this.config.engine, [key]: v })[key];
+    const plenumSize = (label: string, key: 'plenumLength' | 'plenumWidth' | 'plenumHeight', max: number, title: string) => {
       this.slider(intake, {
         label,
         min: 0,
@@ -1405,23 +1411,28 @@ export class Panel {
         step: 0.001,
         value: spec[key],
         sync: () => this.config.engine[key],
-        format: (v) => (v > 0 ? `${Math.round(v * 1000)} mm` : `auto (${Math.round(auto() * 1000)} mm)`),
-        onInput: (v) => this.cb.onEngine({ [key]: v }),
+        format: (v) => {
+          const mm = Math.round(solvedAt(key, v) * 1000);
+          return v > 0 ? `${mm} mm` : `auto (${mm} mm)`;
+        },
+        onInput: (v) => {
+          this.cb.onEngine({ [key]: v });
+          showPlenum();
+        },
       }).row.title = title;
     };
     plenumSize(
       'Plenum length',
       'plenumLength',
       0.9,
-      () => solvedPlenum(this.config.engine).plenumLength,
       'Along the engine, the throttle body at its front. At 0 it runs past every runner, along most of the ' +
-        'engine. Longer, it rings lower, and its far cylinders breathe further from the near ones.',
+        'engine; set, it is never shorter than the row of runners it feeds. Longer, it rings lower, and its ' +
+        'far cylinders breathe further from the near ones.',
     );
     plenumSize(
       'Plenum width',
       'plenumWidth',
       0.3,
-      () => solvedPlenum(this.config.engine).plenumWidth,
       'Across it at its front. At 0 it is as wide as holds one and a half times the engine\u2019s ' +
         'displacement at its length and height, within the room the engine leaves it. Its volume holds ' +
         'what the cylinders push back up their runners and hands it back next cycle.',
@@ -1430,7 +1441,6 @@ export class Panel {
       'Plenum height',
       'plenumHeight',
       0.3,
-      () => solvedPlenum(this.config.engine).plenumHeight,
       'How high it is at its front. At 0, and at least, high enough for the throttle body\u2019s flange.',
     );
     this.slider(intake, {
@@ -1440,8 +1450,11 @@ export class Panel {
       step: 0.01,
       value: spec.plenumTaper,
       sync: () => this.config.engine.plenumTaper,
-      format: (v) => `${Math.round(v * 100)}%`,
-      onInput: (v) => this.cb.onEngine({ plenumTaper: v }),
+      format: (v) => `${Math.round(solvedAt('plenumTaper', v) * 100)}%`,
+      onInput: (v) => {
+        this.cb.onEngine({ plenumTaper: v });
+        showPlenum();
+      },
     }).row.title =
       'How much of its section it has lost at its back, narrowing evenly from its front: beside an ' +
       'inline head its side away from the head drawn in, on a V or a boxer its top dropped. The far ' +
