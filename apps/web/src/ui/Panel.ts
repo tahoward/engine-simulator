@@ -59,6 +59,7 @@ import {
   type ChamberSection,
   type PipeMaterial,
   type PipeSegment,
+  DEFAULT_ENGINE,
   type SegmentKind,
   BLOW_OFFS,
   PIPE_MATERIALS,
@@ -202,12 +203,31 @@ export const SAMPLE_RATES: Array<[number, string]> = [
 ];
 
 /**
- * The finest exhaust cell the solver can take at sample rate `hz`, m, to the slider's millimetre: one
+ * The finest exhaust cell the solver can take at sample rate `hz`, m, to the nearest millimetre: one
  * step per sample has to keep the fastest wave, `DESIGN_WAVE_SPEED` 1400 m/s, within a cell at a
- * Courant number of 0.85. Asked for finer, the solver raises it to this.
+ * Courant number of 0.85. Asked for finer, the solver raises it to the exact figure, under half a
+ * millimetre more.
  */
 export function finestCell(hz: number): number {
-  return Math.ceil((1400 / (hz * 0.85)) * 1000) / 1000;
+  return Math.round((1400 / (hz * 0.85)) * 1000) / 1000;
+}
+
+/**
+ * The exhaust cell the solver is given by default at sample rate `hz`, m: the engine's default up to
+ * 48 kHz, and above it the finest cell the rate allows. The cells set what the pipes can carry, about
+ * `c / (5 dx)`, so a higher rate on the 48 kHz cells only steps the same grid twice as often.
+ */
+export function defaultCellSize(hz: number): number {
+  return hz > 48000 ? finestCell(hz) : DEFAULT_ENGINE.pipeCellSize;
+}
+
+/**
+ * `cell` at sample rate `hz`: a cell left at the default of any rate on offer moves to this rate's
+ * default, and one chosen by hand stays as it is.
+ */
+export function cellSizeForRate(cell: number, hz: number): number {
+  const defaults = [DEFAULT_ENGINE.pipeCellSize, ...SAMPLE_RATES.map(([rate]) => defaultCellSize(rate))];
+  return defaults.includes(cell) ? defaultCellSize(hz) : cell;
 }
 
 /** What the Cylinders menu offers: a count, and for a twin or a six whether it is a V. */
@@ -349,6 +369,8 @@ export class Panel {
   private cellSlider!: ReturnType<typeof slider>;
   /** The finest cell the Solver resolution slider offers, m: `finestCell` at the sample rate. */
   private cellFloor: number;
+  /** The sample rate the audio runs at, Hz. */
+  private sampleRate: number;
 
   private selected: number | null = null;
   private readonly view: ViewOptions = {
@@ -366,6 +388,7 @@ export class Panel {
     launchSettings: LaunchSettings = autoLaunchSettings(),
   ) {
     this.launch = launchSettings;
+    this.sampleRate = sampleRate;
     this.cellFloor = finestCell(sampleRate);
     const spec = config.engine;
     const section = sectionRail(root);
@@ -417,14 +440,16 @@ export class Panel {
     for (const [hz, label] of SAMPLE_RATES) rateSel.appendChild(option(String(hz), label));
     rateSel.value = String(sampleRate);
     rateSel.addEventListener('change', () => {
-      this.setCellFloor(Number(rateSel.value));
-      this.cb.onSampleRate(Number(rateSel.value));
+      const hz = Number(rateSel.value);
+      this.setSampleRate(hz);
+      this.cb.onSampleRate(hz);
     });
     rateRow.title =
       'The solver takes one step per audio sample, so a lower rate means fewer steps and coarser ' +
       'cells: much less CPU, for a duller exhaust. For phones and slow machines. 96 kHz steps the ' +
-      'cylinders, valves and pipes twice as finely for about twice the CPU, with the same cells. Changing it ' +
-      'restarts the audio, and the pipes warm up again from cold.';
+      'cylinders, valves and pipes twice as finely, and halves the default exhaust cells to 17 mm so the ' +
+      'pipes carry twice as high, for about four times the CPU. Changing it restarts the audio, and the ' +
+      'pipes warm up again from cold.';
 
     // ---- Launch ----------------------------------------------------------
     const launch = section('Launch', 'launch', 'A timed standing start through the gears, and the car and gearbox it runs through.');
@@ -620,7 +645,8 @@ export class Panel {
        */
       // A different engine gets a car fitted to it.
       this.resetLaunch(preset.car ?? null);
-      this.cb.onEngine(presetEngine(preset, this.config.engine));
+      const engine = presetEngine(preset, this.config.engine);
+      this.cb.onEngine({ ...engine, pipeCellSize: cellSizeForRate(engine.pipeCellSize, this.sampleRate) });
       this.config.pipe.length = 0;
       this.config.pipe.push(...preset.pipe());
       this.config.collector.length = 0;
@@ -1703,7 +1729,7 @@ export class Panel {
     this.cellSlider.row.title =
       'Cell length for the exhaust gas-dynamics solver. Smaller cells resolve higher ' +
       'frequencies and cost more. The solver takes one step per audio sample, so the finest cell ' +
-      'is set by the sample rate: about 18 mm at 96 kHz, 35 mm at 48 kHz, 51 mm at 32 kHz and 69 mm ' +
+      'is set by the sample rate: about 17 mm at 96 kHz, 34 mm at 48 kHz, 51 mm at 32 kHz and 69 mm ' +
       'at 24 kHz. A big engine may be given coarser cells than asked for, to keep it in real time.';
     this.slider(comb, {
       label: 'Port gas temp',
@@ -2069,8 +2095,14 @@ export class Panel {
     this.startBtn.classList.toggle('running', running);
   }
 
-  /** Show a sample rate chosen somewhere other than the menu. */
+  /**
+   * Take on sample rate `hz`, from the menu or chosen elsewhere: the exhaust cells move to its default
+   * if they were at a rate's default, and the Solver resolution slider to its floor.
+   */
   setSampleRate(hz: number): void {
+    const cell = cellSizeForRate(this.config.engine.pipeCellSize, hz);
+    if (cell !== this.config.engine.pipeCellSize) this.cb.onEngine({ pipeCellSize: cell });
+    this.sampleRate = hz;
     this.rateSel.value = String(hz);
     this.setCellFloor(hz);
   }

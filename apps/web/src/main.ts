@@ -81,7 +81,7 @@ import {
   type ExhaustGraph,
 } from './model/exhaustGraph.js';
 import { Viewer } from './scene/Viewer.js';
-import { Panel, SAMPLE_RATES, type ViewOptions } from './ui/Panel.js';
+import { Panel, SAMPLE_RATES, cellSizeForRate, type ViewOptions } from './ui/Panel.js';
 import { Scope } from './ui/Scope.js';
 import { LaunchSheet } from './ui/LaunchSheet.js';
 import { LagNotice } from './ui/LagNotice.js';
@@ -108,9 +108,12 @@ config.graph ??= compileExhaust(config.engine, config.pipe, config.collector);
 /**
  * The audio sample rate, kept per device rather than in the URL: it is a choice about what this
  * machine can afford, not part of the engine, so a shared link should not carry a phone's setting.
+ * The desktop app always starts at 48 kHz, and 96 kHz lasts until it is closed: four times the CPU
+ * is a choice for the session, not one to wake up to.
  */
 const SAMPLE_RATE_KEY = 'engine-simulator:sampleRate';
 const sampleRate = loadSampleRate();
+config.engine.pipeCellSize = cellSizeForRate(config.engine.pipeCellSize, sampleRate);
 // A touch screen stands in for "probably a phone": the device where the audio thread runs late, and
 // where a larger buffer turns a late block into a little delay rather than crackle.
 //
@@ -665,12 +668,16 @@ const lagNotice = new LagNotice(must<HTMLElement>('#stage'), (hz) => {
 audio.onLag((behind) => lagNotice.update(behind, audio.sampleRate));
 
 function changeSampleRate(hz: number): void {
+  if (import.meta.env.VITE_TARGET !== 'desktop') saveSampleRate(hz);
+  void audio.setSampleRate(hz);
+}
+
+function saveSampleRate(hz: number): void {
   try {
     localStorage.setItem(SAMPLE_RATE_KEY, String(hz));
   } catch {
     // Storage can be off (private browsing); the choice then lasts until reload.
   }
-  void audio.setSampleRate(hz);
 }
 
 const scope = new Scope(scopeEl, audio);
@@ -1163,6 +1170,7 @@ function importEngine(text: string): void {
 }
 
 function loadSampleRate(): number {
+  if (import.meta.env.VITE_TARGET === 'desktop') return 48000;
   let stored: number;
   try {
     stored = Number(localStorage.getItem(SAMPLE_RATE_KEY));
