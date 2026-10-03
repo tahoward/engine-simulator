@@ -57,9 +57,11 @@ import {
   type EngineSnapshot,
   type EngineSpec,
   type ChamberSection,
+  type PipeMaterial,
   type PipeSegment,
   type SegmentKind,
   BLOW_OFFS,
+  PIPE_MATERIALS,
   CHAMBER_SECTIONS,
   makeSegment,
   physicalBankCount,
@@ -1650,6 +1652,27 @@ export class Panel {
       "The wall's thermal mass, so how long the system takes to come up to temperature — " +
       'tens of seconds for typical 1.2 mm tubing. Gas temperature sets the speed of sound, ' +
       'so the note genuinely shifts as the pipe warms.';
+    const materialRow = el('div', 'row', comb);
+    el('label', '', materialRow).textContent = 'Pipe material';
+    const materialSel = el('select', '', materialRow) as HTMLSelectElement;
+    const materialNames: Record<PipeMaterial, string> = {
+      mildSteel: 'Mild steel',
+      stainless: 'Stainless steel',
+      castIron: 'Cast iron',
+      titanium: 'Titanium',
+    };
+    for (const m of PIPE_MATERIALS) materialSel.appendChild(option(m, materialNames[m]));
+    materialSel.value = spec.pipeMaterial;
+    materialSel.addEventListener('change', () =>
+      this.cb.onEngine({ pipeMaterial: materialSel.value as PipeMaterial }),
+    );
+    this.resyncers.push(() => {
+      materialSel.value = this.config.engine.pipeMaterial;
+    });
+    materialRow.title =
+      'The wall’s thermal mass, how well it sheds heat, and how rough its bore is. A rough cast-iron ' +
+      'bore drags on the flow and draws more heat out of the gas, so the note runs a little duller ' +
+      'and lower; light, smooth titanium warms up fastest.';
     this.slider(comb, {
       label: 'Air speed past pipe',
       min: 0,
@@ -1771,6 +1794,18 @@ export class Panel {
       format: (v) => `${Math.round(v * 100)}%`,
       onInput: (v) => this.cb.onEngine({ throatNoise: v }),
     });
+    this.slider(mix, {
+      label: 'Tailpipe jet noise',
+      min: 0,
+      max: 1,
+      step: 0.01,
+      value: spec.jetNoise,
+      sync: () => this.config.engine.jetNoise,
+      format: (v) => `${Math.round(v * 100)}%`,
+      onInput: (v) => this.cb.onEngine({ jetNoise: v }),
+    }).row.title =
+      'The roar of the gas jet leaving each tailpipe, which swells on every pulse. It goes as the ' +
+      'eighth power of the exit speed, so a narrow outlet at high revs hisses and a wide one is silent.';
 
     this.slider(mix, {
       label: 'Turbo sound',

@@ -17,9 +17,9 @@ use crate::cross_modes::{ChamberPlacement, CrossModes, PipeOpening};
 use crate::math::{self, PI, clamp};
 use crate::simd::{F2, select};
 use crate::spec::{
-    CHAMBER_THROAT, ChamberSection, PIPE_PRESSURE_TAPS, PipeSegment, SegmentKind, ambient_sound_speed, chamber_body,
-    chamber_offsets, gas, pipe_temperature, section_area, section_perimeter, segment_diameter, segment_section,
-    speed_of_sound_exh,
+    CHAMBER_THROAT, ChamberSection, PIPE_PRESSURE_TAPS, PipeSegment, SegmentKind, WallMaterial, ambient_sound_speed,
+    chamber_body, chamber_offsets, gas, pipe_temperature, section_area, section_perimeter, segment_diameter,
+    segment_section, speed_of_sound_exh,
 };
 use crate::valve::{VALVE_CD, orifice_solve};
 
@@ -76,9 +76,23 @@ const AMB4: f64 = gas::T_AMB * gas::T_AMB * gas::T_AMB * gas::T_AMB;
 /// Reciprocal time constant of the mean-flow tracker, 1/s.
 const MEAN_FLOW_RATE: f64 = 1.0 / 0.8;
 
-/// Steel: density kg/m^3, specific heat J/(kg K).
+/// Steel: density kg/m^3, specific heat J/(kg K), and the emissivity of its oxidised surface.
 pub const WALL_RHO: f64 = 7800.0;
 const WALL_CP: f64 = 490.0;
+const WALL_EMISSIVITY: f64 = 0.8;
+const STEFAN_BOLTZMANN: f64 = 5.67e-8;
+
+/// Darcy friction factor for the mean flow, where no wall material gives a roughness to work it out from.
+const DEFAULT_DARCY: f64 = 0.03;
+/// Reynolds number the friction factor of a rough wall is taken at before any flow has been measured.
+const REFERENCE_REYNOLDS: f64 = 5e4;
+/// Lowest Reynolds number the friction factor is worked out at: below it the flow is not turbulent,
+/// and the mean-flow friction it would give is negligible beside the linear damping.
+const MIN_TURBULENT_REYNOLDS: f64 = 4000.0;
+/// Norris's exponent on the rise in friction a rough wall gives, for its rise in heat transfer,
+/// `0.68 Pr^0.215`, and the rise in friction past which the heat transfer stops following it.
+const ROUGH_HEAT_EXPONENT: f64 = 0.63;
+const ROUGH_HEAT_MAX_RATIO: f64 = 4.0;
 
 /// Multiplier on the steady-flow Nusselt number, for pulsation.
 const PULSATION_NUSSELT: f64 = 3.0;
@@ -145,8 +159,11 @@ pub struct EulerPipeOptions {
     pub junction_inlet_area: Option<f64>,
     /// Linear momentum damping, 1/s, standing in for viscothermal boundary-layer loss.
     pub linear_damping: Option<f64>,
-    /// Darcy friction factor for the mean flow.
+    /// Darcy friction factor for the mean flow, fixed. Without it, the factor is worked out from the
+    /// wall's roughness and the flow along it, given a `material`, and is `DEFAULT_DARCY` otherwise.
     pub darcy_friction: Option<f64>,
+    /// What the wall is made of: its thermal mass, emissivity and roughness. Plain steel when absent.
+    pub material: Option<WallMaterial>,
     /// False terminates the pipe with a closed wall.
     pub radiate: Option<bool>,
     pub inlet_kind: Option<InletKind>,
@@ -181,6 +198,7 @@ impl EulerPipeOptions {
             junction_inlet_area,
             linear_damping,
             darcy_friction,
+            material,
             radiate,
             inlet_kind,
             outlet_kind,
@@ -313,7 +331,13 @@ pub struct EulerPipe {
     q_banked: Vec<f64>,
     inv_wall_heat_capacity: Vec<f64>,
     pub linear_damping: f64,
-    pub darcy: f64,
+    /// Mean-flow friction of each cell, `f / (2 D_h)`, 1/m, for the Darcy factor `f`.
+    friction: Vec<f64>,
+    /// Roughness of the bore relative to each cell's hydraulic diameter, where the friction factor is
+    /// worked out from it, or empty where it is fixed.
+    relative_roughness: Vec<f64>,
+    /// Stefan-Boltzmann constant times the outer surface's emissivity.
+    sigma_eps: f64,
     radiate: bool,
     pub inlet_kind: InletKind,
     pub outlet_kind: OutletKind,
@@ -372,6 +396,12 @@ impl EulerPipe {
         let max_substeps = opts.max_substeps.unwrap_or(16);
         let wall_thickness = clamp(opts.wall_thickness.unwrap_or(0.0012), 2e-4, 0.01);
         let inlet_kind = opts.inlet_kind.unwrap_or(InletKind::Valve);
+        let wall = opts.material.unwrap_or(WallMaterial {
+            density: WALL_RHO,
+            specific_heat: WALL_CP,
+            emissivity: WALL_EMISSIVITY,
+            roughness: 0.0,
+        });
         let outlet_kind = opts.outlet_kind.unwrap_or(OutletKind::Mouth);
 
         let min_dx = if opts.single_step.unwrap_or(false) { single_step_dx(sample_rate, cfl) } else { 0.0 };
@@ -401,6 +431,19 @@ impl EulerPipe {
             inv_vol[i] = 1.0 / (built.area_cell[i] * dx);
             inv_dia[i] = 1.0 / hyd_dia[i];
         }
+        let relative_roughness: Vec<f64> = match (opts.darcy_friction, opts.material) {
+            (None, Some(m)) => hyd_dia.iter().map(|d| m.roughness / d).collect(),
+            _ => Vec::new(),
+        };
+        let friction = (0..n)
+            .map(|i| {
+                let darcy = match relative_roughness.get(i) {
+                    Some(&e) => darcy_factor(REFERENCE_REYNOLDS, e),
+                    None => opts.darcy_friction.unwrap_or(DEFAULT_DARCY),
+                };
+                0.5 * darcy * inv_dia[i]
+            })
+            .collect();
 
         let mut pipe_ = EulerPipe {
             n,
@@ -454,7 +497,9 @@ impl EulerPipe {
             q_banked: z(),
             inv_wall_heat_capacity: z(),
             linear_damping: opts.linear_damping.unwrap_or(150.0),
-            darcy: opts.darcy_friction.unwrap_or(0.03),
+            friction,
+            relative_roughness,
+            sigma_eps: STEFAN_BOLTZMANN * wall.emissivity,
             radiate: opts.radiate.unwrap_or(true),
             inlet_kind,
             outlet_kind,
@@ -500,8 +545,8 @@ impl EulerPipe {
         let init_temp_for_wall = opts.initial_port_temp.unwrap_or(port_gas_temp);
         for i in 0..n {
             let d = p.shape_cell[i] * p.dia_cell[i];
-            let mass = WALL_RHO * PI * (d + p.wall_thickness) * p.wall_thickness * dx;
-            p.wall_heat_capacity[i] = math::max(mass * WALL_CP, 1e-6);
+            let mass = wall.density * PI * (d + p.wall_thickness) * p.wall_thickness * dx;
+            p.wall_heat_capacity[i] = math::max(mass * wall.specific_heat, 1e-6);
             p.inv_wall_heat_capacity[i] = 1.0 / p.wall_heat_capacity[i];
             let gas_guess = pipe_temperature(init_temp_for_wall, (i as f64 + 0.5) * dx);
             p.wall_t[i] = gas::T_AMB + 0.62 * (gas_guess - gas::T_AMB);
@@ -650,6 +695,11 @@ impl EulerPipe {
 
     pub fn inlet_area(&self) -> f64 {
         self.area_cell[0]
+    }
+
+    /// Area the gas leaves the mouth through, m^2: the nozzle's where the pipe ends in one.
+    pub fn mouth_area(&self) -> f64 {
+        if self.nozzle_area > 0.0 { self.nozzle_area } else { self.area_face[self.n] }
     }
 
     /// First quarter-wave resonance of the duct as it is currently filled, Hz, integrated over the
@@ -1201,10 +1251,9 @@ impl EulerPipe {
     fn update_cells(&mut self, dt: f64) {
         let n = self.n;
         let k_lin = self.linear_damping;
-        let darcy_half = self.darcy * 0.5;
         let track = dt * MEAN_FLOW_RATE;
         let (dt_v, half, one, zero) = (F2::splat(dt), F2::splat(0.5), F2::splat(1.0), F2::splat(0.0));
-        let (k_lin_v, darcy_half_v, track_v) = (F2::splat(k_lin), F2::splat(darcy_half), F2::splat(track));
+        let (k_lin_v, track_v) = (F2::splat(k_lin), F2::splat(track));
         let (r_floor, min_internal) = (F2::splat(1e-7), F2::splat(MIN_INTERNAL));
         let mut i = 0;
         // SAFETY: cells `i` and `i + 1` with `i + 1 < n`, and faces up to `i + 2 <= n`, of `n + 1`.
@@ -1229,8 +1278,8 @@ impl EulerPipe {
                 let inv_nr = one / nr;
                 let u_old = nm * inv_nr;
                 let u_mean = F2::load(&self.u_mean, i);
-                let k_quad = u_old.abs() * (darcy_half_v * F2::load(&self.inv_dia, i))
-                    + (u_old * F2::load(&self.contraction_k, i)).max_js(zero);
+                let k_quad =
+                    u_old.abs() * F2::load(&self.friction, i) + (u_old * F2::load(&self.contraction_k, i)).max_js(zero);
                 let u_new = (u_old + k_lin_v * u_mean * dt_v) / (one + (k_lin_v + k_quad) * dt_v);
                 nm = nr * u_new;
                 (u_mean + (u_new - u_mean) * track_v).store(&mut self.u_mean, i);
@@ -1264,7 +1313,7 @@ impl EulerPipe {
             let inv_nr = 1.0 / nr;
             let u_old = nm * inv_nr;
             let u_mean = self.u_mean[i];
-            let k_quad = u_old.abs() * (darcy_half * self.inv_dia[i]) + math::max(u_old * self.contraction_k[i], 0.0);
+            let k_quad = u_old.abs() * self.friction[i] + math::max(u_old * self.contraction_k[i], 0.0);
             let u_new = (u_old + k_lin * u_mean * dt) / (1.0 + (k_lin + k_quad) * dt);
             nm = nr * u_new;
 
@@ -1524,7 +1573,17 @@ impl EulerPipe {
             let r = self.rho[i];
             let d = self.hyd_dia[i];
             let re = (self.flux_avg[i] * d) / MU;
-            let nu = math::max(0.023 * math::pow(re, 0.8) * PR_N * PULSATION_NUSSELT, NUSSELT_FLOOR);
+            let mut nu = 0.023 * math::pow(re, 0.8) * PR_N * PULSATION_NUSSELT;
+            if let Some(&e) = self.relative_roughness.get(i) {
+                // A rough wall drags more on the flow and, by Norris's correlation, carries more heat
+                // across the boundary layer it thickens with eddies.
+                let re = math::max(re, MIN_TURBULENT_REYNOLDS);
+                let darcy = darcy_factor(re, e);
+                self.friction[i] = 0.5 * darcy * self.inv_dia[i];
+                let rise = clamp(darcy / darcy_factor(re, 0.0), 1.0, ROUGH_HEAT_MAX_RATIO);
+                nu *= math::pow(rise, ROUGH_HEAT_EXPONENT);
+            }
+            let nu = math::max(nu, NUSSELT_FLOOR);
             let htc_vol = ((nu * K_GAS) / d) * (4.0 / d);
             let tau = (r * CV) / math::max(htc_vol, 1e-9);
             self.gas_decay[i] = math::exp(-dt_sample / tau);
@@ -1569,11 +1628,11 @@ impl EulerPipe {
 
     /// Wall to ambient, by convection and radiation, in batches.
     fn apply_wall_thermal(&mut self, dt: f64) {
-        const SIGMA_EPS: f64 = 5.67e-8 * 0.8;
         for i in 0..self.n {
             let tw = self.wall_t[i];
-            let q_out =
-                (self.h_ext[i] * (tw - gas::T_AMB) + SIGMA_EPS * (tw * tw * tw * tw - AMB4)) * self.outer_area[i] * dt;
+            let q_out = (self.h_ext[i] * (tw - gas::T_AMB) + self.sigma_eps * (tw * tw * tw * tw - AMB4))
+                * self.outer_area[i]
+                * dt;
             self.wall_t[i] =
                 clamp(tw + (self.q_banked[i] - q_out) * self.inv_wall_heat_capacity[i], gas::T_AMB, 1600.0);
             self.q_banked[i] = 0.0;
@@ -1801,6 +1860,13 @@ fn bracketed_root(f: impl Fn(f64) -> f64, a: f64, b: f64) -> f64 {
 }
 
 #[inline(always)]
+/// Darcy friction factor of turbulent flow at Reynolds number `re` along a wall whose roughness is `rel`
+/// of its hydraulic diameter: Haaland's explicit form of the Colebrook equation, within 2% of it.
+pub fn darcy_factor(re: f64, rel: f64) -> f64 {
+    let x = -1.8 * math::log(math::pow(rel / 3.7, 1.11) + 6.9 / re) / std::f64::consts::LN_10;
+    1.0 / (x * x)
+}
+
 fn minmod(a: f64, b: f64) -> f64 {
     if a * b <= 0.0 {
         return 0.0;

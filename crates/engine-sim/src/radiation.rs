@@ -5,8 +5,13 @@
 //! radiates like a piston and its efficiency stops climbing. So the transfer is a first-order
 //! highpass at `wc`, the bilinear transform of `s / (s + wc)`, scaled by `rho wc / (4 pi)`.
 
-use crate::math::{self, PI};
-use crate::spec::{density, gas};
+use crate::dsp::Noise;
+use crate::math::{self, PI, clamp};
+use crate::spec::{ambient_sound_speed, density, gas};
+
+/// Lighthill's constant: the share of a jet's kinetic power `rho U^8 D^2 / c^5` it radiates as
+/// sound. Measured jets give 0.3-1.2e-4.
+const LIGHTHILL_K: f64 = 5e-5;
 
 // On cache lines of its own, as each may be stepped on a thread of its own.
 #[repr(align(128))]
@@ -182,5 +187,78 @@ impl Steepening {
         self.band_y = 0.0;
         self.mean_u = 0.0;
         self.last_shift = 0.0;
+    }
+}
+
+/// Sound pressure at 1 m, Pa RMS, of a jet of speed `u` (m/s) from a nozzle of diameter `d` (m), by
+/// Lighthill's eighth-power law.
+pub fn lighthill_pa(u: f64, d: f64) -> f64 {
+    let rho = gas::P_AMB / (gas::R * gas::T_AMB);
+    let c = math::sqrt(gas::GAMMA_AIR * gas::R * gas::T_AMB);
+    let u2 = u * u;
+    let power = LIGHTHILL_K * rho * u2 * u2 * u2 * u2 * d * d / (c * c * c * c * c);
+    math::sqrt((power * rho * c) / (4.0 * PI))
+}
+
+/// The roar of the jet an exhaust mouth blows into the air: the turbulence of the gas leaving it,
+/// which no one-dimensional duct can carry.
+///
+/// Lighthill's law on the mouth's speed of the moment, so it swells and dies with every pulse: the
+/// eighth power puts nearly all of it at the tip of a blowdown, which is the fuzz on each beat of a
+/// real exhaust. Lighthill's law is for a jet as dense as the air it meets, and a hot one is lighter;
+/// but at the speeds an exhaust leaves at, well below the air's speed of sound, a hot jet is no
+/// quieter than a cold one of the same speed. Air drawn in at the mouth makes no jet outside it.
+/// The roar of the jet an exhaust mouth blows into the air: the turbulence of the gas leaving it,
+/// which no one-dimensional duct can carry.
+///
+/// Lighthill's law on the mouth's speed of the moment, so it swells and dies with every pulse: the
+/// eighth power puts nearly all of it at the tip of a blowdown, which is the fuzz on each beat of a
+/// real exhaust. The jet is hot, so lighter than the air it meets, which the law takes as the density
+/// ratio to the power SAE ARP876 gives: below about half the air's speed of sound a hot jet is the
+/// louder, above it the quieter. Its spectrum is white noise shaped round the Strouhal peak,
+/// `0.2 U / D`, falling 12 dB an octave above it as measured jets do. Air drawn in at the mouth makes
+/// no jet outside it.
+pub struct MouthJet {
+    noise: Noise,
+    lp1: f64,
+    lp2: f64,
+    hp: f64,
+}
+
+impl MouthJet {
+    pub fn new(seed: f64) -> MouthJet {
+        MouthJet { noise: Noise::new(seed), lp1: 0.0, lp2: 0.0, hp: 0.0 }
+    }
+
+    /// Volume flow leaving a mouth of `area`, m^2, of gas at `temp`, K, to the jet's sound at 1 m, Pa,
+    /// at `level` of the real one.
+    #[inline]
+    pub fn process(&mut self, q: f64, area: f64, temp: f64, level: f64, sample_rate: f64) -> f64 {
+        let area = math::max(area, 1e-6);
+        let u = if level > 0.0 { q / area } else { 0.0 };
+        if u <= 0.0 {
+            self.lp1 *= 0.99;
+            self.lp2 *= 0.99;
+            self.hp *= 0.99;
+            return 0.0;
+        }
+        let d = math::sqrt((4.0 * area) / PI);
+        let m = math::pow(u / ambient_sound_speed(), 3.5);
+        let omega = (3.0 * m) / (0.6 + m) - 1.0;
+        let density_ratio = gas::T_AMB / math::max(temp, 0.5 * gas::T_AMB);
+        let pa = level * lighthill_pa(u, d) * math::sqrt(math::pow(density_ratio, omega));
+
+        let peak = clamp((0.2 * u) / d, 100.0, 0.4 * sample_rate);
+        let c_lp = 1.0 - math::exp((-2.0 * PI * 2.0 * peak) / sample_rate);
+        let c_hp = 1.0 - math::exp((-2.0 * PI * 0.5 * peak) / sample_rate);
+        // Uniform noise has an RMS of 1/sqrt(3); two one-pole low-passes of pole `a` keep
+        // `c^4 (1 + a^2) / (1 - a^2)^3` of its power.
+        let r = (1.0 - c_lp) * (1.0 - c_lp);
+        let c2 = c_lp * c_lp;
+        let norm = math::sqrt((3.0 * (1.0 - r) * (1.0 - r) * (1.0 - r)) / (c2 * c2 * (1.0 + r)));
+        self.lp1 += c_lp * (self.noise.next() - self.lp1);
+        self.lp2 += c_lp * (self.lp1 - self.lp2);
+        self.hp += c_hp * (self.lp2 - self.hp);
+        (self.lp2 - self.hp) * norm * pa
     }
 }

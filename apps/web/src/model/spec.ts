@@ -152,6 +152,15 @@ export type BlowOff = 'atmospheric' | 'recirculating' | 'none';
 
 export const BLOW_OFFS: BlowOff[] = ['atmospheric', 'recirculating', 'none'];
 
+/**
+ * What the exhaust is made of. It sets the wall's thermal mass, how well its outside radiates heat
+ * away, and how rough its bore is: a rough bore drags on the flow and carries more heat to the wall.
+ * Cast iron is the roughest by far; stainless and titanium tube are smooth, and titanium is light.
+ */
+export type PipeMaterial = 'mildSteel' | 'stainless' | 'castIron' | 'titanium';
+
+export const PIPE_MATERIALS: PipeMaterial[] = ['mildSteel', 'stainless', 'castIron', 'titanium'];
+
 export interface EngineSpec {
   // --- Layout ---
   /**
@@ -590,6 +599,8 @@ export interface EngineSpec {
    * sets the speed of sound, the note genuinely shifts as the pipe warms.
    */
   pipeWallThickness: number;
+  /** What the exhaust is made of. See `PipeMaterial`. */
+  pipeMaterial: PipeMaterial;
   /**
    * Air speed past the exhaust, m/s. 0 is a stationary engine, 25 is roughly 90 km/h.
    *
@@ -629,6 +640,11 @@ export interface EngineSpec {
   mechNoise: number;
   /** Scales broadband turbulence generated at the valve throat, 0..1. */
   throatNoise: number;
+  /**
+   * Level of the roar of the jet each tailpipe blows into the air, 0..1 (1 = every instant of each
+   * pulse taken as a steady jet of that speed). Loudest from a narrow outlet at high speed.
+   */
+  jetNoise: number;
 }
 
 export interface EngineConfig {
@@ -1381,6 +1397,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
   portGasTemp: 950,
   pipeCellSize: 0.035,
   pipeWallThickness: 0.0012,
+  pipeMaterial: 'mildSteel',
   airSpeed: 0,
   exhaustHeight: 0.35,
   cylinderSpread: 0.3,
@@ -1388,6 +1405,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
   outputGain: 0.77,
   mechNoise: 0.45,
   throatNoise: 0.5,
+  jetNoise: 0.5,
 };
 
 export interface Preset {

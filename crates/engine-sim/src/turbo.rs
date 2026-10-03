@@ -43,7 +43,7 @@ use crate::exhaust_graph::TurboSettings;
 use crate::exhaust_system::{TurbineResult, TurbineSetting};
 use crate::intake::runner_damping;
 use crate::math::{self, PI, clamp};
-use crate::radiation::FarField;
+use crate::radiation::{FarField, lighthill_pa};
 use crate::spec::{
     BlowOff, EngineSpec, PipeSegment, SegmentKind, SegmentPartial, displacement, gas, gas_energy, gas_enthalpy,
     gas_temperature, make_segment, speed_of_sound,
@@ -244,9 +244,6 @@ const TURBO_DETUNE: f64 = 1.012;
 const TURBINE_PULSATION: f64 = 0.004;
 const TURBINE_ORDERS: [(f64, f64); 2] = [(1.0, 1.0), (2.0, 0.5)];
 
-/// Lighthill's constant: the share of a jet's kinetic power `rho U^8 D^2 / c^5` it radiates as
-/// sound. Measured jets give 0.3-1.2e-4.
-const LIGHTHILL_K: f64 = 5e-5;
 /// How much of a recirculating blow-off valve's jet noise gets out through the intake's ducting.
 const RECIRCULATING_TRANSMISSION: f64 = 0.1;
 
@@ -450,6 +447,8 @@ fn charge_pipe(size: &RotorSizing, sample_rate: f64, opts: &EulerPipeOptions) ->
         linear_damping: Some(runner_damping(size.pipe_dia / 2.0, c / (4.0 * length))),
         port: None,
         inherit_wall: None,
+        // The exhaust's material is the exhaust's alone.
+        material: None,
         cell_size: Some(math::max(opts.cell_size.unwrap_or(0.0), CHARGE_PIPE_CELL)),
         ..opts.clone()
     };
@@ -521,16 +520,6 @@ fn jet_velocity(p_up: f64, t_up: f64, p_down: f64) -> f64 {
     let critical = math::pow(2.0 / (GAMMA_AIR + 1.0), 1.0 / k);
     let pr = math::max(p_down / p_up, critical);
     math::sqrt(2.0 * CP_AIR * t_up * (1.0 - math::pow(pr, k)))
-}
-
-/// Sound pressure at 1 m, Pa RMS, of a jet of speed `u` (m/s) from a nozzle of diameter `d` (m), by
-/// Lighthill's eighth-power law.
-fn lighthill_pa(u: f64, d: f64) -> f64 {
-    let rho = gas::P_AMB / (gas::R * gas::T_AMB);
-    let c = math::sqrt(GAMMA_AIR * gas::R * gas::T_AMB);
-    let u2 = u * u;
-    let power = LIGHTHILL_K * rho * u2 * u2 * u2 * u2 * d * d / (c * c * c * c * c);
-    math::sqrt((power * rho * c) / (4.0 * PI))
 }
 
 /// A jet's broadband noise: white noise band-limited either side of its Strouhal peak, `0.2 U / D`,

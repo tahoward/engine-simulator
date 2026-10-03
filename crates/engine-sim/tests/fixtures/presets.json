@@ -76,13 +76,15 @@
   "portGasTemp": 950,
   "pipeCellSize": 0.035,
   "pipeWallThickness": 0.0012,
+  "pipeMaterial": "mildSteel",
   "airSpeed": 0,
   "exhaustHeight": 0.35,
   "cylinderSpread": 0.3,
   "groundReflection": 0.7,
   "outputGain": 0.77,
   "mechNoise": 0.45,
-  "throatNoise": 0.5
+  "throatNoise": 0.5,
+  "jetNoise": 0.5
  },
  "defaultConfig": {
   "engine": {
@@ -162,13 +164,15 @@
    "portGasTemp": 950,
    "pipeCellSize": 0.035,
    "pipeWallThickness": 0.0012,
+   "pipeMaterial": "mildSteel",
    "airSpeed": 0,
    "exhaustHeight": 0.35,
    "cylinderSpread": 0.3,
    "groundReflection": 0.7,
    "outputGain": 0.77,
    "mechNoise": 0.45,
-   "throatNoise": 0.5
+   "throatNoise": 0.5,
+   "jetNoise": 0.5
   },
   "pipe": [
    {
@@ -344,13 +348,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 0.68,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -558,13 +564,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 0.55,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -797,13 +805,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 0.81,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -1039,13 +1049,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 1.31,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -1304,13 +1316,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 1.63,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -1735,13 +1749,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 2.44,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -2140,13 +2156,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 1.24,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -2592,13 +2610,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 1.23,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -3294,13 +3314,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 0.96,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -4114,13 +4136,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 2.1,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -4405,13 +4429,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 0.93,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -5250,13 +5276,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 0.88,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -5510,13 +5538,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 1.03,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
@@ -5771,13 +5801,15 @@
      "portGasTemp": 950,
      "pipeCellSize": 0.035,
      "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
      "airSpeed": 0,
      "exhaustHeight": 0.35,
      "cylinderSpread": 0.3,
      "groundReflection": 0.7,
      "outputGain": 0.54,
      "mechNoise": 0.45,
-     "throatNoise": 0.5
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
     },
     "pipe": [
      {
