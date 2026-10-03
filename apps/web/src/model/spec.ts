@@ -2714,7 +2714,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: true,
     },
     description:
-      'The 6.2 litre small-block in the mid-engine Corvette: pushrods, two big valves a cylinder, 11.5:1 and a cam that closes the intake late, which only pays off because its long intake runners ram the charge in. Tubular headers into a silencer each side. It makes about 640 N·m and 495 hp here, as the real engine makes 637 and 495.',
+      'The 6.2 litre small-block in the mid-engine Corvette: pushrods, two big valves a cylinder, 11.5:1 and a cam that closes the intake late, which only pays off because its long intake runners ram the charge in. Tubular headers into a silencer each side, and an 87 mm throttle body. It makes 637 N·m (470 lb·ft) at 5150 rpm and 495 hp at 6450, as the real engine does.',
     engine: {
       pushrods: true,
       cylinders: 8,
@@ -2736,17 +2736,25 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       // 2.13 and 1.59 in valves, one of each.
       exValveDia: 0.0404,
       inValveDia: 0.054,
-      maxLift: 0.0145,
-      // About 275 and 280 degrees on a 116-degree lobe separation.
+      // Estimated: about 290 degrees on the exhaust and 265 on the intake, the intake closing early enough
+      // for the torque peak at 5150 rpm, and lift enough to carry the power on to 6450. Tuned with the
+      // runners for GM's figures.
+      maxLift: 0.0165,
       evo: 104,
-      evc: 384,
+      evc: 392,
       ivo: 338,
-      ivc: 614,
+      ivc: 602,
+      // Estimated: tuned for the torque peak at 5150 rpm, and opened out from the valves' 49 mm so the
+      // top end breathes.
+      intakeRunnerLength: 0.44,
+      intakeRunnerDia: 0.055,
+      throttleDia: 0.087,
       outputGain: LT2_GAIN,
     },
-    // Tubular headers, 1-3/4 in primaries. 600 mm is the best of 450 to 900 across the range: its milder
-    // cam has little overlap for them to scavenge through, so they mostly help the low end.
-    pipe: () => [makeSegment({ kind: 'pipe', length: 0.6, dIn: 0.044 })],
+    // Tubular headers, 1-3/4 in primaries, run lengthways, each opening out to the collector's bore in its
+    // bend as it is drawn. Estimated: 850 mm, tuned with the cam and runners for GM's figures on the dyno as
+    // the app draws them; at 600 mm it makes 477 hp.
+    pipe: () => [makeSegment({ kind: 'pipe', length: 0.85, dIn: 0.044 })],
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.16, dIn: 0.066, dOut: 0.076 }),
       makeSegment({ kind: 'pipe', length: 1.0, dIn: 0.076 }),

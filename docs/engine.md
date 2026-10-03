@@ -140,7 +140,9 @@ engine's idle does, and the plenum stays clean. The injector meters on the fresh
 was pushed back, so the mixture each cylinder traps is the one asked for.
 
 **The idle air valve holds the idle speed.** With the throttle shut, a PI controller opens a valve round
-the plate. The air it lets in takes the plenum's time to reach the cylinders, so on its own the
+the plate. The valve is sized for the engine rather than for the throttle body: it passes what the
+throttle body the engine would be given left to itself would at that much more opening, so an engine
+given a smaller one, as the LT2's 87 mm is, still has the air to idle on. The air it lets in takes the plenum's time to reach the cylinders, so on its own the
 controller would carry the speed past the idle and back, round and round, worse the bigger the plenum.
 A dashpot answers the speed's rate of change: it opens the valve further as the engine falls, so one
 dropping off a lift catches itself at the idle, and closes it as the engine rises. On the LT6, whose

@@ -92,6 +92,11 @@ pub fn throttle_dia_of(spec: &EngineSpec) -> f64 {
     if spec.throttle_dia > 0.0 {
         return spec.throttle_dia;
     }
+    sized_throttle_dia(spec)
+}
+
+/// The bore `throttle_dia_of` sizes each throttle body to, whatever the spec gives, m.
+fn sized_throttle_dia(spec: &EngineSpec) -> f64 {
     let area = (total_displacement(spec) * (THROTTLE_DESIGN_RPM / 120.0)) / THROTTLE_DESIGN_VELOCITY;
     math::sqrt((4.0 * area) / (PI * plenum_count_of(spec) as f64))
 }
@@ -151,6 +156,15 @@ pub fn plenum_shape_of(spec: &EngineSpec) -> PlenumShape {
 /// Plenum volume, m^3, of the plenum as `plenum_shape_of` sizes it: dual plenums' together.
 pub fn plenum_volume_of(spec: &EngineSpec) -> f64 {
     plenum_shape_of(spec).volume()
+}
+
+/// Effective flow area of a throttle plate `d` m across at `opening`, 0..1, m^2: geometric area times the
+/// plate's discharge coefficient.
+fn plate_area(d: f64, opening: f64) -> f64 {
+    let bore = (PI * d * d) / 4.0;
+    let open = 1.0 - math::cos(clamp(opening, 0.0, 1.0) * (PI / 2.0));
+    let geometric = bore * (IDLE_BYPASS + (1.0 - IDLE_BYPASS) * open);
+    geometric * (CD_CLOSED + (CD_OPEN - CD_CLOSED) * open)
 }
 
 /// Where along dual plenums the balance valves are, as fractions of their length from the front: two,
@@ -344,7 +358,7 @@ impl IntakePlenum {
     /// Set the throttle to `opening`, 0..1, in place of the spec's, until the next `set_geometry`.
     pub fn set_opening(&mut self, spec: &EngineSpec, opening: f64) {
         self.opening = opening;
-        self.area = IntakePlenum::throttle_area_at(spec, self.opening + self.bypass);
+        self.area = IntakePlenum::bypassed_area(spec, self.opening, self.bypass);
     }
 
     /// Open the idle air valve, the bypass round the throttle plate, by `bypass`: as much air as that
@@ -354,14 +368,14 @@ impl IntakePlenum {
             return;
         }
         self.bypass = bypass;
-        self.area = IntakePlenum::throttle_area_at(spec, self.opening + self.bypass);
+        self.area = IntakePlenum::bypassed_area(spec, self.opening, self.bypass);
     }
 
     /// Rebuild geometry in place. Its gas is kept: at the same state, where only the throttle changed, or
     /// at its mean pressure, temperature and composition through a plenum of a new shape.
     pub fn set_geometry(&mut self, spec: &EngineSpec) {
         self.opening = spec.throttle;
-        self.area = IntakePlenum::throttle_area_at(spec, self.opening + self.bypass);
+        self.area = IntakePlenum::bypassed_area(spec, self.opening, self.bypass);
         self.balance_rpms = balance_rpms_of(spec);
         let shape = plenum_shape_of(spec);
         let layout = Layout::new(spec, shape, self.sample_rate);
@@ -470,12 +484,21 @@ impl IntakePlenum {
         IntakePlenum::throttle_area_at(spec, spec.throttle)
     }
 
+    /// Effective flow area of one throttle body, m^2, its plate at `opening` and the idle air valve round
+    /// it at `bypass`. The valve is sized for the engine, not the throttle body: it passes what that much
+    /// more opening would pass through a throttle body of the size `throttle_dia_of` gives the engine left
+    /// to itself, so a small throttle body given has no less air to idle on.
+    pub fn bypassed_area(spec: &EngineSpec, opening: f64, bypass: f64) -> f64 {
+        if !(spec.throttle_dia > 0.0) {
+            return IntakePlenum::throttle_area_at(spec, opening + bypass);
+        }
+        let sized = sized_throttle_dia(spec);
+        let valve = plate_area(sized, opening + bypass) - plate_area(sized, opening);
+        IntakePlenum::throttle_area_at(spec, opening) + valve
+    }
+
     pub fn throttle_area_at(spec: &EngineSpec, opening: f64) -> f64 {
-        let d = throttle_dia_of(spec);
-        let bore = (PI * d * d) / 4.0;
-        let open = 1.0 - math::cos(clamp(opening, 0.0, 1.0) * (PI / 2.0));
-        let geometric = bore * (IDLE_BYPASS + (1.0 - IDLE_BYPASS) * open);
-        geometric * (CD_CLOSED + (CD_OPEN - CD_CLOSED) * open)
+        plate_area(throttle_dia_of(spec), opening)
     }
 
     /// The flow in through each throttle body last sample, kg/s, as the plenums are ordered.

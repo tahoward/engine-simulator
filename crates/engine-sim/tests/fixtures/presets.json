@@ -4026,11 +4026,14 @@
     "compressionRatio": 11.5,
     "exValveDia": 0.0404,
     "inValveDia": 0.054,
-    "maxLift": 0.0145,
+    "maxLift": 0.0165,
     "evo": 104,
-    "evc": 384,
+    "evc": 392,
     "ivo": 338,
-    "ivc": 614,
+    "ivc": 602,
+    "intakeRunnerLength": 0.44,
+    "intakeRunnerDia": 0.055,
+    "throttleDia": 0.087,
     "outputGain": 2.1
    },
    "config": {
@@ -4051,11 +4054,11 @@
      "portLength": 0.055,
      "inValveDia": 0.054,
      "inValveCount": 1,
-     "maxLift": 0.0145,
+     "maxLift": 0.0165,
      "evo": 104,
-     "evc": 384,
+     "evc": 392,
      "ivo": 338,
-     "ivc": 614,
+     "ivc": 602,
      "camSwitchRpm": 0,
      "highEvo": 128,
      "highEvc": 378,
@@ -4080,7 +4083,7 @@
      "combustionVariability": 1,
      "recipMass": 0.55,
      "throttle": 0,
-     "throttleDia": 0,
+     "throttleDia": 0.087,
      "plenumVolume": 0,
      "plenumLength": 0,
      "plenumWidth": 0,
@@ -4093,8 +4096,8 @@
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
-     "intakeRunnerLength": 0,
-     "intakeRunnerDia": 0,
+     "intakeRunnerLength": 0.44,
+     "intakeRunnerDia": 0.055,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
      "boostTarget": 70000,
@@ -4123,7 +4126,7 @@
      {
       "id": "seg740",
       "kind": "pipe",
-      "length": 0.6,
+      "length": 0.85,
       "dIn": 0.044,
       "dOut": 0.044,
       "yaw": 0,
@@ -4175,7 +4178,7 @@
        "position": [
         -0.3368408544764267,
         0.04446987812531901,
-        2.4020808417439388
+        2.6245758809704203
        ]
       },
       {
@@ -4183,14 +4186,14 @@
        "position": [
         0.3368408544764267,
         0.04446987812531901,
-        2.4180808417439383
+        2.6405758809704203
        ]
       }
      ],
      "intake": [
-      0.4923858637591186,
-      0.5800825787731254,
-      -0.3834484420734305
+      0.456740678779915,
+      0.5453500504310985,
+      -0.41245885304699986
      ],
      "engine": [
       0,
