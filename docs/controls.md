@@ -149,7 +149,8 @@ speeding up its own flywheel, and the curve comes out close to what the engine m
   shut, the second leaves them open to the rev limit, and the third leaves them as the other two do. See
   [The intake](engine.md#the-intake).
 - **Throttle bore** sets the throttle's size: each throttle body's, with dual plenums. At 0 it is sized
-  for the engine's airflow at full throttle and 7000 rpm, through both together with dual plenums.
+  for the engine's airflow at full throttle and 7000 rpm, through both together with dual plenums. The
+  idle air valve is sized for the engine whatever this is, so a small throttle body still idles.
 - **Airbox volume**, **Snorkel length** and **Snorkel bore** shape the inlet tract the throttle draws
   its air through, and so the intake's note and its hiss. The view draws it, with the plenum, the
   throttle body and its butterfly, on top of the engine. At 0

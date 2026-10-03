@@ -60,6 +60,11 @@ matters.
   cylinder to over 95% at its tuned speed. That must be more than 10 points above an 80 mm stub, and
   more than it fills either side of that speed. An 800 mm runner must make more torque than a 250 mm
   one at 3500 rpm and less at 6450.
+- **The dyno, as the app runs it.** With each preset's exhaust seated on the engine as it is drawn, its
+  plenum the size it is drawn, and the Dyno section's pull on auto, through the Wasm build: the LT2
+  must make 490 to 500 hp above 6300 rpm and 465 to 475 lb·ft within 150 rpm of 5150, and the LT6 665
+  to 680 hp above 8200. The simulation's own tests run the exhaust as compiled, which the drawing can
+  reshape.
 - **A smooth torque curve.** Held at each 400 rpm from 4400 to 8400, the LT6 at full throttle must
   fall by under 3% from one speed to the next on its way up to its peak, and rise by under 4% on its
   way down, so its runners' resonance does not build from one cycle to the next into dips and humps.
