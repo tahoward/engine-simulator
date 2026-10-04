@@ -21,9 +21,9 @@ turbos. Measured on an Apple M3 Max:
 ```
 preset                                           cells  asked   native     Wasm
 Single, megaphone                                   26            5.2%     6.1%
-90° V-twin, 2-into-2                                46            9.6%    11.6%
 Parallel twin, 360°                                 47           11.5%    13.3%
 45° V-twin, Harley-Davidson Milwaukee-Eight 121     63           12.2%    14.1%
+90° V-twin, Honda RC51                              78           13.0%    15.1%
 Inline three, Ford 1.5 EcoBoost Dragon              97           23.2%    24.8%
 Inline four, Honda F20C                            112           21.9%    25.4%
 Inline four, Toyota 3S-GTE                         111           27.2%    30.1%

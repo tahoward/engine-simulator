@@ -428,3 +428,27 @@ fn the_milwaukee_eight_makes_about_the_real_engines_torque_and_power() {
     let (mapped, fixed) = (torque(2500.0, json!({})), torque(2500.0, json!({ "vvtIntakeLow": 0 })));
     assert!(mapped > fixed + 1.5, "{mapped} N*m at 2500 rpm on the cam map, against {fixed} with the cam fixed");
 }
+
+/// The RC51 makes about the real engine's rated 133 hp (99 kW) at 9500 rpm, and nearly its 105 N*m at 8000:
+/// cams with the overlap for the rest would not let it idle.
+#[test]
+fn the_rc51_makes_about_the_real_engines_torque_and_power() {
+    let torque = |rpm: f64| {
+        let mut cfg = common::engine_preset("90° V-twin, Honda RC51").config.clone();
+        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
+        cfg.engine = common::with(&cfg.engine, held);
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(2 * FS as usize);
+        let n = FS as usize / 2;
+        let mut t = 0.0;
+        for _ in 0..n {
+            sim.render(1);
+            t += sim.snapshot().torque - sim.friction_torque();
+        }
+        t / n as f64
+    };
+    let t8000 = torque(8000.0);
+    assert!((t8000 - 105.0).abs() < 0.15 * 105.0, "{t8000} N*m at 8000 rpm");
+    let hp = torque(9500.0) * 9500.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    assert!((hp - 133.0).abs() < 0.1 * 133.0, "{hp} hp at 9500 rpm");
+}

@@ -2399,6 +2399,49 @@ const HARLEY_M8_121: Partial<EngineSpec> = {
 };
 
 /**
+ * The 999 cc twin of the 2000-01 Honda RC51 (SP-1): 100.0 x 63.6 mm, 10.8:1, a 90-degree vee on a shared
+ * crankpin, gear-driven twin cams and four valves a cylinder, rated at 133 hp (99 kW) at 9500 rpm and
+ * 105 N*m at 8000.
+ */
+const HONDA_RC51: Partial<EngineSpec> = {
+  cylinders: 2,
+  vAngle: 90,
+  firingOffset: null,
+  exhaustLayout: '2into2',
+  ...IDLING,
+  // Estimated: a little past its 9500 rpm power peak.
+  revLimit: 10000,
+  flywheelInertia: 0.2,
+  pipeCellSize: 0.035,
+  bore: 0.1,
+  stroke: 0.0636,
+  // Estimated: its published figures do not include the rod.
+  rodLength: 0.12,
+  compressionRatio: 10.8,
+  // 40 mm intakes and 34 mm exhausts, two of each.
+  ...fourValveHead(0.1),
+  // Estimated, like the runners, the plenum and the exhaust, and tuned with them for the rated torque at
+  // 8000 rpm and power at 9500. The cams overlap 39 degrees. More would make more power at the top end,
+  // but with no variable timing to take it away at idle, the exhaust it pushes back into the intake there
+  // dilutes the charge until the idle hunts and stalls.
+  maxLift: 0.0139,
+  evo: 111,
+  evc: 385,
+  ivo: 346,
+  ivc: 606,
+  intakeRunnerLength: 0.38,
+  intakeRunnerDia: 0.057,
+  // One 62 mm throttle into a plenum a little bigger than the app would give it, which the real one's
+  // throttle bodies do without, drawing straight from the airbox. Bigger still, the two cylinders rob each
+  // other of less air at the top end, but the plenum answers the idle valve too slowly and the idle hunts.
+  throttleDia: 0.062,
+  plenumVolume: 0.0025,
+  recipMass: 0.65,
+  // Level-matched to the other twins.
+  outputGain: 0.44,
+};
+
+/**
  * The 1.5 litre EcoBoost "Dragon" of the Mk8 Fiesta ST: 84.0 x 90.0 mm, 9.7:1, and one turbo through an
  * air-to-air intercooler, rated at 200 PS (197 hp) at 6000 rpm and 290 N*m (214 lb-ft) from 1600 rpm.
  */
@@ -2842,23 +2885,30 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     ],
   },
   {
-    name: '90\u00b0 V-twin, 2-into-2',
-    description:
-      'An L-twin firing 450/270, with a separate pipe per cylinder so the banks never talk to each other.',
-    engine: {
-      cylinders: 2,
-      vAngle: 90,
-      firingOffset: null,
-      exhaustLayout: '2into2',
-      ...IDLING,
-      // Desmodromic valves, so no float to guard against: a Ducati twin's 9000.
-      revLimit: 9000,
-      flywheelInertia: 0.22,
-      outputGain: 0.81,
+    name: '90\u00b0 V-twin, Honda RC51',
+    car: {
+      // Honda's figures for the 2000-01 RC51 (SP-1): the six-speed, a 68/40 primary and a 40/16 chain,
+      // 4.25 in all. A 190/50ZR17 rear tyre, 223 kg at the kerb.
+      name: 'Honda RC51 (SP-1)',
+      ratios: [2.461, 1.812, 1.428, 1.24, 1.08, 0.962],
+      finalDrive: (68 / 40) * (40 / 16),
+      tyreRadius: 0.311,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 223 + DRIVER_MASS,
+      drive: 'rwd',
+      drivenLoad: 0.5,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
     },
+    description:
+      'The 999 cc twin in the Honda RC51, Honda\u2019s World Superbike homologation special: 100 x 63.6 mm, 10.8:1, a 90\u00b0 vee on a shared crankpin, so it fires 450/270 like a Ducati, with gear-driven twin cams, four valves a cylinder and a 10,000 rpm limit. Each cylinder has its own header and silencer, so the two never hear each other. It makes 92-103 N\u00b7m from 5500 to 9750 rpm, 95 N\u00b7m at 8000 and 128 hp at 9500, against the real engine\u2019s rated 105 N\u00b7m at 8000 and 133 hp at 9500. Its rod, valves, cams, runners, plenum and exhaust are estimates.',
+    engine: HONDA_RC51,
+    // Estimated: each cylinder's header into a silencer of its own under the seat, as the real one has.
     pipe: () => [
-      makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.04 }),
-      makeSegment({ kind: 'cone', length: 0.3, dIn: 0.04, dOut: 0.075 }),
+      makeSegment({ kind: 'pipe', length: 0.7, dIn: 0.05 }),
+      makeSegment({ kind: 'cone', length: 0.1, dIn: 0.05, dOut: 0.058 }),
+      makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.058, dOut: 0.12 }),
+      makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.058 }),
     ],
   },
   {
