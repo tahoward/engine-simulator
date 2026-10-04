@@ -21,6 +21,8 @@ import type { ExhaustGraph } from './exhaustGraph.js';
 import nissanRb26Exhaust from './exhausts/nissan-rb26.json';
 import toyota2grExhaust from './exhausts/toyota-2gr.json';
 import chevroletLt6Exhaust from './exhausts/chevrolet-lt6.json';
+import harleyM8Exhaust from './exhausts/harley-m8-121.json';
+import hondaRc51Exhaust from './exhausts/honda-rc51.json';
 
 /** Shape of one length of exhaust plumbing. */
 export type SegmentKind =
@@ -2873,9 +2875,10 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: false,
     },
     description:
-      'The 121 cubic inch (1977 cc) twin in the CVO Road Glide and Street Glide: 103.5 x 117.5 mm, 11.4:1, a 45\u00b0 vee on a shared crankpin, so it fires 405/315 like every big Harley, and one cam in the block working four valves a cylinder through pushrods, with variable timing on that cam. Long headers into one collector and a silencer. It makes 177-192 N\u00b7m from 1750 to 4000 rpm, 192 N\u00b7m (141 lb\u00b7ft) at 3500 and 115 hp at 5000, against the real engine\u2019s rated 189 N\u00b7m (139 lb\u00b7ft) at 3500 and 115 hp at 5020. The real one splits again after its collector into two silencers; its rod, valves, cam, cam map, runners and exhaust are estimates.',
+      'The 121 cubic inch (1977 cc) twin in the CVO Road Glide and Street Glide: 103.5 x 117.5 mm, 11.4:1, a 45\u00b0 vee on a shared crankpin, so it fires 405/315 like every big Harley, and one cam in the block working four valves a cylinder through pushrods, with variable timing on that cam. Each cylinder\u2019s header runs to a straight pipe of its own, with no silencer. It makes 177-199 N\u00b7m from 1750 to 4500 rpm, 193 N\u00b7m (142 lb\u00b7ft) at 3500 and 117 hp at 5000, against the real engine\u2019s rated 189 N\u00b7m (139 lb\u00b7ft) at 3500 and 115 hp at 5020. Its rod, valves, cam, cam map and runners are estimates.',
     engine: HARLEY_M8_121,
-    // Estimated: 1-3/4 in headers into one collector and a 4 in silencer.
+    // What a change of layout compiles a fresh exhaust from: 1-3/4 in headers into one collector and a
+    // 4 in silencer.
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.045 })],
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.12, dIn: 0.05, dOut: 0.057 }),
@@ -2883,6 +2886,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       makeSegment({ kind: 'chamber', length: 0.5, dIn: 0.057, dOut: 0.1 }),
       makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.05 }),
     ],
+    // Drawn in the editor: each cylinder's header out to a pipe of its own, open at the back.
+    graph: () => structuredClone(harleyM8Exhaust) as ExhaustGraph,
   },
   {
     name: '90\u00b0 V-twin, Honda RC51',
@@ -2901,15 +2906,18 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: false,
     },
     description:
-      'The 999 cc twin in the Honda RC51, Honda\u2019s World Superbike homologation special: 100 x 63.6 mm, 10.8:1, a 90\u00b0 vee on a shared crankpin, so it fires 450/270 like a Ducati, with gear-driven twin cams, four valves a cylinder and a 10,000 rpm limit. Each cylinder has its own header and silencer, so the two never hear each other. It makes 92-103 N\u00b7m from 5500 to 9750 rpm, 95 N\u00b7m at 8000 and 128 hp at 9500, against the real engine\u2019s rated 105 N\u00b7m at 8000 and 133 hp at 9500. Its rod, valves, cams, runners, plenum and exhaust are estimates.',
+      'The 999 cc twin in the Honda RC51, Honda\u2019s World Superbike homologation special: 100 x 63.6 mm, 10.8:1, a 90\u00b0 vee on a shared crankpin, so it fires 450/270 like a Ducati, with gear-driven twin cams, four valves a cylinder and a 10,000 rpm limit. Both headers meet under the engine in one short collector. It makes 93-105 N\u00b7m from 5500 to 9750 rpm, 97 N\u00b7m at 8000 and 127 hp at 9500, against the real engine\u2019s rated 105 N\u00b7m at 8000 and 133 hp at 9500. Its rod, cams, runners and plenum are estimates.',
     engine: HONDA_RC51,
-    // Estimated: each cylinder's header into a silencer of its own under the seat, as the real one has.
+    // What a change of layout compiles a fresh exhaust from: each cylinder's header into a silencer of its
+    // own.
     pipe: () => [
       makeSegment({ kind: 'pipe', length: 0.7, dIn: 0.05 }),
       makeSegment({ kind: 'cone', length: 0.1, dIn: 0.05, dOut: 0.058 }),
       makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.058, dOut: 0.12 }),
       makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.058 }),
     ],
+    // Drawn in the editor: both headers bent round to meet under the engine, into one short collector.
+    graph: () => structuredClone(hondaRc51Exhaust) as ExhaustGraph,
   },
   {
     name: 'Inline three, Ford 1.5 EcoBoost Dragon',

@@ -242,7 +242,7 @@ matters.
   with a rigid crank, it must not, to 1e-6. The junction must pass a pulse from one primary
   into the other and into the collector, and conserve mass and energy to 1e-3. The Milwaukee-Eight
   121 must make within 10% of the real engine's rated 189 N·m at 3500 rpm and 115 hp at 5020, and its
-  cam map must lift the torque at 2500 rpm by more than 1.5 N·m over the cam fixed at rest. The RC51
+  cam map must lift the torque at 1750 rpm by more than 2 N·m over the cam fixed at rest. The RC51
   must make within 15% of the real engine's rated 105 N·m at 8000 rpm and within 10% of its 133 hp at
   9500. Every engine preset must run clean, and switching layout or cylinder count mid-run must stay finite. A three with a
   manifold drawn by hand, three junctions a few centimetres apart along a pipe of one runner's bore, must
