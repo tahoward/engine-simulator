@@ -614,7 +614,7 @@ that much further apart (`SPLIT_WEB`, 5 mm). In a V too narrow, or
 with bores too big for their stroke, for the two banks' pistons to pass each other at the bottom of
 their strokes, the two sit further apart, as far as keeps the pistons as drawn 4 mm clear through the
 whole cycle (`rodStagger`), as a VR engine's banks are staggered, and the throws far enough apart for
-the next pair to clear too, and for a main journal between their pins. The 45° twin's short rods make it one of these.
+the next pair to clear too, and for a main journal between their pins. The Milwaukee-Eight's narrow vee and big bores make it one of these.
 
 **A V too narrow for an intake in its valley shares one head between its banks** (`sharedHead`), as a
 VR engine does: below the angle where the two banks' intake ports would meet in the valley even on top

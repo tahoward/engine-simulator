@@ -66,6 +66,7 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 
 | Preset | Car | Gearbox | Tyres |
 |---|---|---|---|
+| Harley-Davidson Milwaukee-Eight 121 | Harley-Davidson CVO Road Glide, 466 kg | six-speed Cruise Drive, primary chain and belt | road |
 | Honda F20C | Honda S2000 (AP1), 1349 kg | six-speed manual | road |
 | Ford 1.5 EcoBoost Dragon | Ford Fiesta ST (Mk8), 1265 kg, front-wheel drive | six-speed manual | road |
 | Toyota 3S-GTE | Toyota MR2 GT-S (SW20, 1992–93), 1325 kg | Toyota E153 five-speed manual | Yokohama A022 |
@@ -75,7 +76,8 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 | Chevrolet LT2 | Chevrolet Corvette Stingray Z51 (C8), 1729 kg | Tremec eight-speed dual clutch | Pilot Sport 4S |
 | Chevrolet LT6 | Chevrolet Corvette Z06 with the Z07 package (C8), 1711 kg | Tremec eight-speed dual clutch | Pilot Sport Cup 2 R |
 
-The S2000's primary reduction and the Evora's and RS 3's second final drives are folded into the ratios shown, so
+The S2000's primary reduction, the Road Glide's primary chain and belt, and the Evora's and RS 3's second final drives
+are folded into the ratios or final drive shown, so
 the overall gearing is the real car's. **Reset gearing** goes back to the car's own gearbox. The other
 presets get a car and a six-speed fitted to the engine.
 

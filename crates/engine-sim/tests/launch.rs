@@ -106,7 +106,8 @@ fn traction_control_beats_spinning_the_tyres() {
 
 /// The engines from real cars launch through those cars: the Skyline's six-speed to all four wheels, the
 /// Corvettes' eight-speed dual clutch, the MR2's five-speed, the RS 3's seven-speed dual clutch to all four
-/// wheels, and the Fiesta ST's six-speed to the front wheels.
+/// wheels, the Fiesta ST's six-speed to the front wheels, and the CVO Road Glide's six-speed, sixth direct,
+/// through its primary chain and belt.
 #[test]
 fn real_engines_launch_through_their_own_cars() {
     let r34 = &common::engine_preset("Inline six, Nissan RB26DETT").launch;
@@ -126,6 +127,9 @@ fn real_engines_launch_through_their_own_cars() {
     assert_eq!(st.ratios, vec![3.59, 2.19, 1.52, 1.15, 0.92, 0.79]);
     assert_eq!(st.final_drive, 3.91);
     assert!(st.front_wheel_drive);
+    let cvo = &common::engine_preset("45° V-twin, Harley-Davidson Milwaukee-Eight 121").launch;
+    assert_eq!((cvo.ratios.len(), cvo.ratios[5], cvo.final_drive), (6, 1.0, 2.875));
+    assert!((cvo.ratios[0] * cvo.final_drive - 9.593).abs() < 1e-9);
 }
 
 /// The Fiesta ST gets to 60 mph in about the 6.5 s Ford gives it to 62: 200 PS through the front wheels.
@@ -165,3 +169,4 @@ fn all_wheel_drive_launches_harder() {
     let (a, r) = (awd.last().unwrap().zero_to_sixty.unwrap(), rwd.last().unwrap().zero_to_sixty.unwrap());
     assert!(a < r - 0.1, "0-60 in {a} s through all four wheels, against {r} s through the rear");
 }
+

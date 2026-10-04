@@ -19,21 +19,21 @@ Both run each preset exactly as the app loads it, with the exhaust drawn or comp
 turbos. Measured on an Apple M3 Max:
 
 ```
-preset                                 cells  asked   native     Wasm
-Single, megaphone                         26            5.2%     6.1%
-90° V-twin, 2-into-2                      46            9.6%    11.6%
-45° V-twin, 2-into-1                      46           10.5%    12.3%
-Parallel twin, 360°                       47           11.5%    13.3%
-Inline three, Ford 1.5 EcoBoost Dragon    97           23.2%    24.8%
-Inline four, Honda F20C                  112           21.9%    25.4%
-Inline four, Toyota 3S-GTE               111           27.2%    30.1%
-Boxer four                               111           22.7%    26.0%
-Inline five, Audi EA855 EVO              125           31.9%    35.4%
-Inline six, Nissan RB26DETT              101           34.2%    38.3%
-Boxer six                                194           35.8%    40.8%
-V6, Toyota 2GR                           144           42.3%    47.0%
-V8, Chevrolet LT6                        216           42.5%    47.6%
-V8, Chevrolet LT2                        234    272    45.7%    53.3%
+preset                                           cells  asked   native     Wasm
+Single, megaphone                                   26            5.2%     6.1%
+90° V-twin, 2-into-2                                46            9.6%    11.6%
+Parallel twin, 360°                                 47           11.5%    13.3%
+45° V-twin, Harley-Davidson Milwaukee-Eight 121     63           12.2%    14.1%
+Inline three, Ford 1.5 EcoBoost Dragon              97           23.2%    24.8%
+Inline four, Honda F20C                            112           21.9%    25.4%
+Inline four, Toyota 3S-GTE                         111           27.2%    30.1%
+Boxer four                                         111           22.7%    26.0%
+Inline five, Audi EA855 EVO                        125           31.9%    35.4%
+Inline six, Nissan RB26DETT                        101           34.2%    38.3%
+Boxer six                                          194           35.8%    40.8%
+V6, Toyota 2GR                                     144           42.3%    47.0%
+V8, Chevrolet LT6                                  216           42.5%    47.6%
+V8, Chevrolet LT2                                  234    272    45.7%    53.3%
 ```
 
 `cells` counts the exhaust's, and `asked` is what it would have at the cell size it asks for, where

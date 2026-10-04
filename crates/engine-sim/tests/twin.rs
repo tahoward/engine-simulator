@@ -402,3 +402,29 @@ mod robustness {
         assert_eq!(snap.cyl_pressure, snap.banks[0].cyl_pressure);
     }
 }
+
+/// The Milwaukee-Eight 121 makes about the real engine's rated 189 N*m (139 lb-ft) at 3500 rpm and 115 hp
+/// at 5020, and its phaser, advancing the one cam at low speed, lifts the torque below 3000.
+#[test]
+fn the_milwaukee_eight_makes_about_the_real_engines_torque_and_power() {
+    let torque = |rpm: f64, over: Value| {
+        let mut cfg = common::engine_preset("45° V-twin, Harley-Davidson Milwaukee-Eight 121").config.clone();
+        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
+        cfg.engine = common::with(&common::with(&cfg.engine, held), over);
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(2 * FS as usize);
+        let n = FS as usize / 2;
+        let mut t = 0.0;
+        for _ in 0..n {
+            sim.render(1);
+            t += sim.snapshot().torque - sim.friction_torque();
+        }
+        t / n as f64
+    };
+    let t3500 = torque(3500.0, json!({}));
+    assert!((t3500 - 189.0).abs() < 0.1 * 189.0, "{t3500} N*m at 3500 rpm");
+    let hp = torque(5020.0, json!({})) * 5020.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    assert!((hp - 115.0).abs() < 0.1 * 115.0, "{hp} hp at 5020 rpm");
+    let (mapped, fixed) = (torque(2500.0, json!({})), torque(2500.0, json!({ "vvtIntakeLow": 0 })));
+    assert!(mapped > fixed + 1.5, "{mapped} N*m at 2500 rpm on the cam map, against {fixed} with the cam fixed");
+}

@@ -2351,6 +2351,54 @@ const IDLING: Pick<EngineSpec, 'rpm' | 'idleRpm' | 'load' | 'throttle'> = {
 };
 
 /**
+ * The 1977 cc Milwaukee-Eight VVT 121 of the Harley-Davidson CVO Road Glide and Street Glide: 103.5 x
+ * 117.5 mm, 11.4:1, a 45-degree V-twin on a shared crankpin, one cam in the block working four valves a
+ * cylinder through pushrods, with variable timing on it, rated at 115 hp at 5020 rpm and 189 N*m
+ * (139 lb-ft) at 3500.
+ */
+const HARLEY_M8_121: Partial<EngineSpec> = {
+  cylinders: 2,
+  vAngle: 45,
+  firingOffset: null,
+  exhaustLayout: '2into1',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
+  ...IDLING,
+  // Estimated, as a big pushrod twin's: it makes its power at 5000 and is out of breath soon after.
+  revLimit: 5600,
+  flywheelInertia: 0.4,
+  pipeCellSize: 0.035,
+  // 4.075 x 4.625 in.
+  bore: 0.1035,
+  stroke: 0.1175,
+  // Estimated: its published figures do not include the rod.
+  rodLength: 0.176,
+  compressionRatio: 11.4,
+  // Four valves a cylinder, sized as a typical four-valve head's for the bore. Its pushrods are not drawn:
+  // the drawing has them only for a two-valve head.
+  ...fourValveHead(0.1035),
+  // Estimated, like the cam map and the runners, and tuned with them and the headers for the rated torque
+  // at 3500 rpm and power at 5020. Under load at low speed its one phaser advances the whole cam 15
+  // degrees, intake and exhaust lobes together, easing back to rest by 4500 rpm; with the cam fixed at
+  // rest it makes a few N*m less below 3000.
+  maxLift: 0.0105,
+  evo: 125,
+  evc: 385,
+  ivo: 350,
+  ivc: 595,
+  vvtLinked: true,
+  vvtIntakeLow: 15,
+  vvtLowRpm: 2000,
+  vvtHighRpm: 4500,
+  intakeRunnerLength: 0.6,
+  // Estimated: a 64 mm throttle body, and a heavier piston than the default's for the bigger bore.
+  throttleDia: 0.064,
+  recipMass: 0.8,
+  // Level-matched to the other twins.
+  outputGain: 0.55,
+};
+
+/**
  * The 1.5 litre EcoBoost "Dragon" of the Mk8 Fiesta ST: 84.0 x 90.0 mm, 9.7:1, and one turbo through an
  * air-to-air intercooler, rated at 200 PS (197 hp) at 6000 rpm and 290 N*m (214 lb-ft) from 1600 rpm.
  */
@@ -2766,31 +2814,31 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     pipe: () => PIPE_PRESETS[1]!.build(),
   },
   {
-    name: '45\u00b0 V-twin, 2-into-1',
-    description:
-      'Shared crankpin, so it fires 405/315 \u2014 the uneven interval behind the classic lopsided idle. Both primaries merge into one collector.',
-    engine: {
-      cylinders: 2,
-      vAngle: 45,
-      firingOffset: null,
-      exhaustLayout: '2into1',
-      exhaustHeaders: true,
-      headerRun: 'lengthways',
-      ...IDLING,
-      // Long-stroke and pushrod: a Harley stops pulling not far past 5500.
-      revLimit: 5600,
-      pushrods: true,
-      flywheelInertia: 0.4,
-      // Its own, independent of the default the single uses.
-      outputGain: 0.55,
+    name: '45\u00b0 V-twin, Harley-Davidson Milwaukee-Eight 121',
+    car: {
+      // Harley-Davidson's figures for the CVO Road Glide: the six-speed Cruise Drive, sixth direct, and a
+      // 46/34 primary chain and 68/32 belt, 2.875 in all. A 180/55B18 rear tyre, 391 kg in running order.
+      name: 'Harley-Davidson CVO Road Glide',
+      ratios: [9.593, 6.65, 4.938, 4.0, 3.407, 2.875].map((r) => r / 2.875),
+      finalDrive: (46 / 34) * (68 / 32),
+      tyreRadius: 0.325,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 391 + DRIVER_MASS,
+      drive: 'rwd',
+      drivenLoad: 0.55,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
     },
-    pipe: () => [
-      makeSegment({ kind: 'pipe', length: 0.34, dIn: 0.042 }),
-      makeSegment({ kind: 'cone', length: 0.1, dIn: 0.042, dOut: 0.05 }),
-    ],
+    description:
+      'The 121 cubic inch (1977 cc) twin in the CVO Road Glide and Street Glide: 103.5 x 117.5 mm, 11.4:1, a 45\u00b0 vee on a shared crankpin, so it fires 405/315 like every big Harley, and one cam in the block working four valves a cylinder through pushrods, with variable timing on that cam. Long headers into one collector and a silencer. It makes 177-192 N\u00b7m from 1750 to 4000 rpm, 192 N\u00b7m (141 lb\u00b7ft) at 3500 and 115 hp at 5000, against the real engine\u2019s rated 189 N\u00b7m (139 lb\u00b7ft) at 3500 and 115 hp at 5020. The real one splits again after its collector into two silencers; its rod, valves, cam, cam map, runners and exhaust are estimates.',
+    engine: HARLEY_M8_121,
+    // Estimated: 1-3/4 in headers into one collector and a 4 in silencer.
+    pipe: () => [makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.045 })],
     collector: () => [
-      makeSegment({ kind: 'cone', length: 0.12, dIn: 0.05, dOut: 0.06 }),
-      makeSegment({ kind: 'pipe', length: 0.5, dIn: 0.06 }),
+      makeSegment({ kind: 'cone', length: 0.12, dIn: 0.05, dOut: 0.057 }),
+      makeSegment({ kind: 'pipe', length: 0.35, dIn: 0.057 }),
+      makeSegment({ kind: 'chamber', length: 0.5, dIn: 0.057, dOut: 0.1 }),
+      makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.05 }),
     ],
   },
   {

@@ -240,7 +240,9 @@ matters.
   order, an uneven one must have some, and 90° must have more than 45°. Through a shared
   collector, moving bank 1's timing must change bank 0's port pressure. Through separate pipes
   with a rigid crank, it must not, to 1e-6. The junction must pass a pulse from one primary
-  into the other and into the collector, and conserve mass and energy to 1e-3. Every engine
+  into the other and into the collector, and conserve mass and energy to 1e-3. The Milwaukee-Eight
+  121 must make within 10% of the real engine's rated 189 N·m at 3500 rpm and 115 hp at 5020, and its
+  cam map must lift the torque at 2500 rpm by more than 1.5 N·m over the cam fixed at rest. Every engine
   preset must run clean, and switching layout or cylinder count mid-run must stay finite. A three with a
   manifold drawn by hand, three junctions a few centimetres apart along a pipe of one runner's bore, must
   rev to its limiter at 32 kHz with nothing diverging, no junction clamping, and no pipe left above three
@@ -255,7 +257,8 @@ matters.
   three-speed must stop in third, and a gearbox without gears must not start. A 900 kg car with an LT2
   has far more torque than its tyres can take: traction control must get it to 60 quicker than spinning
   them, and no quicker than 2.4 s, what their grip allows. The engines from real cars must launch through
-  those cars' gearboxes, and the Skyline through all four wheels must be quicker to 60 than through the
+  those cars' gearboxes, the Milwaukee-Eight through the CVO Road Glide's six-speed, primary chain and
+  belt to its overall ratios, and the Skyline through all four wheels must be quicker to 60 than through the
   rear. The RS 3 must run 0–60 mph in 3.1 to 4.1 s, around the 3.6 s road tests time it at; it runs
   3.5 s and the quarter mile in 11.7 s at 120 mph. The Fiesta ST must run 0–60 mph in 5.7 to 6.9 s,
   around the 6.5 s Ford gives it to 62; it runs 6.1 s and the quarter mile in 14.5 s at 99 mph. Through
