@@ -25,6 +25,7 @@ import harleyM8Exhaust from './exhausts/harley-m8-121.json';
 import hondaRc51Exhaust from './exhausts/honda-rc51.json';
 import ducatiMonoExhaust from './exhausts/ducati-superquadro-mono.json';
 import subaruFa20dExhaust from './exhausts/subaru-fa20d.json';
+import porscheMezger40Exhaust from './exhausts/porsche-mezger-40.json';
 
 /** Shape of one length of exhaust plumbing. */
 export type SegmentKind =
@@ -2918,7 +2919,7 @@ const PORSCHE_MEZGER_40: Partial<EngineSpec> = {
   compressionRatio: 12.6,
   // Estimated, like the cams, the runners and the cam map, and tuned with them for the rated torque at
   // 5750 rpm and power at 8250. Valves larger than a typical four-valve head's for the bore: with a
-  // typical head's, it makes about 485 PS at 8250 and 10 N*m less at 5750.
+  // typical head's, it makes 478 PS at 8250 and 9 N*m less at 5750.
   exValveDia: 0.037,
   exValveCount: 2,
   inValveDia: 0.044,
@@ -2934,9 +2935,9 @@ const PORSCHE_MEZGER_40: Partial<EngineSpec> = {
   vvtIntakeLow: 40,
   vvtLowRpm: 5000,
   vvtHighRpm: 7500,
-  // Wide enough for the top end; narrower, they lift the mid-range but cost 20-30 PS at 8250.
+  // At 62 mm they make 514 PS at 8250 and 4 N*m less at 5750.
   intakeRunnerLength: 0.35,
-  intakeRunnerDia: 0.062,
+  intakeRunnerDia: 0.055,
   // Its 82 mm throttle body.
   throttleDia: 0.082,
   // Level-matched to the inline four, as the other presets are.
@@ -3291,10 +3292,14 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: false,
     },
     description:
-      'The 4.0 litre flat six in the 2011 Porsche 911 GT3 RS 4.0, the last and largest of the Mezger engines descended from the 911 GT1\u2019s: 102.7 x 80.4 mm, the stroke from the GT3 RSR\u2019s crank, 12.6:1, four valves a cylinder, variable timing on its intake and exhaust cams, here on the intakes only, and an 8500 rpm limit. A throw per cylinder, firing 1-6-2-4-3-5 every 120\u00b0; each bank of three has its own silencer and hears every other firing, 240\u00b0 apart, as a V6\u2019s banks do. It makes 414-450 N\u00b7m from 4500 to 8000 rpm, 434 N\u00b7m at 5750 and 503 PS (496 hp) at 8250, against the real engine\u2019s rated 460 N\u00b7m at 5750 and 500 PS (493 hp) at 8250. Its rod, valves, cams, cam map, runners and exhaust are estimates.',
+      'The 4.0 litre flat six in the 2011 Porsche 911 GT3 RS 4.0, the last and largest of the Mezger engines descended from the 911 GT1\u2019s: 102.7 x 80.4 mm, the stroke from the GT3 RSR\u2019s crank, 12.6:1, four valves a cylinder, variable timing on its intake and exhaust cams, here on the intakes only, and an 8500 rpm limit. A throw per cylinder, firing 1-6-2-4-3-5 every 120\u00b0; each bank\u2019s three headers gather under it into a pipe and silencer of its own, and each bank hears every other firing, 240\u00b0 apart, as a V6\u2019s banks do. It makes 403-444 N\u00b7m from 4000 to 8400 rpm, 442 N\u00b7m at 5750 and 493 PS (486 hp) at 8250, against the real engine\u2019s rated 460 N\u00b7m at 5750 and 500 PS (493 hp) at 8250. Its rod, valves, cams, cam map, runners and exhaust are estimates.',
     engine: PORSCHE_MEZGER_40,
     pipe: () => fittedExhaust(fullSpec(PORSCHE_MEZGER_40)).pipe,
     collector: () => fittedExhaust(fullSpec(PORSCHE_MEZGER_40)).collector,
+    // Drawn in the editor: each bank's three headers into a collector under it, and from each a pipe of its
+    // own back to a silencer. The headers flare to 66 mm where they meet: flared to the collector's 83 mm,
+    // the gas goes supersonic in the flare at full throttle, faster than one solver step a sample allows.
+    graph: () => structuredClone(porscheMezger40Exhaust) as ExhaustGraph,
   },
   {
     name: 'Parallel twin, 360\u00b0',

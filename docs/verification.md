@@ -270,7 +270,7 @@ matters.
   the rear wheels rather than the front it must be quicker to 60 by more than a tenth. The Toyota 86 must
   run 0–60 mph in 5.8 to 7.2 s, around the 6.2–6.8 s road tests time the manual at; it runs 6.6 s and
   the quarter mile in 14.9 s at 95 mph. The GT3 RS 4.0 must run 0–60 mph in 3.2 to 4.4 s, around the
-  3.5–4.0 s road tests time it at; it runs 3.7 s and the quarter mile in 11.8 s at 123 mph.
+  3.5–4.0 s road tests time it at; it runs 3.7 s and the quarter mile in 11.8 s at 124 mph.
 
 ## The reference renders
 

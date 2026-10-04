@@ -30,7 +30,7 @@ Inline four, Toyota 3S-GTE                         111           27.2%    30.1%
 Boxer four, Subaru FA20D                            94           25.7%    30.2%
 Inline five, Audi EA855 EVO                        125           31.9%    35.4%
 Inline six, Nissan RB26DETT                        101           34.2%    38.3%
-Boxer six, Porsche Mezger 4.0                      194           33.4%    39.7%
+Boxer six, Porsche Mezger 4.0                      166           38.9%    45.2%
 V6, Toyota 2GR                                     144           42.3%    47.0%
 V8, Chevrolet LT6                                  216           42.5%    47.6%
 V8, Chevrolet LT2                                  234    272    45.7%    53.3%
