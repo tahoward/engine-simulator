@@ -23,6 +23,7 @@ import toyota2grExhaust from './exhausts/toyota-2gr.json';
 import chevroletLt6Exhaust from './exhausts/chevrolet-lt6.json';
 import harleyM8Exhaust from './exhausts/harley-m8-121.json';
 import hondaRc51Exhaust from './exhausts/honda-rc51.json';
+import ducatiMonoExhaust from './exhausts/ducati-superquadro-mono.json';
 
 /** Shape of one length of exhaust plumbing. */
 export type SegmentKind =
@@ -2915,15 +2916,18 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: false,
     },
     description:
-      'The 659 cc single in the Ducati Hypermotard 698 Mono, the front cylinder of the 1299 Panigale\u2019s twin made into an engine of its own: a 116 mm bore on a 62.4 mm stroke, 13.1:1, four desmodromic valves and a 10,250 rpm limit. One cylinder fires once every two turns of the crank, so the loudest order is the half order, and the big piston shakes the crank between firings. It makes 55-62 N\u00b7m from 4000 to 10,000 rpm, 60 N\u00b7m at 8000 and 78 hp at 9750, against the real engine\u2019s rated 63 N\u00b7m at 8000 and 77.5 hp at 9750. Its header goes into one silencer where the real one splits into two; its rod, cams, runner, plenum and exhaust are estimates.',
+      'The 659 cc single in the Ducati Hypermotard 698 Mono, the front cylinder of the 1299 Panigale\u2019s twin made into an engine of its own: a 116 mm bore on a 62.4 mm stroke, 13.1:1, four desmodromic valves and a 10,250 rpm limit. One cylinder fires once every two turns of the crank, so the loudest order is the half order, and the big piston shakes the crank between firings. It makes 54-61 N\u00b7m from 4000 to 10,000 rpm, 58 N\u00b7m at 8000 and 79 hp at 9750, against the real engine\u2019s rated 63 N\u00b7m at 8000 and 77.5 hp at 9750. Its header runs round under the engine into one flared silencer, where the real one splits into two; its rod, cams, runner and plenum are estimates.',
     engine: DUCATI_SUPERQUADRO_MONO,
-    // Estimated: a header into a silencer. The real one splits into two under the seat.
+    // What a change of layout compiles a fresh exhaust from: a header into a silencer.
     pipe: () => [
       makeSegment({ kind: 'pipe', length: 0.55, dIn: 0.053 }),
       makeSegment({ kind: 'cone', length: 0.1, dIn: 0.053, dOut: 0.063 }),
       makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.063, dOut: 0.12 }),
       makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.06 }),
     ],
+    // Drawn in the editor: the header down and round under the engine, on through a short pipe into a
+    // flared silencer.
+    graph: () => structuredClone(ducatiMonoExhaust) as ExhaustGraph,
   },
   {
     name: '45\u00b0 V-twin, Harley-Davidson Milwaukee-Eight 121',

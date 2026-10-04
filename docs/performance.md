@@ -20,7 +20,7 @@ turbos. Measured on an Apple M3 Max:
 
 ```
 preset                                           cells  asked   native     Wasm
-Single, Ducati Superquadro Mono                     34            7.0%     8.2%
+Single, Ducati Superquadro Mono                     36           10.9%    12.2%
 Parallel twin, 360°                                 47           11.5%    13.3%
 45° V-twin, Harley-Davidson Milwaukee-Eight 121     42           12.6%    14.2%
 90° V-twin, Honda RC51                              43           13.4%    15.1%
