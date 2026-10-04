@@ -24,6 +24,7 @@ import chevroletLt6Exhaust from './exhausts/chevrolet-lt6.json';
 import harleyM8Exhaust from './exhausts/harley-m8-121.json';
 import hondaRc51Exhaust from './exhausts/honda-rc51.json';
 import ducatiMonoExhaust from './exhausts/ducati-superquadro-mono.json';
+import subaruFa20dExhaust from './exhausts/subaru-fa20d.json';
 
 /** Shape of one length of exhaust plumbing. */
 export type SegmentKind =
@@ -2871,18 +2872,14 @@ const SUBARU_FA20D: Partial<EngineSpec> = {
   // Estimated: its published figures do not include the rod.
   rodLength: 0.1305,
   compressionRatio: 12.5,
-  // Estimated, like the cams, the runners and the cam map, and tuned with them for the rated torque at
-  // 6400-6600 rpm and power at 7000. Valves a little larger than a typical four-valve head's for the bore:
-  // with a typical head's, it makes 186 hp at 7000.
-  exValveDia: 0.031,
-  exValveCount: 2,
-  inValveDia: 0.036,
-  inValveCount: 2,
-  maxLift: 0.0115,
+  ...fourValveHead(0.086),
+  // Estimated, like the runners and the cam map, and tuned with them and the exhaust for the rated torque
+  // at 6400-6600 rpm and power at 7000.
+  maxLift: 0.0105,
   evo: 124,
   evc: 372,
   ivo: 348,
-  ivc: 605,
+  ivc: 595,
   // Under load at low speed the intake advanced 30 degrees and the exhaust retarded 20, easing back to rest
   // by 6000 rpm; at idle and light load both at rest.
   vvtIntakeLow: 30,
@@ -3246,10 +3243,13 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: false,
     },
     description:
-      'The 2.0 litre boxer four in the Toyota 86, Scion FR-S and Subaru BRZ, Subaru\u2019s FA20D, which Toyota calls the 4U-GSE: 86 x 86 mm, 12.5:1, four valves a cylinder, variable timing on all four cams and a 7400 rpm redline. Flat, with the pistons of each opposed pair moving out and in together, it fires 1-3-2-4 every 180\u00b0, both banks gathered into one collector through equal-length headers. It makes 186-210 N\u00b7m from 2500 to 7200 rpm, 208 N\u00b7m at 6500 and 207 hp at 7000, against the real engine\u2019s rated 205 N\u00b7m at 6400-6600 and 200 hp at 7000. Its rod, valves, cams, cam map, runners and exhaust are estimates.',
+      'The 2.0 litre boxer four in the Toyota 86, Scion FR-S and Subaru BRZ, Subaru\u2019s FA20D, which Toyota calls the 4U-GSE: 86 x 86 mm, 12.5:1, four valves a cylinder, variable timing on all four cams and a 7400 rpm redline. Flat, with the pistons of each opposed pair moving out and in together, it fires 1-3-2-4 every 180\u00b0, each bank\u2019s two headers into a collector of its own, the two meeting under the engine in one pipe. It makes 188-207 N\u00b7m from 2500 to 7000 rpm, 205 N\u00b7m at 6500 and 196 hp at 7000, against the real engine\u2019s rated 205 N\u00b7m at 6400-6600 and 200 hp at 7000. Its rod, valves, cams, cam map, runners and exhaust are estimates.',
     engine: SUBARU_FA20D,
     pipe: () => fittedExhaust(fullSpec(SUBARU_FA20D)).pipe,
     collector: () => fittedExhaust(fullSpec(SUBARU_FA20D)).collector,
+    // Drawn in the editor: each bank's two headers into a collector of its own, the two meeting under the
+    // engine in one pipe to a silencer.
+    graph: () => structuredClone(subaruFa20dExhaust) as ExhaustGraph,
   },
   {
     name: 'Boxer six',

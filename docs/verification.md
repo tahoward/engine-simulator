@@ -267,8 +267,8 @@ matters.
   RS 3 must run 0–60 mph in 3.1 to 4.1 s, around the 3.6 s road tests time it at; it runs 3.5 s and the quarter mile in 11.7 s at 120 mph. The Fiesta ST must run 0–60 mph in 5.7 to 6.9 s,
   around the 6.5 s Ford gives it to 62; it runs 6.1 s and the quarter mile in 14.5 s at 99 mph. Through
   the rear wheels rather than the front it must be quicker to 60 by more than a tenth. The Toyota 86 must
-  run 0–60 mph in 5.8 to 7.2 s, around the 6.2–6.8 s road tests time the manual at; it runs 6.5 s and
-  the quarter mile in 14.8 s at 96 mph.
+  run 0–60 mph in 5.8 to 7.2 s, around the 6.2–6.8 s road tests time the manual at; it runs 6.6 s and
+  the quarter mile in 14.9 s at 95 mph.
 
 ## The reference renders
 
