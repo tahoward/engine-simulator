@@ -139,6 +139,41 @@ fn reaches_a_higher_boost_target() {
     assert!(t_high > 1.4 * t_low, "more torque on more boost: {t_high} N*m at {high} bar, {t_low} at {low}");
 }
 
+/// Held on boost, the wastegate settles rather than hunting from shut to wide open: at high boost the
+/// turbine has the most power over what it needs, and a controller whose band does not grow with the
+/// target swings it, and the boost and the torque with it, a few times a second.
+#[test]
+fn the_wastegate_settles_on_high_boost_rather_than_hunting() {
+    for (name, rpm, target) in [
+        ("Inline five, Audi EA855 EVO", 5000.0, None),
+        ("Inline three, Ford 1.5 EcoBoost Dragon", 5000.0, None),
+        (RB26, 5000.0, Some(2.0e5)),
+    ] {
+        let mut cfg = common::engine_preset(name).config.clone();
+        let mut over = json!({ "freeRunning": false, "throttle": 1, "rpm": rpm });
+        if let Some(t) = target {
+            over["boostTarget"] = json!(t);
+        }
+        cfg.engine = common::with(&cfg.engine, over);
+        let goal = cfg.engine.boost_target / 1e5;
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(3 * FS as usize);
+        // Sampled off any multiple of the firing interval, so the pulses average out.
+        let (mut lo, mut hi, mut sum, mut n) = (f64::MAX, f64::MIN, 0.0, 0.0);
+        for _ in 0..1400 {
+            sim.render(67);
+            let t = sim.turbo().unwrap();
+            lo = lo.min(t.wastegate());
+            hi = hi.max(t.wastegate());
+            sum += boost(&sim);
+            n += 1.0;
+        }
+        assert!(hi - lo < 0.15, "{name} on {goal} bar: wastegate swings {lo:.2}..{hi:.2}");
+        let mean = sum / n;
+        assert!((mean - goal).abs() < 0.05 * goal, "{name}: held {mean:.2} bar for {goal}");
+    }
+}
+
 /// The shaft takes time to spin up: opened from part throttle, the boost lags behind.
 #[test]
 fn lags_behind_the_throttle() {
