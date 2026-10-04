@@ -194,9 +194,10 @@ matters.
   points past a manifold along the ports.
 - **Port injection.** With the fuel cut, neither the manifold nor a runner may hold more than a
   hundredth of a stoichiometric charge's fuel.
-- **Valves per cylinder.** The boxer four's torque at full throttle must hold from 3600 to 6200
-  rpm on its four-valve head, and fall well away with one valve of each. Each valve must open along
-  its own stem in the 3D view, with two per side on a four-valve head.
+- **Valves per cylinder.** The Subaru FA20D's torque at full throttle must hold from 3600 to 6200
+  rpm on its four-valve head, and fall well away with one valve of each. It must make within 10% of the
+  real engine's rated 205 N·m at 6500 rpm and 200 hp at 7000. Each valve must open along its own stem
+  in the 3D view, with two per side on a four-valve head.
 - **Thermal.** The pipe wall must warm steadily and slowly from cold: two seconds must not get
   close to equilibrium. It must be cooler downstream than at the flange, sit between gas and
   outside air temperature, cool when airflow rises, and warm more slowly when thicker. Editing
@@ -265,7 +266,9 @@ matters.
   and chains, and the Skyline through all four wheels must be quicker to 60 than through the rear. The
   RS 3 must run 0–60 mph in 3.1 to 4.1 s, around the 3.6 s road tests time it at; it runs 3.5 s and the quarter mile in 11.7 s at 120 mph. The Fiesta ST must run 0–60 mph in 5.7 to 6.9 s,
   around the 6.5 s Ford gives it to 62; it runs 6.1 s and the quarter mile in 14.5 s at 99 mph. Through
-  the rear wheels rather than the front it must be quicker to 60 by more than a tenth.
+  the rear wheels rather than the front it must be quicker to 60 by more than a tenth. The Toyota 86 must
+  run 0–60 mph in 5.8 to 7.2 s, around the 6.2–6.8 s road tests time the manual at; it runs 6.5 s and
+  the quarter mile in 14.8 s at 96 mph.
 
 ## The reference renders
 

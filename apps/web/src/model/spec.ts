@@ -2849,12 +2849,12 @@ const CHEVROLET_LT6: Partial<EngineSpec> = {
 };
 
 /**
- * The two boxers: flat, opposed, a throw per cylinder. See `boxerPlan`.
- *
- * The four is sized as a 2.5 litre Subaru, both banks gathered into one pipe as its header does; the six
- * as a 3.6 litre Porsche, each bank's three into a silencer of its own, as a 911's are.
+ * The 2.0 litre FA20D of the Toyota 86, Scion FR-S and Subaru BRZ, 2012-2020, which Toyota calls the
+ * 4U-GSE: 86.0 x 86.0 mm, 12.5:1, a boxer with twin cams and four valves a cylinder, variable timing on
+ * all four cams, and a 7400 rpm redline, rated at 200 hp (147 kW) at 7000 rpm and 205 N*m (151 lb-ft) at
+ * 6400-6600.
  */
-const BOXER_FOUR: Partial<EngineSpec> = {
+const SUBARU_FA20D: Partial<EngineSpec> = {
   cylinders: 4,
   vAngle: 180,
   crankType: 'boxer',
@@ -2862,20 +2862,45 @@ const BOXER_FOUR: Partial<EngineSpec> = {
   exhaustHeaders: true,
   headerRun: 'lengthways',
   ...IDLING,
-  // A Subaru EJ25's.
-  revLimit: 6500,
-  flywheelInertia: 0.3,
+  // Its fuel cut, a little past the redline.
+  revLimit: 7500,
+  flywheelInertia: 0.25,
   pipeCellSize: 0.035,
-  bore: 0.0995,
-  stroke: 0.079,
+  bore: 0.086,
+  stroke: 0.086,
+  // Estimated: its published figures do not include the rod.
   rodLength: 0.1305,
-  compressionRatio: 10,
-  ...fourValveHead(0.0995),
-  maxLift: 0.0105,
+  compressionRatio: 12.5,
+  // Estimated, like the cams, the runners and the cam map, and tuned with them for the rated torque at
+  // 6400-6600 rpm and power at 7000. Valves a little larger than a typical four-valve head's for the bore:
+  // with a typical head's, it makes 186 hp at 7000.
+  exValveDia: 0.031,
+  exValveCount: 2,
+  inValveDia: 0.036,
+  inValveCount: 2,
+  maxLift: 0.0115,
+  evo: 124,
+  evc: 372,
+  ivo: 348,
+  ivc: 605,
+  // Under load at low speed the intake advanced 30 degrees and the exhaust retarded 20, easing back to rest
+  // by 6000 rpm; at idle and light load both at rest.
+  vvtIntakeLow: 30,
+  vvtExhaustLow: 20,
+  vvtLowRpm: 2000,
+  vvtHighRpm: 6000,
+  intakeRunnerLength: 0.37,
+  intakeRunnerDia: 0.046,
+  // Its 65 mm throttle body.
+  throttleDia: 0.065,
   // Level-matched to the inline four, as the other presets are.
   outputGain: 0.88,
 };
 
+/**
+ * The Porsche flat six: flat, opposed, a throw per cylinder (see `boxerPlan`), sized as a 3.6 litre
+ * 997 Carrera's, each bank's three into a silencer of its own, as a 911's are.
+ */
 const BOXER_SIX: Partial<EngineSpec> = {
   cylinders: 6,
   vAngle: 180,
@@ -3205,12 +3230,26 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     graph: () => structuredClone(chevroletLt6Exhaust) as ExhaustGraph,
   },
   {
-    name: 'Boxer four',
+    name: 'Boxer four, Subaru FA20D',
+    car: {
+      // Toyota's figures for the ZN6 86 with the six-speed manual: its gears and a 4.100 final drive.
+      // 215/45R17 tyres, 1250 kg, its weight 53:47 front to rear.
+      name: 'Toyota 86 (ZN6)',
+      ratios: [3.626, 2.188, 1.541, 1.213, 1.0, 0.767],
+      finalDrive: 4.1,
+      tyreRadius: 0.306,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 1250 + DRIVER_MASS,
+      drive: 'rwd',
+      drivenLoad: 0.47,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
     description:
-      'Flat, with the pistons of each opposed pair moving out and in together, firing 1-3-2-4 every 180\u00b0 \u2014 the Subaru and the air-cooled VW. Both banks gather into one collector through equal-length headers, so each cylinder\u2019s pulse reaches the merge after the same run.',
-    engine: BOXER_FOUR,
-    pipe: () => fittedExhaust(fullSpec(BOXER_FOUR)).pipe,
-    collector: () => fittedExhaust(fullSpec(BOXER_FOUR)).collector,
+      'The 2.0 litre boxer four in the Toyota 86, Scion FR-S and Subaru BRZ, Subaru\u2019s FA20D, which Toyota calls the 4U-GSE: 86 x 86 mm, 12.5:1, four valves a cylinder, variable timing on all four cams and a 7400 rpm redline. Flat, with the pistons of each opposed pair moving out and in together, it fires 1-3-2-4 every 180\u00b0, both banks gathered into one collector through equal-length headers. It makes 186-210 N\u00b7m from 2500 to 7200 rpm, 208 N\u00b7m at 6500 and 207 hp at 7000, against the real engine\u2019s rated 205 N\u00b7m at 6400-6600 and 200 hp at 7000. Its rod, valves, cams, cam map, runners and exhaust are estimates.',
+    engine: SUBARU_FA20D,
+    pipe: () => fittedExhaust(fullSpec(SUBARU_FA20D)).pipe,
+    collector: () => fittedExhaust(fullSpec(SUBARU_FA20D)).collector,
   },
   {
     name: 'Boxer six',

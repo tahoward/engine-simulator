@@ -27,7 +27,7 @@ Parallel twin, 360°                                 47           11.5%    13.3%
 Inline three, Ford 1.5 EcoBoost Dragon              97           23.2%    24.8%
 Inline four, Honda F20C                            112           21.9%    25.4%
 Inline four, Toyota 3S-GTE                         111           27.2%    30.1%
-Boxer four                                         111           22.7%    26.0%
+Boxer four, Subaru FA20D                           111           21.1%    24.6%
 Inline five, Audi EA855 EVO                        125           31.9%    35.4%
 Inline six, Nissan RB26DETT                        101           34.2%    38.3%
 Boxer six                                          194           35.8%    40.8%

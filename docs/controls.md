@@ -71,6 +71,7 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 | Harley-Davidson Milwaukee-Eight 121 | Harley-Davidson CVO Road Glide, 466 kg | six-speed Cruise Drive, primary chain and belt | road |
 | Honda RC51 | Honda RC51 (SP-1), 298 kg | six-speed, primary gears and chain | road |
 | Honda F20C | Honda S2000 (AP1), 1349 kg | six-speed manual | road |
+| Subaru FA20D | Toyota 86 (ZN6), 1325 kg | six-speed manual | road |
 | Ford 1.5 EcoBoost Dragon | Ford Fiesta ST (Mk8), 1265 kg, front-wheel drive | six-speed manual | road |
 | Toyota 3S-GTE | Toyota MR2 GT-S (SW20, 1992–93), 1325 kg | Toyota E153 five-speed manual | Yokohama A022 |
 | Audi EA855 EVO | Audi RS 3 Sportback (8V, 2017–20), 1585 kg, all-wheel drive | Audi seven-speed S tronic dual clutch | road |

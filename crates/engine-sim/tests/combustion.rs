@@ -249,9 +249,9 @@ fn fuel_cut_brings_the_fuel_back_as_soon_as_the_throttle_opens() {
 
 // --- valves per cylinder ---
 
-/// Mean gas torque, N*m, of the boxer four at full throttle and `rpm`.
+/// Mean gas torque, N*m, of the FA20D boxer four at full throttle and `rpm`.
 fn boxer_torque(rpm: f64, over: Value) -> f64 {
-    let mut cfg = common::engine_preset("Boxer four").config.clone();
+    let mut cfg = common::engine_preset("Boxer four, Subaru FA20D").config.clone();
     cfg.engine = common::with(
         &cfg.engine,
         json!({ "freeRunning": false, "throttle": 1, "rpm": rpm, "combustionVariability": 0 }),
@@ -265,6 +265,29 @@ fn boxer_torque(rpm: f64, over: Value) -> f64 {
         t += sim.snapshot().torque;
     }
     t / (FS / 2.0)
+}
+
+/// The FA20D makes about the real engine's rated 205 N*m (151 lb-ft) at 6400-6600 rpm and 200 hp at 7000.
+#[test]
+fn the_fa20d_makes_about_the_real_engines_torque_and_power() {
+    let torque = |rpm: f64| {
+        let mut cfg = common::engine_preset("Boxer four, Subaru FA20D").config.clone();
+        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
+        cfg.engine = common::with(&cfg.engine, held);
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(2 * FS as usize);
+        let n = FS as usize / 2;
+        let mut t = 0.0;
+        for _ in 0..n {
+            sim.render(1);
+            t += sim.snapshot().torque - sim.friction_torque();
+        }
+        t / n as f64
+    };
+    let t6500 = torque(6500.0);
+    assert!((t6500 - 205.0).abs() < 0.1 * 205.0, "{t6500} N*m at 6500 rpm");
+    let hp = torque(7000.0) * 7000.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    assert!((hp - 200.0).abs() < 0.1 * 200.0, "{hp} hp at 7000 rpm");
 }
 
 /// Lets a four-valve head breathe at high rpm, where one valve of each chokes.

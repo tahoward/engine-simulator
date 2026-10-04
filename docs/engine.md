@@ -32,7 +32,7 @@ Other details of the model:
   is what lets a four-valve engine breathe at high rpm, and the presets with overhead cams have
   four-valve heads. Their valves are sized as a typical four-valve head's for the bore, not taken
   from each real engine: each intake valve is 0.40 of the bore and each exhaust valve 0.34. Given
-  one valve of each instead, the boxer four's torque falls by more than a third from 3600 to 6200 rpm. With
+  one valve of each instead, the Subaru FA20D's torque falls by more than a third from 3600 to 6200 rpm. With
   two of each it holds 90-99% volumetric efficiency right up to its rev limit, as do the other
   four-valve presets.
 - **The intake has runners.** Each cylinder draws through its own runner, a duct from the plenum

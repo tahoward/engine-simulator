@@ -134,9 +134,21 @@ fn real_engines_launch_through_their_own_cars() {
     let rc51 = &common::engine_preset("90° V-twin, Honda RC51").launch;
     assert_eq!(rc51.ratios, vec![2.461, 1.812, 1.428, 1.24, 1.08, 0.962]);
     assert!((rc51.final_drive - 4.25).abs() < 1e-9);
+    let gt86 = &common::engine_preset("Boxer four, Subaru FA20D").launch;
+    assert_eq!(gt86.ratios, vec![3.626, 2.188, 1.541, 1.213, 1.0, 0.767]);
+    assert_eq!(gt86.final_drive, 4.1);
     let mono = &common::engine_preset("Single, Ducati Superquadro Mono").launch;
     assert_eq!(mono.ratios.len(), 6);
     assert!((mono.ratios[0] * mono.final_drive - (36.0 / 13.0) * (61.0 / 31.0) * (43.0 / 15.0)).abs() < 1e-9);
+}
+
+/// The Toyota 86 gets to 60 mph in about the 6.2-6.8 s road tests time the manual at: 200 hp through the
+/// rear wheels.
+#[test]
+fn the_toyota_86_launches_about_as_quick_as_the_real_car() {
+    let snaps = run("Boxer four, Subaru FA20D", None);
+    let sixty = snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph");
+    assert!((5.8..7.2).contains(&sixty), "0-60 in {sixty} s");
 }
 
 /// The Fiesta ST gets to 60 mph in about the 6.5 s Ford gives it to 62: 200 PS through the front wheels.

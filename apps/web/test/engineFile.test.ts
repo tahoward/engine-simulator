@@ -20,7 +20,7 @@ function presetConfig(name: string): EngineConfig {
 }
 
 describe('an engine file', () => {
-  it.each(['V8, Chevrolet LT2', 'Inline six, Nissan RB26DETT', 'Boxer four'])('comes back as it was exported: %s', (name) => {
+  it.each(['V8, Chevrolet LT2', 'Inline six, Nissan RB26DETT', 'Boxer four, Subaru FA20D'])('comes back as it was exported: %s', (name) => {
     const cfg = presetConfig(name);
     const read = readEngineFile(engineFile(cfg), defaultConfig())!;
     expect(read).not.toBeNull();
@@ -74,7 +74,7 @@ describe('an engine file', () => {
 
   it('is named for its layout', () => {
     expect(engineFileName(presetConfig('V8, Chevrolet LT2').engine)).toBe('engine-v8-crossplane');
-    expect(engineFileName(presetConfig('Boxer four').engine)).toBe('engine-flat-4');
+    expect(engineFileName(presetConfig('Boxer four, Subaru FA20D').engine)).toBe('engine-flat-4');
     expect(engineFileName(presetConfig('Inline four, Honda F20C').engine)).toBe('engine-inline-4');
     expect(engineFileName(presetConfig('Single, Ducati Superquadro Mono').engine)).toBe('engine-single');
   });
