@@ -172,10 +172,13 @@ const GAMMA_EXH: f64 = gas::GAMMA_EXH;
 const CP_EXH: f64 = GAMMA_EXH * gas::R / (GAMMA_EXH - 1.0);
 /// Flow capacity of the wastegate, wide open, as a multiple of the turbine's.
 const WASTEGATE_CAPACITY: f64 = 1.5;
-/// Boost below the target at which the wastegate starts to open, and the rise over which it goes from
-/// shut to wide open, Pa.
-const WASTEGATE_CRACK: f64 = 0.04e5;
-const WASTEGATE_SPAN: f64 = 0.12e5;
+/// The boost controller: the wastegate goes from shut to wide open over this share of the boost target,
+/// and a trim that settles the mean boost on the target follows its error over this time, s. The trim is
+/// what holds the target, so the band can be wide enough for the loop through the shaft and the charge air
+/// to settle rather than hunt from shut to wide open: the higher the boost, the more power the turbine has
+/// over what it needs, and the more a band fixed in pascals would swing it.
+const WASTEGATE_BAND_SHARE: f64 = 0.25;
+const BOOST_TRIM_TAU: f64 = 1.0;
 /// Response time of the wastegate actuator and of the blow-off valve, s.
 const WASTEGATE_TAU: f64 = 0.04;
 /// How long the wastegate actuator's diaphragm, fed through its hose, takes to follow the boost, s: it
@@ -579,6 +582,8 @@ struct Rotor {
     delivered: f64,
     delivered_h: f64,
     wastegate: f64,
+    /// The boost controller's trim on the wastegates' opening, 0..1.
+    boost_trim: f64,
     /// Their blow-off valves' opening, 0..1, and the flow out of them last sample, kg/s.
     blow_off: f64,
     vent: f64,
@@ -617,6 +622,7 @@ impl Rotor {
             delivered: 0.0,
             delivered_h: 0.0,
             wastegate: 0.0,
+            boost_trim: 0.0,
             blow_off: 0.0,
             vent: 0.0,
             drive: TurbineResult { inlet: gas::P_AMB, outlet: gas::P_AMB, ..TurbineResult::default() },
@@ -826,6 +832,7 @@ impl Turbo {
                 r.delivery_t = p.delivery_t;
                 r.pipe.resample_from(&p.pipe);
                 r.wastegate = p.wastegate;
+                r.boost_trim = p.boost_trim;
                 r.blow_off = p.blow_off;
                 r.drive = p.drive;
                 for (v, phase) in r.whine_phase.iter_mut().enumerate() {
@@ -1023,8 +1030,11 @@ impl Turbo {
             r.drive = d;
             let turbine = d;
 
-            // --- Wastegate: opens on the boost its actuator feels over its spring ---
-            let wg_target = clamp((boost - (size.boost_target - WASTEGATE_CRACK)) / WASTEGATE_SPAN, 0.0, 1.0);
+            // --- Wastegate: opened by the boost controller on the boost its actuator feels, in proportion to
+            // how far that is over the target, with a trim that brings the mean onto it ---
+            let error = (boost - size.boost_target) / (WASTEGATE_BAND_SHARE * size.boost_target);
+            r.boost_trim = clamp(r.boost_trim + (dt / BOOST_TRIM_TAU) * error, 0.0, 1.0);
+            let wg_target = clamp(r.boost_trim + error, 0.0, 1.0);
             r.wastegate += (dt / WASTEGATE_TAU) * (wg_target - r.wastegate);
             r.wastegate = clamp(r.wastegate, 0.0, 1.0);
 

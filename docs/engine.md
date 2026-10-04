@@ -245,10 +245,14 @@ part of the gas dynamics; the rest is lumped, one state each, and stepped every 
   feeding it. Each wastegate opens on the one boost, so a turbo on a higher target keeps its gate shut
   while the other's opens, and the other, slowing, can be pushed into a surge by the charge air it can
   no longer hold.
-- **The wastegate** opens a bypass around the turbine as the boost reaches its target, over a few
-  hundredths of a bar, so the turbine takes less of the exhaust. It is a spring and diaphragm with a
-  40 ms lag, not a controller, so the boost settles near the target rather than exactly on it. Its hose
-  and diaphragm feel the boost smoothed over 20 ms: the boost's mean, not the pulses the runners and
+- **The wastegate** opens a bypass around the turbine as the boost reaches its target, so the turbine
+  takes less of the exhaust. It is worked by a boost controller, as a modern engine's is: it opens in
+  proportion to how far the boost is over the target, going from shut to wide open over a quarter of the
+  target, and a trim that follows the error over about a second brings the mean boost onto the target.
+  The band grows with the target because the turbine's spare power does: a band a fixed tenth of a bar
+  wide would, at 2 bar, swing the gate from shut to wide open and back a few times a second, and the
+  boost and torque with it. The actuator follows with a 40 ms lag. Its hose and diaphragm feel the boost
+  smoothed over 20 ms: the boost's mean, not the pulses the runners and
   the plenum's waves ride on it, which at 6500 rpm on the RB26 swing it by about 0.15 bar either way.
 - **The compressor** is Moore and Greitzer's model. Its characteristic is a cubic in the flow, scaled
   with the square of the shaft speed, with its peak pressure rise at 44% of the choke flow at full
