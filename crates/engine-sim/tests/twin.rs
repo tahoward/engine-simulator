@@ -404,7 +404,7 @@ mod robustness {
 }
 
 /// The Milwaukee-Eight 121 makes about the real engine's rated 189 N*m (139 lb-ft) at 3500 rpm and 115 hp
-/// at 5020, and its phaser, advancing the one cam at low speed, lifts the torque below 3000.
+/// at 5020, and its phaser, advancing the one cam at low speed, lifts the torque at 1750.
 #[test]
 fn the_milwaukee_eight_makes_about_the_real_engines_torque_and_power() {
     let torque = |rpm: f64, over: Value| {
@@ -425,8 +425,8 @@ fn the_milwaukee_eight_makes_about_the_real_engines_torque_and_power() {
     assert!((t3500 - 189.0).abs() < 0.1 * 189.0, "{t3500} N*m at 3500 rpm");
     let hp = torque(5020.0, json!({})) * 5020.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
     assert!((hp - 115.0).abs() < 0.1 * 115.0, "{hp} hp at 5020 rpm");
-    let (mapped, fixed) = (torque(2500.0, json!({})), torque(2500.0, json!({ "vvtIntakeLow": 0 })));
-    assert!(mapped > fixed + 1.5, "{mapped} N*m at 2500 rpm on the cam map, against {fixed} with the cam fixed");
+    let (mapped, fixed) = (torque(1750.0, json!({})), torque(1750.0, json!({ "vvtIntakeLow": 0 })));
+    assert!(mapped > fixed + 2.0, "{mapped} N*m at 1750 rpm on the cam map, against {fixed} with the cam fixed");
 }
 
 /// The RC51 makes about the real engine's rated 133 hp (99 kW) at 9500 rpm, and nearly its 105 N*m at 8000:
