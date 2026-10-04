@@ -334,9 +334,9 @@ pub struct EulerPipe {
     pub linear_damping: f64,
     /// Mean-flow friction of each cell, `f / (2 D_h)`, 1/m, for the Darcy factor `f`.
     friction: Vec<f64>,
-    /// Roughness of the bore relative to each cell's hydraulic diameter, where the friction factor is
-    /// worked out from it, or empty where it is fixed.
-    relative_roughness: Vec<f64>,
+    /// Each cell's roughness term in Haaland's equation (`roughness_term`), where the friction factor is
+    /// worked out from the roughness of its bore, or empty where it is fixed.
+    roughness_terms: Vec<f64>,
     /// Stefan-Boltzmann constant times the outer surface's emissivity.
     sigma_eps: f64,
     radiate: bool,
@@ -436,14 +436,14 @@ impl EulerPipe {
             inv_vol[i] = 1.0 / (built.area_cell[i] * dx);
             inv_dia[i] = 1.0 / hyd_dia[i];
         }
-        let relative_roughness: Vec<f64> = match (opts.darcy_friction, opts.material) {
-            (None, Some(m)) => hyd_dia.iter().map(|d| m.roughness / d).collect(),
+        let roughness_terms: Vec<f64> = match (opts.darcy_friction, opts.material) {
+            (None, Some(m)) => hyd_dia.iter().map(|d| roughness_term(m.roughness / d)).collect(),
             _ => Vec::new(),
         };
         let friction = (0..n)
             .map(|i| {
-                let darcy = match relative_roughness.get(i) {
-                    Some(&e) => darcy_factor(REFERENCE_REYNOLDS, e),
+                let darcy = match roughness_terms.get(i) {
+                    Some(&term) => haaland(REFERENCE_REYNOLDS, term),
                     None => opts.darcy_friction.unwrap_or(DEFAULT_DARCY),
                 };
                 0.5 * darcy * inv_dia[i]
@@ -503,7 +503,7 @@ impl EulerPipe {
             inv_wall_heat_capacity: z(),
             linear_damping: opts.linear_damping.unwrap_or(150.0),
             friction,
-            relative_roughness,
+            roughness_terms,
             sigma_eps: STEFAN_BOLTZMANN * wall.emissivity,
             radiate: opts.radiate.unwrap_or(true),
             inlet_kind,
@@ -1455,8 +1455,9 @@ impl EulerPipe {
 
         // Ghost velocity from the outgoing Riemann invariant; the entropy from the interior for gas
         // leaving, from the reservoir for gas arriving.
-        let mut r_ghost = math::max(r * math::pow(p_ghost / p, INV_GAMMA), 1e-7);
-        let c_ghost = c * math::pow(p_ghost / p, MOUTH_ISENTROPIC_EXP);
+        let ratio = math::pow_base(p_ghost / p);
+        let mut r_ghost = math::max(r * ratio.powf(INV_GAMMA), 1e-7);
+        let c_ghost = c * ratio.powf(MOUTH_ISENTROPIC_EXP);
         let mut u_ghost = u + TWO_OVER_GM1 * (c - c_ghost);
         let mut p_face = p_ghost;
         if u_ghost < 0.0 && !self.nozzle_inflow {
@@ -1593,13 +1594,14 @@ impl EulerPipe {
             let d = self.hyd_dia[i];
             let re = (self.flux_avg[i] * d) / MU;
             let mut nu = 0.023 * math::pow(re, 0.8) * PR_N * PULSATION_NUSSELT;
-            if let Some(&e) = self.relative_roughness.get(i) {
+            if let Some(&term) = self.roughness_terms.get(i) {
                 // A rough wall drags more on the flow and, by Norris's correlation, carries more heat
                 // across the boundary layer it thickens with eddies.
                 let re = math::max(re, MIN_TURBULENT_REYNOLDS);
-                let darcy = darcy_factor(re, e);
+                let darcy = haaland(re, term);
                 self.friction[i] = 0.5 * darcy * self.inv_dia[i];
-                let rise = clamp(darcy / darcy_factor(re, 0.0), 1.0, ROUGH_HEAT_MAX_RATIO);
+                // A smooth wall's roughness term is zero.
+                let rise = clamp(darcy / haaland(re, 0.0), 1.0, ROUGH_HEAT_MAX_RATIO);
                 nu *= math::pow(rise, ROUGH_HEAT_EXPONENT);
             }
             let nu = math::max(nu, NUSSELT_FLOOR);
@@ -1912,7 +1914,20 @@ fn illinois<T: Copy>(f: &impl Fn(f64) -> (f64, T), a: f64, fa: f64, b: f64, fb: 
 /// Darcy friction factor of turbulent flow at Reynolds number `re` along a wall whose roughness is `rel`
 /// of its hydraulic diameter: Haaland's explicit form of the Colebrook equation, within 2% of it.
 pub fn darcy_factor(re: f64, rel: f64) -> f64 {
-    let x = -1.8 * math::log(math::pow(rel / 3.7, 1.11) + 6.9 / re) / std::f64::consts::LN_10;
+    haaland(re, roughness_term(rel))
+}
+
+/// The term of Haaland's equation a wall's relative roughness `rel` gives, which depends on nothing else,
+/// so a duct works it out once for each cell.
+#[inline(always)]
+fn roughness_term(rel: f64) -> f64 {
+    math::pow(rel / 3.7, 1.11)
+}
+
+/// `darcy_factor` at Reynolds number `re`, from the wall's `roughness_term`.
+#[inline(always)]
+fn haaland(re: f64, term: f64) -> f64 {
+    let x = -1.8 * math::log(term + 6.9 / re) / std::f64::consts::LN_10;
     1.0 / (x * x)
 }
 

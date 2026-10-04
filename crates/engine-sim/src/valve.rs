@@ -59,9 +59,10 @@ pub fn orifice_solve(area: f64, cd: f64, p_up: f64, t_up: f64, p_down: f64, gamm
     if pr < c.critical {
         pr = c.critical;
     }
-    let p2 = math::pow(pr, c.exp2);
+    let ratio = math::pow_base(pr);
+    let p2 = ratio.powf(c.exp2);
     out.throat_t = p2 / pr;
-    let term = math::pow(pr, c.exp1) - p2;
+    let term = ratio.powf(c.exp1) - p2;
     if term <= 0.0 {
         return out;
     }
