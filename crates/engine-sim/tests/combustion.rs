@@ -290,6 +290,30 @@ fn the_fa20d_makes_about_the_real_engines_torque_and_power() {
     assert!((hp - 200.0).abs() < 0.1 * 200.0, "{hp} hp at 7000 rpm");
 }
 
+/// The Mezger 4.0 makes about the real engine's rated 460 N*m (339 lb-ft) at 5750 rpm and 500 PS (368 kW) at
+/// 8250.
+#[test]
+fn the_mezger_4_0_makes_about_the_real_engines_torque_and_power() {
+    let torque = |rpm: f64| {
+        let mut cfg = common::engine_preset("Boxer six, Porsche Mezger 4.0").config.clone();
+        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
+        cfg.engine = common::with(&cfg.engine, held);
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(2 * FS as usize);
+        let n = FS as usize / 2;
+        let mut t = 0.0;
+        for _ in 0..n {
+            sim.render(1);
+            t += sim.snapshot().torque - sim.friction_torque();
+        }
+        t / n as f64
+    };
+    let t5750 = torque(5750.0);
+    assert!((t5750 - 460.0).abs() < 0.1 * 460.0, "{t5750} N*m at 5750 rpm");
+    let kw = torque(8250.0) * 8250.0 * 2.0 * std::f64::consts::PI / 60.0 / 1000.0;
+    assert!((kw - 368.0).abs() < 0.1 * 368.0, "{kw} kW at 8250 rpm");
+}
+
 /// Lets a four-valve head breathe at high rpm, where one valve of each chokes.
 ///
 /// A four-valve engine keeps most of its torque to near its rev limit, falling off past the speed its

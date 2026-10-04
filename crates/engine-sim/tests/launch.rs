@@ -137,6 +137,9 @@ fn real_engines_launch_through_their_own_cars() {
     let gt86 = &common::engine_preset("Boxer four, Subaru FA20D").launch;
     assert_eq!(gt86.ratios, vec![3.626, 2.188, 1.541, 1.213, 1.0, 0.767]);
     assert_eq!(gt86.final_drive, 4.1);
+    let rs40 = &common::engine_preset("Boxer six, Porsche Mezger 4.0").launch;
+    assert_eq!(rs40.ratios, vec![3.82, 2.15, 1.56, 1.21, 0.97, 0.83]);
+    assert_eq!(rs40.final_drive, 3.89);
     let mono = &common::engine_preset("Single, Ducati Superquadro Mono").launch;
     assert_eq!(mono.ratios.len(), 6);
     assert!((mono.ratios[0] * mono.final_drive - (36.0 / 13.0) * (61.0 / 31.0) * (43.0 / 15.0)).abs() < 1e-9);
@@ -149,6 +152,15 @@ fn the_toyota_86_launches_about_as_quick_as_the_real_car() {
     let snaps = run("Boxer four, Subaru FA20D", None);
     let sixty = snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph");
     assert!((5.8..7.2).contains(&sixty), "0-60 in {sixty} s");
+}
+
+/// The GT3 RS 4.0 gets to 60 mph in about the 3.5-4.0 s road tests time it at: 500 PS through the rear
+/// wheels, its engine over them.
+#[test]
+fn the_gt3_rs_4_0_launches_about_as_quick_as_the_real_car() {
+    let snaps = run("Boxer six, Porsche Mezger 4.0", None);
+    let sixty = snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph");
+    assert!((3.2..4.4).contains(&sixty), "0-60 in {sixty} s");
 }
 
 /// The Fiesta ST gets to 60 mph in about the 6.5 s Ford gives it to 62: 200 PS through the front wheels.

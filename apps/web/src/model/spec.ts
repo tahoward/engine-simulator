@@ -2895,10 +2895,12 @@ const SUBARU_FA20D: Partial<EngineSpec> = {
 };
 
 /**
- * The Porsche flat six: flat, opposed, a throw per cylinder (see `boxerPlan`), sized as a 3.6 litre
- * 997 Carrera's, each bank's three into a silencer of its own, as a 911's are.
+ * The 4.0 litre Mezger flat six of the 2011 Porsche 911 GT3 RS 4.0, the last of the engines descended from
+ * the GT1's: 102.7 x 80.4 mm, the stroke from the GT3 RSR's crank, 12.6:1, dry-sumped, with twin cams and
+ * four valves a cylinder on each bank and variable timing on all four cams, an 8500 rpm limit, rated at
+ * 500 PS (493 hp, 368 kW) at 8250 rpm and 460 N*m (339 lb-ft) at 5750.
  */
-const BOXER_SIX: Partial<EngineSpec> = {
+const PORSCHE_MEZGER_40: Partial<EngineSpec> = {
   cylinders: 6,
   vAngle: 180,
   crankType: 'boxer',
@@ -2906,16 +2908,37 @@ const BOXER_SIX: Partial<EngineSpec> = {
   exhaustHeaders: true,
   headerRun: 'lengthways',
   ...IDLING,
-  // A 997 Carrera 3.6's.
-  revLimit: 7300,
-  flywheelInertia: 0.35,
+  revLimit: 8500,
+  flywheelInertia: 0.3,
   pipeCellSize: 0.035,
-  bore: 0.097,
-  stroke: 0.0815,
-  rodLength: 0.1275,
-  compressionRatio: 11.3,
-  ...fourValveHead(0.097),
-  maxLift: 0.011,
+  bore: 0.1027,
+  stroke: 0.0804,
+  // Estimated: its published figures do not include the rod.
+  rodLength: 0.127,
+  compressionRatio: 12.6,
+  // Estimated, like the cams, the runners and the cam map, and tuned with them for the rated torque at
+  // 5750 rpm and power at 8250. Valves larger than a typical four-valve head's for the bore: with a
+  // typical head's, it makes about 485 PS at 8250 and 10 N*m less at 5750.
+  exValveDia: 0.037,
+  exValveCount: 2,
+  inValveDia: 0.044,
+  inValveCount: 2,
+  maxLift: 0.0135,
+  evo: 100,
+  evc: 380,
+  ivo: 340,
+  ivc: 625,
+  // Under load up to 5000 rpm the intake advanced 40 degrees, easing back to rest by 7500, which gives back
+  // the mid-range a cam closing this late costs it; at idle and light load at rest. The exhaust cam stays
+  // at rest: retarded too, the overlap blows fresh charge through into the headers, where it lights.
+  vvtIntakeLow: 40,
+  vvtLowRpm: 5000,
+  vvtHighRpm: 7500,
+  // Wide enough for the top end; narrower, they lift the mid-range but cost 20-30 PS at 8250.
+  intakeRunnerLength: 0.35,
+  intakeRunnerDia: 0.062,
+  // Its 82 mm throttle body.
+  throttleDia: 0.082,
   // Level-matched to the inline four, as the other presets are.
   outputGain: 1.03,
 };
@@ -3252,12 +3275,26 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     graph: () => structuredClone(subaruFa20dExhaust) as ExhaustGraph,
   },
   {
-    name: 'Boxer six',
+    name: 'Boxer six, Porsche Mezger 4.0',
+    car: {
+      // The 911 GT3 RS 4.0 (997): its six-speed manual and a 3.89 final drive. 325/30ZR19 Michelin Pilot
+      // Sport Cup rear tyres, 1370 kg, rear-engined with about 61% of its weight on the rear wheels.
+      name: 'Porsche 911 GT3 RS 4.0 (997)',
+      ratios: [3.82, 2.15, 1.56, 1.21, 0.97, 0.83],
+      finalDrive: 3.89,
+      tyreRadius: 0.332,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 1370 + DRIVER_MASS,
+      drive: 'rwd',
+      drivenLoad: 0.61,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
     description:
-      'The Porsche flat six: a throw per cylinder, firing 1-6-2-4-3-5 every 120\u00b0. Each bank of three has its own silencer and hears every other firing, 240\u00b0 apart, as a V6\u2019s banks do.',
-    engine: BOXER_SIX,
-    pipe: () => fittedExhaust(fullSpec(BOXER_SIX)).pipe,
-    collector: () => fittedExhaust(fullSpec(BOXER_SIX)).collector,
+      'The 4.0 litre flat six in the 2011 Porsche 911 GT3 RS 4.0, the last and largest of the Mezger engines descended from the 911 GT1\u2019s: 102.7 x 80.4 mm, the stroke from the GT3 RSR\u2019s crank, 12.6:1, four valves a cylinder, variable timing on its intake and exhaust cams, here on the intakes only, and an 8500 rpm limit. A throw per cylinder, firing 1-6-2-4-3-5 every 120\u00b0; each bank of three has its own silencer and hears every other firing, 240\u00b0 apart, as a V6\u2019s banks do. It makes 414-450 N\u00b7m from 4500 to 8000 rpm, 434 N\u00b7m at 5750 and 503 PS (496 hp) at 8250, against the real engine\u2019s rated 460 N\u00b7m at 5750 and 500 PS (493 hp) at 8250. Its rod, valves, cams, cam map, runners and exhaust are estimates.',
+    engine: PORSCHE_MEZGER_40,
+    pipe: () => fittedExhaust(fullSpec(PORSCHE_MEZGER_40)).pipe,
+    collector: () => fittedExhaust(fullSpec(PORSCHE_MEZGER_40)).collector,
   },
   {
     name: 'Parallel twin, 360\u00b0',

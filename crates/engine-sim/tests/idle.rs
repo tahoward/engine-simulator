@@ -59,7 +59,7 @@ const PRESETS: [&str; 14] = [
     "V8, Chevrolet LT2",
     "V8, Chevrolet LT6",
     "Boxer four, Subaru FA20D",
-    "Boxer six",
+    "Boxer six, Porsche Mezger 4.0",
     "Parallel twin, 360°",
 ];
 
@@ -95,7 +95,7 @@ idle_tests! {
     presets_idle_v8_chevrolet_lt2 => 9,
     presets_idle_v8_chevrolet_lt6 => 10,
     presets_idle_boxer_four_subaru_fa20d => 11,
-    presets_idle_boxer_six => 12,
+    presets_idle_boxer_six_porsche_mezger_4_0 => 12,
     presets_idle_parallel_twin_360 => 13,
 }
 
