@@ -42,7 +42,7 @@ fn settles_near_the_idle_speed(name: &str) {
 /// Every preset has an idle test below.
 const PRESETS: [&str; 14] = [
     "Single, megaphone",
-    "45° V-twin, 2-into-1",
+    "45° V-twin, Harley-Davidson Milwaukee-Eight 121",
     "90° V-twin, 2-into-2",
     "Inline three, Ford 1.5 EcoBoost Dragon",
     "Inline four, Honda F20C",
@@ -78,7 +78,7 @@ macro_rules! idle_tests {
 // Each preset settles near the idle speed.
 idle_tests! {
     presets_idle_single_megaphone => 0,
-    presets_idle_45_v_twin_2_into_1 => 1,
+    presets_idle_45_v_twin_harley_davidson_milwaukee_eight_121 => 1,
     presets_idle_90_v_twin_2_into_2 => 2,
     presets_idle_inline_three_ford_1_5_ecoboost_dragon => 3,
     presets_idle_inline_four_honda_f20c => 4,

@@ -117,11 +117,14 @@ describe('the cams', () => {
   });
 
   it('run every pushrod up outside its bore, however narrow the V', () => {
+    // The Milwaukee-Eight's four-valve head is drawn without its pushrods, so it is given the two-valve
+    // head the drawing has them for.
     for (const name of ['LT2', '45°']) {
       for (const vAngle of [15, 30, 45, 60, 90, 120]) {
-        const spec = { ...engine(name), vAngle };
+        const spec: EngineSpec = { ...engine(name), vAngle, pushrods: true, exValveCount: 1, inValveCount: 1 };
         const cyls = (new EngineMesh(spec) as unknown as { cyls: Cylinder[] }).cyls;
         for (const cyl of cyls) {
+          expect(cyl.rockers.length, `${name} at ${vAngle}°`).toBeGreaterThan(0);
           for (const r of cyl.rockers) expect(Math.abs(r.cup.x), `${name} at ${vAngle}°`).toBeGreaterThan(spec.bore / 2 + 0.0035);
         }
       }

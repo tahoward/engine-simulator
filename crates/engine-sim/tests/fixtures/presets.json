@@ -180,7 +180,7 @@
   },
   "pipe": [
    {
-    "id": "seg2652",
+    "id": "seg2653",
     "kind": "pipe",
     "length": 0.3,
     "dIn": 0.04,
@@ -189,7 +189,7 @@
     "pitch": 0
    },
    {
-    "id": "seg2653",
+    "id": "seg2654",
     "kind": "cone",
     "length": 0.55,
     "dIn": 0.04,
@@ -200,7 +200,7 @@
   ],
   "collector": [
    {
-    "id": "seg2654",
+    "id": "seg2655",
     "kind": "cone",
     "length": 0.12,
     "dIn": 0.05,
@@ -209,7 +209,7 @@
     "pitch": 0
    },
    {
-    "id": "seg2655",
+    "id": "seg2656",
     "kind": "pipe",
     "length": 0.55,
     "dIn": 0.058,
@@ -243,7 +243,7 @@
  },
  "defaultCollector": [
   {
-   "id": "seg2659",
+   "id": "seg2660",
    "kind": "cone",
    "length": 0.12,
    "dIn": 0.05,
@@ -252,7 +252,7 @@
    "pitch": 0
   },
   {
-   "id": "seg2660",
+   "id": "seg2661",
    "kind": "pipe",
    "length": 0.55,
    "dIn": 0.058,
@@ -475,7 +475,7 @@
    }
   },
   {
-   "name": "45° V-twin, 2-into-1",
+   "name": "45° V-twin, Harley-Davidson Milwaukee-Eight 121",
    "engine": {
     "cylinders": 2,
     "vAngle": 45,
@@ -488,8 +488,28 @@
     "load": 0,
     "throttle": 0,
     "revLimit": 5600,
-    "pushrods": true,
     "flywheelInertia": 0.4,
+    "pipeCellSize": 0.035,
+    "bore": 0.1035,
+    "stroke": 0.1175,
+    "rodLength": 0.176,
+    "compressionRatio": 11.4,
+    "exValveDia": 0.03519,
+    "exValveCount": 2,
+    "inValveDia": 0.0414,
+    "inValveCount": 2,
+    "maxLift": 0.0105,
+    "evo": 125,
+    "evc": 385,
+    "ivo": 350,
+    "ivc": 595,
+    "vvtLinked": true,
+    "vvtIntakeLow": 15,
+    "vvtLowRpm": 2000,
+    "vvtHighRpm": 4500,
+    "intakeRunnerLength": 0.6,
+    "throttleDia": 0.064,
+    "recipMass": 0.8,
     "outputGain": 0.55
    },
    "config": {
@@ -503,34 +523,34 @@
      "exhaustLayout": "2into1",
      "exhaustHeaders": true,
      "headerRun": "lengthways",
-     "bore": 0.089,
-     "stroke": 0.08,
-     "rodLength": 0.145,
-     "compressionRatio": 10.5,
-     "exValveDia": 0.034,
-     "exValveCount": 1,
+     "bore": 0.1035,
+     "stroke": 0.1175,
+     "rodLength": 0.176,
+     "compressionRatio": 11.4,
+     "exValveDia": 0.03519,
+     "exValveCount": 2,
      "portLength": 0.055,
-     "inValveDia": 0.04,
-     "inValveCount": 1,
-     "maxLift": 0.0095,
-     "evo": 128,
-     "evc": 378,
-     "ivo": 342,
-     "ivc": 576,
+     "inValveDia": 0.0414,
+     "inValveCount": 2,
+     "maxLift": 0.0105,
+     "evo": 125,
+     "evc": 385,
+     "ivo": 350,
+     "ivc": 595,
      "camSwitchRpm": 0,
      "highEvo": 128,
      "highEvc": 378,
      "highIvo": 342,
      "highIvc": 576,
      "highMaxLift": 0.0095,
-     "vvtIntakeLow": 0,
+     "vvtIntakeLow": 15,
      "vvtIntakeHigh": 0,
      "vvtExhaustLow": 0,
      "vvtExhaustHigh": 0,
      "vvtLowRpm": 2000,
-     "vvtHighRpm": 6000,
-     "vvtLinked": false,
-     "pushrods": true,
+     "vvtHighRpm": 4500,
+     "vvtLinked": true,
+     "pushrods": false,
      "ignition": 695,
      "burnDuration": 55,
      "advanceCurve": true,
@@ -539,9 +559,9 @@
      "overrunCrackle": false,
      "crackleIntensity": 0.6,
      "combustionVariability": 1,
-     "recipMass": 0.55,
+     "recipMass": 0.8,
      "throttle": 0,
-     "throttleDia": 0,
+     "throttleDia": 0.064,
      "plenumVolume": 0,
      "plenumLength": 0,
      "plenumWidth": 0,
@@ -554,7 +574,7 @@
      "airboxVolume": 0,
      "snorkelLength": 0.3,
      "snorkelDia": 0,
-     "intakeRunnerLength": 0,
+     "intakeRunnerLength": 0.6,
      "intakeRunnerDia": 0,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
@@ -586,38 +606,47 @@
      {
       "id": "seg16",
       "kind": "pipe",
-      "length": 0.34,
-      "dIn": 0.042,
-      "dOut": 0.042,
-      "yaw": 0,
-      "pitch": 0
-     },
-     {
-      "id": "seg17",
-      "kind": "cone",
-      "length": 0.1,
-      "dIn": 0.042,
-      "dOut": 0.05,
+      "length": 0.5,
+      "dIn": 0.045,
+      "dOut": 0.045,
       "yaw": 0,
       "pitch": 0
      }
     ],
     "collector": [
      {
-      "id": "seg18",
+      "id": "seg17",
       "kind": "cone",
       "length": 0.12,
       "dIn": 0.05,
-      "dOut": 0.06,
+      "dOut": 0.057,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg18",
+      "kind": "pipe",
+      "length": 0.35,
+      "dIn": 0.057,
+      "dOut": 0.057,
       "yaw": 0,
       "pitch": 0
      },
      {
       "id": "seg19",
-      "kind": "pipe",
+      "kind": "chamber",
       "length": 0.5,
-      "dIn": 0.06,
-      "dOut": 0.06,
+      "dIn": 0.057,
+      "dOut": 0.1,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg20",
+      "kind": "pipe",
+      "length": 0.1,
+      "dIn": 0.05,
+      "dOut": 0.05,
       "yaw": 0,
       "pitch": 0
      }
@@ -628,37 +657,37 @@
        "duct": "collector0",
        "position": [
         0,
-        0.10272741217840879,
-        0.9067361954674142
+        0.1466566458927016,
+        1.3852900567017534
        ]
       }
      ],
      "intake": [
-      0.23387013765244566,
-      0.4819645389447247,
-      -0.2771467952337444
+      0.3020786071177078,
+      0.5879132658924366,
+      -0.2650731524249241
      ],
      "engine": [
       0,
-      0.15898052631578946,
+      0.20277903846153844,
       0
      ]
     }
    },
    "launch": {
     "ratios": [
-     3.36,
-     2.09,
-     1.47,
-     1.1,
-     0.87,
-     0.71
+     3.336695652173913,
+     2.3130434782608695,
+     1.7175652173913043,
+     1.391304347826087,
+     1.1850434782608696,
+     1
     ],
-    "finalDrive": 5.145996922483082,
-    "tyreRadius": 0.31,
+    "finalDrive": 2.875,
+    "tyreRadius": 0.325,
     "tyreGrip": 1.1,
-    "mass": 371.6093607756655,
-    "drivenLoad": 0.5,
+    "mass": 466,
+    "drivenLoad": 0.55,
     "frontWheelDrive": false,
     "tractionControl": true,
     "launchRpm": 2800,
@@ -671,49 +700,49 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg172",
+      "id": "seg173",
       "kind": "pipe",
       "length": 0.45,
-      "dIn": 0.028900000000000002,
-      "dOut": 0.028900000000000002,
+      "dIn": 0.042301248970922835,
+      "dOut": 0.042301248970922835,
       "yaw": 0,
       "pitch": 0
      }
     ],
     "collector": [
      {
-      "id": "seg173",
+      "id": "seg174",
       "kind": "cone",
       "length": 0.16,
-      "dIn": 0.036125000000000004,
-      "dOut": 0.03760111019637585,
-      "yaw": 0,
-      "pitch": 0
-     },
-     {
-      "id": "seg174",
-      "kind": "pipe",
-      "length": 0.6500000000000004,
-      "dIn": 0.03760111019637585,
-      "dOut": 0.03760111019637585,
+      "dIn": 0.05287656121365354,
+      "dOut": 0.05503716000000001,
       "yaw": 0,
       "pitch": 0
      },
      {
       "id": "seg175",
-      "kind": "chamber",
-      "length": 0.6,
-      "dIn": 0.03760111019637585,
-      "dOut": 0.09400277549093963,
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.05503716000000001,
+      "dOut": 0.05503716000000001,
       "yaw": 0,
       "pitch": 0
      },
      {
       "id": "seg176",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.05503716000000001,
+      "dOut": 0.13759290000000002,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg177",
       "kind": "pipe",
       "length": 0.5,
-      "dIn": 0.03760111019637585,
-      "dOut": 0.03760111019637585,
+      "dIn": 0.05503716000000001,
+      "dOut": 0.05503716000000001,
       "yaw": 0,
       "pitch": 0
      }
@@ -827,7 +856,7 @@
     },
     "pipe": [
      {
-      "id": "seg181",
+      "id": "seg182",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.04,
@@ -836,7 +865,7 @@
       "pitch": 0
      },
      {
-      "id": "seg182",
+      "id": "seg183",
       "kind": "cone",
       "length": 0.3,
       "dIn": 0.04,
@@ -847,7 +876,7 @@
     ],
     "collector": [
      {
-      "id": "seg179",
+      "id": "seg180",
       "kind": "cone",
       "length": 0.12,
       "dIn": 0.05,
@@ -856,7 +885,7 @@
       "pitch": 0
      },
      {
-      "id": "seg180",
+      "id": "seg181",
       "kind": "pipe",
       "length": 0.55,
       "dIn": 0.058,
@@ -922,7 +951,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg186",
+      "id": "seg187",
       "kind": "pipe",
       "length": 0.75,
       "dIn": 0.028900000000000002,
@@ -931,7 +960,7 @@
       "pitch": 0
      },
      {
-      "id": "seg187",
+      "id": "seg188",
       "kind": "cone",
       "length": 0.25,
       "dIn": 0.028900000000000002,
@@ -1071,7 +1100,7 @@
     },
     "pipe": [
      {
-      "id": "seg192",
+      "id": "seg193",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03433144844016926,
@@ -1082,7 +1111,7 @@
     ],
     "collector": [
      {
-      "id": "seg198",
+      "id": "seg199",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04291431055021158,
@@ -1091,7 +1120,7 @@
       "pitch": 0
      },
      {
-      "id": "seg199",
+      "id": "seg200",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.05470670795614009,
@@ -1100,7 +1129,7 @@
       "pitch": 0
      },
      {
-      "id": "seg200",
+      "id": "seg201",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.05470670795614009,
@@ -1109,7 +1138,7 @@
       "pitch": 0
      },
      {
-      "id": "seg201",
+      "id": "seg202",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.05470670795614009,
@@ -1124,7 +1153,7 @@
        "id": "runner0",
        "segments": [
         {
-         "id": "seg192",
+         "id": "seg193",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03433144844016926,
@@ -1147,7 +1176,7 @@
        "id": "runner1",
        "segments": [
         {
-         "id": "seg192",
+         "id": "seg193",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03433144844016926,
@@ -1170,7 +1199,7 @@
        "id": "runner2",
        "segments": [
         {
-         "id": "seg192",
+         "id": "seg193",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03433144844016926,
@@ -1193,7 +1222,7 @@
        "id": "collector0",
        "segments": [
         {
-         "id": "seg198",
+         "id": "seg199",
          "kind": "cone",
          "length": 0.16,
          "dIn": 0.04291431055021158,
@@ -1202,7 +1231,7 @@
          "pitch": 0
         },
         {
-         "id": "seg199",
+         "id": "seg200",
          "kind": "pipe",
          "length": 0.6500000000000004,
          "dIn": 0.05470670795614009,
@@ -1211,7 +1240,7 @@
          "pitch": 0
         },
         {
-         "id": "seg200",
+         "id": "seg201",
          "kind": "chamber",
          "length": 0.6,
          "dIn": 0.05470670795614009,
@@ -1220,7 +1249,7 @@
          "pitch": 0
         },
         {
-         "id": "seg201",
+         "id": "seg202",
          "kind": "pipe",
          "length": 0.5,
          "dIn": 0.05470670795614009,
@@ -1307,7 +1336,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg211",
+      "id": "seg212",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03433144844016926,
@@ -1318,7 +1347,7 @@
     ],
     "collector": [
      {
-      "id": "seg212",
+      "id": "seg213",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04291431055021158,
@@ -1327,7 +1356,7 @@
       "pitch": 0
      },
      {
-      "id": "seg213",
+      "id": "seg214",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.05470670795614009,
@@ -1336,7 +1365,7 @@
       "pitch": 0
      },
      {
-      "id": "seg214",
+      "id": "seg215",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.05470670795614009,
@@ -1345,7 +1374,7 @@
       "pitch": 0
      },
      {
-      "id": "seg215",
+      "id": "seg216",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.05470670795614009,
@@ -1486,7 +1515,7 @@
     },
     "pipe": [
      {
-      "id": "seg220",
+      "id": "seg221",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.04,
@@ -1497,7 +1526,7 @@
     ],
     "collector": [
      {
-      "id": "seg221",
+      "id": "seg222",
       "kind": "cone",
       "length": 0.14,
       "dIn": 0.05,
@@ -1506,7 +1535,7 @@
       "pitch": 0
      },
      {
-      "id": "seg222",
+      "id": "seg223",
       "kind": "pipe",
       "length": 1,
       "dIn": 0.06,
@@ -1515,7 +1544,7 @@
       "pitch": 0
      },
      {
-      "id": "seg223",
+      "id": "seg224",
       "kind": "chamber",
       "length": 0.38,
       "dIn": 0.06,
@@ -1524,7 +1553,7 @@
       "pitch": 0
      },
      {
-      "id": "seg224",
+      "id": "seg225",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.055,
@@ -1582,7 +1611,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg607",
+      "id": "seg608",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03846660889654819,
@@ -1593,7 +1622,7 @@
     ],
     "collector": [
      {
-      "id": "seg608",
+      "id": "seg609",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.048083261120685235,
@@ -1602,7 +1631,7 @@
       "pitch": 0
      },
      {
-      "id": "seg609",
+      "id": "seg610",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.07077856036964868,
@@ -1611,7 +1640,7 @@
       "pitch": 0
      },
      {
-      "id": "seg610",
+      "id": "seg611",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.07077856036964868,
@@ -1620,7 +1649,7 @@
       "pitch": 0
      },
      {
-      "id": "seg611",
+      "id": "seg612",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.07077856036964868,
@@ -1755,7 +1784,7 @@
     },
     "pipe": [
      {
-      "id": "seg616",
+      "id": "seg617",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03514886387922091,
@@ -1766,7 +1795,7 @@
     ],
     "collector": [
      {
-      "id": "seg622",
+      "id": "seg623",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04393607984902613,
@@ -1775,7 +1804,7 @@
       "pitch": 0
      },
      {
-      "id": "seg623",
+      "id": "seg624",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.06467390953776647,
@@ -1784,7 +1813,7 @@
       "pitch": 0
      },
      {
-      "id": "seg624",
+      "id": "seg625",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.06467390953776647,
@@ -1793,7 +1822,7 @@
       "pitch": 0
      },
      {
-      "id": "seg625",
+      "id": "seg626",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.06467390953776647,
@@ -1808,7 +1837,7 @@
        "id": "runner0",
        "segments": [
         {
-         "id": "seg616",
+         "id": "seg617",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03514886387922091,
@@ -1831,7 +1860,7 @@
        "id": "runner1",
        "segments": [
         {
-         "id": "seg616",
+         "id": "seg617",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03514886387922091,
@@ -1854,7 +1883,7 @@
        "id": "runner2",
        "segments": [
         {
-         "id": "seg616",
+         "id": "seg617",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03514886387922091,
@@ -1877,7 +1906,7 @@
        "id": "runner3",
        "segments": [
         {
-         "id": "seg616",
+         "id": "seg617",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03514886387922091,
@@ -1900,7 +1929,7 @@
        "id": "collector0",
        "segments": [
         {
-         "id": "seg622",
+         "id": "seg623",
          "kind": "cone",
          "length": 0.16,
          "dIn": 0.04393607984902613,
@@ -1909,7 +1938,7 @@
          "pitch": 0
         },
         {
-         "id": "seg623",
+         "id": "seg624",
          "kind": "pipe",
          "length": 0.6500000000000004,
          "dIn": 0.06467390953776647,
@@ -1918,7 +1947,7 @@
          "pitch": 0
         },
         {
-         "id": "seg624",
+         "id": "seg625",
          "kind": "chamber",
          "length": 0.6,
          "dIn": 0.06467390953776647,
@@ -1927,7 +1956,7 @@
          "pitch": 0
         },
         {
-         "id": "seg625",
+         "id": "seg626",
          "kind": "pipe",
          "length": 0.5,
          "dIn": 0.06467390953776647,
@@ -2013,7 +2042,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg637",
+      "id": "seg638",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03514886387922091,
@@ -2024,7 +2053,7 @@
     ],
     "collector": [
      {
-      "id": "seg638",
+      "id": "seg639",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04393607984902613,
@@ -2033,7 +2062,7 @@
       "pitch": 0
      },
      {
-      "id": "seg639",
+      "id": "seg640",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.06467390953776647,
@@ -2042,7 +2071,7 @@
       "pitch": 0
      },
      {
-      "id": "seg640",
+      "id": "seg641",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.06467390953776647,
@@ -2051,7 +2080,7 @@
       "pitch": 0
      },
      {
-      "id": "seg641",
+      "id": "seg642",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.06467390953776647,
@@ -2186,7 +2215,7 @@
     },
     "pipe": [
      {
-      "id": "seg646",
+      "id": "seg647",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03371838686088052,
@@ -2197,7 +2226,7 @@
     ],
     "collector": [
      {
-      "id": "seg652",
+      "id": "seg653",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04214798357610065,
@@ -2206,7 +2235,7 @@
       "pitch": 0
      },
      {
-      "id": "seg653",
+      "id": "seg654",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.06936487670355944,
@@ -2215,7 +2244,7 @@
       "pitch": 0
      },
      {
-      "id": "seg654",
+      "id": "seg655",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.06936487670355944,
@@ -2224,7 +2253,7 @@
       "pitch": 0
      },
      {
-      "id": "seg655",
+      "id": "seg656",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.06936487670355944,
@@ -2239,7 +2268,7 @@
        "id": "runner0",
        "segments": [
         {
-         "id": "seg646",
+         "id": "seg647",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03371838686088052,
@@ -2262,7 +2291,7 @@
        "id": "runner1",
        "segments": [
         {
-         "id": "seg646",
+         "id": "seg647",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03371838686088052,
@@ -2285,7 +2314,7 @@
        "id": "runner2",
        "segments": [
         {
-         "id": "seg646",
+         "id": "seg647",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03371838686088052,
@@ -2308,7 +2337,7 @@
        "id": "runner3",
        "segments": [
         {
-         "id": "seg646",
+         "id": "seg647",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03371838686088052,
@@ -2331,7 +2360,7 @@
        "id": "runner4",
        "segments": [
         {
-         "id": "seg646",
+         "id": "seg647",
          "kind": "pipe",
          "length": 0.45,
          "dIn": 0.03371838686088052,
@@ -2354,7 +2383,7 @@
        "id": "collector0",
        "segments": [
         {
-         "id": "seg652",
+         "id": "seg653",
          "kind": "cone",
          "length": 0.16,
          "dIn": 0.04214798357610065,
@@ -2363,7 +2392,7 @@
          "pitch": 0
         },
         {
-         "id": "seg653",
+         "id": "seg654",
          "kind": "pipe",
          "length": 0.6500000000000004,
          "dIn": 0.06936487670355944,
@@ -2372,7 +2401,7 @@
          "pitch": 0
         },
         {
-         "id": "seg654",
+         "id": "seg655",
          "kind": "chamber",
          "length": 0.6,
          "dIn": 0.06936487670355944,
@@ -2381,7 +2410,7 @@
          "pitch": 0
         },
         {
-         "id": "seg655",
+         "id": "seg656",
          "kind": "pipe",
          "length": 0.5,
          "dIn": 0.06936487670355944,
@@ -2469,7 +2498,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg669",
+      "id": "seg670",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03371838686088052,
@@ -2480,7 +2509,7 @@
     ],
     "collector": [
      {
-      "id": "seg670",
+      "id": "seg671",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04214798357610065,
@@ -2489,7 +2518,7 @@
       "pitch": 0
      },
      {
-      "id": "seg671",
+      "id": "seg672",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.06936487670355944,
@@ -2498,7 +2527,7 @@
       "pitch": 0
      },
      {
-      "id": "seg672",
+      "id": "seg673",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.06936487670355944,
@@ -2507,7 +2536,7 @@
       "pitch": 0
      },
      {
-      "id": "seg673",
+      "id": "seg674",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.06936487670355944,
@@ -2642,7 +2671,7 @@
     },
     "pipe": [
      {
-      "id": "seg678",
+      "id": "seg679",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03606244584051393,
@@ -2653,7 +2682,7 @@
     ],
     "collector": [
      {
-      "id": "seg684",
+      "id": "seg685",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04507805730064241,
@@ -2662,7 +2691,7 @@
       "pitch": 0
      },
      {
-      "id": "seg685",
+      "id": "seg686",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.08126782389113174,
@@ -2671,7 +2700,7 @@
       "pitch": 0
      },
      {
-      "id": "seg686",
+      "id": "seg687",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.08126782389113174,
@@ -2680,7 +2709,7 @@
       "pitch": 0
      },
      {
-      "id": "seg687",
+      "id": "seg688",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.08126782389113174,
@@ -3178,7 +3207,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg699",
+      "id": "seg700",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03606244584051393,
@@ -3189,7 +3218,7 @@
     ],
     "collector": [
      {
-      "id": "seg700",
+      "id": "seg701",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04507805730064241,
@@ -3198,7 +3227,7 @@
       "pitch": 0
      },
      {
-      "id": "seg701",
+      "id": "seg702",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.08126782389113174,
@@ -3207,7 +3236,7 @@
       "pitch": 0
      },
      {
-      "id": "seg702",
+      "id": "seg703",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.08126782389113174,
@@ -3216,7 +3245,7 @@
       "pitch": 0
      },
      {
-      "id": "seg703",
+      "id": "seg704",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.08126782389113174,
@@ -3348,7 +3377,7 @@
     },
     "pipe": [
      {
-      "id": "seg708",
+      "id": "seg709",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.038418525635427504,
@@ -3359,7 +3388,7 @@
     ],
     "collector": [
      {
-      "id": "seg714",
+      "id": "seg715",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04802315704428438,
@@ -3368,7 +3397,7 @@
       "pitch": 0
      },
      {
-      "id": "seg715",
+      "id": "seg716",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.06121941128425199,
@@ -3377,7 +3406,7 @@
       "pitch": 0
      },
      {
-      "id": "seg716",
+      "id": "seg717",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.06121941128425199,
@@ -3386,7 +3415,7 @@
       "pitch": 0
      },
      {
-      "id": "seg717",
+      "id": "seg718",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.06121941128425199,
@@ -3998,7 +4027,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg731",
+      "id": "seg732",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.038418525635427504,
@@ -4009,7 +4038,7 @@
     ],
     "collector": [
      {
-      "id": "seg732",
+      "id": "seg733",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04802315704428438,
@@ -4018,7 +4047,7 @@
       "pitch": 0
      },
      {
-      "id": "seg733",
+      "id": "seg734",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.06121941128425199,
@@ -4027,7 +4056,7 @@
       "pitch": 0
      },
      {
-      "id": "seg734",
+      "id": "seg735",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.06121941128425199,
@@ -4036,7 +4065,7 @@
       "pitch": 0
      },
      {
-      "id": "seg735",
+      "id": "seg736",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.06121941128425199,
@@ -4172,7 +4201,7 @@
     },
     "pipe": [
      {
-      "id": "seg740",
+      "id": "seg741",
       "kind": "pipe",
       "length": 0.85,
       "dIn": 0.044,
@@ -4183,7 +4212,7 @@
     ],
     "collector": [
      {
-      "id": "seg741",
+      "id": "seg742",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.066,
@@ -4192,7 +4221,7 @@
       "pitch": 0
      },
      {
-      "id": "seg742",
+      "id": "seg743",
       "kind": "pipe",
       "length": 1,
       "dIn": 0.076,
@@ -4201,7 +4230,7 @@
       "pitch": 0
      },
      {
-      "id": "seg743",
+      "id": "seg744",
       "kind": "chamber",
       "length": 0.45,
       "dIn": 0.076,
@@ -4210,7 +4239,7 @@
       "pitch": 0
      },
      {
-      "id": "seg744",
+      "id": "seg745",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.07,
@@ -4278,7 +4307,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg1506",
+      "id": "seg1507",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.034339999999999996,
@@ -4289,7 +4318,7 @@
     ],
     "collector": [
      {
-      "id": "seg1507",
+      "id": "seg1508",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04292499999999999,
@@ -4298,7 +4327,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1508",
+      "id": "seg1509",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.0631856,
@@ -4307,7 +4336,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1509",
+      "id": "seg1510",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.0631856,
@@ -4316,7 +4345,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1510",
+      "id": "seg1511",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.0631856,
@@ -4467,7 +4496,7 @@
     },
     "pipe": [
      {
-      "id": "seg1515",
+      "id": "seg1516",
       "kind": "pipe",
       "length": 0.41,
       "dIn": 0.045,
@@ -4478,7 +4507,7 @@
     ],
     "collector": [
      {
-      "id": "seg1516",
+      "id": "seg1517",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.068,
@@ -4487,7 +4516,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1517",
+      "id": "seg1518",
       "kind": "pipe",
       "length": 0.9,
       "dIn": 0.076,
@@ -4496,7 +4525,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1518",
+      "id": "seg1519",
       "kind": "chamber",
       "length": 0.4,
       "dIn": 0.076,
@@ -4505,7 +4534,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1519",
+      "id": "seg1520",
       "kind": "pipe",
       "length": 0.35,
       "dIn": 0.07,
@@ -5148,7 +5177,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg1531",
+      "id": "seg1532",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.042673894244608136,
@@ -5159,7 +5188,7 @@
     ],
     "collector": [
      {
-      "id": "seg1532",
+      "id": "seg1533",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.05334236780576017,
@@ -5168,7 +5197,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1533",
+      "id": "seg1534",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.07851996541007897,
@@ -5177,7 +5206,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1534",
+      "id": "seg1535",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.07851996541007897,
@@ -5186,7 +5215,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1535",
+      "id": "seg1536",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.07851996541007897,
@@ -5316,7 +5345,7 @@
     },
     "pipe": [
      {
-      "id": "seg1540",
+      "id": "seg1541",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.040666418092819547,
@@ -5327,7 +5356,7 @@
     ],
     "collector": [
      {
-      "id": "seg1546",
+      "id": "seg1547",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.05083302261602443,
@@ -5336,7 +5365,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1547",
+      "id": "seg1548",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.07482620929078797,
@@ -5345,7 +5374,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1548",
+      "id": "seg1549",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.07482620929078797,
@@ -5354,7 +5383,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1549",
+      "id": "seg1550",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.07482620929078797,
@@ -5412,7 +5441,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg1932",
+      "id": "seg1933",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.040666418092819547,
@@ -5423,7 +5452,7 @@
     ],
     "collector": [
      {
-      "id": "seg1933",
+      "id": "seg1934",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.05083302261602443,
@@ -5432,7 +5461,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1934",
+      "id": "seg1935",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.07482620929078797,
@@ -5441,7 +5470,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1935",
+      "id": "seg1936",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.07482620929078797,
@@ -5450,7 +5479,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1936",
+      "id": "seg1937",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.07482620929078797,
@@ -5580,7 +5609,7 @@
     },
     "pipe": [
      {
-      "id": "seg1941",
+      "id": "seg1942",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03964464879400498,
@@ -5591,7 +5620,7 @@
     ],
     "collector": [
      {
-      "id": "seg1947",
+      "id": "seg1948",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04955581099250622,
@@ -5600,7 +5629,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1948",
+      "id": "seg1949",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.06317322228268557,
@@ -5609,7 +5638,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1949",
+      "id": "seg1950",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.06317322228268557,
@@ -5618,7 +5647,7 @@
       "pitch": 0
      },
      {
-      "id": "seg1950",
+      "id": "seg1951",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.06317322228268557,
@@ -5684,7 +5713,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg2482",
+      "id": "seg2483",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03964464879400498,
@@ -5695,7 +5724,7 @@
     ],
     "collector": [
      {
-      "id": "seg2483",
+      "id": "seg2484",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04955581099250622,
@@ -5704,7 +5733,7 @@
       "pitch": 0
      },
      {
-      "id": "seg2484",
+      "id": "seg2485",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.06317322228268557,
@@ -5713,7 +5742,7 @@
       "pitch": 0
      },
      {
-      "id": "seg2485",
+      "id": "seg2486",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.06317322228268557,
@@ -5722,7 +5751,7 @@
       "pitch": 0
      },
      {
-      "id": "seg2486",
+      "id": "seg2487",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.06317322228268557,
@@ -5845,7 +5874,7 @@
     },
     "pipe": [
      {
-      "id": "seg2491",
+      "id": "seg2492",
       "kind": "pipe",
       "length": 0.4,
       "dIn": 0.04,
@@ -5856,7 +5885,7 @@
     ],
     "collector": [
      {
-      "id": "seg2492",
+      "id": "seg2493",
       "kind": "pipe",
       "length": 0.25,
       "dIn": 0.055,
@@ -5865,7 +5894,7 @@
       "pitch": 0
      },
      {
-      "id": "seg2493",
+      "id": "seg2494",
       "kind": "chamber",
       "length": 0.3,
       "dIn": 0.055,
@@ -5874,7 +5903,7 @@
       "pitch": 0
      },
      {
-      "id": "seg2494",
+      "id": "seg2495",
       "kind": "pipe",
       "length": 0.2,
       "dIn": 0.05,
@@ -5932,7 +5961,7 @@
    "fittedExhaust": {
     "pipe": [
      {
-      "id": "seg2647",
+      "id": "seg2648",
       "kind": "pipe",
       "length": 0.45,
       "dIn": 0.03637498703779838,
@@ -5943,7 +5972,7 @@
     ],
     "collector": [
      {
-      "id": "seg2648",
+      "id": "seg2649",
       "kind": "cone",
       "length": 0.16,
       "dIn": 0.04546873379724797,
@@ -5952,7 +5981,7 @@
       "pitch": 0
      },
      {
-      "id": "seg2649",
+      "id": "seg2650",
       "kind": "pipe",
       "length": 0.6500000000000004,
       "dIn": 0.04732664000000001,
@@ -5961,7 +5990,7 @@
       "pitch": 0
      },
      {
-      "id": "seg2650",
+      "id": "seg2651",
       "kind": "chamber",
       "length": 0.6,
       "dIn": 0.04732664000000001,
@@ -5970,7 +5999,7 @@
       "pitch": 0
      },
      {
-      "id": "seg2651",
+      "id": "seg2652",
       "kind": "pipe",
       "length": 0.5,
       "dIn": 0.04732664000000001,
@@ -5988,7 +6017,7 @@
    "description": "Short straight pipe, no silencer. Raw and loud, strongly tuned.",
    "segments": [
     {
-     "id": "seg2661",
+     "id": "seg2662",
      "kind": "pipe",
      "length": 0.42,
      "dIn": 0.042,
@@ -5997,7 +6026,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2662",
+     "id": "seg2663",
      "kind": "pipe",
      "length": 0.18,
      "dIn": 0.048,
@@ -6012,7 +6041,7 @@
    "description": "Header into a long taper. Broad, brassy, race-bike bark.",
    "segments": [
     {
-     "id": "seg2663",
+     "id": "seg2664",
      "kind": "pipe",
      "length": 0.3,
      "dIn": 0.04,
@@ -6021,7 +6050,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2664",
+     "id": "seg2665",
      "kind": "cone",
      "length": 0.55,
      "dIn": 0.04,
@@ -6036,7 +6065,7 @@
    "description": "Diffuser then reverse cone. The classic two-stroke-style pulse tuner.",
    "segments": [
     {
-     "id": "seg2665",
+     "id": "seg2666",
      "kind": "pipe",
      "length": 0.22,
      "dIn": 0.038,
@@ -6045,7 +6074,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2666",
+     "id": "seg2667",
      "kind": "cone",
      "length": 0.3,
      "dIn": 0.038,
@@ -6054,7 +6083,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2667",
+     "id": "seg2668",
      "kind": "pipe",
      "length": 0.12,
      "dIn": 0.11,
@@ -6063,7 +6092,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2668",
+     "id": "seg2669",
      "kind": "cone",
      "length": 0.24,
      "dIn": 0.11,
@@ -6072,7 +6101,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2669",
+     "id": "seg2670",
      "kind": "pipe",
      "length": 0.16,
      "dIn": 0.026,
@@ -6087,7 +6116,7 @@
    "description": "Long header, expansion can, short tailpipe. Quiet and boomy.",
    "segments": [
     {
-     "id": "seg2670",
+     "id": "seg2671",
      "kind": "pipe",
      "length": 0.6,
      "dIn": 0.042,
@@ -6096,7 +6125,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2671",
+     "id": "seg2672",
      "kind": "chamber",
      "length": 0.34,
      "dIn": 0.042,
@@ -6105,7 +6134,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2672",
+     "id": "seg2673",
      "kind": "pipe",
      "length": 0.3,
      "dIn": 0.04,
@@ -6120,7 +6149,7 @@
    "description": "Very long primary. Low first resonance, strong low-rpm pull.",
    "segments": [
     {
-     "id": "seg2673",
+     "id": "seg2674",
      "kind": "pipe",
      "length": 0.9,
      "dIn": 0.04,
@@ -6129,7 +6158,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2674",
+     "id": "seg2675",
      "kind": "cone",
      "length": 0.35,
      "dIn": 0.04,
@@ -6138,7 +6167,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2675",
+     "id": "seg2676",
      "kind": "pipe",
      "length": 0.25,
      "dIn": 0.06,
@@ -6153,7 +6182,7 @@
    "description": "Flat oval can with its pipes at opposite sides. Rings across the can, rougher in the mids.",
    "segments": [
     {
-     "id": "seg2676",
+     "id": "seg2677",
      "kind": "pipe",
      "length": 0.6,
      "dIn": 0.042,
@@ -6162,7 +6191,7 @@
      "pitch": 0
     },
     {
-     "id": "seg2677",
+     "id": "seg2678",
      "kind": "chamber",
      "length": 0.4,
      "dIn": 0.042,
@@ -6175,7 +6204,7 @@
      "offsetOut": -0.07
     },
     {
-     "id": "seg2678",
+     "id": "seg2679",
      "kind": "pipe",
      "length": 0.3,
      "dIn": 0.04,
