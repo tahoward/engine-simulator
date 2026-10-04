@@ -27,10 +27,10 @@ Parallel twin, 360°                                 47           11.5%    13.3%
 Inline three, Ford 1.5 EcoBoost Dragon              97           23.2%    24.8%
 Inline four, Honda F20C                            112           21.9%    25.4%
 Inline four, Toyota 3S-GTE                         111           27.2%    30.1%
-Boxer four, Subaru FA20D                            94           25.7%    30.2%
+Boxer four, Subaru FA20D                            94           23.9%    27.3%
 Inline five, Audi EA855 EVO                        125           31.9%    35.4%
 Inline six, Nissan RB26DETT                        101           34.2%    38.3%
-Boxer six, Porsche Mezger 4.0                      166           38.9%    45.2%
+Boxer six, Porsche Mezger 4.0                      166           35.2%    40.6%
 V6, Toyota 2GR                                     144           42.3%    47.0%
 V8, Chevrolet LT6                                  216           42.5%    47.6%
 V8, Chevrolet LT2                                  234    272    45.7%    53.3%
@@ -119,7 +119,13 @@ the limiting factor.
 - **A table-driven `pow` and `exp`.** The simulation takes a few hundred powers every sample: the
   cylinders' heat transfer, the valves' and throttle's orifice flow, the open ends and the junctions.
   `pow.rs` is Arm's optimized-routines algorithm, as musl ships it: about twice as fast as the classic
-  fdlibm one and slightly more accurate.
+  fdlibm one and slightly more accurate. Powers of one base share its logarithm (`pow_base`), to the
+  same bits as taking each alone.
+- **A nozzle's face found from where it was.** A pipe that ends narrower than its last cell ends in
+  a nozzle, whose face pressure is a root found every sample. The search starts by secant steps from
+  where the last sample's was heading, to a part in 10^9 of the pressure, and needs about five
+  evaluations against the eleven a search across the whole bracket takes. The 5 cm tailpipes of
+  the FA20D's and Mezger's exhausts end in one.
 - **The same maths everywhere.** Every transcendental function is a software implementation in
   the crate rather than the platform's C library, and nothing is fused into multiply-adds, so the
   native and Wasm builds compute identical results on every machine.

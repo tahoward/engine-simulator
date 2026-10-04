@@ -44,6 +44,12 @@ pub fn pow(x: f64, y: f64) -> f64 {
     crate::pow::pow(x, y)
 }
 
+/// `x`'s logarithm, for raising it to several powers: see `PowBase`.
+#[inline(always)]
+pub fn pow_base(x: f64) -> crate::pow::PowBase {
+    crate::pow::pow_base(x)
+}
+
 #[inline(always)]
 pub fn tanh(x: f64) -> f64 {
     libm::tanh(x)

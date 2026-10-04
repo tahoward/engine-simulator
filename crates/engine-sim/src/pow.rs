@@ -236,6 +236,43 @@ pub fn pow(x: f64, y: f64) -> f64 {
     exp_inline(ehi, elo, sign_bias)
 }
 
+/// `x`'s logarithm, as `pow` takes it, for raising `x` to several powers with one logarithm: `powf` of
+/// it gives the bits `pow` does.
+#[derive(Clone, Copy, Debug)]
+pub struct PowBase {
+    x: f64,
+    /// The logarithm split for the product with the power, or `normal` false where `x` is zero,
+    /// negative, subnormal, infinite or NaN, which `pow` handles case by case.
+    lhi: f64,
+    llo: f64,
+    normal: bool,
+}
+
+#[inline(always)]
+pub fn pow_base(x: f64) -> PowBase {
+    if top12(x).wrapping_sub(0x001) >= 0x7ff - 0x001 {
+        return PowBase { x, lhi: 0.0, llo: 0.0, normal: false };
+    }
+    let (hi, lo) = log_inline(x.to_bits());
+    let lhi = f64::from_bits(hi.to_bits() & (u64::MAX << 27));
+    PowBase { x, lhi, llo: hi - lhi + lo, normal: true }
+}
+
+impl PowBase {
+    /// `pow(x, y)`, to the bit.
+    #[inline(always)]
+    pub fn powf(&self, y: f64) -> f64 {
+        if !self.normal || (top12(y) & 0x7ff).wrapping_sub(0x3be) >= 0x43e - 0x3be {
+            return pow(self.x, y);
+        }
+        let yhi = f64::from_bits(y.to_bits() & (u64::MAX << 27));
+        let ylo = y - yhi;
+        let ehi = yhi * self.lhi;
+        let elo = ylo * self.lhi + y * self.llo;
+        exp_inline(ehi, elo, 0)
+    }
+}
+
 pub fn exp(x: f64) -> f64 {
     let mut abstop = top12(x) & 0x7ff;
     let tiny = 0x3c9u32; // top12(0x1p-54)
@@ -312,6 +349,37 @@ mod tests {
             worst = worst.max(ulps(exp(x), libm::exp(x)));
         }
         assert!(worst <= 1, "worst {worst} ulp");
+    }
+
+    /// A shared logarithm raises to the bits `pow` gives, special cases included.
+    #[test]
+    fn a_shared_logarithm_gives_pow_to_the_bit() {
+        let mut s: u64 = 0x2545f4914f6cdd1d;
+        let mut next = || {
+            s ^= s << 13;
+            s ^= s >> 7;
+            s ^= s << 17;
+            (s >> 11) as f64 / (1u64 << 53) as f64
+        };
+        for _ in 0..1_000_000 {
+            let x = 10f64.powf(next() * 16.0 - 8.0);
+            let y = next() * 8.0 - 4.0;
+            assert_eq!(pow_base(x).powf(y).to_bits(), pow(x, y).to_bits(), "{x}^{y}");
+        }
+        for (x, y) in [
+            (0.0, 2.0),
+            (-2.0, 3.0),
+            (-2.0, 0.5),
+            (f64::INFINITY, -1.0),
+            (f64::NAN, 2.0),
+            (2.0, 0.0),
+            (1e-310, 0.5),
+            (3.0, 1e-30),
+            (3.0, 1e30),
+        ] {
+            let (a, b) = (pow_base(x).powf(y), pow(x, y));
+            assert!(a.to_bits() == b.to_bits() || (a.is_nan() && b.is_nan()), "{x}^{y}: {a} against {b}");
+        }
     }
 
     #[test]

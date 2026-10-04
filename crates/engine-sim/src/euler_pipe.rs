@@ -15,6 +15,7 @@
 
 use crate::cross_modes::{ChamberPlacement, CrossModes, PipeOpening};
 use crate::math::{self, PI, clamp};
+use crate::pow::PowBase;
 use crate::simd::{F2, select};
 use crate::spec::{
     CHAMBER_THROAT, ChamberSection, PIPE_PRESSURE_TAPS, PipeSegment, SegmentKind, WallMaterial, ambient_sound_speed,
@@ -363,6 +364,10 @@ pub struct EulerPipe {
     /// Area of the opening the drawn pipe ends in where it is narrower than the grid's last face, m^2,
     /// or zero where the grid reaches it.
     nozzle_area: f64,
+    /// The nozzle face's pressure last sample, Pa, and how far it moved from the sample before, where
+    /// the next one's search starts: zero before the first.
+    nozzle_pf: f64,
+    nozzle_step: f64,
     /// Radiation corner, rad/s.
     pub mouth_cutoff_rad: f64,
     pub plane_wave_cutoff_rad: f64,
@@ -520,6 +525,8 @@ impl EulerPipe {
             mouth_phi: 0.0,
             mouth_radius: 0.0,
             nozzle_area: built.nozzle_area,
+            nozzle_pf: 0.0,
+            nozzle_step: 0.0,
             mouth_cutoff_rad: 0.0,
             plane_wave_cutoff_rad: 0.0,
             resolution_cutoff_rad: 0.0,
@@ -642,6 +649,8 @@ impl EulerPipe {
         }
         self.mouth_phi = src.mouth_phi;
         self.mouth_cut_state = src.mouth_cut_state;
+        self.nozzle_pf = src.nozzle_pf;
+        self.nozzle_step = src.nozzle_step;
         self.last_max_speed = src.last_max_speed;
     }
 
@@ -949,6 +958,8 @@ impl EulerPipe {
         }
         self.mouth_phi = 0.0;
         self.mouth_cut_state = 0.0;
+        self.nozzle_pf = 0.0;
+        self.nozzle_step = 0.0;
         if let Some(c) = &mut self.cross_modes {
             c.reset();
         }
@@ -1431,6 +1442,10 @@ impl EulerPipe {
             // the nozzle closes down to half of it.
             let open = clamp(2.0 * self.nozzle_area / self.area_face[n] - 1.0, 0.0, 1.0);
             let (r_face, u_face, p_face) = self.nozzle_face(r, u, p, c, res_p + open * (p_ghost - res_p));
+            if self.nozzle_pf > 0.0 {
+                self.nozzle_step = p_face - self.nozzle_pf;
+            }
+            self.nozzle_pf = p_face;
             let flux = hllc(r, u, p, r_face, u_face, p_face);
             self.set_face(n, flux);
             self.mouth_mass_flow = self.f0[n] * self.area_face[n];
@@ -1502,37 +1517,42 @@ impl EulerPipe {
     /// as it mixes but not its heat. The face pressure is the one at which the flow the duct delivers
     /// is the flow the nozzle passes. With the nozzle as wide as the face, this is the open end's own
     /// state.
+    ///
+    /// The face pressure moves little from one sample to the next, so the search for it starts where
+    /// last sample's was heading.
     fn nozzle_face(&self, r: f64, u: f64, p: f64, c: f64, p_down: f64) -> (f64, f64, f64) {
+        let guess = if self.nozzle_pf > 0.0 { self.nozzle_pf + self.nozzle_step } else { f64::NAN };
+        let width = 0.1 * self.nozzle_step.abs() + 1e-7 * self.nozzle_pf;
         let area = self.area_face[self.n];
         let nozzle = self.nozzle_area;
         let e = (GAMMA - 1.0) / GAMMA;
-        // Velocity the duct's gas reaches at face pressure `pf`.
-        let along = |pf: f64| u + TWO_OVER_GM1 * c * (1.0 - math::pow(pf / p, MOUTH_ISENTROPIC_EXP));
+        // Velocity the duct's gas reaches at a face pressure whose ratio to `p` is `ratio`.
+        let along = |ratio: &PowBase| u + TWO_OVER_GM1 * c * (1.0 - ratio.powf(MOUTH_ISENTROPIC_EXP));
         // Mass flow through the nozzle from stagnation `p0`, `t0` to `pd` beyond it.
         let through = |p0: f64, t0: f64, pd: f64| {
             let pj = math::max(pd, p0 * CHOKED_PRESSURE_RATIO);
             if pj >= p0 {
                 return 0.0;
             }
-            let ratio = pj / p0;
+            let ratio = math::pow_base(pj / p0);
             let rho0 = p0 / (gas::R * t0);
-            nozzle * rho0 * math::pow(ratio, INV_GAMMA) * math::sqrt(2.0 * CP * t0 * (1.0 - math::pow(ratio, e)))
+            nozzle * rho0 * ratio.powf(INV_GAMMA) * math::sqrt(2.0 * CP * t0 * (1.0 - ratio.powf(e)))
         };
 
-        if along(p_down) > 0.0 {
+        if along(&math::pow_base(p_down / p)) > 0.0 {
             // Out through the nozzle. At `p_down` the duct delivers more than the nozzle passes; at the
             // pressure that stops its gas, less.
             let p_stop = p * math::pow(math::max(1.0 + u / (TWO_OVER_GM1 * c), 1e-9), 1.0 / MOUTH_ISENTROPIC_EXP);
             let state = |pf: f64| {
-                let uf = along(pf);
-                let rf = r * math::pow(pf / p, INV_GAMMA);
+                let ratio = math::pow_base(pf / p);
+                let uf = along(&ratio);
+                let rf = r * ratio.powf(INV_GAMMA);
                 let tf = pf / (rf * gas::R);
                 let t0 = tf + (uf * uf) / (2.0 * CP);
                 let p0 = pf * math::pow(t0 / tf, 1.0 / e);
-                (rf, uf, rf * uf * area - through(p0, t0, p_down))
+                (rf * uf * area - through(p0, t0, p_down), (rf, uf))
             };
-            let pf = bracketed_root(|pf| state(pf).2, p_down, math::max(p_stop, p_down));
-            let (rf, uf, _) = state(pf);
+            let (pf, (rf, uf)) = root_near(state, p_down, math::max(p_stop, p_down), guess, width);
             (rf, uf, pf)
         } else {
             // In through the nozzle, from the air at rest at `p_down`. At `p_down` the duct draws more than
@@ -1541,13 +1561,12 @@ impl EulerPipe {
             let t0 = p_down / (rho0 * gas::R);
             let p_still = p * math::pow(math::max(1.0 + u / (TWO_OVER_GM1 * c), 1e-9), 1.0 / MOUTH_ISENTROPIC_EXP);
             let state = |pf: f64| {
-                let uf = math::min(along(pf), 0.0);
+                let uf = math::min(along(&math::pow_base(pf / p)), 0.0);
                 let tf = math::max(t0 - (uf * uf) / (2.0 * CP), 0.1 * t0);
                 let rf = pf / (gas::R * tf);
-                (rf, uf, -rf * uf * area - through(p_down, t0, pf))
+                (-rf * uf * area - through(p_down, t0, pf), (rf, uf))
             };
-            let pf = bracketed_root(|pf| state(pf).2, math::min(p_still, p_down), p_down);
-            let (rf, uf, _) = state(pf);
+            let (pf, (rf, uf)) = root_near(state, math::min(p_still, p_down), p_down, guess, width);
             (rf, uf, pf)
         }
     }
@@ -1821,23 +1840,52 @@ impl EulerPipe {
 // Numerics
 // ---------------------------------------------------------------------------
 
-/// The root of `f` between `a` and `b`, where it changes sign, by the Illinois method: to a part in
-/// 10^12 of the bracket, in a handful of steps for the smooth functions it is given. Where it does not
-/// change sign, the end nearer to zero.
-fn bracketed_root(f: impl Fn(f64) -> f64, a: f64, b: f64) -> f64 {
-    let (mut a, mut b) = (a, b);
-    let (mut fa, mut fb) = (f(a), f(b));
-    if fa == 0.0 || (fa > 0.0) == (fb > 0.0) {
-        return if fa.abs() <= fb.abs() { a } else { b };
+/// The root of `f` between `lo` and `hi`, two pressures, where its residual, the first of what it returns,
+/// changes sign, to a part in 10^9 of the pressure: first by secant steps from `guess` and a point
+/// `width` from it, which find it in a few if it is near, and failing that by the Illinois method across
+/// the whole bracket.
+/// Where the residual does not change sign, the end nearer to zero. Returns the root and what `f` gave
+/// there besides the residual.
+fn root_near<T: Copy>(f: impl Fn(f64) -> (f64, T), lo: f64, hi: f64, guess: f64, width: f64) -> (f64, T) {
+    let (lo_end, hi_end) = (math::min(lo, hi), math::max(lo, hi));
+    let tol = 1e-9 * hi_end;
+    if guess > lo_end && guess < hi_end {
+        // Secant steps from the guess and a point `width` from it, for as long as they stay inside the
+        // bracket and close in.
+        let (mut x0, mut x1) = (guess, if guess + width < hi_end { guess + width } else { guess - width });
+        let ((mut f0, _), (mut f1, mut t1)) = (f(x0), f(x1));
+        for _ in 0..6 {
+            if f1 == 0.0 {
+                return (x1, t1);
+            }
+            let x2 = x1 - f1 * (x1 - x0) / (f1 - f0);
+            if !(x2 > lo_end && x2 < hi_end) {
+                break;
+            }
+            let (f2, t2) = f(x2);
+            if f2 == 0.0 || (x2 - x1).abs() <= tol {
+                return (x2, t2);
+            }
+            (x0, f0, x1, f1, t1) = (x1, f1, x2, f2, t2);
+        }
     }
-    let tol = 1e-12 * (b - a).abs();
+    let ((fa, ta), (fb, tb)) = (f(lo), f(hi));
+    if fa == 0.0 || (fa > 0.0) == (fb > 0.0) {
+        return if fa.abs() <= fb.abs() { (lo, ta) } else { (hi, tb) };
+    }
+    illinois(&f, lo, fa, hi, fb, tol)
+}
+
+/// The Illinois method's steps from a bracket `a`, `b` the residual changes sign across, to `tol`.
+fn illinois<T: Copy>(f: &impl Fn(f64) -> (f64, T), a: f64, fa: f64, b: f64, fb: f64, tol: f64) -> (f64, T) {
+    let (mut a, mut b, mut fa, mut fb) = (a, b, fa, fb);
     let mut side = 0;
     let mut last = f64::NAN;
     for _ in 0..40 {
         let x = (a * fb - b * fa) / (fb - fa);
-        let fx = f(x);
+        let (fx, tx) = f(x);
         if fx == 0.0 || (x - last).abs() <= tol {
-            return x;
+            return (x, tx);
         }
         last = x;
         if (fx > 0.0) == (fb > 0.0) {
@@ -1856,7 +1904,8 @@ fn bracketed_root(f: impl Fn(f64) -> f64, a: f64, b: f64) -> f64 {
             side = 1;
         }
     }
-    (a * fb - b * fa) / (fb - fa)
+    let x = (a * fb - b * fa) / (fb - fa);
+    (x, f(x).1)
 }
 
 #[inline(always)]
