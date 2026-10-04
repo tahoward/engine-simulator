@@ -620,9 +620,20 @@ pub mod gas {
 /// Throttle opening at or below which the throttle counts as shut for the overrun fuel cut.
 pub const FUEL_CUT_THROTTLE: f64 = 0.005;
 
-/// Speeds at which the overrun fuel cut acts, rev/min.
+/// Speeds at which the overrun fuel cut acts, rev/min, and how far above the idle speed each is at least:
+/// an engine that idles high has to be clear of its idle before the fuel stops. See `fuel_cut_rpms`.
 pub const FUEL_CUT_RPM: f64 = 1500.0;
 pub const FUEL_RESUME_RPM: f64 = 1200.0;
+pub const FUEL_CUT_ABOVE_IDLE: f64 = 700.0;
+pub const FUEL_RESUME_ABOVE_IDLE: f64 = 400.0;
+
+/// The speeds `spec`'s overrun fuel cut stops the fuel above and brings it back below, rev/min.
+pub fn fuel_cut_rpms(spec: &EngineSpec) -> (f64, f64) {
+    (
+        math::max(FUEL_CUT_RPM, spec.idle_rpm + FUEL_CUT_ABOVE_IDLE),
+        math::max(FUEL_RESUME_RPM, spec.idle_rpm + FUEL_RESUME_ABOVE_IDLE),
+    )
+}
 
 /// Fuel mass fraction of a charge mixed at `lambda`, 0..1.
 pub fn fuel_fraction_at(lambda: f64) -> f64 {

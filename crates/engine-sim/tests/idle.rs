@@ -1,5 +1,5 @@
 //! Every engine preset loads idling: in neutral, with the throttle shut and the idle air valve holding
-//! `PRESET_IDLE_RPM`. Run free, each has to settle there rather than stall or run away, catch itself
+//! its idle speed, `PRESET_IDLE_RPM` but for any that sets its own. Run free, each has to settle there rather than stall or run away, catch itself
 //! there coming down off a lift, come back to it when a load is taken off, and stall under a load the
 //! valve cannot hold up.
 //!
@@ -13,15 +13,21 @@ use engine_sim::EngineSim;
 use engine_sim::spec::gas;
 use serde_json::json;
 
-/// The speed every preset loads at, rpm.
+/// The speed the presets load at, rpm, but for any that sets its own.
 const PRESET_IDLE_RPM: f64 = 800.0;
+
+/// The speed `name` idles at, rpm.
+fn idle_rpm_of(name: &str) -> f64 {
+    common::engine_preset(name).config.engine.idle_rpm
+}
 
 /// `name`, run free from its preset config, settles near the idle speed.
 fn settles_near_the_idle_speed(name: &str) {
     let mut cfg = common::engine_preset(name).config.clone();
     cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true }));
-    assert_eq!(cfg.engine.rpm, PRESET_IDLE_RPM);
-    assert_eq!(cfg.engine.idle_rpm, PRESET_IDLE_RPM);
+    let idle = cfg.engine.idle_rpm;
+    assert!(idle >= PRESET_IDLE_RPM, "{name}: idles at {idle} rpm");
+    assert_eq!(cfg.engine.rpm, idle);
     assert_eq!(cfg.engine.throttle, 0.0);
     assert_eq!(cfg.engine.load, 0.0);
 
@@ -35,13 +41,13 @@ fn settles_near_the_idle_speed(name: &str) {
         sum += sim.rpm();
     }
     let mean = sum / reads as f64;
-    assert!(mean > PRESET_IDLE_RPM - 150.0, "{name}: mean {mean}");
-    assert!(mean < PRESET_IDLE_RPM + 200.0, "{name}: mean {mean}");
+    assert!(mean > idle - 150.0, "{name}: mean {mean}");
+    assert!(mean < idle + 200.0, "{name}: mean {mean}");
 }
 
 /// Every preset has an idle test below.
 const PRESETS: [&str; 14] = [
-    "Single, megaphone",
+    "Single, Ducati Superquadro Mono",
     "45° V-twin, Harley-Davidson Milwaukee-Eight 121",
     "90° V-twin, Honda RC51",
     "Inline three, Ford 1.5 EcoBoost Dragon",
@@ -77,7 +83,7 @@ macro_rules! idle_tests {
 
 // Each preset settles near the idle speed.
 idle_tests! {
-    presets_idle_single_megaphone => 0,
+    presets_idle_single_ducati_superquadro_mono => 0,
     presets_idle_45_v_twin_harley_davidson_milwaukee_eight_121 => 1,
     presets_idle_90_v_twin_honda_rc51 => 2,
     presets_idle_inline_three_ford_1_5_ecoboost_dragon => 3,
@@ -119,7 +125,12 @@ fn slowest_and_mean(sim: &mut EngineSim, seconds: usize) -> (f64, f64) {
 /// the idle rather than letting it fall through and stall.
 #[test]
 fn comes_down_off_a_lift_to_the_idle_without_stalling() {
-    for name in ["Single, megaphone", "Inline four, Honda F20C", "V8, Chevrolet LT2", "Inline six, Nissan RB26DETT"] {
+    for name in [
+        "Single, Ducati Superquadro Mono",
+        "Inline four, Honda F20C",
+        "V8, Chevrolet LT2",
+        "Inline six, Nissan RB26DETT",
+    ] {
         let mut sim = idling(name, json!({}));
         sim.set_controls(0.6, 0.0);
         sim.render(FS as usize * 3 / 2);
@@ -128,14 +139,14 @@ fn comes_down_off_a_lift_to_the_idle_without_stalling() {
         let (slowest, _) = slowest_and_mean(&mut sim, 10);
         let (_, mean) = slowest_and_mean(&mut sim, 3);
         assert!(slowest > 550.0, "{name}: fell to {slowest} rpm");
-        assert!((mean - PRESET_IDLE_RPM).abs() < 150.0, "{name}: back at {mean} rpm");
+        assert!((mean - idle_rpm_of(name)).abs() < 150.0, "{name}: back at {mean} rpm");
     }
 }
 
 /// The idle speed is the valve's to set.
 #[test]
 fn holds_the_idle_speed_it_is_set_to() {
-    for name in ["Single, megaphone", "V8, Chevrolet LT2"] {
+    for name in ["Single, Ducati Superquadro Mono", "V8, Chevrolet LT2"] {
         let mut sim = idling(name, json!({ "idleRpm": 1100 }));
         sim.render(FS as usize * 3);
         let (_, mean) = slowest_and_mean(&mut sim, 2);
@@ -154,14 +165,14 @@ fn comes_back_to_the_idle_when_a_load_is_taken_off() {
         sim.set_controls(0.0, 0.0);
         sim.render(FS as usize * 10);
         let (_, mean) = slowest_and_mean(&mut sim, 3);
-        assert!((mean - PRESET_IDLE_RPM).abs() < 150.0, "{name}: settled at {mean} rpm");
+        assert!((mean - idle_rpm_of(name)).abs() < 150.0, "{name}: settled at {mean} rpm");
     }
 }
 
 /// A load past what the valve can open against stalls the engine: it comes to a standstill and stays.
 #[test]
 fn stalls_under_a_load_it_cannot_hold() {
-    for name in ["Single, megaphone", "Inline four, Honda F20C", "V8, Chevrolet LT2"] {
+    for name in ["Single, Ducati Superquadro Mono", "Inline four, Honda F20C", "V8, Chevrolet LT2"] {
         let mut sim = idling(name, json!({}));
         sim.set_controls(0.0, 1.0);
         sim.render(FS as usize * 3);

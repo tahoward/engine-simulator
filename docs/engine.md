@@ -146,7 +146,10 @@ given a smaller one, as the LT2's 87 mm is, still has the air to idle on. The ai
 controller would carry the speed past the idle and back, round and round, worse the bigger the plenum.
 A dashpot answers the speed's rate of change: it opens the valve further as the engine falls, so one
 dropping off a lift catches itself at the idle, and closes it as the engine rises. On the LT6, whose
-dual plenums hold 19 litres, the idle holds within about 680 to 850 rpm.
+dual plenums hold 19 litres, the idle holds within about 680 to 850 rpm. The valve starts from about the
+opening an engine needs to idle at 800 rpm, and more for one that idles higher, with the square root of
+its idle speed. The Superquadro Mono idles at 1700 rpm, as a big single has to: started with the 800
+rpm opening, it falls to 1250 rpm before the controller has learned the rest.
 
 **Switched off, the vacuum bleeds away.** With the throttle shut, an idle air valve round the plate
 holds the idle speed. When the ignition goes off it stays where it was, as a stepper motor or a
@@ -395,7 +398,8 @@ next cycle.
 
 **Overrun fuel cut.** With the throttle shut above 1500 rpm the fuel stops, as it does on a
 fuel-injected engine. The engine is then turned over by its load, pumping air. The fuel comes back
-below 1200 rpm or as soon as the throttle opens. The injectors stop at once; what fuel is left in
+below 1200 rpm or as soon as the throttle opens. On an engine that idles above 800 rpm both move up
+with its idle, to 700 and 400 rpm above it, so the fuel never stops at the idle itself. The injectors stop at once; what fuel is left in
 the runners is drawn in over the next cycle or two.
 Turn **Overrun fuel cut** off for a carburettor's behaviour, which keeps feeding fuel with the air
 that leaks past the throttle, so the engine keeps firing weakly.

@@ -6,7 +6,8 @@
   sound start after you click or press a key. The desktop app starts the engine as it opens.
 - <kbd>Space</kbd> starts and stops the engine.
 - **Engine preset** loads a complete engine: its layout, firing order, sizes and a matching exhaust.
-  It starts idling at 800 rpm in neutral, on a throttle opening found for that engine. Open the
+  It starts idling in neutral, at 800 rpm or the Superquadro Mono's 1700, on a throttle opening found
+  for that engine. Open the
   throttle and add load to go from there.
 - **Layout → Banks** and **Cylinders per bank** change only the layout: one bank of 1 to 6 is an inline
   engine, two banks of 1 to 6 each a V. Two banks have a **Bank angle**, from 15 to 180 degrees; a second
@@ -66,6 +67,7 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 
 | Preset | Car | Gearbox | Tyres |
 |---|---|---|---|
+| Ducati Superquadro Mono | Ducati Hypermotard 698 Mono, 235 kg | six-speed, primary gears and chain | road |
 | Harley-Davidson Milwaukee-Eight 121 | Harley-Davidson CVO Road Glide, 466 kg | six-speed Cruise Drive, primary chain and belt | road |
 | Honda RC51 | Honda RC51 (SP-1), 298 kg | six-speed, primary gears and chain | road |
 | Honda F20C | Honda S2000 (AP1), 1349 kg | six-speed manual | road |
@@ -77,7 +79,7 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 | Chevrolet LT2 | Chevrolet Corvette Stingray Z51 (C8), 1729 kg | Tremec eight-speed dual clutch | Pilot Sport 4S |
 | Chevrolet LT6 | Chevrolet Corvette Z06 with the Z07 package (C8), 1711 kg | Tremec eight-speed dual clutch | Pilot Sport Cup 2 R |
 
-The S2000's primary reduction, the Road Glide's primary chain and belt, the RC51's primary gears and chain, and the Evora's and RS 3's second final drives
+The S2000's primary reduction, the Road Glide's primary chain and belt, the RC51's and the Hypermotard's primary gears and chain, and the Evora's and RS 3's second final drives
 are folded into the ratios or final drive shown, so
 the overall gearing is the real car's. **Reset gearing** goes back to the car's own gearbox. The other
 presets get a car and a six-speed fitted to the engine.
@@ -93,8 +95,8 @@ pressure against rpm, one colour per gear.
 
 **Start dyno pull** runs one pull at full throttle on an engine dyno. The crank drives the dyno's absorber
 directly, in one gear at 1:1, so there is no car, tyres or gearbox. The absorber is a brake under a speed
-controller, as on an eddy-current or water-brake dyno. It holds the engine at the **Pull from** speed for a
-second, then lets it speed up at the **Sweep rate** to the **Pull to** speed. All the way it brakes with
+controller, as on an eddy-current or water-brake dyno. It holds the engine at the **Pull from** speed, each
+cycle's mean within 100 rpm of it, for a second, then lets it speed up at the **Sweep rate** to the **Pull to** speed. All the way it brakes with
 whatever torque holds the engine to that sweep, so its resistance rises and falls with the engine's torque.
 It only ever brakes, and never drives the engine.
 
@@ -229,8 +231,8 @@ valves, the flutter and the wastegates. See [The turbocharger's sounds](acoustic
 - **Mixture** sets λ, the air-fuel ratio as a multiple of stoichiometric: below 1 rich, above 1
   lean.
 - **Overrun fuel cut** stops the fuel with the throttle shut above 1500 rpm, until the engine
-  drops below 1200 or the throttle opens. Off, it behaves like a carburettor and keeps firing
-  weakly.
+  drops below 1200 or the throttle opens. Above an 800 rpm idle, both are 700 and 400 rpm above the
+  idle speed instead. Off, it behaves like a carburettor and keeps firing weakly.
 - **Overrun crackle** is a "pops and bangs" map. For up to 3 s after the throttle shuts above
   2500 rpm, it keeps the fuel on and fires the spark late, skipping it on some cycles, so the
   exhaust pops. **Crackle** sets how hard it works. See [Afterfire](engine.md#afterfire).

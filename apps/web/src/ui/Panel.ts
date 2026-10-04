@@ -1652,7 +1652,7 @@ export class Panel {
     this.slider(comb, {
       label: 'Idle speed',
       min: 500,
-      max: 1500,
+      max: 2500,
       step: 25,
       value: spec.idleRpm,
       sync: () => this.config.engine.idleRpm,

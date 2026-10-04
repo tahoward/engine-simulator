@@ -64,7 +64,8 @@ matters.
   plenum the size it is drawn, and the Dyno section's pull on auto, through the Wasm build: the LT2
   must make 490 to 500 hp above 6300 rpm and 465 to 475 lb·ft within 150 rpm of 5150, and the LT6 665
   to 680 hp above 8200. The simulation's own tests run the exhaust as compiled, which the drawing can
-  reshape.
+  reshape. The Superquadro Mono, whose crank speed swings by more than the hold's 100 rpm band within
+  every cycle, must still hold at the start speed and pull to past 9200 rpm.
 - **A smooth torque curve.** Held at each 400 rpm from 4400 to 8400, the LT6 at full throttle must
   fall by under 3% from one speed to the next on its way up to its peak, and rise by under 4% on its
   way down, so its runners' resonance does not build from one cycle to the next into dips and humps.
@@ -244,8 +245,9 @@ matters.
   121 must make within 10% of the real engine's rated 189 N·m at 3500 rpm and 115 hp at 5020, and its
   cam map must lift the torque at 1750 rpm by more than 2 N·m over the cam fixed at rest. The RC51
   must make within 15% of the real engine's rated 105 N·m at 8000 rpm and within 10% of its 133 hp at
-  9500. Every engine preset must run clean, and switching layout or cylinder count mid-run must stay finite. A three with a
-  manifold drawn by hand, three junctions a few centimetres apart along a pipe of one runner's bore, must
+  9500. The Superquadro Mono must make within 10% of the real engine's rated 63 N·m at 8000 rpm and
+  77.5 hp at 9750. Every engine preset must run clean, and switching layout or cylinder count mid-run
+  must stay finite. A three with a manifold drawn by hand, three junctions a few centimetres apart along a pipe of one runner's bore, must
   rev to its limiter at 32 kHz with nothing diverging, no junction clamping, and no pipe left above three
   atmospheres: gas racing back into a junction faster than sound, from below the junction's pressure, must
   meet a shock rather than pour in without end, and a junction must fill the pipe after it no faster than
@@ -259,9 +261,9 @@ matters.
   has far more torque than its tyres can take: traction control must get it to 60 quicker than spinning
   them, and no quicker than 2.4 s, what their grip allows. The engines from real cars must launch through
   those cars' gearboxes, the Milwaukee-Eight through the CVO Road Glide's six-speed, primary chain and
-  belt to its overall ratios, the RC51 through its six-speed, primary gears and chain, and the Skyline
-  through all four wheels must be quicker to 60 than through the rear. The RS 3 must run 0–60 mph in 3.1 to 4.1 s, around the 3.6 s road tests time it at; it runs
-  3.5 s and the quarter mile in 11.7 s at 120 mph. The Fiesta ST must run 0–60 mph in 5.7 to 6.9 s,
+  belt to its overall ratios, the RC51 and the Hypermotard 698 through their six-speeds, primary gears
+  and chains, and the Skyline through all four wheels must be quicker to 60 than through the rear. The
+  RS 3 must run 0–60 mph in 3.1 to 4.1 s, around the 3.6 s road tests time it at; it runs 3.5 s and the quarter mile in 11.7 s at 120 mph. The Fiesta ST must run 0–60 mph in 5.7 to 6.9 s,
   around the 6.5 s Ford gives it to 62; it runs 6.1 s and the quarter mile in 14.5 s at 99 mph. Through
   the rear wheels rather than the front it must be quicker to 60 by more than a tenth.
 

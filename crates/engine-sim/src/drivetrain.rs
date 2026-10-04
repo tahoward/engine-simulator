@@ -110,9 +110,9 @@ const G: f64 = 9.81;
 const MAX_RUN: f64 = 150.0;
 const STALL_TIME: f64 = 4.0;
 
-/// A dyno pull: how close to the launch speed the absorber must hold the engine, rev/min, and for how
-/// long, s, before the sweep starts; and how far the engine may fall behind the sweep before the pull
-/// gives up, rev/min.
+/// A dyno pull: how close to the launch speed the absorber must hold the engine over a cycle, rev/min,
+/// and for how long, s, before the sweep starts; and how far the engine may fall behind the sweep before
+/// the pull gives up, rev/min.
 const DYNO_HOLD_BAND: f64 = 100.0;
 const DYNO_HOLD: f64 = 1.0;
 const DYNO_LAG: f64 = 1000.0;
@@ -176,6 +176,9 @@ pub struct LaunchRun {
     cycle_time: f64,
     cycle_intake: f64,
     cycle_valid: bool,
+    /// The last complete cycle's mean speed, rev/min: what a dyno pull's hold reads, as the speed within a
+    /// cycle swings too far on a single to hold to its band.
+    cycle_rpm: f64,
     best_speed: f64,
     best_speed_at: f64,
     /// A dyno pull's target speed, rad/s, and its absorber's integral torque, N*m.
@@ -220,6 +223,7 @@ impl LaunchRun {
             cycle_time: 0.0,
             cycle_intake: 0.0,
             cycle_valid: false,
+            cycle_rpm: 0.0,
             best_speed: 0.0,
             best_speed_at: 0.0,
             dyno_integral: 0.0,
@@ -316,8 +320,8 @@ impl LaunchRun {
         match self.phase {
             LaunchPhase::Hold => {
                 self.throttle = 1.0;
-                // The hold counts only while the engine is at the launch speed.
-                if (rpm - target_rpm).abs() > DYNO_HOLD_BAND {
+                // The hold counts only while the engine is at the launch speed, over a whole cycle.
+                if (self.cycle_rpm - target_rpm).abs() > DYNO_HOLD_BAND {
                     self.phase_time = 0.0;
                 }
                 if self.phase_time >= DYNO_HOLD {
@@ -481,6 +485,9 @@ impl LaunchRun {
         let wrapped = self.last_angle >= 0.0 && angle < self.last_angle;
         self.last_angle = angle;
         if wrapped {
+            if self.cycle_time > 0.0 {
+                self.cycle_rpm = (self.cycle_omega / self.cycle_time * 60.0) / (2.0 * PI);
+            }
             if self.cycle_valid && self.cycle_time > 0.0 && self.point_count < POINT_CAPACITY {
                 let base = self.point_count * LAUNCH_POINT_STRIDE;
                 let mean_omega = self.cycle_omega / self.cycle_time;

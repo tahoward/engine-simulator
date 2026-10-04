@@ -126,3 +126,33 @@ fn every_cycle_traps_a_charge_as_the_phaser_moves() {
     assert!(cycles > 1000, "{cycles} cycles");
     assert_eq!(untrapped, 0, "{untrapped} of {cycles} cycles trapped no charge");
 }
+
+/// A single on a light flywheel swings its crank speed by more than the hold's band within every cycle,
+/// so the hold reads each cycle's mean: it still holds at the start speed and sweeps to the end.
+#[test]
+fn a_single_holds_and_pulls() {
+    let preset = common::engine_preset("Single, Ducati Superquadro Mono");
+    let config = LaunchConfig {
+        dyno: true,
+        ratios: vec![1.0],
+        final_drive: 1.0,
+        launch_rpm: 2600.0,
+        shift_rpm: 9500.0,
+        sweep_rate: 500.0,
+        ..preset.launch.clone()
+    };
+    let mut sim = EngineSim::new(FS, &preset.config);
+    sim.render(FS as usize / 2);
+    sim.start_launch(config);
+    let mut snaps = Vec::new();
+    for _ in 0..(40 * 50) {
+        sim.render((FS / 50.0) as usize);
+        match sim.snapshot().launch {
+            Some(s) => snaps.push(s),
+            None => break,
+        }
+    }
+    assert!(snaps.iter().any(|s| s.phase == "pull"), "starts the sweep");
+    let last = points(&snaps).last().map_or(0.0, |p| p.0);
+    assert!(last > 9200.0, "pulls to {last} rpm");
+}

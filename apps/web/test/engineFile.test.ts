@@ -76,6 +76,6 @@ describe('an engine file', () => {
     expect(engineFileName(presetConfig('V8, Chevrolet LT2').engine)).toBe('engine-v8-crossplane');
     expect(engineFileName(presetConfig('Boxer four').engine)).toBe('engine-flat-4');
     expect(engineFileName(presetConfig('Inline four, Honda F20C').engine)).toBe('engine-inline-4');
-    expect(engineFileName(presetConfig('Single, megaphone').engine)).toBe('engine-single');
+    expect(engineFileName(presetConfig('Single, Ducati Superquadro Mono').engine)).toBe('engine-single');
   });
 });

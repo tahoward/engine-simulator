@@ -36,10 +36,10 @@ use crate::pool::{CachePadded, Disjoint, ThreadPool};
 use crate::radiation::{FarField, MouthJet, Steepening};
 use crate::shell::ChamberShell;
 use crate::spec::{
-    BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout, FUEL_CUT_RPM,
-    FUEL_CUT_THROTTLE, FUEL_RESUME_RPM, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment,
-    REV_LIMIT_HYSTERESIS_RPM, RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, density,
-    displacement, exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_fraction_at, full_load_torque, gas,
+    BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout,
+    FUEL_CUT_THROTTLE, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment, REV_LIMIT_HYSTERESIS_RPM,
+    RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, density, displacement,
+    exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_cut_rpms, fuel_fraction_at, full_load_torque, gas,
     intake_runner_of, load_torque_of, physical_bank_count,
 };
 use crate::turbo::{Turbo, TurboOut};
@@ -73,9 +73,10 @@ const MAX_CYL_SUBSTEPS: f64 = 64.0;
 /// than catching it as it turns.
 const CATCH_RPM: f64 = 450.0;
 
-/// The idle air valve: the opening it starts from, as more of the throttle plate's, about what every
-/// preset needs to idle, and the most it opens.
+/// The idle air valve: the opening it starts from, as more of the throttle plate's, about what an engine
+/// needs to idle at `IDLE_VALVE_START_RPM` (`idle_valve_start`), and the most it opens.
 const IDLE_VALVE_START: f64 = 0.075;
+const IDLE_VALVE_START_RPM: f64 = 800.0;
 const IDLE_VALVE_MAX: f64 = 0.25;
 /// Its controller's gains on the speed error as a share of the idle speed: proportional, and
 /// integral, /s.
@@ -146,6 +147,15 @@ const SLAP_MODE: (f64, f64) = (620.0, 9.0);
 
 /// How far each cylinder's own head and bore ring from the nominal, as a fraction, peak.
 const LOCAL_MODE_DETUNE: f64 = 0.06;
+
+/// The idle air valve's opening to start from, as more of the throttle plate's: `IDLE_VALVE_START` at an
+/// idle of `IDLE_VALVE_START_RPM` or below, and more for a higher one, with the square root of the idle
+/// speed. An engine idling
+/// higher takes more air; started with too little, it falls through its idle while the controller learns
+/// the rest, and with too much it hangs above it.
+fn idle_valve_start(spec: &EngineSpec) -> f64 {
+    IDLE_VALVE_START * math::sqrt(math::max(spec.idle_rpm, IDLE_VALVE_START_RPM) / IDLE_VALVE_START_RPM)
+}
 
 /// Cylinder `b` of `n`'s place in an even spread over [-1, 1], shuffled by a fixed permutation.
 pub fn spread_of(b: usize, n: usize, step: usize, offset: usize) -> f64 {
@@ -631,7 +641,7 @@ impl EngineSim {
             limiter_cut: false,
             fuel_cut_active: false,
             ignition: true,
-            idle_learned: IDLE_VALVE_START,
+            idle_learned: idle_valve_start(&config.engine),
             idle_last_rpm: 0.0,
             idle_rate: 0.0,
             idle_trend: 0.0,
@@ -1436,11 +1446,12 @@ impl EngineSim {
 
         // --- Overrun fuel cut, and the crackle map that holds it off after a lift ---
         let rpm_now = (self.omega_mean * 60.0) / (2.0 * PI);
+        let (cut_rpm, resume_rpm) = fuel_cut_rpms(&self.spec.spec);
         if !self.spec.spec.fuel_cut || throttle > FUEL_CUT_THROTTLE {
             self.fuel_cut_active = false;
-        } else if rpm_now > FUEL_CUT_RPM {
+        } else if rpm_now > cut_rpm {
             self.fuel_cut_active = true;
-        } else if rpm_now < FUEL_RESUME_RPM {
+        } else if rpm_now < resume_rpm {
             self.fuel_cut_active = false;
         }
         if self.spec.spec.overrun_crackle && throttle <= FUEL_CUT_THROTTLE && self.ignition {

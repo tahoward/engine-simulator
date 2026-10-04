@@ -365,9 +365,9 @@ export interface EngineSpec {
    */
   lambda: number;
   /**
-   * Overrun fuel cut, as a fuel-injected engine's ECU does it: with the throttle shut above
-   * `FUEL_CUT_RPM` the fuel stops, and it comes back below `FUEL_RESUME_RPM` or as soon as the
-   * throttle opens. The engine is then turned over by its load, pumping air.
+   * Overrun fuel cut, as a fuel-injected engine's ECU does it: with the throttle shut above 1500 rpm the
+   * fuel stops, and it comes back below 1200 rpm or as soon as the throttle opens, each higher on an
+   * engine that idles above 800 (`fuel_cut_rpms` in `crates/engine-sim/src/spec.rs`). The engine is then turned over by its load, pumping air.
    *
    * Off, a closed throttle keeps feeding fuel with the air that leaks past it, as a carburettor
    * does, and the engine keeps firing weakly on the overrun.
@@ -2337,7 +2337,7 @@ function fourValveHead(bore: number): Pick<EngineSpec, 'exValveDia' | 'exValveCo
   return { exValveDia: 0.34 * bore, exValveCount: 2, inValveDia: 0.4 * bore, inValveCount: 2 };
 }
 
-/** Speed every engine preset idles at, rev/min. */
+/** Speed the engine presets idle at, rev/min, but for any that sets its own. */
 export const PRESET_IDLE_RPM = 800;
 
 /**
@@ -2350,6 +2350,53 @@ const IDLING: Pick<EngineSpec, 'rpm' | 'idleRpm' | 'load' | 'throttle'> = {
   idleRpm: PRESET_IDLE_RPM,
   load: 0,
   throttle: 0,
+};
+
+/**
+ * The 659 cc Superquadro Mono of the Ducati Hypermotard 698 Mono, a single taken from the 1299 Panigale's
+ * twin: 116.0 x 62.4 mm, 13.1:1, desmodromic valves, four of them, and a 10,250 rpm limit, rated at 77.5 hp
+ * (57 kW) at 9750 rpm and 63 N*m at 8000.
+ */
+const DUCATI_SUPERQUADRO_MONO: Partial<EngineSpec> = {
+  cylinders: 1,
+  exhaustLayout: 'single',
+  ...IDLING,
+  // Its own idle, as a big single's has to be: at 800 rpm one cylinder has too little to carry it from one
+  // firing to the next.
+  rpm: 1700,
+  idleRpm: 1700,
+  // Its limiter, as published. Desmodromic valves cannot float.
+  revLimit: 10250,
+  // Estimated, and light: a heavier crank holds the flare it starts with longer before it settles to its idle.
+  flywheelInertia: 0.1,
+  pipeCellSize: 0.035,
+  bore: 0.116,
+  stroke: 0.0624,
+  // Estimated: its published figures do not include the rod.
+  rodLength: 0.12,
+  compressionRatio: 13.1,
+  // The 1299 Panigale's 46.8 mm titanium intakes and 38.2 mm steel exhausts, two of each.
+  exValveDia: 0.0382,
+  exValveCount: 2,
+  inValveDia: 0.0468,
+  inValveCount: 2,
+  // Estimated, like the runner, the plenum and the exhaust, and tuned with them for the rated torque at
+  // 8000 rpm and power at 9750. The cams overlap 27 degrees: more makes more at the top end, but one
+  // cylinder at 800 rpm has nothing to carry it through a cycle the exhaust it pushes back dilutes.
+  maxLift: 0.0142,
+  evo: 114,
+  evc: 386,
+  ivo: 359,
+  ivc: 609,
+  intakeRunnerLength: 0.303,
+  intakeRunnerDia: 0.058,
+  // Its 62 mm throttle body, into a plenum two and a half times the size the app would give it, for the
+  // airbox it draws from: with the smaller one it makes a fifth less torque at the top end.
+  throttleDia: 0.062,
+  plenumVolume: 0.0025,
+  recipMass: 0.7,
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 0.44,
 };
 
 /**
@@ -2852,11 +2899,31 @@ const BOXER_SIX: Partial<EngineSpec> = {
 
 export const ENGINE_PRESETS: EnginePreset[] = [
   {
-    name: 'Single, megaphone',
-    description: 'A 500 cc air-cooled thumper.',
-    // A big air-cooled single is out of breath well before 7000.
-    engine: { cylinders: 1, exhaustLayout: 'single', revLimit: 7000, ...IDLING, outputGain: 0.68 },
-    pipe: () => PIPE_PRESETS[1]!.build(),
+    name: 'Single, Ducati Superquadro Mono',
+    car: {
+      // Ducati's figures for the Hypermotard 698 Mono: the six-speed, a 61/31 primary and a 15/43 chain,
+      // 5.64 in all. A 160/60ZR17 rear tyre, 160 kg with everything but its fuel.
+      name: 'Ducati Hypermotard 698 Mono',
+      ratios: [36 / 13, 35 / 17, 32 / 20, 29 / 22, 24 / 21, 26 / 25],
+      finalDrive: (61 / 31) * (43 / 15),
+      tyreRadius: 0.31,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 160 + DRIVER_MASS,
+      drive: 'rwd',
+      drivenLoad: 0.5,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
+    description:
+      'The 659 cc single in the Ducati Hypermotard 698 Mono, the front cylinder of the 1299 Panigale\u2019s twin made into an engine of its own: a 116 mm bore on a 62.4 mm stroke, 13.1:1, four desmodromic valves and a 10,250 rpm limit. One cylinder fires once every two turns of the crank, so the loudest order is the half order, and the big piston shakes the crank between firings. It makes 55-62 N\u00b7m from 4000 to 10,000 rpm, 60 N\u00b7m at 8000 and 78 hp at 9750, against the real engine\u2019s rated 63 N\u00b7m at 8000 and 77.5 hp at 9750. Its header goes into one silencer where the real one splits into two; its rod, cams, runner, plenum and exhaust are estimates.',
+    engine: DUCATI_SUPERQUADRO_MONO,
+    // Estimated: a header into a silencer. The real one splits into two under the seat.
+    pipe: () => [
+      makeSegment({ kind: 'pipe', length: 0.55, dIn: 0.053 }),
+      makeSegment({ kind: 'cone', length: 0.1, dIn: 0.053, dOut: 0.063 }),
+      makeSegment({ kind: 'chamber', length: 0.4, dIn: 0.063, dOut: 0.12 }),
+      makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.06 }),
+    ],
   },
   {
     name: '45\u00b0 V-twin, Harley-Davidson Milwaukee-Eight 121',
