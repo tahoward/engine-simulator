@@ -1513,11 +1513,14 @@ export function firingOffsetDeg(spec: EngineSpec): number {
  * `banks[i]` is 0 or 1. Every cylinder is otherwise identical, so this is the whole of an
  * engine's layout as far as the sound is concerned.
  *
- * This is **data, not a derivation**, for everything above two cylinders. Real firing orders
- * are chosen for crankshaft balance and bearing loads, and cannot be recovered from a formula;
- * quoting them from the engines they belong to is both honest and shorter. The twin is the
- * exception, where the shared-crankpin relationship genuinely does derive the interval and is
- * worth keeping explicit, because a rider can hear the V angle in it.
+ * This is **data, not a derivation**, wherever a real engine's crank is known: the inline engines, the
+ * V4, V6, V8s and the flat four and six. Real firing orders are chosen for crankshaft balance and bearing
+ * loads, and cannot be recovered from a formula; quoting them from the engines they belong to is both
+ * honest and shorter. The twin is the exception, where the shared-crankpin relationship genuinely does
+ * derive the interval and is worth keeping explicit, because a rider can hear the V angle in it; and so are
+ * the V10 and V12, two banks of an inline crank (`doubledInline`), and the larger flat engines
+ * (`boxerBankPins`), built the way the real ones are. `firingOrder` and `firingIntervals` replace any of
+ * them (`firingPlan`).
  *
  * The V8 entries are the interesting pair. Both fire every 90 degrees — eight firings over the
  * 720-degree cycle — so through one collector they are near enough the same engine. Split into
@@ -1549,7 +1552,8 @@ export interface FiringPlan {
 }
 
 /**
- * The two V8 cranks, stored as pin angles rather than as firing offsets.
+ * A crank stored as pin angles rather than as firing offsets: the V8s', and as they are, the V6's, the V4's
+ * and the flat engines'.
  *
  * A firing offset is only meaningful for *one* bank angle. A cylinder on the second bank
  * reaches TDC `vAngle` degrees of crank rotation after the pin partner it shares a throw with,
@@ -1566,7 +1570,7 @@ export interface FiringPlan {
  * which is exactly the relationship `crankPins` inverts to draw the mechanism. At `vAngle = 90`
  * both cranks fire evenly every 90 degrees, as a 90-degree V8 does.
  *
- * Both are indexed by throw from the front, the two cylinders of a throw side by side, first bank
+ * The V8s are indexed by throw from the front, the two cylinders of a throw side by side, first bank
  * then second. Read off real engines: crossplane is the Ford 302 order 1-5-4-2-6-3-7-8, cylinders
  * 1-4 on the first bank, giving pins at 0/270/90/180 along the crank — the four-plane crank, its end
  * throws half a turn apart so the secondary couple cancels. Flatplane puts every throw in one plane,
@@ -1575,19 +1579,19 @@ export interface FiringPlan {
  * inline four does, and each second-bank cylinder fires 90 degrees after its pin partner: the
  * Ferrari order 1-5-3-7-4-8-2-6.
  */
-interface V8Crank {
+interface PinCrank {
   pins: number[];
   revs: number[];
   banks: number[];
 }
 
-const V8_CROSSPLANE: V8Crank = {
+const V8_CROSSPLANE: PinCrank = {
   pins: [0, 0, 270, 270, 90, 90, 180, 180],
   revs: [0, 0, 0, 0, 1, 1, 0, 1],
   banks: [0, 1, 0, 1, 0, 1, 0, 1],
 };
 
-const V8_FLATPLANE: V8Crank = {
+const V8_FLATPLANE: PinCrank = {
   pins: [0, 0, 180, 180, 180, 180, 0, 0],
   revs: [0, 0, 1, 1, 0, 0, 1, 1],
   banks: [0, 1, 0, 1, 0, 1, 0, 1],
@@ -1601,7 +1605,7 @@ const V8_FLATPLANE: V8Crank = {
  * other vee the same crank fires unevenly, as it would, because the offset follows
  * `pin + vAngle * bank + 360 * rev`.
  */
-const V6_SPLIT_PIN: V8Crank = {
+const V6_SPLIT_PIN: PinCrank = {
   pins: [0, 60, 240, 300, 120, 180],
   revs: [0, 0, 0, 0, 1, 1],
   banks: [0, 1, 0, 1, 0, 1],
@@ -1609,12 +1613,15 @@ const V6_SPLIT_PIN: V8Crank = {
 const V6_THROWS = [0, 0, 1, 1, 2, 2];
 
 /**
- * Inline engines: every cylinder on its own pin, one bank, firing evenly in the usual order.
- *
- * The offsets are by cylinder, read off the firing order: an inline three fires 1-3-2 every 240 degrees
- * on a 120-degree crank; an inline five 1-2-4-5-3 every 144 on a 72-degree crank, the Audi and Volvo
- * order; an inline six 1-5-3-6-2-4 every 120, which pairs its throws 1-6, 2-5 and 3-4.
+ * The Honda VFR's V4: a 180-degree crank, each throw shared by both banks, firing 180-270-180-90 at a
+ * 90-degree vee.
  */
+const V4_180: PinCrank = {
+  pins: [0, 0, 180, 180],
+  revs: [0, 1, 0, 1],
+  banks: [0, 1, 0, 1],
+};
+
 /**
  * Flat fours and sixes, stored as pins as the V engines are: a throw per cylinder, banks alternating
  * along the crank, and each opposed pair's pins half a turn apart.
@@ -1628,19 +1635,12 @@ const V6_THROWS = [0, 0, 1, 1, 2, 2];
  * opposite 1: pairs at 0, 120 and 240, a firing every 120. Cylinders are indexed by throw from the
  * front, so here index 1 is the Porsche's 4, index 2 its 2, and so on.
  */
-/** The Honda VFR's V4: a 180-degree crank, each throw shared by both banks, firing 180-270-180-90 at 90 degrees. */
-const V4_180: V8Crank = {
-  pins: [0, 0, 180, 180],
-  revs: [0, 1, 0, 1],
-  banks: [0, 1, 0, 1],
-};
-
-const BOXER_4: V8Crank = {
+const BOXER_4: PinCrank = {
   pins: [0, 180, 180, 0],
   revs: [0, 0, 0, 1],
   banks: [0, 1, 0, 1],
 };
-const BOXER_6: V8Crank = {
+const BOXER_6: PinCrank = {
   pins: [0, 180, 240, 60, 120, 300],
   revs: [0, 0, 0, 1, 1, 1],
   banks: [0, 1, 0, 1, 0, 1],
@@ -1659,7 +1659,7 @@ function boxerBankPins(perBank: number): number[] {
 
 const wrap720 = (deg: number) => ((deg % 720) + 720) % 720;
 
-const pinOffsets = (crank: V8Crank, vAngle: number) =>
+const pinOffsets = (crank: PinCrank, vAngle: number) =>
   crank.pins.map((pin, i) => (((pin + vAngle * crank.banks[i]! + 360 * crank.revs[i]!) % 720) + 720) % 720);
 
 /** Whether the engine has two banks of cylinders: a V or a flat engine, with an even count and a vee. */
@@ -1697,7 +1697,15 @@ function boxerPlan(spec: EngineSpec): FiringPlan {
   return { offsets, banks: offsets.map((_, i) => i % 2), bankCount: 2, throws: offsets.map((_, i) => i) };
 }
 
-/** Inline engines' firing offsets by cylinder, read off the usual firing orders. */
+/**
+ * Inline engines: every cylinder on its own pin, one bank, firing evenly in the usual order.
+ *
+ * The offsets are by cylinder, read off the firing order: an inline three fires 1-3-2 every 240 degrees
+ * on a 120-degree crank; an inline four 1-3-4-2 every 180 on a flat crank, pins 0/180/180/0, its outer
+ * pair and inner pair each sharing a throw's angle; an inline five 1-2-4-5-3 every 144 on a 72-degree
+ * crank, the Audi and Volvo order; an inline six 1-5-3-6-2-4 every 120, which pairs its throws 1-6, 2-5
+ * and 3-4.
+ */
 const INLINE_OFFSETS: Record<number, number[]> = {
   1: [0],
   3: [0, 480, 240],
@@ -1719,7 +1727,7 @@ function doubledInline(inline: number[], vAngle: number): FiringPlan {
 /** The layout's own firing plan, from real engines' cranks, before any firing order the spec sets. */
 export function defaultFiringPlan(spec: EngineSpec): FiringPlan {
   if (isBoxer(spec)) return boxerPlan(spec);
-  const crank = (c: V8Crank, throws?: number[]): FiringPlan => ({
+  const crank = (c: PinCrank, throws?: number[]): FiringPlan => ({
     offsets: pinOffsets(c, spec.vAngle),
     banks: [...c.banks],
     bankCount: 2,
@@ -2385,134 +2393,54 @@ const FORD_DRAGON: Partial<EngineSpec> = {
   outputGain: 2.44,
 };
 
-const NISSAN_RB26: Partial<EngineSpec> = {
-  cylinders: 6,
+/**
+ * The 2.0 litre F20C of the AP1 Honda S2000: 87.0 x 84.0 mm on a 153 mm rod, 11.0:1, VTEC on both cams, a
+ * 9000 rpm redline, rated at 240 hp at 8300 rpm and 210 N*m at 7500.
+ */
+const HONDA_F20C: Partial<EngineSpec> = {
+  cylinders: 4,
   vAngle: 0,
   exhaustLayout: 'merged',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
   ...IDLING,
-  // Its fuel cut, a little past the 8000 rpm redline.
-  revLimit: 8200,
-  flywheelInertia: 0.3,
+  // Its fuel cut; the redline is 9000.
+  revLimit: 9150,
+  flywheelInertia: 0.14,
   pipeCellSize: 0.035,
-  // The 2.6 litre RB26DETT: 86.0 x 73.7 mm on a 121.5 mm rod, 8.5:1.
-  bore: 0.086,
-  stroke: 0.0737,
-  rodLength: 0.1215,
-  compressionRatio: 8.5,
-  // 34.5 mm intakes and 30 mm exhausts, two of each.
-  exValveDia: 0.03,
+  bore: 0.087,
+  stroke: 0.084,
+  rodLength: 0.153,
+  // The North American engine's; the Japanese one's is 11.7.
+  compressionRatio: 11,
+  // Estimated, like the cams and the runners, and tuned with them to hold its torque to 8300 rpm and
+  // put its power peak there, where the real engine has it. Valves a little larger than a
+  // typical four-valve head's for the bore: with a typical head's, torque falls away above 7000.
+  exValveDia: 0.032,
   exValveCount: 2,
-  inValveDia: 0.0345,
+  inValveDia: 0.0376,
   inValveCount: 2,
-  // The stock cams: 240 degrees on the intake and 236 on the exhaust, with little overlap, and about
-  // 8.6 mm of lift. No variable timing; that came with the RB25.
-  maxLift: 0.0086,
-  evo: 124,
-  evc: 360,
-  ivo: 352,
-  ivc: 592,
-  // Two Garrett T28s, one for each three cylinders (`turbos` below), on 0.7 bar through an intercooler,
-  // the low end of the 0.7-0.8 bar stock cars are quoted at.
-  // Their size is an estimate: no map of the standard compressor is published. The R33's N1 turbo, a
-  // bigger one, flows up to 0.20 kg/s at 0.8 bar on Mitsubishi's map of it, and a standard pair is
-  // reckoned good for 20-22 lb/min each at peak power, 0.15-0.17 kg/s. Sized to that, they reach full
-  // speed near the rev limit rather than well below it. Each fed by three cylinders' pulses, they hold
-  // full boost from 3000 rpm.
-  boostTarget: 0.7e5,
-  turboSize: 0.16,
-  // Estimated, like the turbos: the stock core is a small one in front of the radiator.
-  intercooler: 0.6,
-  // The factory valve recirculates; this is the atmospheric one so many are fitted with instead.
-  blowOff: 'atmospheric',
-  // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.23,
+  // VTEC: a mild lobe for low speed, and at 5500 rpm, where the two make about the same torque and
+  // within the 5500-6000 the real engine's ECU switches at, a wild one for the top end. On the high
+  // cam alone it makes 130-150 N·m below 4000; on the low one alone, 155 at 7000.
+  maxLift: 0.009,
+  evo: 128,
+  evc: 372,
+  ivo: 348,
+  ivc: 570,
+  camSwitchRpm: 5500,
+  highMaxLift: 0.013,
+  highEvo: 108,
+  highEvc: 392,
+  highIvo: 328,
+  highIvc: 625,
+  intakeRunnerLength: 0.33,
+  intakeRunnerDia: 0.04,
+  // Level-matched to the single at idle, and the other presets to this: RMS over two seconds, each at its
+  // own rpm.
+  outputGain: 1.31,
 };
 
-const TOYOTA_2GR: Partial<EngineSpec> = {
-  cylinders: 6,
-  vAngle: 60,
-  exhaustLayout: 'perBank',
-  ...IDLING,
-  // Its fuel cut.
-  revLimit: 6600,
-  flywheelInertia: 0.5,
-  pipeCellSize: 0.035,
-  // The 3.5 litre 2GR-FE: 94.0 x 83.0 mm, 10.8:1.
-  bore: 0.094,
-  stroke: 0.083,
-  // Estimated: its published figures do not include the rod.
-  rodLength: 0.155,
-  compressionRatio: 10.8,
-  // Twin cams and four valves a cylinder, sized as a typical four-valve head's for the bore.
-  ...fourValveHead(0.094),
-  maxLift: 0.01,
-  // Estimated. The intake cam rests late, closing 65 degrees after bottom dead centre, which lets the
-  // runners ram the charge in at the top end; below that its phaser advances it up to 40 degrees, so it
-  // closes before the charge flows back out. With the cam fixed at either end, torque falls by a tenth
-  // to a quarter somewhere in the range: above 5000 rpm with it early, at 3000 and below with it late.
-  ivo: 357,
-  ivc: 605,
-  vvtIntakeLow: 40,
-  vvtLowRpm: 2000,
-  vvtHighRpm: 5600,
-  // Level-matched to the inline four, as the other presets are.
-  outputGain: 0.96,
-};
-
-/**
- * The two boxers: flat, opposed, a throw per cylinder. See `boxerPlan`.
- *
- * The four is sized as a 2.5 litre Subaru, both banks gathered into one pipe as its header does; the six
- * as a 3.6 litre Porsche, each bank's three into a silencer of its own, as a 911's are.
- */
-const BOXER_FOUR: Partial<EngineSpec> = {
-  cylinders: 4,
-  vAngle: 180,
-  crankType: 'boxer',
-  exhaustLayout: 'merged',
-  exhaustHeaders: true,
-  headerRun: 'lengthways',
-  ...IDLING,
-  // A Subaru EJ25's.
-  revLimit: 6500,
-  flywheelInertia: 0.3,
-  pipeCellSize: 0.035,
-  bore: 0.0995,
-  stroke: 0.079,
-  rodLength: 0.1305,
-  compressionRatio: 10,
-  ...fourValveHead(0.0995),
-  maxLift: 0.0105,
-  // Level-matched to the inline four, as the other presets are: RMS over two seconds, each at its own rpm.
-  outputGain: 0.88,
-};
-
-const BOXER_SIX: Partial<EngineSpec> = {
-  cylinders: 6,
-  vAngle: 180,
-  crankType: 'boxer',
-  exhaustLayout: 'perBank',
-  exhaustHeaders: true,
-  headerRun: 'lengthways',
-  ...IDLING,
-  // A 997 Carrera 3.6's.
-  revLimit: 7300,
-  flywheelInertia: 0.35,
-  pipeCellSize: 0.035,
-  bore: 0.097,
-  stroke: 0.0815,
-  rodLength: 0.1275,
-  compressionRatio: 11.3,
-  ...fourValveHead(0.097),
-  maxLift: 0.011,
-  // Level-matched to the inline four, as the other presets are.
-  outputGain: 1.03,
-};
-
-/** The F20C preset's output gain and high-speed cam. */
-/** Level-matched to the single at idle, as the other presets are to this one. */
-const F20C_GAIN = 1.31;
-const F20C_CAM = { evo: 108, evc: 392, ivo: 328, ivc: 625 };
 /**
  * The 2.0 litre 3S-GTE of the SW20 MR2 Turbo, in its second generation, 1990-1993, as Japan had it:
  * 86.0 x 86.0 mm, 8.8:1, and a twin-entry CT26 turbo on 0.7 bar through an air-to-air intercooler,
@@ -2588,9 +2516,246 @@ const AUDI_EA855_EVO: Partial<EngineSpec> = {
   outputGain: 1.24,
 };
 
-/** The LT2 and LT6 presets' output gains. */
-const LT2_GAIN = 2.1;
-const LT6_GAIN = 0.93;
+/**
+ * The 2.6 litre RB26DETT of the R32, R33 and R34 Skyline GT-R: 86.0 x 73.7 mm on a 121.5 mm rod, 8.5:1, and
+ * two turbos on 0.7 bar through an intercooler, rated at 280 PS and 368 N*m.
+ */
+const NISSAN_RB26: Partial<EngineSpec> = {
+  cylinders: 6,
+  vAngle: 0,
+  exhaustLayout: 'merged',
+  ...IDLING,
+  // Its fuel cut, a little past the 8000 rpm redline.
+  revLimit: 8200,
+  flywheelInertia: 0.3,
+  pipeCellSize: 0.035,
+  bore: 0.086,
+  stroke: 0.0737,
+  rodLength: 0.1215,
+  compressionRatio: 8.5,
+  // 34.5 mm intakes and 30 mm exhausts, two of each.
+  exValveDia: 0.03,
+  exValveCount: 2,
+  inValveDia: 0.0345,
+  inValveCount: 2,
+  // The stock cams: 240 degrees on the intake and 236 on the exhaust, with little overlap, and about
+  // 8.6 mm of lift. No variable timing; that came with the RB25.
+  maxLift: 0.0086,
+  evo: 124,
+  evc: 360,
+  ivo: 352,
+  ivc: 592,
+  // Two Garrett T28s, one for each three cylinders (`turbos` below), on 0.7 bar through an intercooler,
+  // the low end of the 0.7-0.8 bar stock cars are quoted at.
+  // Their size is an estimate: no map of the standard compressor is published. The R33's N1 turbo, a
+  // bigger one, flows up to 0.20 kg/s at 0.8 bar on Mitsubishi's map of it, and a standard pair is
+  // reckoned good for 20-22 lb/min each at peak power, 0.15-0.17 kg/s. Sized to that, they reach full
+  // speed near the rev limit rather than well below it. Each fed by three cylinders' pulses, they hold
+  // full boost from 3000 rpm.
+  boostTarget: 0.7e5,
+  turboSize: 0.16,
+  // Estimated, like the turbos: the stock core is a small one in front of the radiator.
+  intercooler: 0.6,
+  // The factory valve recirculates; this is the atmospheric one so many are fitted with instead.
+  blowOff: 'atmospheric',
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 1.23,
+};
+
+/**
+ * The 3.5 litre 2GR-FE of the Lotus Evora and half of Toyota's range: 94.0 x 83.0 mm, 10.8:1, a 60-degree
+ * vee on a split-pin crank, and variable timing on the intake cam.
+ */
+const TOYOTA_2GR: Partial<EngineSpec> = {
+  cylinders: 6,
+  vAngle: 60,
+  exhaustLayout: 'perBank',
+  ...IDLING,
+  // Its fuel cut.
+  revLimit: 6600,
+  flywheelInertia: 0.5,
+  pipeCellSize: 0.035,
+  bore: 0.094,
+  stroke: 0.083,
+  // Estimated: its published figures do not include the rod.
+  rodLength: 0.155,
+  compressionRatio: 10.8,
+  // Twin cams and four valves a cylinder, sized as a typical four-valve head's for the bore.
+  ...fourValveHead(0.094),
+  maxLift: 0.01,
+  // Estimated. The intake cam rests late, closing 65 degrees after bottom dead centre, which lets the
+  // runners ram the charge in at the top end; below that its phaser advances it up to 40 degrees, so it
+  // closes before the charge flows back out. With the cam fixed at either end, torque falls by a tenth
+  // to a quarter somewhere in the range: above 5000 rpm with it early, at 3000 and below with it late.
+  ivo: 357,
+  ivc: 605,
+  vvtIntakeLow: 40,
+  vvtLowRpm: 2000,
+  vvtHighRpm: 5600,
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 0.96,
+};
+
+/**
+ * The 6.2 litre LT2 small-block of the C8 Corvette Stingray: 103.25 x 92.0 mm on a 155.6 mm rod, 11.5:1,
+ * pushrods and two valves a cylinder, rated with the Z51 package at 495 hp at 6450 rpm and 637 N*m
+ * (470 lb-ft) at 5150.
+ */
+const CHEVROLET_LT2: Partial<EngineSpec> = {
+  cylinders: 8,
+  vAngle: 90,
+  crankType: 'crossplane',
+  exhaustLayout: 'perBank',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
+  ...IDLING,
+  revLimit: 6600,
+  // The crank, flexplate and dual clutch's input: the gearbox has no flywheel of its own.
+  flywheelInertia: 0.4,
+  pipeCellSize: 0.035,
+  // 4.065 x 3.622 in on a 6.125 in rod.
+  bore: 0.10325,
+  stroke: 0.092,
+  rodLength: 0.1556,
+  compressionRatio: 11.5,
+  // Pushrods, and 2.13 and 1.59 in valves, one of each.
+  pushrods: true,
+  exValveDia: 0.0404,
+  inValveDia: 0.054,
+  // Estimated: about 290 degrees on the exhaust and 265 on the intake, the intake closing early enough
+  // for the torque peak at 5150 rpm, and lift enough to carry the power on to 6450. Tuned with the
+  // runners for GM's figures.
+  maxLift: 0.0165,
+  evo: 104,
+  evc: 392,
+  ivo: 338,
+  ivc: 602,
+  // Estimated: tuned for the torque peak at 5150 rpm, and opened out from the valves' 49 mm so the
+  // top end breathes.
+  intakeRunnerLength: 0.44,
+  intakeRunnerDia: 0.055,
+  throttleDia: 0.087,
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 2.1,
+};
+
+/**
+ * The 5.5 litre LT6 of the C8 Corvette Z06: 104.25 x 80.0 mm, 12.5:1, a flat-plane crank, four cams and
+ * four valves a cylinder, an 8600 rpm limit, rated at 670 hp at 8400 rpm and 624 N*m at 6300.
+ */
+const CHEVROLET_LT6: Partial<EngineSpec> = {
+  cylinders: 8,
+  vAngle: 90,
+  crankType: 'flatplane',
+  exhaustLayout: 'perBank',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
+  ...IDLING,
+  revLimit: 8600,
+  flywheelInertia: 0.45,
+  pipeCellSize: 0.035,
+  bore: 0.10425,
+  stroke: 0.08,
+  // Estimated, from the stroke and the deck of a small-block.
+  rodLength: 0.15,
+  compressionRatio: 12.5,
+  // 42 mm titanium intakes and 35.5 mm exhausts, two of each.
+  exValveDia: 0.0355,
+  exValveCount: 2,
+  inValveDia: 0.042,
+  inValveCount: 2,
+  // Estimated: a race-bred cam, the intake closing late because the runners and headers are tuned
+  // to ram the charge in after bottom dead centre at the top end. Tuned with them, the plenums and the
+  // cam map for power at 8400 and the flattest curve below it. These are the cams at rest, as they
+  // idle, with 15 degrees less overlap than the phasers give them under load (below): at rest with
+  // 70 degrees of it, the exhaust it pushes back up the runners at idle dilutes the charge until the
+  // idle hunts and stalls.
+  maxLift: 0.015,
+  evo: 87,
+  evc: 372,
+  ivo: 342,
+  ivc: 635,
+  // Estimated: a two-stage manifold. The short runners are tuned for 8400 rpm; the long ones, 80 mm
+  // longer, lift the mid-range from 6500 to 7500 rpm and fall behind above that, where it switches.
+  intakeRunnerLength: 0.39,
+  intakeRunnerShortLength: 0.31,
+  intakeSwitchRpm: 7600,
+  intakeRunnerDia: 0.06,
+  // Dual plenums, one for each bank, as the real manifold has, each with an 87 mm throttle body and an
+  // inlet tract of its own, the casting as wide as the two throttle bodies' flanges. Estimated: the
+  // balance valves, joined from 3500 to 5700 rpm and again from 7500, where one box fills the cylinders
+  // better; from 5700 to 7500 each bank's plenum ringing with its own pulses does, by up to 40 N·m. A
+  // bigger plenum makes a few more horsepower at the top, but idles worse: its air answers the idle
+  // valve more slowly.
+  dualPlenum: true,
+  throttleDia: 0.087,
+  plenumWidth: 0.266,
+  plenumTaper: 0.2,
+  plenumBalanceRpm: 3500,
+  plenumBalanceShutRpm: 5700,
+  plenumBalanceReopenRpm: 7500,
+  // Estimated, like the cams: under load the exhaust retarded 25 degrees, and the intake advanced 40 up
+  // to 4550 rpm, easing back to 15 by 7750, which gives back the mid-range a cam tuned for 8400 costs it;
+  // at idle and light load both at rest.
+  vvtIntakeLow: 40,
+  vvtIntakeHigh: 15,
+  vvtExhaustLow: 25,
+  vvtExhaustHigh: 25,
+  vvtLowRpm: 4550,
+  vvtHighRpm: 7750,
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 0.93,
+};
+
+/**
+ * The two boxers: flat, opposed, a throw per cylinder. See `boxerPlan`.
+ *
+ * The four is sized as a 2.5 litre Subaru, both banks gathered into one pipe as its header does; the six
+ * as a 3.6 litre Porsche, each bank's three into a silencer of its own, as a 911's are.
+ */
+const BOXER_FOUR: Partial<EngineSpec> = {
+  cylinders: 4,
+  vAngle: 180,
+  crankType: 'boxer',
+  exhaustLayout: 'merged',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
+  ...IDLING,
+  // A Subaru EJ25's.
+  revLimit: 6500,
+  flywheelInertia: 0.3,
+  pipeCellSize: 0.035,
+  bore: 0.0995,
+  stroke: 0.079,
+  rodLength: 0.1305,
+  compressionRatio: 10,
+  ...fourValveHead(0.0995),
+  maxLift: 0.0105,
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 0.88,
+};
+
+const BOXER_SIX: Partial<EngineSpec> = {
+  cylinders: 6,
+  vAngle: 180,
+  crankType: 'boxer',
+  exhaustLayout: 'perBank',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
+  ...IDLING,
+  // A 997 Carrera 3.6's.
+  revLimit: 7300,
+  flywheelInertia: 0.35,
+  pipeCellSize: 0.035,
+  bore: 0.097,
+  stroke: 0.0815,
+  rodLength: 0.1275,
+  compressionRatio: 11.3,
+  ...fourValveHead(0.097),
+  maxLift: 0.011,
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 1.03,
+};
 
 export const ENGINE_PRESETS: EnginePreset[] = [
   {
@@ -2603,7 +2768,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: '45\u00b0 V-twin, 2-into-1',
     description:
-      'Shared crankpin, so it fires 405/315 — the uneven interval behind the classic lopsided idle. Both primaries merge into one collector.',
+      'Shared crankpin, so it fires 405/315 \u2014 the uneven interval behind the classic lopsided idle. Both primaries merge into one collector.',
     engine: {
       cylinders: 2,
       vAngle: 45,
@@ -2649,6 +2814,29 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     ],
   },
   {
+    name: 'Inline three, Ford 1.5 EcoBoost Dragon',
+    car: {
+      // The Mk8 Fiesta ST's six-speed manual and its 3.91 final drive. 205/40R18 tyres, about 1190 kg,
+      // front-wheel drive with about 61% of its weight on the front.
+      name: 'Ford Fiesta ST (Mk8)',
+      ratios: [3.59, 2.19, 1.52, 1.15, 0.92, 0.79],
+      finalDrive: 3.91,
+      tyreRadius: 0.305,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 1190 + DRIVER_MASS,
+      drive: 'fwd',
+      drivenLoad: 0.61,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
+    description:
+      'The 1.5 litre turbocharged three in the Mk8 Ford Fiesta ST: 84 x 90 mm, 9.7:1, four valves a cylinder and a 6500 rpm redline. It fires every 240\u00b0 on a 120\u00b0 crank, in the order 1-3-2, all three into one turbo on 1.15 bar through an intercooler, with variable timing on both cams. An odd number of cylinders puts the loudest order at one and a half times the crank speed, which is the offbeat thrum of a three. It makes about 290-300 N\u00b7m from 2000 to 4000 rpm and 194 PS at 6000, against the real engine\u2019s rated 290 N\u00b7m from 1600 and 200 PS at 6000; below 2000 its turbo is still spooling. Its rod, cams, cam map, turbo size and exhaust are estimates.',
+    engine: FORD_DRAGON,
+    pipe: () => fittedExhaust(fullSpec(FORD_DRAGON)).pipe,
+    collector: () => fittedExhaust(fullSpec(FORD_DRAGON)).collector,
+    turbos: 1,
+  },
+  {
     name: 'Inline four, Honda F20C',
     car: {
       // Honda's 2001 release: the gears, a 1.160 primary reduction and a 4.100 final drive, 4.756 in all.
@@ -2667,47 +2855,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     },
     description:
       'The 2.0 litre four in the Honda S2000: 87 x 84 mm, 11:1, four valves a cylinder and a 9000 rpm redline. Even 180\u00b0 firing on a flat crank, 1-3-4-2, into equal-length headers: twice the firing frequency of a twin at the same rpm, and no half order at all. It makes 195-200 N\u00b7m from 6000 to 8300 rpm and 228 hp at 8300, against the real engine\u2019s 210 N\u00b7m at 7500 and 240 hp at 8300. Its VTEC switches each valve from a mild cam lobe to a wild one at 5500 rpm. Its valves, cams, runners and exhaust are estimates.',
-    engine: {
-      cylinders: 4,
-      vAngle: 0,
-      exhaustLayout: 'merged',
-      exhaustHeaders: true,
-      headerRun: 'lengthways',
-      ...IDLING,
-      // Its fuel cut; the redline is 9000.
-      revLimit: 9150,
-      flywheelInertia: 0.14,
-      pipeCellSize: 0.035,
-      bore: 0.087,
-      stroke: 0.084,
-      rodLength: 0.153,
-      // The North American engine's; the Japanese one's is 11.7.
-      compressionRatio: 11,
-      // Estimated, like the cams and the runners, and tuned with them to hold its torque to 8300 rpm and
-      // put its power peak there, where the real engine has it. Valves a little larger than a
-      // typical four-valve head's for the bore: with a typical head's, torque falls away above 7000.
-      exValveCount: 2,
-      exValveDia: 0.032,
-      inValveCount: 2,
-      inValveDia: 0.0376,
-      // VTEC: a mild lobe for low speed, and at 5500 rpm, where the two make about the same torque and
-      // within the 5500-6000 the real engine's ECU switches at, a wild one for the top end. On the high
-      // cam alone it makes 130-150 N·m below 4000; on the low one alone, 155 at 7000.
-      maxLift: 0.009,
-      evo: 128,
-      evc: 372,
-      ivo: 348,
-      ivc: 570,
-      camSwitchRpm: 5500,
-      highMaxLift: 0.013,
-      highEvo: F20C_CAM.evo,
-      highEvc: F20C_CAM.evc,
-      highIvo: F20C_CAM.ivo,
-      highIvc: F20C_CAM.ivc,
-      intakeRunnerLength: 0.33,
-      intakeRunnerDia: 0.04,
-      outputGain: F20C_GAIN,
-    },
+    engine: HONDA_F20C,
     // Estimated: equal-length headers into one collector, a pipe and a silencer.
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.45, dIn: 0.04 })],
     collector: () => [
@@ -2739,29 +2887,6 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     engine: TOYOTA_3SGTE,
     pipe: () => fittedExhaust(fullSpec(TOYOTA_3SGTE)).pipe,
     collector: () => fittedExhaust(fullSpec(TOYOTA_3SGTE)).collector,
-    turbos: 1,
-  },
-  {
-    name: 'Inline three, Ford 1.5 EcoBoost Dragon',
-    car: {
-      // The Mk8 Fiesta ST's six-speed manual and its 3.91 final drive. 205/40R18 tyres, about 1190 kg,
-      // front-wheel drive with about 61% of its weight on the front.
-      name: 'Ford Fiesta ST (Mk8)',
-      ratios: [3.59, 2.19, 1.52, 1.15, 0.92, 0.79],
-      finalDrive: 3.91,
-      tyreRadius: 0.305,
-      tyreGrip: TYRE_GRIP.road,
-      mass: 1190 + DRIVER_MASS,
-      drive: 'fwd',
-      drivenLoad: 0.61,
-      shiftTime: MANUAL_SHIFT_TIME,
-      dualClutch: false,
-    },
-    description:
-      'The 1.5 litre turbocharged three in the Mk8 Ford Fiesta ST: 84 x 90 mm, 9.7:1, four valves a cylinder and a 6500 rpm redline. It fires every 240\u00b0 on a 120\u00b0 crank, in the order 1-3-2, all three into one turbo on 1.15 bar through an intercooler, with variable timing on both cams. An odd number of cylinders puts the loudest order at one and a half times the crank speed, which is the offbeat thrum of a three. It makes about 290-300 N\u00b7m from 2000 to 4000 rpm and 194 PS at 6000, against the real engine\u2019s rated 290 N\u00b7m from 1600 and 200 PS at 6000; below 2000 its turbo is still spooling. Its rod, cams, cam map, turbo size and exhaust are estimates.',
-    engine: FORD_DRAGON,
-    pipe: () => fittedExhaust(fullSpec(FORD_DRAGON)).pipe,
-    collector: () => fittedExhaust(fullSpec(FORD_DRAGON)).collector,
     turbos: 1,
   },
   {
@@ -2858,43 +2983,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: true,
     },
     description:
-      'The 6.2 litre small-block in the mid-engine Corvette: pushrods, two big valves a cylinder, 11.5:1 and a cam that closes the intake late, which only pays off because its long intake runners ram the charge in. Tubular headers into a silencer each side, and an 87 mm throttle body. It makes 637 N·m (470 lb·ft) at 5150 rpm and 495 hp at 6450, as the real engine does.',
-    engine: {
-      pushrods: true,
-      cylinders: 8,
-      vAngle: 90,
-      crankType: 'crossplane',
-      exhaustLayout: 'perBank',
-      exhaustHeaders: true,
-      headerRun: 'lengthways',
-      ...IDLING,
-      revLimit: 6600,
-      // The crank, flexplate and dual clutch's input: the gearbox has no flywheel of its own.
-      flywheelInertia: 0.4,
-      pipeCellSize: 0.035,
-      // 4.065 x 3.622 in on a 6.125 in rod.
-      bore: 0.10325,
-      stroke: 0.092,
-      rodLength: 0.1556,
-      compressionRatio: 11.5,
-      // 2.13 and 1.59 in valves, one of each.
-      exValveDia: 0.0404,
-      inValveDia: 0.054,
-      // Estimated: about 290 degrees on the exhaust and 265 on the intake, the intake closing early enough
-      // for the torque peak at 5150 rpm, and lift enough to carry the power on to 6450. Tuned with the
-      // runners for GM's figures.
-      maxLift: 0.0165,
-      evo: 104,
-      evc: 392,
-      ivo: 338,
-      ivc: 602,
-      // Estimated: tuned for the torque peak at 5150 rpm, and opened out from the valves' 49 mm so the
-      // top end breathes.
-      intakeRunnerLength: 0.44,
-      intakeRunnerDia: 0.055,
-      throttleDia: 0.087,
-      outputGain: LT2_GAIN,
-    },
+      'The 6.2 litre small-block in the mid-engine Corvette: pushrods, two big valves a cylinder, 11.5:1 and a cam that closes the intake late, which only pays off because its long intake runners ram the charge in. Tubular headers into a silencer each side, and an 87 mm throttle body. It makes 637 N\u00b7m (470 lb\u00b7ft) at 5150 rpm and 495 hp at 6450, as the real engine does.',
+    engine: CHEVROLET_LT2,
     // Tubular headers, 1-3/4 in primaries, run lengthways, each opening out to the collector's bore in its
     // bend as it is drawn. Estimated: 850 mm, tuned with the cam and runners for GM's figures on the dyno as
     // the app draws them; at 600 mm it makes 477 hp.
@@ -2923,69 +3013,8 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: true,
     },
     description:
-      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Its tailpipes exit together in the middle, as the Z06’s do. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. It breathes through dual plenums, one for each bank, each with its own 87 mm throttle body and its own airbox and snorkel, mirrored either side, as the real one does, their balance valves joining them from 3500 to 5700 rpm and again from 7500. Its cam, short runners and headers are tuned for the top end, where it makes about 670 hp at 8350 rpm, as the real engine does at 8400. Below that its variable cam timing, long runners and plenums, also estimates, give back the mid-range: 636 N·m at 6500 against 624 at 6300.',
-    engine: {
-      cylinders: 8,
-      vAngle: 90,
-      crankType: 'flatplane',
-      exhaustLayout: 'perBank',
-      exhaustHeaders: true,
-      headerRun: 'lengthways',
-      ...IDLING,
-      revLimit: 8600,
-      flywheelInertia: 0.45,
-      pipeCellSize: 0.035,
-      bore: 0.10425,
-      stroke: 0.08,
-      // Estimated, from the stroke and the deck of a small-block.
-      rodLength: 0.15,
-      compressionRatio: 12.5,
-      // 42 mm titanium intakes and 35.5 mm exhausts, two of each.
-      exValveDia: 0.0355,
-      exValveCount: 2,
-      inValveDia: 0.042,
-      inValveCount: 2,
-      // Estimated: a race-bred cam, the intake closing late because the runners and headers are tuned
-      // to ram the charge in after bottom dead centre at the top end. Tuned with them, the plenums and the
-      // cam map for power at 8400 and the flattest curve below it. These are the cams at rest, as they
-      // idle, with 15 degrees less overlap than the phasers give them under load (below): at rest with
-      // 70 degrees of it, the exhaust it pushes back up the runners at idle dilutes the charge until the
-      // idle hunts and stalls.
-      maxLift: 0.015,
-      evo: 87,
-      evc: 372,
-      ivo: 342,
-      ivc: 635,
-      // Estimated: a two-stage manifold. The short runners are tuned for 8400 rpm; the long ones, 80 mm
-      // longer, lift the mid-range from 6500 to 7500 rpm and fall behind above that, where it switches.
-      intakeRunnerLength: 0.39,
-      intakeRunnerShortLength: 0.31,
-      intakeSwitchRpm: 7600,
-      intakeRunnerDia: 0.06,
-      // Dual plenums, one for each bank, as the real manifold has, each with an 87 mm throttle body and an
-      // inlet tract of its own, the casting as wide as the two throttle bodies' flanges. Estimated: the
-      // balance valves, joined from 3500 to 5700 rpm and again from 7500, where one box fills the cylinders
-      // better; from 5700 to 7500 each bank's plenum ringing with its own pulses does, by up to 40 N·m. A
-      // bigger plenum makes a few more horsepower at the top, but idles worse: its air answers the idle
-      // valve more slowly.
-      dualPlenum: true,
-      throttleDia: 0.087,
-      plenumWidth: 0.266,
-      plenumTaper: 0.2,
-      plenumBalanceRpm: 3500,
-      plenumBalanceShutRpm: 5700,
-      plenumBalanceReopenRpm: 7500,
-      // Estimated, like the cams: under load the exhaust retarded 25 degrees, and the intake advanced 40 up
-      // to 4550 rpm, easing back to 15 by 7750, which gives back the mid-range a cam tuned for 8400 costs it;
-      // at idle and light load both at rest.
-      vvtIntakeLow: 40,
-      vvtIntakeHigh: 15,
-      vvtExhaustLow: 25,
-      vvtExhaustHigh: 25,
-      vvtLowRpm: 4550,
-      vvtHighRpm: 7750,
-      outputGain: LT6_GAIN,
-    },
+      'The 5.5 litre flat-plane V8 in the Corvette Z06: four cams, four valves a cylinder, 12.5:1 and an 8600 rpm limit. The flat crank fires each bank evenly every 180\u00b0, so it shrieks like a Ferrari rather than burbling. Its tailpipes exit together in the middle, as the Z06\u2019s do. Rod length, cam and headers are estimates; the published figures are the bore, stroke, compression, valves and limit. It breathes through dual plenums, one for each bank, each with its own 87 mm throttle body and its own airbox and snorkel, mirrored either side, as the real one does, their balance valves joining them from 3500 to 5700 rpm and again from 7500. Its cam, short runners and headers are tuned for the top end, where it makes about 670 hp at 8350 rpm, as the real engine does at 8400. Below that its variable cam timing, long runners and plenums, also estimates, give back the mid-range: 636 N\u00b7m at 6500 against 624 at 6300.',
+    engine: CHEVROLET_LT6,
     // Estimated: equal-length headers, their primaries tuned for 8400 rpm.
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.41, dIn: 0.045 })],
     collector: () => [
@@ -3022,13 +3051,13 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       cylinders: 2,
       vAngle: 0,
       firingOffset: 360,
-      ...fourValveHead(DEFAULT_ENGINE.bore),
       exhaustLayout: '2into1',
       exhaustHeaders: true,
       headerRun: 'lengthways',
       ...IDLING,
       // A modern 1200 cc parallel twin's.
       revLimit: 7500,
+      ...fourValveHead(DEFAULT_ENGINE.bore),
       outputGain: 0.54,
     },
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.04 })],
