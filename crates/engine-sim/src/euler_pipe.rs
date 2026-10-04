@@ -58,6 +58,11 @@ pub const DESIGN_WAVE_SPEED: f64 = 1400.0;
 /// Audio samples between refreshes of the thermal coefficients.
 const HEAT_INTERVAL: i32 = 16;
 
+/// Refreshes of the thermal coefficients between evaluations of the Nusselt correlation and the wall
+/// friction, which follow the mass-flux average: every 64 samples, 1.3 ms at 48 kHz, against the
+/// average's 50 ms.
+const NUSSELT_EVERY: i32 = 4;
+
 /// Heat a cell takes at a time from a burn in it, as a share of its internal energy, the same bound as
 /// the valve's mass source; and the temperature it is heated to at most, K, over the adiabatic flame
 /// temperature of a stoichiometric gasoline charge starting from hot exhaust.
@@ -325,6 +330,8 @@ pub struct EulerPipe {
     h_ext: Vec<f64>,
     wall_thickness: f64,
     gas_decay: Vec<f64>,
+    /// Each cell's heat transfer coefficient per unit volume, W/(m^3 K), from the Nusselt correlation.
+    htc_vol: Vec<f64>,
     flux_avg: Vec<f64>,
     flux_avg_c: f64,
     cell_volume: Vec<f64>,
@@ -387,6 +394,8 @@ pub struct EulerPipe {
     pub junction_clamps: u64,
     heat_counter: i32,
     heat_batch: f64,
+    /// Thermal refreshes until the Nusselt correlation is evaluated again.
+    nusselt_counter: i32,
     /// The last `(p_ghost / p)^(1/gamma)` each end's junction boundary took, keyed by the bits of
     /// its base.
     junction_pow: [(u64, f64); 2],
@@ -495,6 +504,7 @@ impl EulerPipe {
             h_ext: z(),
             wall_thickness,
             gas_decay: vec![1.0; n],
+            htc_vol: vec![0.0; n],
             flux_avg: z(),
             flux_avg_c: 0.0,
             cell_volume: z(),
@@ -539,6 +549,7 @@ impl EulerPipe {
             junction_clamps: 0,
             heat_counter: 0,
             heat_batch: 0.0,
+            nusselt_counter: 0,
             junction_pow: [(f64::NAN.to_bits(), f64::NAN); 2],
         };
         let p = &mut pipe_;
@@ -1580,17 +1591,30 @@ impl EulerPipe {
         self.fp[face] = flux.3;
     }
 
-    /// The Nusselt correlation and the resulting per-sample decay factors: the expensive half of the
-    /// heat transfer, run occasionally.
+    /// The per-sample decay factors, the expensive half of the heat transfer, run occasionally: from
+    /// each cell's density as it stands, and its heat transfer coefficient, from the Nusselt
+    /// correlation, on every `NUSSELT_EVERY`th. The correlation follows the slow mass-flux average,
+    /// and costs four transcendental functions a cell; the density swings with every pulse.
     fn refresh_thermal_coefficients(&mut self, dt_sample: f64) {
+        self.flux_avg_c = 1.0 - math::exp(-dt_sample / FLUX_AVERAGE_TAU);
+        self.nusselt_counter -= 1;
+        if self.nusselt_counter <= 0 {
+            self.refresh_nusselt();
+            self.nusselt_counter = NUSSELT_EVERY;
+        }
+        for i in 0..self.n {
+            let tau = (self.rho[i] * CV) / math::max(self.htc_vol[i], 1e-9);
+            self.gas_decay[i] = math::exp(-dt_sample / tau);
+        }
+    }
+
+    /// Each cell's heat transfer coefficient, and its wall friction where that follows the flow.
+    fn refresh_nusselt(&mut self) {
         const K_GAS: f64 = 0.05;
         const MU: f64 = 3.5e-5;
         const PR_N: f64 = 0.899;
 
-        self.flux_avg_c = 1.0 - math::exp(-dt_sample / FLUX_AVERAGE_TAU);
-
         for i in 0..self.n {
-            let r = self.rho[i];
             let d = self.hyd_dia[i];
             let re = (self.flux_avg[i] * d) / MU;
             let mut nu = 0.023 * math::pow(re, 0.8) * PR_N * PULSATION_NUSSELT;
@@ -1605,9 +1629,7 @@ impl EulerPipe {
                 nu *= math::pow(rise, ROUGH_HEAT_EXPONENT);
             }
             let nu = math::max(nu, NUSSELT_FLOOR);
-            let htc_vol = ((nu * K_GAS) / d) * (4.0 / d);
-            let tau = (r * CV) / math::max(htc_vol, 1e-9);
-            self.gas_decay[i] = math::exp(-dt_sample / tau);
+            self.htc_vol[i] = ((nu * K_GAS) / d) * (4.0 / d);
         }
     }
 

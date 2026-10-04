@@ -354,10 +354,12 @@ A turbocharged engine draws through its compressors instead, whose inlets the tu
 
 ## Heat transfer every sample
 
-Gas-to-wall heat transfer is applied every audio sample. Only the costly [Nusselt](glossary.md#nusselt-reynolds-and-prandtl-numbers) calculation and
-the slow wall update are batched, every 16 samples: the wall moves only about 0.007 K in that
-time. Batching the gas transfer as well would put a regular energy kick into the pipe at
-48000/16 = 3000 Hz, which is audible as a whistle.
+Gas-to-wall heat transfer is applied every audio sample. The rate each cell's gas cools at, from its
+density, and the slow wall update are batched, every 16 samples: the wall moves only about 0.007 K in
+that time. The costly [Nusselt](glossary.md#nusselt-reynolds-and-prandtl-numbers) calculation behind
+that rate, and the wall friction, follow the cell's mass flux averaged over 50 ms, so they are
+evaluated every 64 samples, 1.3 ms at 48 kHz. Batching the gas transfer as well would put a regular
+energy kick into the pipe at 48000/16 = 3000 Hz, which is audible as a whistle.
 
 ## The turbocharger's sounds
 
