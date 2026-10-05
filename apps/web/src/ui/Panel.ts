@@ -63,11 +63,13 @@ import {
   type EngineSpec,
   type ChamberSection,
   type PipeMaterial,
+  type Room,
   type PipeSegment,
   DEFAULT_ENGINE,
   type SegmentKind,
   BLOW_OFFS,
   PIPE_MATERIALS,
+  ROOMS,
   CHAMBER_SECTIONS,
   makeSegment,
   physicalBankCount,
@@ -1880,6 +1882,28 @@ export class Panel {
       'The ground sends a second, slightly later copy of everything to your ear, and the ' +
       'two comb-filter each other. Set it to zero to hear the engine in free space — ' +
       'which is how simulated engines usually sound, and why they sound wrong.';
+    const roomRow = el('div', 'row', mix);
+    el('label', '', roomRow).textContent = 'Room';
+    const roomSel = el('select', '', roomRow) as HTMLSelectElement;
+    const roomNames: Record<Room, string> = {
+      outdoors: 'Outdoors',
+      garage: 'Garage',
+      dynoCell: 'Dyno cell',
+      workshop: 'Workshop',
+      carPark: 'Underground car park',
+      tunnel: 'Tunnel',
+    };
+    for (const r of ROOMS) roomSel.appendChild(option(r, roomNames[r]));
+    roomSel.value = spec.room;
+    roomSel.addEventListener('change', () => this.cb.onEngine({ room: roomSel.value as Room }));
+    this.resyncers.push(() => {
+      roomSel.value = this.config.engine.room;
+    });
+    roomRow.title =
+      'Where you listen from. In a room every source is heard off the walls and ceiling as well, ' +
+      'then in the reverberation that builds up: a bare concrete garage rings for over a second and ' +
+      'is about 10 dB louder than the open, so you may want the output gain down. A dyno cell is ' +
+      'lined to soak the sound up. Your ear stays inside the room wherever the camera goes.';
     this.slider(mix, {
       label: 'Output gain',
       min: 0,

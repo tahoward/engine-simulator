@@ -29,7 +29,8 @@ use crate::exhaust_graph::{ExhaustGraph, compile_exhaust, node_order, validate_g
 use crate::exhaust_system::{ExhaustSystem, SideWork};
 use crate::inlet::{InletTract, airbox_volume_of, inlet_count_of, snorkel_dia_of};
 use crate::intake::{IntakeRunners, RunnerIo};
-use crate::listener::{Listener, SoundSources, Vec3};
+use crate::listener::{Listener, SoundSources, Vec3, Walls};
+use crate::room::Reverb;
 use crate::math::{self, PI, clamp};
 use crate::plenum::{IntakePlenum, throttle_dia_of};
 use crate::pool::{CachePadded, Disjoint, ThreadPool};
@@ -135,6 +136,9 @@ const UNPLACED_INTAKE: Vec3 = [0.0, 0.3, -0.4];
 /// off the car's rear axis, and this high above the ground, m.
 const DEFAULT_EAR_DISTANCE: f64 = 1.5;
 const DEFAULT_EAR_HEIGHT: f64 = 1.2;
+
+/// Closest a room lets the ear come to its walls and ceiling, m.
+const EAR_MARGIN: f64 = 0.2;
 
 /// The engine the structure-borne frequencies were set against: the default single.
 const REFERENCE_DISPLACEMENT_M3: f64 = 4.977e-4;
@@ -295,6 +299,8 @@ pub struct EngineSim {
     /// Every source's path to the ear: the mouths in order, then the muffler shells, the intake, the
     /// casing and the turbos (`Source`).
     listener: Listener,
+    /// The room's reverberation, fed by every source.
+    reverb: Reverb,
     sources: SoundSources,
     ear: Option<Vec3>,
     /// The air's way in to each throttle, and its snorkel's mouth, on an engine without a turbo.
@@ -616,6 +622,7 @@ impl EngineSim {
             structure_lp1: 0.0,
             structure_lp2: 0.0,
             listener: Listener::new(sample_rate),
+            reverb: Reverb::new(sample_rate),
             sources: config.sources.clone().unwrap_or_default(),
             ear: config.listener,
             inlets: Vec::new(),
@@ -1222,7 +1229,8 @@ impl EngineSim {
     }
 
     /// Every source's path to the ear, from where the sources are and where the ear is. The ground is
-    /// `exhaust_height` below the lowest mouth.
+    /// `exhaust_height` below the lowest mouth. A room stands on it around the sources, with the ear
+    /// kept inside it.
     fn refresh_paths(&mut self, snap: bool) {
         let count = self.wg.mouth_count().max(1);
         let unplaced: Vec<usize> = (0..count)
@@ -1262,7 +1270,24 @@ impl EngineSim {
             let lean = DEFAULT_EAR_DISTANCE * math::sin(PI / 4.0);
             [middle[0] + lean, ground + DEFAULT_EAR_HEIGHT, middle[2] + lean]
         });
-        self.listener.set_geometry(ear, &places, ground, self.spec.spec.ground_reflection, snap);
+        let room = self.spec.spec.room.shape();
+        let walls = room.map(|r| {
+            let n = places.len() as f64;
+            let (cx, cz) = (places.iter().map(|p| p[0]).sum::<f64>() / n, places.iter().map(|p| p[2]).sum::<f64>() / n);
+            Walls {
+                x: [cx - r.width / 2.0, cx + r.width / 2.0],
+                z: [cz - r.length / 2.0, cz + r.length / 2.0],
+                ceiling: ground + r.height,
+                reflection: r.wall_reflection(),
+                corner_hz: r.wall_corner_hz,
+            }
+        });
+        let ear = match &walls {
+            Some(w) => w.inside(ear, ground, EAR_MARGIN),
+            None => ear,
+        };
+        self.listener.set_geometry(ear, &places, ground, self.spec.spec.ground_reflection, walls.as_ref(), snap);
+        self.reverb.set_room(room);
 
         self.refresh_intake_far_field();
     }
@@ -1627,6 +1652,11 @@ impl EngineSim {
         pa += self.listener.process(self.path_of(Source::Casing), direct_pa);
         if self.turbo.is_some() {
             pa += self.listener.process(self.path_of(Source::Turbo), turbo_pa);
+        }
+
+        let sources = self.listener.take_sources();
+        if self.reverb.active() {
+            pa += self.reverb.process(sources);
         }
 
         if self.rebuild_ramp < 1.0 {

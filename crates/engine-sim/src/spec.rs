@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use crate::exhaust_graph::ExhaustGraph;
 use crate::listener::{SoundSources, Vec3};
 use crate::math::{self, PI};
+use crate::room::Room;
 
 /// Shape of one length of exhaust plumbing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -270,6 +271,7 @@ pub struct EngineSpec {
     pub exhaust_height: f64,
     pub cylinder_spread: f64,
     pub ground_reflection: f64,
+    pub room: Room,
     pub output_gain: f64,
     pub mech_noise: f64,
     pub throat_noise: f64,
@@ -367,6 +369,7 @@ impl Default for EngineSpec {
             exhaust_height: 0.35,
             cylinder_spread: 0.3,
             ground_reflection: 0.7,
+            room: Room::Outdoors,
             output_gain: 0.77,
             mech_noise: 0.45,
             throat_noise: 0.5,

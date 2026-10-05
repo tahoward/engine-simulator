@@ -85,7 +85,7 @@ struct Geom {
 fn listener_at(geom: Geom) -> Listener {
     let mut l = Listener::new(FS);
     let ear = [geom.distance, geom.mic_height, 0.0];
-    l.set_geometry(ear, &[[0.0, geom.source_height, 0.0]], 0.0, geom.reflection, true);
+    l.set_geometry(ear, &[[0.0, geom.source_height, 0.0]], 0.0, geom.reflection, None, true);
     l
 }
 

@@ -165,6 +165,16 @@ export type PipeMaterial = 'mildSteel' | 'stainless' | 'castIron' | 'titanium';
 
 export const PIPE_MATERIALS: PipeMaterial[] = ['mildSteel', 'stainless', 'castIron', 'titanium'];
 
+/**
+ * Where the engine is listened to. Outdoors there is only the ground to reflect off. In a room each
+ * source is heard off its four walls and ceiling too, and then in the reverberation that builds up,
+ * as loud as the room's absorption lets it get: a bare concrete garage rings for over a second and
+ * is about 10 dB louder than the open, a dyno cell's lined walls soak most of it up.
+ */
+export type Room = 'outdoors' | 'garage' | 'dynoCell' | 'workshop' | 'carPark' | 'tunnel';
+
+export const ROOMS: Room[] = ['outdoors', 'garage', 'dynoCell', 'workshop', 'carPark', 'tunnel'];
+
 export interface EngineSpec {
   // --- Layout ---
   /**
@@ -650,6 +660,8 @@ export interface EngineSpec {
    * sounds like it was recorded in a vacuum.
    */
   groundReflection: number;
+  /** Where the engine is listened to. See `Room`. */
+  room: Room;
   /** Master output gain, linear. */
   outputGain: number;
   /** Scales valve-seating clacks and piston/mechanical noise, 0..1. */
@@ -1420,6 +1432,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
   exhaustHeight: 0.35,
   cylinderSpread: 0.3,
   groundReflection: 0.7,
+  room: 'outdoors',
   outputGain: 0.77,
   mechNoise: 0.45,
   throatNoise: 0.5,
@@ -2302,6 +2315,7 @@ const PRESET_KEEPS = [
   'freeRunning',
   'exhaustHeight',
   'groundReflection',
+  'room',
   'airSpeed',
 ] as const satisfies readonly (keyof EngineSpec)[];
 

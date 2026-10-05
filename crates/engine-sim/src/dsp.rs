@@ -201,6 +201,16 @@ impl Delay {
         a + (b - a) * frac
     }
 
+    /// Samples it holds.
+    pub fn capacity(&self) -> usize {
+        self.buf.len()
+    }
+
+    /// Silence everything held.
+    pub fn clear(&mut self) {
+        self.buf.fill(0.0);
+    }
+
     /// Write `x` without reading, for `tap` to read back.
     #[inline]
     pub fn push(&mut self, x: f64) {

@@ -26,6 +26,7 @@ pub mod plenum;
 pub mod pool;
 pub mod pow;
 pub mod radiation;
+pub mod room;
 pub mod shell;
 pub mod simd;
 pub mod spec;
