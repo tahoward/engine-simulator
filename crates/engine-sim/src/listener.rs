@@ -6,6 +6,8 @@
 //!
 //! In stereo there are two ears, a head apart, each with its own paths, so a source off to one side
 //! reaches the nearer ear first and louder; and the head shadows the far ear from it, taking its highs.
+//! So it does each reflection, from the way that reflection arrives: off the ground below, off each wall
+//! from that wall's side, off the ceiling from above.
 //!
 //! Paths are timed against the shortest of them, so only the differences between them delay anything.
 //! The ear can move, and when it does every path glides to its new length and level over
@@ -127,7 +129,7 @@ impl Glide {
 /// its pole, lifting the highs 6 dB as the head's face presses them back; round on the far side it sits
 /// three octaves above, and the head's shadow takes 20 dB off them.
 #[derive(Clone, Copy, Debug)]
-struct HeadShadow {
+pub(crate) struct HeadShadow {
     b0: f64,
     b1: f64,
     a1: f64,
@@ -143,7 +145,7 @@ impl Default for HeadShadow {
 
 impl HeadShadow {
     /// For a sound arriving from `angle` off the ear's own side, rad.
-    fn set(&mut self, angle: f64, sample_rate: f64) {
+    pub(crate) fn set(&mut self, angle: f64, sample_rate: f64) {
         let alpha = (1.0 + SHADOW_LEAST / 2.0) + (1.0 - SHADOW_LEAST / 2.0) * math::cos((angle / SHADOW_DEEPEST) * PI);
         let w = (2.0 * ambient_sound_speed()) / HEAD_RADIUS;
         let k = 2.0 * sample_rate;
@@ -154,12 +156,26 @@ impl HeadShadow {
     }
 
     #[inline]
-    fn process(&mut self, x: f64) -> f64 {
+    pub(crate) fn process(&mut self, x: f64) -> f64 {
         let y = self.b0 * x + self.b1 * self.x1 - self.a1 * self.y1;
         self.x1 = x;
         self.y1 = y;
         y
     }
+}
+
+/// How much later a sound from far off arrives at an ear than at the middle of the head, s, from `angle`
+/// off the ear's own side, rad: Woodworth's, round the sphere to the far side. Negative from its own side.
+pub(crate) fn ear_delay_s(angle: f64) -> f64 {
+    let lead = if angle < PI / 2.0 { -math::cos(angle) } else { angle - PI / 2.0 };
+    (HEAD_RADIUS / ambient_sound_speed()) * lead
+}
+
+/// The angle off `axis`, a unit vector, that `to` points, rad.
+pub(crate) fn angle_off(to: Vec3, axis: Vec3) -> f64 {
+    let len = math::max(math::hypot(&to), 1e-9);
+    let cos = (to[0] * axis[0] + to[1] * axis[1] + to[2] * axis[2]) / len;
+    math::acos(math::clamp(cos, -1.0, 1.0))
 }
 
 /// One source's way to one ear: the direct sound, the ground's reflection and the walls', each read off
@@ -180,8 +196,11 @@ struct Ear {
     air_walls: OnePole,
     /// Whether the walls are heard: from when a room is given until its reflections have faded out.
     walls_on: bool,
-    /// The head's shadow over the direct sound, when there is a head: with two ears.
+    /// The head's shadow over the direct sound, the ground's reflection and each wall's, when there is a
+    /// head: with two ears.
     shadow: HeadShadow,
+    ground_shadow: HeadShadow,
+    wall_shadow: [HeadShadow; WALLS],
     shadowed: bool,
 }
 
@@ -298,11 +317,11 @@ impl Listener {
                 e.air_direct.set_cutoff(air_cutoff_hz(direct), fs);
                 e.air_ground.set_cutoff(air_cutoff_hz(bounced), fs);
                 e.shadowed = axis.is_some();
-                if let Some(axis) = axis {
+                if let Some(axis) = *axis {
                     let to = [place[0] - ear[0], place[1] - ear[1], place[2] - ear[2]];
-                    let len = math::max(math::hypot(&to), 1e-9);
-                    let cos = (to[0] * axis[0] + to[1] * axis[1] + to[2] * axis[2]) / len;
-                    e.shadow.set(math::acos(math::clamp(cos, -1.0, 1.0)), fs);
+                    e.shadow.set(angle_off(to, axis), fs);
+                    let below = [to[0], 2.0 * ground - place[1] - ear[1], to[2]];
+                    e.ground_shadow.set(angle_off(below, axis), fs);
                 }
                 match walls {
                     Some(w) => {
@@ -318,6 +337,10 @@ impl Listener {
                             let heard = delay <= most_wall;
                             e.wall_delay[n].target = math::min(delay, most_wall);
                             e.wall_gain[n].target = if heard { w.reflection / range } else { 0.0 };
+                            if let Some(axis) = *axis {
+                                let to = [image[0] - ear[0], image[1] - ear[1], image[2] - ear[2]];
+                                e.wall_shadow[n].set(angle_off(to, axis), fs);
+                            }
                             mean += range / WALLS as f64;
                         }
                         e.wall_loss.set_cutoff(w.corner_hz, fs);
@@ -433,17 +456,21 @@ impl Ear {
         let direct = line.tap(self.direct_delay.next(c));
         let bounced = line.tap(self.ground_delay.next(c));
         let mut direct = self.air_direct.process(direct) * self.direct_gain.next(c);
+        let mut ground = self.air_ground.process(self.ground_loss.process(bounced)) * self.ground_gain.next(c);
         if self.shadowed {
             direct = self.shadow.process(direct);
+            ground = self.ground_shadow.process(ground);
         }
-        let ground = self.air_ground.process(self.ground_loss.process(bounced)) * self.ground_gain.next(c);
         if !self.walls_on {
             return direct + ground;
         }
         let mut walls = 0.0;
         let mut fading = true;
-        for (delay, gain) in self.wall_delay.iter_mut().zip(self.wall_gain.iter_mut()) {
-            walls += line.tap(delay.next(c)) * gain.next(c);
+        for ((delay, gain), shadow) in
+            self.wall_delay.iter_mut().zip(self.wall_gain.iter_mut()).zip(&mut self.wall_shadow)
+        {
+            let heard = line.tap(delay.next(c)) * gain.next(c);
+            walls += if self.shadowed { shadow.process(heard) } else { heard };
             fading &= gain.target == 0.0 && gain.value < 1e-6;
         }
         // Out of the room, once its reflections have faded.

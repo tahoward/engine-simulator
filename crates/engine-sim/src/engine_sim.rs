@@ -1320,6 +1320,7 @@ impl EngineSim {
         let reflection = self.spec.spec.ground_reflection;
         self.listener.set_geometry(ear, right, &places, ground, reflection, walls.as_ref(), snap);
         self.reverb.set_room(room);
+        self.reverb.set_head(right);
 
         self.refresh_intake_far_field();
     }

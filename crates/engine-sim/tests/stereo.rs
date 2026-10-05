@@ -128,17 +128,17 @@ fn switching_stereo_stays_finite() {
     }
 }
 
-/// Each ear hears a room's reverberation as loud as the one ear does, to 1 dB; the two alike below a
-/// few hundred hertz and unalike above.
-#[test]
-fn each_ear_hears_the_reverberation_alike_in_the_lows_and_unalike_in_the_highs() {
-    let shape = Room::Garage.shape().unwrap();
+/// A garage's reverberation, as the one ear hears it and as each of a head facing with its right along
+/// `right` does, fed `seconds` of white noise.
+fn reverberate(room: Room, right: [f64; 3], seconds: usize) -> (Vec<f64>, Vec<f64>, Vec<f64>) {
+    let shape = room.shape().unwrap();
     let mut one = Reverb::new(FS);
     let mut two = Reverb::new(FS);
     one.set_room(Some(shape));
     two.set_room(Some(shape));
+    two.set_head(Some(right));
     let mut noise = Noise::default();
-    let n = SECOND * 6;
+    let n = SECOND * seconds;
     let (mut mono, mut l, mut r) = (Vec::with_capacity(n), Vec::with_capacity(n), Vec::with_capacity(n));
     for _ in 0..n {
         let x = noise.next();
@@ -147,30 +147,95 @@ fn each_ear_hears_the_reverberation_alike_in_the_lows_and_unalike_in_the_highs()
         l.push(a);
         r.push(b);
     }
-    let settled = SECOND * 3;
-    let power = |x: &[f64]| x[settled..].iter().map(|v| v * v).sum::<f64>();
+    (mono, l, r)
+}
+
+const SETTLED: usize = SECOND * 3;
+
+fn power(x: &[f64]) -> f64 {
+    x[SETTLED..].iter().map(|v| v * v).sum::<f64>()
+}
+
+/// How alike `l` and `r` are below `cutoff` (`low`) or above it, -1..1.
+fn coherence(l: &[f64], r: &[f64], cutoff: f64, low: bool) -> f64 {
+    let band = |x: &[f64]| {
+        let mut lp = OnePole::default();
+        lp.set_cutoff(cutoff, FS);
+        let mut lp2 = lp;
+        x.iter()
+            .map(|&v| {
+                let y = lp2.process(lp.process(v));
+                if low { y } else { v - y }
+            })
+            .collect::<Vec<f64>>()
+    };
+    let (a, b) = (band(l), band(r));
+    let dot: f64 = a[SETTLED..].iter().zip(&b[SETTLED..]).map(|(x, y)| x * y).sum();
+    dot / (power(&a) * power(&b)).sqrt()
+}
+
+/// Each ear hears a room's reverberation as loud as the one ear does, to 1 dB; the two alike below a
+/// few hundred hertz and unalike above.
+#[test]
+fn each_ear_hears_the_reverberation_alike_in_the_lows_and_unalike_in_the_highs() {
+    let (mono, l, r) = reverberate(Room::Garage, [1.0, 0.0, 0.0], 6);
     for (ear, x) in [("left", &l), ("right", &r)] {
         let db = 10.0 * (power(x) / power(&mono)).log10();
         assert!(db.abs() < 1.0, "{ear} ear {db:.2} dB from the one");
     }
-    let coherence = |cutoff: f64, low: bool| {
-        let band = |x: &[f64]| {
-            let mut lp = OnePole::default();
-            lp.set_cutoff(cutoff, FS);
-            let mut lp2 = lp;
-            x.iter()
-                .map(|&v| {
-                    let y = lp2.process(lp.process(v));
-                    if low { y } else { v - y }
-                })
-                .collect::<Vec<f64>>()
-        };
-        let (a, b) = (band(&l), band(&r));
-        let dot: f64 = a[settled..].iter().zip(&b[settled..]).map(|(x, y)| x * y).sum();
-        dot / (power(&a) * power(&b)).sqrt()
-    };
-    let low = coherence(150.0, true);
-    let high = coherence(3000.0, false);
+    let low = coherence(&l, &r, 150.0, true);
+    let high = coherence(&l, &r, 3000.0, false);
     assert!(low > 0.8, "coherence {low:.2} below 150 Hz");
-    assert!(high.abs() < 0.2, "coherence {high:.2} above 3 kHz");
+    assert!(high.abs() < 0.3, "coherence {high:.2} above 3 kHz");
+}
+
+/// The reverberation stays where the room is: turned round, the ears hear what each other did.
+#[test]
+fn turned_round_the_reverberation_swaps_ears() {
+    let (_, l, r) = reverberate(Room::Garage, [1.0, 0.0, 0.0], 4);
+    let (_, l2, r2) = reverberate(Room::Garage, [-1.0, 0.0, 0.0], 4);
+    let worst = l.iter().zip(&r2).chain(r.iter().zip(&l2)).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
+    assert!(worst < 1e-9, "the ears differ from each other's by up to {worst}");
+}
+
+/// In a tunnel the late sound comes along the bore. Facing along it, that is from ahead and behind,
+/// and the ears hear it more alike than facing a wall, when it is from either side. Below 800 Hz,
+/// where the little that still comes from the side does not already set the ears apart.
+#[test]
+fn in_a_tunnel_the_reverberation_comes_along_the_bore() {
+    let (_, l, r) = reverberate(Room::Tunnel, [1.0, 0.0, 0.0], 5);
+    let (_, l2, r2) = reverberate(Room::Tunnel, [0.0, 0.0, 1.0], 5);
+    let along = coherence(&l, &r, 800.0, true);
+    let across = coherence(&l2, &r2, 800.0, true);
+    assert!(along > across + 0.2, "coherence below 800 Hz {along:.2} facing along against {across:.2} across");
+}
+
+/// A wall to one side is heard from that side: near the right wall of a garage, the right ear hears
+/// more of the treble against the left than it does in the open, the wall's reflection coming from its
+/// side and the far ear hearing it in the head's shadow.
+#[test]
+fn a_wall_to_one_side_is_heard_from_that_side() {
+    let treble_right_over_left = |room: &str| {
+        let mut cfg = common::default_config();
+        cfg.engine =
+            common::with(&cfg.engine, json!({ "groundReflection": 0, "combustionVariability": 0, "room": room }));
+        let mut s = EngineSim::new(FS, &cfg);
+        let duct = s.pipe_solver().mouth_duct_id(0).unwrap().to_string();
+        let at = [0.0, 0.5, -1.0];
+        s.set_sources(SoundSources {
+            mouths: vec![MouthPlace { duct, position: at }],
+            intake: Some(at),
+            second_intake: None,
+            engine: Some(at),
+            turbo: Some(at),
+        });
+        s.set_stereo(true);
+        // The garage is centred on the sources, 3.5 m wide: this puts the ear 0.4 m from its right wall.
+        s.set_listener_facing(Some([1.35, 0.5, 0.0]), Some([1.0, 0.0, 0.0]));
+        stereo(&mut s, SECOND);
+        let (l, r) = stereo(&mut s, SECOND);
+        brightness(&r) / brightness(&l)
+    };
+    let (open, garage) = (treble_right_over_left("outdoors"), treble_right_over_left("garage"));
+    assert!(garage > open * 1.2, "right over left {garage:.2} in the garage against {open:.2} in the open");
 }

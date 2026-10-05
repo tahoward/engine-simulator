@@ -7,15 +7,18 @@
 //! every source referred to 1 m, and gives the diffuse field's level the room's absorption sets,
 //! `p^2 = 16 pi p1^2 / R`, wherever the ear stands in it.
 //!
-//! In stereo each ear hears its own mix of the lines, the two orthogonal, so above a few hundred hertz
-//! the ears hear the diffuse field as unalike as two points a head apart in a real room do. Below, they
-//! hear it alike, as there: the wavelengths are too long for the head to tell them apart.
+//! In stereo each line arrives from a way of its own, fixed in the room, so the reverberation stays
+//! where the room is as the head turns. The ways are spread over the sphere, then drawn out along the
+//! room as far as it is long, wide and high: in a tunnel the late sound comes along the bore, in a low
+//! car park from all round but not from above or below. Each line reaches each ear as sound from that
+//! way does: later round the head (Woodworth's delay) and in its shadow (Brown and Duda's). With eight
+//! ways and the delays between the ears they give, the ears hear the field alike in the lows, as the
+//! wavelengths are too long for the head to tell them apart, and unalike in the highs, as in a real room.
 
 use serde::{Deserialize, Serialize};
 
-use std::f64::consts::FRAC_1_SQRT_2;
-
-use crate::dsp::{Delay, OnePole};
+use crate::dsp::Delay;
+use crate::listener::{HeadShadow, Vec3, angle_off, ear_delay_s};
 use crate::math::{self, PI};
 
 /// Where the engine is listened to.
@@ -116,9 +119,11 @@ const MEAN_FREE_PATH: f64 = 5.0;
 /// Most and least the lines are scaled by with the room's mean free path.
 const SCALE_RANGE: (f64, f64) = (0.6, 1.4);
 
-/// Below this the ears hear the diffuse field alike, Hz: about where two points a head apart in it
-/// stop moving together.
-const EARS_ALIKE_HZ: f64 = 500.0;
+/// Longest a line's sound may take to reach the far ear after the near one, s: round the head and more.
+const MOST_BETWEEN_EARS_S: f64 = 0.001;
+
+/// How long the ways the lines arrive from take to glide to new ones as the head turns, s.
+const TURN_S: f64 = 0.05;
 
 /// How long the old room's tail takes to fade out when the room changes, s.
 const FADE_S: f64 = 0.03;
@@ -146,9 +151,22 @@ pub struct Reverb {
     fade_step: f64,
     /// Samples left until the tail is inaudible after the input stops; 0 when silent.
     ringing: usize,
-    /// The lows of what both ears hear, and of what tells them apart, for stereo.
-    mid_low: OnePole,
-    side_low: OnePole,
+    /// Each line's output this sample, as both ears hear it before the head has its say.
+    heard: [f64; LINES],
+    /// The last of each line's output, for the far ear to hear it later; and for each ear, how much
+    /// later, samples, gliding there, and the head's shadow over it.
+    recent: Vec<Delay>,
+    lag: [[Lag; LINES]; 2],
+    shadow: [[HeadShadow; LINES]; 2],
+    turn_c: f64,
+    /// The way the listener's right is, a unit vector; `None` with no head.
+    right: Option<Vec3>,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct Lag {
+    value: f64,
+    target: f64,
 }
 
 impl Reverb {
@@ -164,8 +182,50 @@ impl Reverb {
             fade: 1.0,
             fade_step: 1.0 / (FADE_S * sample_rate),
             ringing: 0,
-            mid_low: crossover(sample_rate),
-            side_low: crossover(sample_rate),
+            heard: [0.0; LINES],
+            recent: (0..LINES).map(|_| Delay::new((MOST_BETWEEN_EARS_S * sample_rate).ceil() + 4.0)).collect(),
+            lag: [[Lag::default(); LINES]; 2],
+            shadow: [[HeadShadow::default(); LINES]; 2],
+            turn_c: 1.0 - math::exp(-1.0 / (TURN_S * sample_rate)),
+            right: None,
+        }
+    }
+
+    /// Turn the head so its right is the way `right` is, in the room's frame: x across the car, y up, z
+    /// along it. The ways the lines arrive from glide round to it.
+    pub fn set_head(&mut self, right: Option<Vec3>) {
+        let right = right.and_then(|r| {
+            let len = math::hypot(&r);
+            (len > 1e-9 && len.is_finite()).then(|| [r[0] / len, r[1] / len, r[2] / len])
+        });
+        if right != self.right {
+            let first = self.right.is_none();
+            self.right = right;
+            self.aim(first);
+        }
+    }
+
+    /// Each line's lag and shadow at each ear, from the ways the lines arrive and the way the head faces.
+    /// With `snap` the lags take their new values at once.
+    fn aim(&mut self, snap: bool) {
+        let (Some(right), Some(shape)) = (self.right, self.shape) else { return };
+        let fs = self.sample_rate;
+        for (i, way) in ways(&shape).iter().enumerate() {
+            let mut delays = [0.0; 2];
+            for (e, side) in [-1.0, 1.0].iter().enumerate() {
+                let axis = [side * right[0], side * right[1], side * right[2]];
+                let angle = angle_off(*way, axis);
+                delays[e] = ear_delay_s(angle);
+                self.shadow[e][i].set(angle, fs);
+            }
+            let first = math::min(delays[0], delays[1]);
+            for e in 0..2 {
+                let lag = &mut self.lag[e][i];
+                lag.target = (delays[e] - first) * fs;
+                if snap {
+                    lag.value = lag.target;
+                }
+            }
         }
     }
 
@@ -176,6 +236,7 @@ impl Reverb {
             return;
         }
         self.shape = shape;
+        self.aim(false);
         let tuning = shape.map(|s| self.tune(&s));
         if !self.active() {
             self.clear();
@@ -234,35 +295,47 @@ impl Reverb {
 
     /// The diffuse field at the ear from `source`, every source summed, each referred to 1 m, Pa.
     pub fn process(&mut self, source: f64) -> f64 {
-        self.step(source).0
+        self.step(source)
     }
 
-    /// `process`, at the left ear and the right.
+    /// `process`, at the left ear and the right of the head `set_head` turned; with none, alike.
     pub fn process_stereo(&mut self, source: f64) -> [f64; 2] {
-        let (mid, side) = self.step(source);
-        let low = self.mid_low.process(mid);
-        let side = side - self.side_low.process(side);
-        let high = mid - low;
-        [low + (high + side) * FRAC_1_SQRT_2, low + (high - side) * FRAC_1_SQRT_2]
+        let mono = self.step(source);
+        if self.right.is_none() {
+            return [mono, mono];
+        }
+        let mut ears = [0.0; 2];
+        for i in 0..LINES {
+            self.recent[i].push(self.heard[i]);
+            let sign = if i % 2 == 0 { 1.0 } else { -1.0 };
+            for (e, ear) in ears.iter_mut().enumerate() {
+                let lag = &mut self.lag[e][i];
+                lag.value += self.turn_c * (lag.target - lag.value);
+                *ear += sign * self.shadow[e][i].process(self.recent[i].tap(lag.value));
+            }
+        }
+        let norm = 1.0 / math::sqrt(LINES as f64);
+        [ears[0] * norm, ears[1] * norm]
     }
 
-    /// One sample: what both ears hear alike, and what one hears and the other does not.
-    fn step(&mut self, source: f64) -> (f64, f64) {
-        let Some(t) = self.tuning else { return (0.0, 0.0) };
+    /// One sample, as the one ear hears it, with each line's output left in `heard`.
+    fn step(&mut self, source: f64) -> f64 {
+        let Some(t) = self.tuning else {
+            self.heard = [0.0; LINES];
+            return 0.0;
+        };
         let mut y = [0.0; LINES];
         for i in 0..LINES {
             let x = self.lines[i].tap(t.lengths[i] as f64 - 1.0);
             self.damp[i] = t.gain[i] * (1.0 - t.pole[i]) * x + t.pole[i] * self.damp[i];
             y[i] = self.damp[i];
         }
-        // Two orthogonal rows of the Hadamard matrix.
-        let (mut out, mut side) = (0.0, 0.0);
+        let mut out = 0.0;
         for (i, &v) in y.iter().enumerate() {
             out += if i % 2 == 0 { v } else { -v };
-            side += if i % 4 < 2 { v } else { -v };
+            self.heard[i] = v * self.fade;
         }
         out *= self.fade / math::sqrt(LINES as f64);
-        side *= self.fade / math::sqrt(LINES as f64);
         hadamard(&mut y);
         let feed = (t.input * source) / math::sqrt(LINES as f64);
         for i in 0..LINES {
@@ -288,14 +361,24 @@ impl Reverb {
                 self.fade = 1.0;
             }
         }
-        (out, side)
+        out
     }
 }
 
-fn crossover(sample_rate: f64) -> OnePole {
-    let mut lp = OnePole::default();
-    lp.set_cutoff(EARS_ALIKE_HZ, sample_rate);
-    lp
+/// The way each line arrives from, unit vectors in the room's frame: eight spread evenly over the
+/// sphere on a golden-angle spiral, so no two lie alike either side of the head, each drawn out by the
+/// square root of the room's size that way.
+fn ways(shape: &RoomShape) -> [Vec3; LINES] {
+    let stretch = [math::sqrt(shape.width), math::sqrt(shape.height), math::sqrt(shape.length)];
+    let golden = PI * (3.0 - math::sqrt(5.0));
+    std::array::from_fn(|i| {
+        let y = 1.0 - (2.0 * i as f64 + 1.0) / LINES as f64;
+        let r = math::sqrt(1.0 - y * y);
+        let phi = golden * i as f64;
+        let v = [r * math::cos(phi) * stretch[0], y * stretch[1], r * math::sin(phi) * stretch[2]];
+        let len = math::hypot(&v);
+        [v[0] / len, v[1] / len, v[2] / len]
+    })
 }
 
 /// In-place fast Walsh-Hadamard transform, scaled to keep the energy.
