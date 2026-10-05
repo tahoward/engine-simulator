@@ -7,10 +7,11 @@ mod common;
 use common::FS;
 use engine_sim::EngineSim;
 use engine_sim::dsp::{Noise, OnePole};
-use engine_sim::room::{Reverb, Room};
+use engine_sim::room::{Absorption, Reverb, Room, RoomShape};
 use serde_json::json;
 
-const ROOMS: [Room; 5] = [Room::Garage, Room::DynoCell, Room::Workshop, Room::CarPark, Room::Tunnel];
+const ROOMS: [Room; 7] =
+    [Room::Garage, Room::DynoCell, Room::Workshop, Room::CarPark, Room::Tunnel, Room::Street, Room::Underpass];
 
 /// Noise below a few hundred hertz, as most of an engine's sound is.
 fn low_noise(n: usize) -> Vec<f64> {
@@ -133,4 +134,31 @@ fn changing_room_is_smooth() {
         let step = largest_step(&out);
         assert!(step < before * 2.0, "{room}: a step of {step} against {before}");
     }
+}
+
+/// Where a room has no surface it gives back nothing: a street's sky and ends, an underpass's ends.
+#[test]
+fn an_open_side_gives_back_nothing() {
+    let [left, right, front, rear, ceiling] = Room::Street.shape().unwrap().wall_reflections();
+    assert!(left > 0.9 && right > 0.9, "facades {left} {right}");
+    assert_eq!([front, rear, ceiling], [0.0; 3]);
+    let [left, right, front, rear, ceiling] = Room::Underpass.shape().unwrap().wall_reflections();
+    assert!(left > 0.9 && right > 0.9 && ceiling > 0.9, "walls {left} {right}, deck {ceiling}");
+    assert_eq!([front, rear], [0.0; 2]);
+}
+
+/// An open side takes all that reaches it, so a street rings for less time than it would roofed over
+/// and closed at the ends, and its diffuse field is quieter.
+#[test]
+fn an_open_side_shortens_and_quietens_the_reverberation() {
+    let open = Room::Street.shape().unwrap();
+    let closed =
+        RoomShape { absorption: Absorption { front: 0.06, rear: 0.06, ceiling: 0.06, ..open.absorption }, ..open };
+    assert!(
+        open.reverb_time() < closed.reverb_time() / 3.0,
+        "{} s against {} s",
+        open.reverb_time(),
+        closed.reverb_time()
+    );
+    assert!(open.diffuse_gain() < closed.diffuse_gain() / 2.0);
 }

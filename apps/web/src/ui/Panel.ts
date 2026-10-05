@@ -1892,6 +1892,8 @@ export class Panel {
       workshop: 'Workshop',
       carPark: 'Underground car park',
       tunnel: 'Tunnel',
+      street: 'City street',
+      underpass: 'Underpass',
     };
     for (const r of ROOMS) roomSel.appendChild(option(r, roomNames[r]));
     roomSel.value = spec.room;
@@ -1903,7 +1905,9 @@ export class Panel {
       'Where you listen from. In a room every source is heard off the walls and ceiling as well, ' +
       'then in the reverberation that builds up: a bare concrete garage rings for over a second and ' +
       'is about 10 dB louder than the open, so you may want the output gain down. A dyno cell is ' +
-      'lined to soak the sound up. Your ear stays inside the room wherever the camera goes.';
+      'lined to soak the sound up. A city street rings between the facades either side, open to the ' +
+      'sky; an underpass under its deck, open at the ends. Your ear stays inside the room wherever ' +
+      'the camera goes.';
     this.slider(mix, {
       label: 'Output gain',
       min: 0,

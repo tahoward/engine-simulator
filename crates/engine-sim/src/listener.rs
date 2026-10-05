@@ -67,8 +67,9 @@ pub struct Walls {
     pub x: [f64; 2],
     pub z: [f64; 2],
     pub ceiling: f64,
-    /// The share of the pressure arriving at a wall that it sends back.
-    pub reflection: f64,
+    /// The share of the pressure arriving at each wall that it sends back, as `images` orders them:
+    /// left, right, front, rear, ceiling. 0 for one that is open.
+    pub reflection: [f64; WALLS],
     /// Corner above which a reflection is duller than what reached the wall, Hz.
     pub corner_hz: f64,
 }
@@ -334,9 +335,9 @@ impl Listener {
                             );
                             let delay = ((range - nearest) / c) * fs;
                             // Beyond what the line holds, a reflection that faint is left out.
-                            let heard = delay <= most_wall;
+                            let heard = delay <= most_wall && w.reflection[n] > 0.0;
                             e.wall_delay[n].target = math::min(delay, most_wall);
-                            e.wall_gain[n].target = if heard { w.reflection / range } else { 0.0 };
+                            e.wall_gain[n].target = if heard { w.reflection[n] / range } else { 0.0 };
                             if let Some(axis) = *axis {
                                 let to = [image[0] - ear[0], image[1] - ear[1], image[2] - ear[2]];
                                 e.wall_shadow[n].set(angle_off(to, axis), fs);

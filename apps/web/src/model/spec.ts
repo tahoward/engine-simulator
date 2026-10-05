@@ -170,10 +170,14 @@ export const PIPE_MATERIALS: PipeMaterial[] = ['mildSteel', 'stainless', 'castIr
  * source is heard off its four walls and ceiling too, and then in the reverberation that builds up,
  * as loud as the room's absorption lets it get: a bare concrete garage rings for over a second and
  * is about 10 dB louder than the open, a dyno cell's lined walls soak most of it up.
+ *
+ * Not every room is closed. A street has its facades either side and the road below, with the sky
+ * above and the street running on out of both ends; an underpass its walls and the deck overhead,
+ * open at both ends, as a tunnel is. An open side gives back nothing, and takes all that reaches it.
  */
-export type Room = 'outdoors' | 'garage' | 'dynoCell' | 'workshop' | 'carPark' | 'tunnel';
+export type Room = 'outdoors' | 'garage' | 'dynoCell' | 'workshop' | 'carPark' | 'tunnel' | 'street' | 'underpass';
 
-export const ROOMS: Room[] = ['outdoors', 'garage', 'dynoCell', 'workshop', 'carPark', 'tunnel'];
+export const ROOMS: Room[] = ['outdoors', 'street', 'underpass', 'garage', 'dynoCell', 'workshop', 'carPark', 'tunnel'];
 
 export interface EngineSpec {
   // --- Layout ---

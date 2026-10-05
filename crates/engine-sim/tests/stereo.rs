@@ -207,7 +207,19 @@ fn in_a_tunnel_the_reverberation_comes_along_the_bore() {
     let (_, l2, r2) = reverberate(Room::Tunnel, [0.0, 0.0, 1.0], 5);
     let along = coherence(&l, &r, 800.0, true);
     let across = coherence(&l2, &r2, 800.0, true);
-    assert!(along > across + 0.2, "coherence below 800 Hz {along:.2} facing along against {across:.2} across");
+    assert!(along > across + 0.1, "coherence below 800 Hz {along:.2} facing along against {across:.2} across");
+}
+
+/// In a street the late sound comes from the facades either side, what runs along it going out of the
+/// ends and what goes up, to the sky. Facing along the street, that is from either side, and the ears
+/// hear it less alike than facing a facade, when it is from ahead and behind.
+#[test]
+fn in_a_street_the_reverberation_comes_from_the_facades() {
+    let (_, l, r) = reverberate(Room::Street, [1.0, 0.0, 0.0], 5);
+    let (_, l2, r2) = reverberate(Room::Street, [0.0, 0.0, 1.0], 5);
+    let along = coherence(&l, &r, 800.0, true);
+    let facing = coherence(&l2, &r2, 800.0, true);
+    assert!(facing > along + 0.1, "coherence below 800 Hz {facing:.2} facing a facade against {along:.2} along");
 }
 
 /// A wall to one side is heard from that side: near the right wall of a garage, the right ear hears

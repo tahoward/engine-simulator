@@ -1301,7 +1301,7 @@ impl EngineSim {
                 x: [cx - r.width / 2.0, cx + r.width / 2.0],
                 z: [cz - r.length / 2.0, cz + r.length / 2.0],
                 ceiling: ground + r.height,
-                reflection: r.wall_reflection(),
+                reflection: r.wall_reflections(),
                 corner_hz: r.wall_corner_hz,
             }
         });

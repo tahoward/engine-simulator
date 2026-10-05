@@ -7,10 +7,14 @@
 //! every source referred to 1 m, and gives the diffuse field's level the room's absorption sets,
 //! `p^2 = 16 pi p1^2 / R`, wherever the ear stands in it.
 //!
+//! A room is a box, but each of its six surfaces absorbs as much as it does, and one that is not there,
+//! an open end or the sky, takes all that reaches it: it gives back no reflection, and its area counts
+//! in the room's absorption as wholly absorbing, as an open window does in Sabine's.
+//!
 //! In stereo each line arrives from a way of its own, fixed in the room, so the reverberation stays
 //! where the room is as the head turns. The ways are spread over the sphere, then drawn out along the
-//! room as far as it is long, wide and high: in a tunnel the late sound comes along the bore, in a low
-//! car park from all round but not from above or below. Each line reaches each ear as sound from that
+//! axes sound lasts longest along: in a tunnel the late sound comes along the bore, in a low car park
+//! from all round but not from above or below, in a street from the facades either side. Each line reaches each ear as sound from that
 //! way does: later round the head (Woodworth's delay) and in its shadow (Brown and Duda's). With eight
 //! ways and the delays between the ears they give, the ears hear the field alike in the lows, as the
 //! wavelengths are too long for the head to tell them apart, and unalike in the highs, as in a real room.
@@ -36,8 +40,36 @@ pub enum Room {
     Workshop,
     /// An underground car park: wide, long and low, all concrete.
     CarPark,
-    /// A road tunnel.
+    /// A road tunnel, open at both ends.
     Tunnel,
+    /// A city street between two rows of tall buildings: the facades either side, the road below, the
+    /// sky above and the street running on out of both ends.
+    Street,
+    /// A road under a bridge: walls either side and the deck overhead, open at both ends.
+    Underpass,
+}
+
+/// The share of the sound energy each of a room's six surfaces absorbs at low frequencies: 1 where there
+/// is no surface, which takes all that reaches it. Left and right are across the car, -x and +x in the
+/// sources' frame; front and rear along it, -z and +z.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Absorption {
+    pub left: f64,
+    pub right: f64,
+    pub front: f64,
+    pub rear: f64,
+    pub ceiling: f64,
+    pub floor: f64,
+}
+
+/// Where a room has no surface: all that reaches it goes.
+pub const OPEN: f64 = 1.0;
+
+impl Absorption {
+    /// Every surface alike.
+    pub const fn all(a: f64) -> Absorption {
+        Absorption { left: a, right: a, front: a, rear: a, ceiling: a, floor: a }
+    }
 }
 
 /// A room's box and what its surfaces do to the sound.
@@ -47,8 +79,8 @@ pub struct RoomShape {
     pub width: f64,
     pub length: f64,
     pub height: f64,
-    /// The share of the sound energy its surfaces absorb, on average, at low frequencies.
-    pub absorption: f64,
+    /// What each of its surfaces absorbs.
+    pub absorption: Absorption,
     /// Reverberation time at the top of the band as a share of the time at the bottom: the surfaces
     /// and the air both take the highs away faster.
     pub hf_ratio: f64,
@@ -69,11 +101,36 @@ impl Room {
         };
         match self {
             Room::Outdoors => None,
-            Room::Garage => Some(shape(3.5, 6.5, 2.6, 0.08, 0.35, 5000.0)),
-            Room::DynoCell => Some(shape(5.0, 8.0, 3.5, 0.45, 0.5, 1800.0)),
-            Room::Workshop => Some(shape(12.0, 18.0, 6.0, 0.15, 0.4, 4000.0)),
-            Room::CarPark => Some(shape(32.0, 48.0, 2.8, 0.12, 0.35, 4500.0)),
-            Room::Tunnel => Some(shape(9.0, 400.0, 6.5, 0.1, 0.3, 4500.0)),
+            Room::Garage => Some(shape(3.5, 6.5, 2.6, Absorption::all(0.08), 0.35, 5000.0)),
+            Room::DynoCell => Some(shape(5.0, 8.0, 3.5, Absorption::all(0.45), 0.5, 1800.0)),
+            Room::Workshop => Some(shape(12.0, 18.0, 6.0, Absorption::all(0.15), 0.4, 4000.0)),
+            Room::CarPark => Some(shape(32.0, 48.0, 2.8, Absorption::all(0.12), 0.35, 4500.0)),
+            Room::Tunnel => Some(shape(
+                9.0,
+                400.0,
+                6.5,
+                Absorption { front: OPEN, rear: OPEN, ..Absorption::all(0.1) },
+                0.3,
+                4500.0,
+            )),
+            // Stone and glass facades 14 m apart and 18 m high, along 200 m of asphalt.
+            Room::Street => Some(shape(
+                14.0,
+                200.0,
+                18.0,
+                Absorption { left: 0.06, right: 0.06, front: OPEN, rear: OPEN, ceiling: OPEN, floor: 0.04 },
+                0.45,
+                4000.0,
+            )),
+            // Two lanes and a footway under a 25 m concrete deck, 4.5 m up.
+            Room::Underpass => Some(shape(
+                12.0,
+                25.0,
+                4.5,
+                Absorption { front: OPEN, rear: OPEN, floor: 0.04, ..Absorption::all(0.05) },
+                0.4,
+                4500.0,
+            )),
         }
     }
 }
@@ -87,15 +144,28 @@ impl RoomShape {
         2.0 * (self.width * self.length + self.height * (self.width + self.length))
     }
 
+    /// Each surface's area, m^2, and what it absorbs.
+    fn surfaces(&self) -> [(f64, f64); 6] {
+        let (w, l, h, a) = (self.width, self.length, self.height, &self.absorption);
+        [(l * h, a.left), (l * h, a.right), (w * h, a.front), (w * h, a.rear), (w * l, a.ceiling), (w * l, a.floor)]
+    }
+
+    /// What its surfaces absorb on average, by area: what an open side takes counted with the rest.
+    pub fn mean_absorption(&self) -> f64 {
+        let taken: f64 = self.surfaces().iter().map(|(area, a)| area * math::clamp(*a, 0.0, 1.0)).sum();
+        math::min(taken / self.surface(), MOST_ABSORPTION)
+    }
+
     /// Reverberation time at low frequencies, s: Eyring's, which holds for a dead room as well as a
     /// live one.
     pub fn reverb_time(&self) -> f64 {
-        (0.161 * self.volume()) / (-self.surface() * math::log(1.0 - self.absorption))
+        (0.161 * self.volume()) / (-self.surface() * math::log(1.0 - self.mean_absorption()))
     }
 
     /// The room constant `R = S a / (1 - a)`, m^2.
     pub fn room_constant(&self) -> f64 {
-        (self.surface() * self.absorption) / (1.0 - self.absorption)
+        let a = self.mean_absorption();
+        (self.surface() * a) / (1.0 - a)
     }
 
     /// Pressure in the diffuse field over the pressure the same source makes 1 m away in the open:
@@ -104,11 +174,36 @@ impl RoomShape {
         math::sqrt((16.0 * PI) / self.room_constant())
     }
 
-    /// How much of the pressure arriving at a wall it sends back.
-    pub fn wall_reflection(&self) -> f64 {
-        math::sqrt(1.0 - self.absorption)
+    /// How much of the pressure arriving at each wall and the ceiling they send back: left, right,
+    /// front, rear, ceiling. None from an open side.
+    pub fn wall_reflections(&self) -> [f64; 5] {
+        let a = &self.absorption;
+        [a.left, a.right, a.front, a.rear, a.ceiling].map(|a| math::sqrt(1.0 - math::clamp(a, 0.0, 1.0)))
+    }
+
+    /// How long sound bouncing to and fro along each axis, across, up and along, lasts, as a share of
+    /// one another: the axis's length over the share of its energy, in nepers, the two surfaces across
+    /// it take each time it reaches them. Sound along an axis that is long, or whose ends give it back,
+    /// lasts. Where the ends are open, what goes along the axis is gone once it has gone, on average,
+    /// half its length, as far as two nepers taken at each end would take it.
+    fn axis_lasting(&self) -> [f64; 3] {
+        let a = &self.absorption;
+        let lasting = |length: f64, ends: f64| {
+            length / math::min(-math::log(1.0 - math::min(ends, MOST_ABSORPTION)), OPEN_NEPERS)
+        };
+        [
+            lasting(self.width, (a.left + a.right) / 2.0),
+            lasting(self.height, (a.ceiling + a.floor) / 2.0),
+            lasting(self.length, (a.front + a.rear) / 2.0),
+        ]
     }
 }
+
+/// The most a surface, or the room on average, is taken to absorb: an open side, all but nothing back.
+const MOST_ABSORPTION: f64 = 0.999;
+
+/// What an open pair of ends takes of the sound going between them, nepers per length of the axis.
+const OPEN_NEPERS: f64 = 2.0;
 
 const LINES: usize = 8;
 
@@ -367,9 +462,11 @@ impl Reverb {
 
 /// The way each line arrives from, unit vectors in the room's frame: eight spread evenly over the
 /// sphere on a golden-angle spiral, so no two lie alike either side of the head, each drawn out by the
-/// square root of the room's size that way.
+/// square root of how long sound lasts along each axis. In a tunnel that is along the bore; in a street,
+/// across it, between the facades, as what goes along it runs out of the ends and what goes up, out to
+/// the sky.
 fn ways(shape: &RoomShape) -> [Vec3; LINES] {
-    let stretch = [math::sqrt(shape.width), math::sqrt(shape.height), math::sqrt(shape.length)];
+    let stretch = shape.axis_lasting().map(math::sqrt);
     let golden = PI * (3.0 - math::sqrt(5.0));
     std::array::from_fn(|i| {
         let y = 1.0 - (2.0 * i as f64 + 1.0) / LINES as f64;
