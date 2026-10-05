@@ -16,6 +16,7 @@ import {
   defaultConfig,
   engineLength,
   exhaustPortDiameter,
+  firingPlan,
   physicalBank,
   presetEngine,
   type EngineConfig,
@@ -977,21 +978,22 @@ viewer.onFrame((dt) => {
   inletMesh.flow(audio.running ? dt * timeScale : 0);
   if (displayRpm > 0) displayAngle = (displayAngle + displayRpm * 6 * dt * timeScale) % 720;
   // Combustion glow: a short flash after the burn begins.
+  // Each cylinder trails the first by its firing offset, as the simulation phases it. Taken from the spec
+  // rather than the last snapshot, which goes stale while the engine is stopped, so a change of layout or
+  // bank angle poses the pistons on the crank as it is now drawn.
+  const { offsets } = firingPlan(config.engine);
+  const posed = offsets.map((offset) => ({
+    crankAngle: (((displayAngle - (offset - offsets[0]!)) % 720) + 720) % 720,
+  }));
   if (latest) {
-    // Extrapolate each bank from its own snapshot angle, keeping the phase relationship.
-    const posed = latest.banks.map((b) => ({
-      ...b,
-      crankAngle:
-        (displayAngle + (b.crankAngle - latest!.banks[0]!.crankAngle) + 1440) % 720,
-    }));
     engineMesh.intakeCamAdvance = latest.intakeCamAdvance;
     engineMesh.exhaustCamRetard = latest.exhaustCamRetard;
     engineMesh.highCam = latest.highCam;
-    engineMesh.update(
-      posed,
-      posed.map((b) => (engineOn ? glow(b.crankAngle, config.engine.ignition) : 0)),
-    );
   }
+  engineMesh.update(
+    posed,
+    posed.map((b) => (engineOn ? glow(b.crankAngle, config.engine.ignition) : 0)),
+  );
   scope.draw();
   launchSheet.draw();
 });
