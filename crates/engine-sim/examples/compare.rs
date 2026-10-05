@@ -314,7 +314,7 @@ fn pull(cfg: &EngineConfig, launch: &LaunchConfig, settle: f64, from: f64, to: f
         // The crank's own speed averaged over the block: the readout is smoothed, and lags a sweep.
         let mut rpm = 0.0;
         for b in buf.iter_mut() {
-            *b = sim.tick();
+            *b = sim.tick()[0];
             rpm += sim.rpm_instant();
         }
         let Some(state) = sim.snapshot().launch else { break };

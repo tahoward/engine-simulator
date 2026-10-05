@@ -141,7 +141,8 @@ fn run_health(
     let mut finite = true;
     let mut peak = 0.0f64;
     for _ in 0..(FS * seconds) as usize {
-        let y = sim.tick();
+        // Out of stereo, both channels are the one ear.
+        let [y, _] = sim.tick();
         if !y.is_finite() {
             finite = false;
         } else if y.abs() > peak {

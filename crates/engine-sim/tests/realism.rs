@@ -85,14 +85,15 @@ struct Geom {
 fn listener_at(geom: Geom) -> Listener {
     let mut l = Listener::new(FS);
     let ear = [geom.distance, geom.mic_height, 0.0];
-    l.set_geometry(ear, &[[0.0, geom.source_height, 0.0]], 0.0, geom.reflection, None, true);
+    l.set_geometry(ear, None, &[[0.0, geom.source_height, 0.0]], 0.0, geom.reflection, None, true);
     l
 }
 
 /// The impulse response of a listener at `geom`, `n` samples long.
 fn impulse_response(geom: Geom, n: usize) -> Vec<f32> {
     let mut l = listener_at(geom);
-    (0..n).map(|i| l.process(0, if i == 0 { 1.0 } else { 0.0 }) as f32).collect()
+    // One ear, heard alike in both channels.
+    (0..n).map(|i| l.process(0, if i == 0 { 1.0 } else { 0.0 })[0] as f32).collect()
 }
 
 // --- no two cycles are alike ---
@@ -257,7 +258,7 @@ fn a_hard_surface_reflects_more_than_a_soft_one() {
         let mut l = listener_at(Geom { distance: 2.0, mic_height: 1.2, source_height: 0.35, reflection });
         let mut e = 0.0;
         for i in 0..4096 {
-            let y = l.process(0, if i == 0 { 1.0 } else { 0.0 });
+            let [y, _] = l.process(0, if i == 0 { 1.0 } else { 0.0 });
             e += y * y;
         }
         e
