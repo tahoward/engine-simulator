@@ -21,13 +21,15 @@ interface Exports {
   sim_set_engine(h: number, ptr: number, len: number): number;
   sim_set_graph(h: number, ptr: number, len: number): number;
   sim_set_sources(h: number, ptr: number, len: number): number;
-  sim_set_listener(h: number, x: number, y: number, z: number): void;
+  sim_set_listener(h: number, x: number, y: number, z: number, rx: number, ry: number, rz: number): void;
+  sim_set_stereo(h: number, on: number): void;
   sim_start_launch(h: number, ptr: number, len: number): number;
   sim_stop_launch(h: number): void;
   sim_set_controls(h: number, throttle: number, load: number): void;
   sim_set_time_scale(h: number, scale: number): void;
   sim_set_ignition(h: number, on: number): void;
   sim_render(h: number, n: number): number;
+  sim_render_stereo(h: number, n: number): number;
   sim_snapshot(h: number): number;
   sim_snapshot_len(h: number): number;
   sim_error(h: number): number;
@@ -183,10 +185,19 @@ export class Sim {
     this.check(this.ex.sim_set_sources(this.handle, ptr, len), 'setSources');
   }
 
-  /** Put the listener's ear at `position`, m; `null` where it stands by default. Passes numbers, not JSON. */
-  setListener(position: [number, number, number] | null): void {
+  /**
+   * Put the listener at `position`, m, with its right the way `right` is; `null` where it stands, or
+   * the way it faces, by default. Passes numbers, not JSON.
+   */
+  setListener(position: [number, number, number] | null, right: [number, number, number] | null = null): void {
     const [x, y, z] = position ?? [NaN, NaN, NaN];
-    this.ex.sim_set_listener(this.handle, x, y, z);
+    const [rx, ry, rz] = right ?? [NaN, NaN, NaN];
+    this.ex.sim_set_listener(this.handle, x, y, z, rx, ry, rz);
+  }
+
+  /** Hear the engine with two ears, a head apart, or with one. */
+  setStereo(on: boolean): void {
+    this.ex.sim_set_stereo(this.handle, on ? 1 : 0);
   }
 
   startLaunch(config: LaunchConfig): void {
@@ -221,6 +232,19 @@ export class Sim {
     const heap = this.heapF32;
     const base = ptr >>> 2;
     for (let i = 0; i < n; i++) out[i] = heap[base + i]!;
+  }
+
+  /** Render `left.length` samples into `left` and `right`, the two ears. Allocates nothing unless the module's memory grew. */
+  renderStereoInto(left: Float32Array, right: Float32Array): void {
+    const n = left.length;
+    const ptr = this.ex.sim_render_stereo(this.handle, n);
+    if (this.heapF32.buffer !== this.ex.memory.buffer) this.heapF32 = new Float32Array(this.ex.memory.buffer);
+    const heap = this.heapF32;
+    const base = ptr >>> 2;
+    for (let i = 0; i < n; i++) {
+      left[i] = heap[base + i]!;
+      right[i] = heap[base + n + i]!;
+    }
   }
 
   /** Render `n` samples into a new array. */

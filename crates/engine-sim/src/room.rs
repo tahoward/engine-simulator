@@ -6,10 +6,16 @@
 //! (Jot's design, with a one-pole in each line taking the highs away faster than the lows). It is fed
 //! every source referred to 1 m, and gives the diffuse field's level the room's absorption sets,
 //! `p^2 = 16 pi p1^2 / R`, wherever the ear stands in it.
+//!
+//! In stereo each ear hears its own mix of the lines, the two orthogonal, so above a few hundred hertz
+//! the ears hear the diffuse field as unalike as two points a head apart in a real room do. Below, they
+//! hear it alike, as there: the wavelengths are too long for the head to tell them apart.
 
 use serde::{Deserialize, Serialize};
 
-use crate::dsp::Delay;
+use std::f64::consts::FRAC_1_SQRT_2;
+
+use crate::dsp::{Delay, OnePole};
 use crate::math::{self, PI};
 
 /// Where the engine is listened to.
@@ -110,6 +116,10 @@ const MEAN_FREE_PATH: f64 = 5.0;
 /// Most and least the lines are scaled by with the room's mean free path.
 const SCALE_RANGE: (f64, f64) = (0.6, 1.4);
 
+/// Below this the ears hear the diffuse field alike, Hz: about where two points a head apart in it
+/// stop moving together.
+const EARS_ALIKE_HZ: f64 = 500.0;
+
 /// How long the old room's tail takes to fade out when the room changes, s.
 const FADE_S: f64 = 0.03;
 
@@ -136,6 +146,9 @@ pub struct Reverb {
     fade_step: f64,
     /// Samples left until the tail is inaudible after the input stops; 0 when silent.
     ringing: usize,
+    /// The lows of what both ears hear, and of what tells them apart, for stereo.
+    mid_low: OnePole,
+    side_low: OnePole,
 }
 
 impl Reverb {
@@ -151,6 +164,8 @@ impl Reverb {
             fade: 1.0,
             fade_step: 1.0 / (FADE_S * sample_rate),
             ringing: 0,
+            mid_low: crossover(sample_rate),
+            side_low: crossover(sample_rate),
         }
     }
 
@@ -219,18 +234,35 @@ impl Reverb {
 
     /// The diffuse field at the ear from `source`, every source summed, each referred to 1 m, Pa.
     pub fn process(&mut self, source: f64) -> f64 {
-        let Some(t) = self.tuning else { return 0.0 };
+        self.step(source).0
+    }
+
+    /// `process`, at the left ear and the right.
+    pub fn process_stereo(&mut self, source: f64) -> [f64; 2] {
+        let (mid, side) = self.step(source);
+        let low = self.mid_low.process(mid);
+        let side = side - self.side_low.process(side);
+        let high = mid - low;
+        [low + (high + side) * FRAC_1_SQRT_2, low + (high - side) * FRAC_1_SQRT_2]
+    }
+
+    /// One sample: what both ears hear alike, and what one hears and the other does not.
+    fn step(&mut self, source: f64) -> (f64, f64) {
+        let Some(t) = self.tuning else { return (0.0, 0.0) };
         let mut y = [0.0; LINES];
         for i in 0..LINES {
             let x = self.lines[i].tap(t.lengths[i] as f64 - 1.0);
             self.damp[i] = t.gain[i] * (1.0 - t.pole[i]) * x + t.pole[i] * self.damp[i];
             y[i] = self.damp[i];
         }
-        let mut out = 0.0;
+        // Two orthogonal rows of the Hadamard matrix.
+        let (mut out, mut side) = (0.0, 0.0);
         for (i, &v) in y.iter().enumerate() {
             out += if i % 2 == 0 { v } else { -v };
+            side += if i % 4 < 2 { v } else { -v };
         }
         out *= self.fade / math::sqrt(LINES as f64);
+        side *= self.fade / math::sqrt(LINES as f64);
         hadamard(&mut y);
         let feed = (t.input * source) / math::sqrt(LINES as f64);
         for i in 0..LINES {
@@ -256,8 +288,14 @@ impl Reverb {
                 self.fade = 1.0;
             }
         }
-        out
+        (out, side)
     }
+}
+
+fn crossover(sample_rate: f64) -> OnePole {
+    let mut lp = OnePole::default();
+    lp.set_cutoff(EARS_ALIKE_HZ, sample_rate);
+    lp
 }
 
 /// In-place fast Walsh-Hadamard transform, scaled to keep the energy.

@@ -36,10 +36,11 @@ export interface EngineHost {
   /** Where the engine makes its sound, as drawn. Safe to call before the audio has started. */
   setSources(sources: SoundSources): void;
   /**
-   * Put the listener's ear at `position`, m, in the scene's frame; `null` puts it where it stands by
+   * Put the listener at `position`, m, in the scene's frame, with its right the way `right` is, which
+   * sets which ear hears what; `null` puts it where it stands, or faces it the way it faces, by
    * default. Cheap enough to call every frame the camera moves. Safe to call before the audio has started.
    */
-  setListener(position: [number, number, number] | null): void;
+  setListener(position: [number, number, number] | null, right?: [number, number, number] | null): void;
   /** Start a launch through `config`, or with `null` end the one in progress. */
   launch(config: LaunchConfig | null): void;
   /**

@@ -303,6 +303,10 @@ pub struct EngineSim {
     reverb: Reverb,
     sources: SoundSources,
     ear: Option<Vec3>,
+    /// The way the listener's right is, m, in the sources' frame.
+    right: Option<Vec3>,
+    /// Two ears, a head apart, or one.
+    stereo: bool,
     /// The air's way in to each throttle, and its snorkel's mouth, on an engine without a turbo.
     inlets: Vec<InletTract>,
     intake_far_fields: [FarField; 2],
@@ -372,8 +376,8 @@ pub struct EngineSim {
     time_scale: f64,
     /// In slow motion, how far the output is from the last simulated sample to the next, 0..1.
     slow_phase: f64,
-    slow_prev: f64,
-    slow_next: f64,
+    slow_prev: [f64; 2],
+    slow_next: [f64; 2],
     /// Threads the exhaust's ducts and the intake runners are stepped across; `None` for this thread
     /// alone.
     pool: Option<Arc<ThreadPool>>,
@@ -387,7 +391,7 @@ pub struct EngineSim {
     /// shell, and the turbo's.
     close_groups: Vec<Vec<CloseItem>>,
     bank_out: Vec<CachePadded<BankOut>>,
-    mouth_out: Vec<CachePadded<f64>>,
+    mouth_out: Vec<CachePadded<[f64; 2]>>,
     shell_out: Vec<CachePadded<f64>>,
     turbo_out: CachePadded<Option<TurboOut>>,
     /// What the plenum's step left this sample, and the sample it was left for, by `close_stamp`.
@@ -625,6 +629,8 @@ impl EngineSim {
             reverb: Reverb::new(sample_rate),
             sources: config.sources.clone().unwrap_or_default(),
             ear: config.listener,
+            right: None,
+            stereo: false,
             inlets: Vec::new(),
             intake_far_fields: [FarField::new(sample_rate, 0.0), FarField::new(sample_rate, 0.0)],
             breathing: Vec::new(),
@@ -678,8 +684,8 @@ impl EngineSim {
             budget_scale: 1.0,
             time_scale: 1.0,
             slow_phase: 0.0,
-            slow_prev: 0.0,
-            slow_next: 0.0,
+            slow_prev: [0.0; 2],
+            slow_next: [0.0; 2],
             pool: None,
             max_threads: usize::MAX,
             runner_cells: Vec::new(),
@@ -1224,8 +1230,25 @@ impl EngineSim {
     /// `DEFAULT_EAR_DISTANCE` from the middle of the mouths, at 45 degrees off the car's rear axis and
     /// `DEFAULT_EAR_HEIGHT` above the ground. The paths glide to it.
     pub fn set_listener(&mut self, ear: Option<Vec3>) {
+        self.set_listener_facing(ear, None);
+    }
+
+    /// `set_listener`, with the listener's right the way `right` is, in the same frame, which in stereo
+    /// sets which ear is which. With `None`, or where there is no ear given, they face the middle of the
+    /// mouths.
+    pub fn set_listener_facing(&mut self, ear: Option<Vec3>, right: Option<Vec3>) {
         self.ear = ear;
+        self.right = right;
         self.refresh_paths(false);
+    }
+
+    /// Hear the engine with two ears, a head apart, or with one. With one, both channels of
+    /// `render_stereo_into` are alike.
+    pub fn set_stereo(&mut self, on: bool) {
+        if on != self.stereo {
+            self.stereo = on;
+            self.refresh_paths(false);
+        }
     }
 
     /// Every source's path to the ear, from where the sources are and where the ear is. The ground is
@@ -1286,7 +1309,16 @@ impl EngineSim {
             Some(w) => w.inside(ear, ground, EAR_MARGIN),
             None => ear,
         };
-        self.listener.set_geometry(ear, &places, ground, self.spec.spec.ground_reflection, walls.as_ref(), snap);
+        // Facing the middle of the mouths, where no way is given: right is forward turned a quarter
+        // clockwise, seen from above.
+        let right = self.stereo.then(|| {
+            self.right.filter(|_| self.ear.is_some()).unwrap_or_else(|| {
+                let (fx, fz) = (middle[0] - ear[0], middle[2] - ear[2]);
+                [-fz, 0.0, fx]
+            })
+        });
+        let reflection = self.spec.spec.ground_reflection;
+        self.listener.set_geometry(ear, right, &places, ground, reflection, walls.as_ref(), snap);
         self.reverb.set_room(room);
 
         self.refresh_intake_far_field();
@@ -1373,8 +1405,9 @@ impl EngineSim {
     // Simulation
     // -------------------------------------------------------------------------
 
-    /// Advance one audio sample. Returns the listener signal, nominally in [-1, 1].
-    pub fn tick(&mut self) -> f64 {
+    /// Advance one audio sample. Returns the listener signal at the left ear and the right, nominally
+    /// in [-1, 1]: alike, out of stereo.
+    pub fn tick(&mut self) -> [f64; 2] {
         let dt = 1.0 / self.sample_rate;
 
         // --- Crank speed ---
@@ -1627,52 +1660,69 @@ impl EngineSim {
         self.torque_last = torque_sum;
 
         // --- Radiate ---
-        let mut pa = 0.0;
+        let mut pa = [0.0; 2];
+        let add = |pa: &mut [f64; 2], heard: [f64; 2]| {
+            pa[0] += heard[0];
+            pa[1] += heard[1];
+        };
         for out in &self.mouth_out {
-            pa += out.0;
+            add(&mut pa, out.0);
         }
         let mut shells_pa = 0.0;
         for out in &self.shell_out {
             shells_pa += out.0;
         }
-        pa += self.listener.process(self.path_of(Source::Shells), shells_pa);
+        add(&mut pa, self.listener.process(self.path_of(Source::Shells), shells_pa));
         // The throttle's mouth breathes in what the engine draws. A turbocharged engine draws through its
         // compressors instead, whose inlets the turbo radiates itself.
         if self.turbo.is_none() {
             if self.inlets.is_empty() {
                 let intake_pa = self.intake_far_fields[0].process(-throttle_flow / density(gas::P_AMB, gas::T_AMB));
-                pa += self.listener.process(self.path_of(Source::Intake), intake_pa);
+                add(&mut pa, self.listener.process(self.path_of(Source::Intake), intake_pa));
             }
             for (k, inlet) in self.inlets.iter().enumerate() {
                 let intake_pa = self.intake_far_fields[k].process(inlet.mouth_flow);
                 let source = if k == 0 { Source::Intake } else { Source::SecondIntake };
-                pa += self.listener.process(self.path_of(source), intake_pa);
+                add(&mut pa, self.listener.process(self.path_of(source), intake_pa));
             }
         }
-        pa += self.listener.process(self.path_of(Source::Casing), direct_pa);
+        add(&mut pa, self.listener.process(self.path_of(Source::Casing), direct_pa));
         if self.turbo.is_some() {
-            pa += self.listener.process(self.path_of(Source::Turbo), turbo_pa);
+            add(&mut pa, self.listener.process(self.path_of(Source::Turbo), turbo_pa));
         }
 
         let sources = self.listener.take_sources();
         if self.reverb.active() {
-            pa += self.reverb.process(sources);
+            if self.listener.ears() == 2 {
+                add(&mut pa, self.reverb.process_stereo(sources));
+            } else {
+                let diffuse = self.reverb.process(sources);
+                add(&mut pa, [diffuse, diffuse]);
+            }
         }
 
         if self.rebuild_ramp < 1.0 {
             self.rebuild_ramp = math::min(1.0, self.rebuild_ramp + self.rebuild_ramp_step);
-            pa *= self.rebuild_ramp;
+            pa[0] *= self.rebuild_ramp;
+            pa[1] *= self.rebuild_ramp;
         }
 
-        let mut out = (pa / PA_PER_FULLSCALE) * self.spec.spec.output_gain;
-        if !out.is_finite() {
-            out = 0.0;
+        let channels = if self.listener.ears() == 2 { 2 } else { 1 };
+        let mut out = [0.0; 2];
+        for ch in 0..channels {
+            let mut o = (pa[ch] / PA_PER_FULLSCALE) * self.spec.spec.output_gain;
+            if !o.is_finite() {
+                o = 0.0;
+            }
+            o = soft_clip(o);
+            let mag = o.abs();
+            if mag > self.peak {
+                self.peak = mag;
+            }
+            out[ch] = o;
         }
-        out = soft_clip(out);
-
-        let mag = out.abs();
-        if mag > self.peak {
-            self.peak = mag;
+        if channels == 1 {
+            out[1] = out[0];
         }
         out
     }
@@ -1803,30 +1853,44 @@ impl EngineSim {
         snap
     }
 
-    /// Render `out.len()` samples into `out`.
+    /// Render `out.len()` samples into `out`: in stereo, the two ears mixed.
     ///
     /// In slow motion the simulation takes `time_scale` steps per output sample, and the output
     /// is interpolated between them: the sound of a tape played slow, pitched down by as much.
     pub fn render_into(&mut self, out: &mut [f32]) {
-        if self.time_scale >= 1.0 {
-            for o in out.iter_mut() {
-                *o = self.tick() as f32;
-            }
-            // Where slow motion picks up from, without a step.
-            if let Some(&last) = out.last() {
-                self.slow_next = last as f64;
-            }
-            return;
-        }
+        let stereo = self.listener.ears() == 2;
         for o in out.iter_mut() {
-            self.slow_phase += self.time_scale;
-            while self.slow_phase >= 1.0 {
-                self.slow_phase -= 1.0;
-                self.slow_prev = self.slow_next;
-                self.slow_next = self.tick();
-            }
-            *o = (self.slow_prev + (self.slow_next - self.slow_prev) * self.slow_phase) as f32;
+            let [l, r] = self.next_frame();
+            *o = if stereo { ((l + r) * 0.5) as f32 } else { l as f32 };
         }
+    }
+
+    /// Render `left.len()` samples into `left` and `right`, the two ears: alike, out of stereo.
+    pub fn render_stereo_into(&mut self, left: &mut [f32], right: &mut [f32]) {
+        for (l, r) in left.iter_mut().zip(right.iter_mut()) {
+            let frame = self.next_frame();
+            *l = frame[0] as f32;
+            *r = frame[1] as f32;
+        }
+    }
+
+    /// The next output sample, a step of the simulation or, in slow motion, between two.
+    #[inline]
+    fn next_frame(&mut self) -> [f64; 2] {
+        if self.time_scale >= 1.0 {
+            let frame = self.tick();
+            // Where slow motion picks up from, without a step, as it is played.
+            self.slow_next = [frame[0] as f32 as f64, frame[1] as f32 as f64];
+            return frame;
+        }
+        self.slow_phase += self.time_scale;
+        while self.slow_phase >= 1.0 {
+            self.slow_phase -= 1.0;
+            self.slow_prev = self.slow_next;
+            self.slow_next = self.tick();
+        }
+        let (a, b, t) = (self.slow_prev, self.slow_next, self.slow_phase);
+        [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
     }
 
     /// The rest of a sample once its gas dynamics are done, in parts that each read only their own

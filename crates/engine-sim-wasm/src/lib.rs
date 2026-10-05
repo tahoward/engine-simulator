@@ -111,14 +111,25 @@ pub unsafe extern "C" fn sim_set_sources(h: *mut Handle, ptr: *mut u8, len: usiz
     h.result(r)
 }
 
-/// Put the listener's ear at `x`, `y`, `z`, m; any of them NaN puts it where it stands by default.
+/// Put the listener at `x`, `y`, `z`, m, with its right the way `rx`, `ry`, `rz` is; any of the first
+/// three NaN puts it where it stands by default, and any of the last three NaN faces it the default way.
 ///
 /// # Safety
 /// `h` from `sim_new`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn sim_set_listener(h: *mut Handle, x: f64, y: f64, z: f64) {
+pub unsafe extern "C" fn sim_set_listener(h: *mut Handle, x: f64, y: f64, z: f64, rx: f64, ry: f64, rz: f64) {
     let ear = if x.is_nan() || y.is_nan() || z.is_nan() { None } else { Some([x, y, z]) };
-    unsafe { &mut *h }.sim.set_listener(ear);
+    let right = if rx.is_nan() || ry.is_nan() || rz.is_nan() { None } else { Some([rx, ry, rz]) };
+    unsafe { &mut *h }.sim.set_listener_facing(ear, right);
+}
+
+/// Hear the engine with two ears (non-zero) or one.
+///
+/// # Safety
+/// `h` from `sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sim_set_stereo(h: *mut Handle, on: u32) {
+    unsafe { &mut *h }.sim.set_stereo(on != 0);
 }
 
 /// Start a launch from standstill through a `LaunchConfig`'s gearbox.
@@ -180,6 +191,21 @@ pub unsafe extern "C" fn sim_render(h: *mut Handle, n: usize) -> *const f32 {
         h.audio.resize(n, 0.0);
     }
     h.sim.render_into(&mut h.audio[..n]);
+    h.audio.as_ptr()
+}
+
+/// Render `n` samples for each ear; returns where they are, the left ear's `n` then the right's.
+///
+/// # Safety
+/// `h` from `sim_new`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn sim_render_stereo(h: *mut Handle, n: usize) -> *const f32 {
+    let h = unsafe { &mut *h };
+    if h.audio.len() < 2 * n {
+        h.audio.resize(2 * n, 0.0);
+    }
+    let (left, right) = h.audio[..2 * n].split_at_mut(n);
+    h.sim.render_stereo_into(left, right);
     h.audio.as_ptr()
 }
 

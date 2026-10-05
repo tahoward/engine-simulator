@@ -19,7 +19,7 @@ export type ToWorklet =
   | { type: 'engine'; engine: Partial<EngineSpec> }
   | { type: 'graph'; graph: ExhaustGraph | null }
   | { type: 'sources'; sources: SoundSources }
-  | { type: 'listener'; position: [number, number, number] | null }
+  | { type: 'listener'; position: [number, number, number] | null; right: [number, number, number] | null }
   | { type: 'snapshotRate'; hz: number }
   | { type: 'timeScale'; scale: number }
   | { type: 'ignition'; on: boolean }
@@ -39,6 +39,8 @@ class EngineProcessor extends AudioWorkletProcessor {
   private readonly sim: Sim;
   private snapshotInterval: number;
   private sinceSnapshot = 0;
+  /** Whether the output has two channels to put the two ears in, as it is asked to. */
+  private stereo = false;
 
   constructor(options: AudioWorkletNodeOptions) {
     super();
@@ -68,7 +70,7 @@ class EngineProcessor extends AudioWorkletProcessor {
             this.sim.setSources(msg.sources);
             break;
           case 'listener':
-            this.sim.setListener(msg.position);
+            this.sim.setListener(msg.position, msg.right);
             break;
           case 'launch':
             // `null` ends the run in progress.
@@ -105,7 +107,7 @@ class EngineProcessor extends AudioWorkletProcessor {
   ): boolean {
     const out = outputs[0];
     if (!out || out.length === 0) return true;
-    const mono = out[0]!;
+    const left = out[0]!;
 
     // k-rate, so one value per block. The simulation returns at once when nothing moved.
     this.sim.setControls(parameters.throttle![0]!, parameters.load![0]!);
@@ -113,12 +115,15 @@ class EngineProcessor extends AudioWorkletProcessor {
     // No timing here. `performance` is not exposed in AudioWorkletGlobalScope, and `currentTime` only
     // advances once per block, so the audio thread cannot measure its own cost. The snapshot reports
     // the solver's cell and substep counts instead, which is what cost is proportional to.
-    this.sim.renderInto(mono);
+    const stereo = out.length >= 2;
+    if (stereo !== this.stereo) {
+      this.stereo = stereo;
+      this.sim.setStereo(stereo);
+    }
+    if (stereo) this.sim.renderStereoInto(left, out[1]!);
+    else this.sim.renderInto(left);
 
-    // Mirror to any further channels rather than running a second simulation.
-    for (let ch = 1; ch < out.length; ch++) out[ch]!.set(mono);
-
-    this.sinceSnapshot += mono.length;
+    this.sinceSnapshot += left.length;
     if (this.sinceSnapshot >= this.snapshotInterval) {
       this.sinceSnapshot = 0;
       const snapshot = this.sim.snapshot();

@@ -6,10 +6,13 @@
 //!   render thread                 device callback              frame thread
 //!   ─────────────────             ───────────────              ────────────
 //!   owns EngineSim                drains the ring,             sends snapshots and
-//!   renders blocks ahead ──ring──▸ copies to every channel     lag reports to the UI
+//!   renders blocks ahead ──ring──▸ copies the ears out         lag reports to the UI
 //!   into a ring buffer            counts underruns
 //!   takes snapshots ─────────────────────────────────────────▸
 //! ```
+//!
+//! The ring holds the two ears' samples in pairs, left first. The device gets the left ear on its first
+//! channel and the right on its second, or the two mixed where it has only one.
 //!
 //! The render thread keeps the ring filled a couple of device buffers ahead, so a slow block, a
 //! rebuild of the exhaust after an edit, or the operating system briefly scheduling something else,
@@ -40,6 +43,8 @@ use crate::tuner::ThreadTuner;
 
 /// Samples the render thread produces at a time.
 const BLOCK: usize = 128;
+/// Samples in the ring for each frame: the left ear's and the right's.
+const EARS: usize = 2;
 /// Output samples kept for the scope's waveform and spectrum: the web app's analyser size.
 const WAVEFORM: usize = 2048;
 /// How long a window the load is judged over, and the share of real time a window may take before
@@ -71,9 +76,12 @@ pub enum Command {
     Sources {
         sources: SoundSources,
     },
-    /// Where the listener's ear is, m; `None` where it stands by default.
+    /// Where the listener is, m, and the way its right is; `None` where it stands, or the way it faces,
+    /// by default.
     Listener {
         position: Option<[f64; 3]>,
+        #[serde(default)]
+        right: Option<[f64; 3]>,
     },
     SnapshotRate {
         hz: f64,
@@ -279,19 +287,29 @@ fn open_stream(
     // Two device buffers and a block ahead, or 10 ms where the device does not say.
     let device_frames = buffer.unwrap_or((rate as f64 * 0.005) as u32).max(BLOCK as u32);
     let lead = 2 * device_frames + BLOCK as u32;
-    let (producer, mut consumer) = rtrb::RingBuffer::<f32>::new((lead as usize).next_power_of_two() * 2);
+    let (producer, mut consumer) = rtrb::RingBuffer::<f32>::new((lead as usize).next_power_of_two() * 2 * EARS);
 
     let stream = device
         .build_output_stream::<f32, _, _>(
             config,
             move |data: &mut [f32], _| {
                 let frames = data.len() / channels;
-                let available = consumer.slots();
+                let available = consumer.slots() / EARS;
                 let take = frames.min(available);
-                if let Ok(chunk) = consumer.read_chunk(take) {
+                if let Ok(chunk) = consumer.read_chunk(take * EARS) {
                     let (a, b) = chunk.as_slices();
-                    for (frame, &s) in data.chunks_mut(channels).zip(a.iter().chain(b)) {
-                        frame.fill(s);
+                    let mut ears = a.iter().chain(b);
+                    for frame in data.chunks_mut(channels).take(take) {
+                        let (l, r) = (*ears.next().unwrap_or(&0.0), *ears.next().unwrap_or(&0.0));
+                        match frame {
+                            [only] => *only = 0.5 * (l + r),
+                            [first, second, rest @ ..] => {
+                                *first = l;
+                                *second = r;
+                                rest.fill(0.0);
+                            }
+                            [] => {}
+                        }
                     }
                     chunk.commit_all();
                 }
@@ -324,6 +342,7 @@ fn render_loop(
     let _priority = audio_thread_priority::promote_current_thread_to_real_time(BLOCK as u32, info.sample_rate).ok();
 
     let mut sim = EngineSim::new(fs, &config);
+    sim.set_stereo(true);
     // Two cores left for the device callback and the interface.
     let cores = thread::available_parallelism().map_or(1, |n| n.get());
     let max_threads = cores.saturating_sub(2).clamp(1, MAX_THREADS);
@@ -335,7 +354,8 @@ fn render_loop(
     tuner.retune(sim.useful_threads());
     sim.set_max_threads(tuner.threads());
     let mut time_scale = 1.0;
-    let mut block = vec![0.0f32; BLOCK];
+    let mut left = vec![0.0f32; BLOCK];
+    let mut right = vec![0.0f32; BLOCK];
     let mut waveform = vec![0.0f32; WAVEFORM];
     let mut wave_at = 0;
     let mut snapshot_interval = (fs / 60.0).round() as usize;
@@ -372,14 +392,14 @@ fn render_loop(
             window_underruns = underruns.load(Ordering::Relaxed);
             continue;
         }
-        let buffered = producer.buffer().capacity() - producer.slots();
-        if buffered >= lead || producer.slots() < BLOCK {
+        let buffered = (producer.buffer().capacity() - producer.slots()) / EARS;
+        if buffered >= lead || producer.slots() < BLOCK * EARS {
             thread::park_timeout(Duration::from_millis(2));
             continue;
         }
 
         let t0 = Instant::now();
-        sim.render_into(&mut block);
+        sim.render_stereo_into(&mut left, &mut right);
         let took = t0.elapsed();
         window_busy += took;
         // In slow motion a block holds few steps, too few to tell the counts apart by.
@@ -389,15 +409,17 @@ fn render_loop(
             sim.set_max_threads(threads);
         }
         window_samples += BLOCK;
-        if let Ok(mut chunk) = producer.write_chunk_uninit(BLOCK) {
+        if let Ok(mut chunk) = producer.write_chunk_uninit(BLOCK * EARS) {
             let (a, b) = chunk.as_mut_slices();
-            for (dst, &s) in a.iter_mut().chain(b.iter_mut()).zip(&block) {
+            let pairs = left.iter().zip(&right).flat_map(|(&l, &r)| [l, r]);
+            for (dst, s) in a.iter_mut().chain(b.iter_mut()).zip(pairs) {
                 dst.write(s);
             }
             unsafe { chunk.commit_all() };
         }
-        for &s in &block {
-            waveform[wave_at] = s;
+        // The scope shows the two ears mixed, as the web app's analyser does.
+        for (&l, &r) in left.iter().zip(&right) {
+            waveform[wave_at] = 0.5 * (l + r);
             wave_at = (wave_at + 1) % WAVEFORM;
         }
 
@@ -458,7 +480,7 @@ fn apply(
             return true;
         }
         Command::Sources { sources } => sim.set_sources(sources),
-        Command::Listener { position } => sim.set_listener(position),
+        Command::Listener { position, right } => sim.set_listener_facing(position, right),
         Command::Launch { config } => match config {
             Some(c) => sim.start_launch(c),
             None => sim.stop_launch(),
@@ -532,7 +554,7 @@ mod tests {
         let presets: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
         let config: EngineConfig = serde_json::from_value(presets["defaultConfig"].clone()).unwrap();
         let info = StreamInfo { sample_rate: 48000, buffer_frames: Some(256), lead_frames: 2 * 256 + BLOCK as u32 };
-        let (producer, mut consumer) = rtrb::RingBuffer::<f32>::new(2048);
+        let (producer, mut consumer) = rtrb::RingBuffer::<f32>::new(2048 * EARS);
         let (commands, command_rx) = mpsc::channel();
         let (frames_tx, frames) = mpsc::channel();
         let stop = Arc::new(AtomicBool::new(false));
@@ -546,11 +568,11 @@ mod tests {
         // A device taking 256 frames every 5.3 ms, for half a second of audio.
         let mut heard = Vec::new();
         let mut short = 0;
-        while heard.len() < 24000 {
+        while heard.len() < 24000 * EARS {
             thread::sleep(Duration::from_micros(5333));
             render.thread().unpark();
-            let n = consumer.slots().min(256);
-            if n < 256 {
+            let n = consumer.slots().min(256 * EARS);
+            if n < 256 * EARS {
                 short += 1;
             }
             let chunk = consumer.read_chunk(n).unwrap();
@@ -592,6 +614,9 @@ mod tests {
                 .unwrap();
         assert!(matches!(c, Command::Sources { sources } if sources.mouths.len() == 1));
         let c: Command = serde_json::from_str(r#"{"type":"listener","position":[1,1.2,2]}"#).unwrap();
-        assert!(matches!(c, Command::Listener { position: Some(p) } if p == [1.0, 1.2, 2.0]));
+        assert!(matches!(c, Command::Listener { position: Some(p), right: None } if p == [1.0, 1.2, 2.0]));
+        let c: Command =
+            serde_json::from_str(r#"{"type":"listener","position":null,"right":[0,0,-1]}"#).unwrap();
+        assert!(matches!(c, Command::Listener { position: None, right: Some(r) } if r == [0.0, 0.0, -1.0]));
     }
 }

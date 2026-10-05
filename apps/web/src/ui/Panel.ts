@@ -1839,7 +1839,7 @@ export class Panel {
     });
 
     // ---- Listener --------------------------------------------------------
-    const mix = section('Listener', 'listener', 'You hear the engine from where the camera is: move the view to move your ear. Below are the ground under it and the mix of what it hears.');
+    const mix = section('Listener', 'listener', 'You hear the engine from where the camera is, in stereo, with the screen’s left and right as your ears’: move or turn the view to move your head. Headphones give the truest picture. Below are the ground under it and the mix of what it hears.');
     this.slider(mix, {
       label: 'Exhaust height',
       min: 0.05,

@@ -42,6 +42,8 @@ export class AudioEngine implements EngineHost {
   private starting: Promise<void> | null = null;
   private timeScale = 1;
   private ignition = true;
+  /** The way the listener's right is, as last given, for a new simulation to start facing it. */
+  private listenerRight: [number, number, number] | null = null;
 
   /**
    * @param rate Audio sample rate, Hz. The solver takes one step per sample, so this also sets the
@@ -122,7 +124,8 @@ export class AudioEngine implements EngineHost {
     const node = new AudioWorkletNode(ctx, 'engine-processor', {
       numberOfInputs: 0,
       numberOfOutputs: 1,
-      outputChannelCount: [1],
+      // The left ear and the right.
+      outputChannelCount: [2],
       processorOptions: this.startConfig(),
       // Without these the parameters start at their default of 0, and the first block would drop the
       // engine to zero throttle and zero load.
@@ -155,6 +158,7 @@ export class AudioEngine implements EngineHost {
     if (this.timeScale !== 1) this.post({ type: 'timeScale', scale: this.timeScale });
     // A new simulation starts with the ignition on.
     if (!this.ignition) this.post({ type: 'ignition', on: false });
+    if (this.listenerRight) this.post({ type: 'listener', position: this.config.listener ?? null, right: this.listenerRight });
     this.analyser = analyser;
 
     await ctx.resume();
@@ -301,10 +305,11 @@ export class AudioEngine implements EngineHost {
     this.post({ type: 'sources', sources });
   }
 
-  setListener(position: [number, number, number] | null): void {
+  setListener(position: [number, number, number] | null, right: [number, number, number] | null = null): void {
     if (position) this.config.listener = position;
     else delete this.config.listener;
-    this.post({ type: 'listener', position });
+    this.listenerRight = right;
+    this.post({ type: 'listener', position, right });
   }
 
   /** Start a launch through `config`, or with `null` end the one in progress. */

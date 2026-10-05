@@ -4,6 +4,9 @@
 //! heard off its four walls and its ceiling too, duller again: the first reflections, which arrive
 //! before the reverberation (`room`) has built up.
 //!
+//! In stereo there are two ears, a head apart, each with its own paths, so a source off to one side
+//! reaches the nearer ear first and louder; and the head shadows the far ear from it, taking its highs.
+//!
 //! Paths are timed against the shortest of them, so only the differences between them delay anything.
 //! The ear can move, and when it does every path glides to its new length and level over
 //! `GLIDE_S`, as a moving ear hears them, rather than jumping and clicking.
@@ -11,7 +14,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::dsp::{Delay, OnePole};
-use crate::math;
+use crate::math::{self, PI};
 use crate::spec::ambient_sound_speed;
 
 /// A point in the drawn engine's frame, m: x across the crank, y up, z along it, rearwards.
@@ -95,6 +98,15 @@ const WALLS: usize = 5;
 /// Closest the ear may come to a source, m. Nearer, its level would run away as 1/r.
 const MIN_RANGE: f64 = 0.25;
 
+/// An average adult head's radius, m: half the distance between the ears.
+pub const HEAD_RADIUS: f64 = 0.0875;
+
+/// Brown and Duda's head shadow: the least its zero is put at, as a share of its pole, and the angle
+/// from the ear's own side, rad, at which it is, behind which the sound bending round both sides of the
+/// head brightens it again.
+const SHADOW_LEAST: f64 = 0.1;
+const SHADOW_DEEPEST: f64 = 5.0 * PI / 6.0;
+
 /// A value moving towards a target as a one-pole lowpass.
 #[derive(Clone, Copy, Debug, Default)]
 struct Glide {
@@ -110,11 +122,50 @@ impl Glide {
     }
 }
 
-/// One source's way to the ear: the direct sound and the ground's reflection, read off one delay line.
-// On cache lines of its own, as each may be stepped on a thread of its own.
-#[repr(align(128))]
-struct Path {
-    line: Delay,
+/// What the head does to sound arriving at one ear: Brown and Duda's spherical head, a one-pole,
+/// one-zero filter with its pole at `c / (2 a)`. From the ear's own side its zero sits an octave below
+/// its pole, lifting the highs 6 dB as the head's face presses them back; round on the far side it sits
+/// three octaves above, and the head's shadow takes 20 dB off them.
+#[derive(Clone, Copy, Debug)]
+struct HeadShadow {
+    b0: f64,
+    b1: f64,
+    a1: f64,
+    x1: f64,
+    y1: f64,
+}
+
+impl Default for HeadShadow {
+    fn default() -> Self {
+        HeadShadow { b0: 1.0, b1: 0.0, a1: 0.0, x1: 0.0, y1: 0.0 }
+    }
+}
+
+impl HeadShadow {
+    /// For a sound arriving from `angle` off the ear's own side, rad.
+    fn set(&mut self, angle: f64, sample_rate: f64) {
+        let alpha = (1.0 + SHADOW_LEAST / 2.0) + (1.0 - SHADOW_LEAST / 2.0) * math::cos((angle / SHADOW_DEEPEST) * PI);
+        let w = (2.0 * ambient_sound_speed()) / HEAD_RADIUS;
+        let k = 2.0 * sample_rate;
+        // `(w + alpha s) / (w + s)`, through the bilinear transform.
+        self.b0 = (w + alpha * k) / (w + k);
+        self.b1 = (w - alpha * k) / (w + k);
+        self.a1 = (w - k) / (w + k);
+    }
+
+    #[inline]
+    fn process(&mut self, x: f64) -> f64 {
+        let y = self.b0 * x + self.b1 * self.x1 - self.a1 * self.y1;
+        self.x1 = x;
+        self.y1 = y;
+        y
+    }
+}
+
+/// One source's way to one ear: the direct sound, the ground's reflection and the walls', each read off
+/// the source's delay line.
+#[derive(Clone, Copy, Default)]
+struct Ear {
     direct_delay: Glide,
     ground_delay: Glide,
     direct_gain: Glide,
@@ -129,6 +180,17 @@ struct Path {
     air_walls: OnePole,
     /// Whether the walls are heard: from when a room is given until its reflections have faded out.
     walls_on: bool,
+    /// The head's shadow over the direct sound, when there is a head: with two ears.
+    shadow: HeadShadow,
+    shadowed: bool,
+}
+
+/// One source's way to the ears, through one delay line.
+// On cache lines of its own, as each may be stepped on a thread of its own.
+#[repr(align(128))]
+struct Path {
+    line: Delay,
+    ears: [Ear; 2],
     /// What it was given last, until `Listener::take_sources` reads it.
     source: f64,
 }
@@ -137,20 +199,26 @@ pub struct Listener {
     sample_rate: f64,
     paths: Vec<Path>,
     glide_c: f64,
+    /// One ear, heard alike in both channels, or two a head apart.
+    ears: usize,
 }
 
 impl Listener {
     pub fn new(sample_rate: f64) -> Listener {
-        Listener { sample_rate, paths: Vec::new(), glide_c: 1.0 - math::exp(-1.0 / (GLIDE_S * sample_rate)) }
+        Listener { sample_rate, paths: Vec::new(), glide_c: 1.0 - math::exp(-1.0 / (GLIDE_S * sample_rate)), ears: 1 }
     }
 
-    /// Put the ear at `ear` and the sources at `places`, above ground at height `ground` that reflects
-    /// `reflection` of what reaches it, and inside `walls` if there are any. With `snap` the paths take
-    /// their new lengths and levels at once, as they do when there are not yet as many paths as places
-    /// or when a room first needs them longer; otherwise they glide there.
+    /// Put the listener at `ear` and the sources at `places`, above ground at height `ground` that
+    /// reflects `reflection` of what reaches it, and inside `walls` if there are any. With `right`, the
+    /// way the listener's right is, there are two ears, `HEAD_RADIUS` either side of `ear`, each in the
+    /// head's shadow from the other side; without, one, at `ear`. With `snap` the paths take their new
+    /// lengths and levels at once, as they do when there are not yet as many paths as places, when a
+    /// room first needs them longer, or when the ears are counted afresh; otherwise they glide there.
+    #[allow(clippy::too_many_arguments)]
     pub fn set_geometry(
         &mut self,
         ear: Vec3,
+        right: Option<Vec3>,
         places: &[Vec3],
         ground: f64,
         reflection: f64,
@@ -166,85 +234,118 @@ impl Listener {
             };
         let resize = self.paths.len() != places.len()
             || self.paths.first().is_some_and(|p| (p.line.capacity() as f64) < longest);
-        let snap = snap || resize;
         if resize {
             self.paths = places
                 .iter()
-                .map(|_| Path {
-                    line: Delay::new(longest),
-                    direct_delay: Glide::default(),
-                    ground_delay: Glide::default(),
-                    direct_gain: Glide::default(),
-                    ground_gain: Glide::default(),
-                    ground_loss: OnePole::default(),
-                    air_direct: OnePole::default(),
-                    air_ground: OnePole::default(),
-                    wall_delay: [Glide::default(); WALLS],
-                    wall_gain: [Glide::default(); WALLS],
-                    wall_loss: OnePole::default(),
-                    air_walls: OnePole::default(),
-                    walls_on: false,
-                    source: 0.0,
-                })
+                .map(|_| Path { line: Delay::new(longest), ears: [Ear::default(); 2], source: 0.0 })
                 .collect();
         }
+        let right = right.and_then(|r| {
+            let len = math::hypot(&r);
+            (len > 1e-9 && len.is_finite()).then(|| [r[0] / len, r[1] / len, r[2] / len])
+        });
+        // Left first.
+        let heads: Vec<(Vec3, Option<Vec3>)> = match right {
+            Some(r) => [-1.0, 1.0]
+                .iter()
+                .map(|&side| {
+                    let axis = [side * r[0], side * r[1], side * r[2]];
+                    (
+                        [
+                            ear[0] + HEAD_RADIUS * axis[0],
+                            ear[1] + HEAD_RADIUS * axis[1],
+                            ear[2] + HEAD_RADIUS * axis[2],
+                        ],
+                        Some(axis),
+                    )
+                })
+                .collect(),
+            None => vec![(ear, None)],
+        };
+        let snap = snap || resize || heads.len() != self.ears;
+        self.ears = heads.len();
+
         let c = ambient_sound_speed();
-        let ear_height = math::max(ear[1] - ground, 0.02);
-        let ranges: Vec<(f64, f64)> = places
+        let ranges: Vec<Vec<(f64, f64)>> = heads
             .iter()
-            .map(|p| {
-                let height = math::max(p[1] - ground, 0.02);
-                let (dx, dz) = (ear[0] - p[0], ear[2] - p[2]);
-                let direct = math::max(math::hypot(&[dx, ear_height - height, dz]), MIN_RANGE);
-                let bounced = math::max(math::hypot(&[dx, ear_height + height, dz]), direct);
-                (direct, bounced)
+            .map(|(ear, _)| {
+                let ear_height = math::max(ear[1] - ground, 0.02);
+                places
+                    .iter()
+                    .map(|p| {
+                        let height = math::max(p[1] - ground, 0.02);
+                        let (dx, dz) = (ear[0] - p[0], ear[2] - p[2]);
+                        let direct = math::max(math::hypot(&[dx, ear_height - height, dz]), MIN_RANGE);
+                        let bounced = math::max(math::hypot(&[dx, ear_height + height, dz]), direct);
+                        (direct, bounced)
+                    })
+                    .collect()
             })
             .collect();
-        let nearest = ranges.iter().map(|r| r.0).fold(f64::INFINITY, f64::min);
+        // Timed against the nearest path to either ear, so the ears keep the time between them.
+        let nearest = ranges.iter().flatten().map(|r| r.0).fold(f64::INFINITY, f64::min);
         let most = MAX_DIFFERENCE_S * self.sample_rate;
         let most_wall = MAX_ROOM_DIFFERENCE_S * self.sample_rate;
-        for ((path, &(direct, bounced)), place) in self.paths.iter_mut().zip(&ranges).zip(places) {
-            path.direct_delay.target = math::min(((direct - nearest) / c) * self.sample_rate, most);
-            path.ground_delay.target = math::min(((bounced - nearest) / c) * self.sample_rate, most);
-            path.direct_gain.target = 1.0 / direct;
-            path.ground_gain.target = math::max(reflection, 0.0) / bounced;
-            path.ground_loss.set_cutoff(2600.0, self.sample_rate);
-            path.air_direct.set_cutoff(air_cutoff_hz(direct), self.sample_rate);
-            path.air_ground.set_cutoff(air_cutoff_hz(bounced), self.sample_rate);
-            match walls {
-                Some(w) => {
-                    let place = w.inside(*place, ground, 0.0);
-                    let mut mean = 0.0;
-                    for (k, image) in w.images(place).iter().enumerate() {
-                        let range =
-                            math::max(math::hypot(&[ear[0] - image[0], ear[1] - image[1], ear[2] - image[2]]), direct);
-                        let delay = ((range - nearest) / c) * self.sample_rate;
-                        // Beyond what the line holds, a reflection that faint is left out.
-                        let heard = delay <= most_wall;
-                        path.wall_delay[k].target = math::min(delay, most_wall);
-                        path.wall_gain[k].target = if heard { w.reflection / range } else { 0.0 };
-                        mean += range / WALLS as f64;
-                    }
-                    path.wall_loss.set_cutoff(w.corner_hz, self.sample_rate);
-                    path.air_walls.set_cutoff(air_cutoff_hz(mean), self.sample_rate);
-                    path.walls_on = true;
+        let fs = self.sample_rate;
+        for (k, ((ear, axis), ranges)) in heads.iter().zip(&ranges).enumerate() {
+            for ((path, &(direct, bounced)), place) in self.paths.iter_mut().zip(ranges).zip(places) {
+                let e = &mut path.ears[k];
+                e.direct_delay.target = math::min(((direct - nearest) / c) * fs, most);
+                e.ground_delay.target = math::min(((bounced - nearest) / c) * fs, most);
+                e.direct_gain.target = 1.0 / direct;
+                e.ground_gain.target = math::max(reflection, 0.0) / bounced;
+                e.ground_loss.set_cutoff(2600.0, fs);
+                e.air_direct.set_cutoff(air_cutoff_hz(direct), fs);
+                e.air_ground.set_cutoff(air_cutoff_hz(bounced), fs);
+                e.shadowed = axis.is_some();
+                if let Some(axis) = axis {
+                    let to = [place[0] - ear[0], place[1] - ear[1], place[2] - ear[2]];
+                    let len = math::max(math::hypot(&to), 1e-9);
+                    let cos = (to[0] * axis[0] + to[1] * axis[1] + to[2] * axis[2]) / len;
+                    e.shadow.set(math::acos(math::clamp(cos, -1.0, 1.0)), fs);
                 }
-                None => {
-                    for g in path.wall_gain.iter_mut() {
-                        g.target = 0.0;
+                match walls {
+                    Some(w) => {
+                        let place = w.inside(*place, ground, 0.0);
+                        let mut mean = 0.0;
+                        for (n, image) in w.images(place).iter().enumerate() {
+                            let range = math::max(
+                                math::hypot(&[ear[0] - image[0], ear[1] - image[1], ear[2] - image[2]]),
+                                direct,
+                            );
+                            let delay = ((range - nearest) / c) * fs;
+                            // Beyond what the line holds, a reflection that faint is left out.
+                            let heard = delay <= most_wall;
+                            e.wall_delay[n].target = math::min(delay, most_wall);
+                            e.wall_gain[n].target = if heard { w.reflection / range } else { 0.0 };
+                            mean += range / WALLS as f64;
+                        }
+                        e.wall_loss.set_cutoff(w.corner_hz, fs);
+                        e.air_walls.set_cutoff(air_cutoff_hz(mean), fs);
+                        e.walls_on = true;
+                    }
+                    None => {
+                        for g in e.wall_gain.iter_mut() {
+                            g.target = 0.0;
+                        }
                     }
                 }
-            }
-            if snap {
-                for g in [&mut path.direct_delay, &mut path.ground_delay, &mut path.direct_gain, &mut path.ground_gain]
-                    .into_iter()
-                    .chain(path.wall_delay.iter_mut())
-                    .chain(path.wall_gain.iter_mut())
-                {
-                    g.value = g.target;
+                if snap {
+                    for g in [&mut e.direct_delay, &mut e.ground_delay, &mut e.direct_gain, &mut e.ground_gain]
+                        .into_iter()
+                        .chain(e.wall_delay.iter_mut())
+                        .chain(e.wall_gain.iter_mut())
+                    {
+                        g.value = g.target;
+                    }
                 }
             }
         }
+    }
+
+    /// How many ears there are: 1, heard alike in both channels, or 2.
+    pub fn ears(&self) -> usize {
+        self.ears
     }
 
     /// Each path's delay line, samples: long enough for a room's walls or not.
@@ -264,12 +365,13 @@ impl Listener {
         sum
     }
 
-    /// Radiated pressure from source `i`, referred to 1 m, Pa, to its pressure at the ear, Pa.
+    /// Radiated pressure from source `i`, referred to 1 m, Pa, to its pressure at the left ear and the
+    /// right, Pa: alike with one ear.
     #[inline]
-    pub fn process(&mut self, i: usize, source: f64) -> f64 {
+    pub fn process(&mut self, i: usize, source: f64) -> [f64; 2] {
         match self.paths.get_mut(i) {
-            Some(p) => p.process(self.glide_c, source),
-            None => 0.0,
+            Some(p) => p.process(self.glide_c, source, self.ears),
+            None => [0.0; 2],
         }
     }
 
@@ -279,6 +381,7 @@ impl Listener {
             paths: self.paths.as_mut_ptr(),
             count: self.paths.len(),
             glide_c: self.glide_c,
+            ears: self.ears,
             _paths: std::marker::PhantomData,
         }
     }
@@ -289,6 +392,7 @@ pub struct ListenerPaths<'a> {
     paths: *mut Path,
     count: usize,
     glide_c: f64,
+    ears: usize,
     _paths: std::marker::PhantomData<&'a mut Listener>,
 }
 
@@ -302,21 +406,36 @@ impl ListenerPaths<'_> {
     /// # Safety
     ///
     /// Only one thread may process a given path at a time.
-    pub unsafe fn process(&self, i: usize, source: f64) -> f64 {
+    pub unsafe fn process(&self, i: usize, source: f64) -> [f64; 2] {
         if i >= self.count {
-            return 0.0;
+            return [0.0; 2];
         }
-        unsafe { &mut *self.paths.add(i) }.process(self.glide_c, source)
+        unsafe { &mut *self.paths.add(i) }.process(self.glide_c, source, self.ears)
     }
 }
 
 impl Path {
-    fn process(&mut self, c: f64, source: f64) -> f64 {
+    #[inline]
+    fn process(&mut self, c: f64, source: f64, ears: usize) -> [f64; 2] {
         self.source = source;
         self.line.push(source);
-        let direct = self.line.tap(self.direct_delay.next(c));
-        let bounced = self.line.tap(self.ground_delay.next(c));
-        let direct = self.air_direct.process(direct) * self.direct_gain.next(c);
+        let left = self.ears[0].process(&self.line, c);
+        if ears < 2 {
+            return [left, left];
+        }
+        [left, self.ears[1].process(&self.line, c)]
+    }
+}
+
+impl Ear {
+    #[inline]
+    fn process(&mut self, line: &Delay, c: f64) -> f64 {
+        let direct = line.tap(self.direct_delay.next(c));
+        let bounced = line.tap(self.ground_delay.next(c));
+        let mut direct = self.air_direct.process(direct) * self.direct_gain.next(c);
+        if self.shadowed {
+            direct = self.shadow.process(direct);
+        }
         let ground = self.air_ground.process(self.ground_loss.process(bounced)) * self.ground_gain.next(c);
         if !self.walls_on {
             return direct + ground;
@@ -324,7 +443,7 @@ impl Path {
         let mut walls = 0.0;
         let mut fading = true;
         for (delay, gain) in self.wall_delay.iter_mut().zip(self.wall_gain.iter_mut()) {
-            walls += self.line.tap(delay.next(c)) * gain.next(c);
+            walls += line.tap(delay.next(c)) * gain.next(c);
             fading &= gain.target == 0.0 && gain.value < 1e-6;
         }
         // Out of the room, once its reflections have faded.

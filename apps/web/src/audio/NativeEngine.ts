@@ -28,7 +28,7 @@ type Command =
   | { type: 'engine'; engine: Partial<EngineSpec> }
   | { type: 'graph'; graph: ExhaustGraph | null }
   | { type: 'sources'; sources: SoundSources }
-  | { type: 'listener'; position: [number, number, number] | null }
+  | { type: 'listener'; position: [number, number, number] | null; right: [number, number, number] | null }
   | { type: 'launch'; config: LaunchConfig | null }
   | { type: 'snapshotRate'; hz: number }
   | { type: 'timeScale'; scale: number }
@@ -62,6 +62,8 @@ export class NativeEngine implements EngineHost {
   private playing = false;
   private timeScale = 1;
   private ignition = true;
+  /** The way the listener's right is, as last given, for a new simulation to start facing it. */
+  private listenerRight: [number, number, number] | null = null;
   private opening: Promise<void> | null = null;
   private readonly decoder = new TextDecoder();
 
@@ -190,10 +192,11 @@ export class NativeEngine implements EngineHost {
     void this.send({ type: 'sources', sources });
   }
 
-  setListener(position: [number, number, number] | null): void {
+  setListener(position: [number, number, number] | null, right: [number, number, number] | null = null): void {
     if (position) this.config.listener = position;
     else delete this.config.listener;
-    void this.send({ type: 'listener', position });
+    this.listenerRight = right;
+    void this.send({ type: 'listener', position, right });
   }
 
   launch(config: LaunchConfig | null): void {
@@ -260,6 +263,10 @@ export class NativeEngine implements EngineHost {
     if (this.timeScale !== 1) await invoke('audio_command', { command: { type: 'timeScale', scale: this.timeScale } });
     // And with the ignition on.
     if (!this.ignition) await invoke('audio_command', { command: { type: 'ignition', on: false } });
+    if (this.listenerRight) {
+      const position = this.config.listener ?? null;
+      await invoke('audio_command', { command: { type: 'listener', position, right: this.listenerRight } });
+    }
   }
 
   private receive(buffer: ArrayBuffer): void {

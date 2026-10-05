@@ -3,7 +3,7 @@
 use crate::math::{self, PI};
 
 /// One-pole lowpass, `y += c * (x - y)`.
-#[derive(Clone, Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct OnePole {
     y: f64,
     pub c: f64,

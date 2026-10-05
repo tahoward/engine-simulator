@@ -942,22 +942,32 @@ function sendSources(sources: SoundSources): void {
   audio.setSources(sources);
 }
 
-/** Where the ear was last put, and when, ms. */
+/** Where the ear was last put and the way its right was, and when, ms. */
 let sentEar = new THREE.Vector3(Infinity, 0, 0);
+let sentRight = new THREE.Vector3();
 let sentEarAt = 0;
+const cameraRight = new THREE.Vector3();
 
-/** How far the camera must move, m, and how long after the last move, ms, before the ear follows it. */
+/**
+ * How far the camera must move, m, or turn, as the change in its right's unit vector, and how long after
+ * the last move, ms, before the ear follows it.
+ */
 const EAR_STEP = 0.01;
+const EAR_TURN = 0.02;
 const EAR_INTERVAL = 33;
 
-// The listener is the camera: wherever the view is looking from is where the engine is heard from.
+// The listener is the camera: wherever the view is looking from is where the engine is heard from, and
+// the screen's right is the listener's right.
 viewer.onFrame(() => {
   const now = performance.now();
   const at = viewer.camera.position;
-  if (at.distanceTo(sentEar) < EAR_STEP || now - sentEarAt < EAR_INTERVAL) return;
+  cameraRight.set(1, 0, 0).applyQuaternion(viewer.camera.quaternion);
+  const moved = at.distanceTo(sentEar) >= EAR_STEP || cameraRight.distanceTo(sentRight) >= EAR_TURN;
+  if (!moved || now - sentEarAt < EAR_INTERVAL) return;
   sentEar = at.clone();
+  sentRight = cameraRight.clone();
   sentEarAt = now;
-  audio.setListener([at.x, at.y, at.z]);
+  audio.setListener([at.x, at.y, at.z], [cameraRight.x, cameraRight.y, cameraRight.z]);
 });
 
 viewer.onFrame((dt) => {
