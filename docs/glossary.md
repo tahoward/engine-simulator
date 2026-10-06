@@ -507,6 +507,11 @@ risen above the unfired curve.
 A test rig that holds an engine at a set speed and measures its torque.
 [Wikipedia](https://en.wikipedia.org/wiki/Dynamometer)
 
+### Bearing knock
+
+The knock of a rod's bearing as the journal crosses its oil clearance when the force down the rod
+changes sign.
+
 ### Piston slap
 
 The knock of a piston rocking across its bore as the force on it changes direction near TDC. It is

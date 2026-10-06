@@ -39,7 +39,7 @@ use crate::shell::ChamberShell;
 use crate::spec::{
     BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout,
     FUEL_CUT_THROTTLE, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment, REV_LIMIT_HYSTERESIS_RPM,
-    RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, density, displacement,
+    RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, crank_pins, density, displacement,
     exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_cut_rpms, fuel_fraction_at, full_load_torque, gas,
     intake_runner_of, load_torque_of, physical_bank_count,
 };
@@ -120,6 +120,44 @@ const CRACKLE_THROTTLE_MAX: f64 = 0.15;
 /// Peak structure-borne levels at 1 m, Pa, at `mech_noise = 1`.
 const CLACK_PA_AT_1M: f64 = 6.0;
 const SLAP_PA_AT_1M: f64 = 3.5;
+/// And a rod's bearings knocking across their oil clearance, as the force down the rod changes sign
+/// at `KNOCK_RATE_REF`, N/s.
+const KNOCK_PA_AT_1M: f64 = 2.4;
+const KNOCK_RATE_REF: f64 = 2e6;
+
+/// The running noise at 1 m, Pa, at `mech_noise = 1`, before the modes it rings: a piston and its rings
+/// rubbing the bore at `SCUFF_SPEED_REF` under `SCUFF_LOAD_REF`; a cam follower carrying a valve at full
+/// lift at 3000 rev/min; the timing drive at `TIMING_REF_RPM`, louder as the speed to the 1.5; and the crank's twist per N m it carries, on an engine
+/// the reference engine's size.
+const SCUFF_PA_AT_1M: f64 = 0.16;
+const FOLLOWER_PA_AT_1M: f64 = 0.12;
+const TIMING_PA_AT_1M: f64 = 0.15;
+const TWIST_PA_PER_NM: f64 = 0.0005;
+const SCUFF_SPEED_REF: f64 = 10.0;
+const SCUFF_LOAD_REF: f64 = 1000.0;
+const TIMING_REF_RPM: f64 = 3000.0;
+
+/// What presses a piston's rings on the bore besides the piston's own side thrust: their tension, N,
+/// and the share of the crown's gas load that gets behind the top ring, the ring's face over the bore's
+/// area.
+const RING_TENSION_N: f64 = 120.0;
+const RING_GAS_SHARE: f64 = 0.05;
+
+/// A valve spring's load on its follower as the valve leaves its seat, as a share of its load at full
+/// lift.
+const SPRING_PRELOAD_SHARE: f64 = 0.4;
+
+/// How loud the lash closing as a valve leaves its seat is, as a share of its seating clack.
+const LASH_TICK_SHARE: f64 = 0.3;
+
+/// Teeth on the crank's timing sprocket: the timing drive meshes this many times a turn. And the second
+/// harmonic of the mesh, as a share of the first.
+const TIMING_TEETH: f64 = 21.0;
+const TIMING_SECOND_HARMONIC: f64 = 0.35;
+/// How far the timing drive's tension wavers with its chain's slack, RMS as a share of its level, and
+/// how fast, Hz.
+const TIMING_RATTLE: f64 = 0.5;
+const TIMING_RATTLE_HZ: f64 = 40.0;
 
 /// RMS turbulent fluctuation of the plane-wave volume velocity, as a fraction of the mean valve flow.
 const TURBULENCE_INTENSITY: f64 = 0.1;
@@ -148,6 +186,17 @@ const REFERENCE_EX_VALVE: f64 = 0.034;
 /// Valve-seating ring and piston-slap ring on the reference engine, [Hz, Q].
 const CLACK_MODE: (f64, f64) = (2700.0, 14.0);
 const SLAP_MODE: (f64, f64) = (620.0, 9.0);
+
+/// What the running noise rings on the reference engine, [Hz, Q]: the bore's liner under the rings'
+/// rub, the head under the followers, and the crankcase under a bearing's knock. Broad, as rubbing
+/// excites a band rather than a ring.
+const SCUFF_MODE: (f64, f64) = (1500.0, 2.0);
+const FOLLOWER_MODE: (f64, f64) = (1900.0, 3.0);
+const KNOCK_MODE: (f64, f64) = (1100.0, 8.0);
+
+/// The crank's first torsional mode with one throw, Hz, and its Q, its damper's: a longer crank twists
+/// lower, as the square root of its throws.
+const TWIST_MODE: (f64, f64) = (900.0, 12.0);
 
 /// How far each cylinder's own head and bore ring from the nominal, as a fraction, peak.
 const LOCAL_MODE_DETUNE: f64 = 0.06;
@@ -241,9 +290,11 @@ pub fn scaled_budget_cells(cylinders: usize, junctions: usize, scale: f64) -> f6
 const DPDT_BANDWIDTH_HZ: f64 = 1500.0;
 const STRUCTURE_LIMIT_HZ: f64 = 6000.0;
 
-/// Contact durations of the two impacts, s.
+/// Contact durations of the impacts, s: a valve on its seat, a piston on its bore, and a rod's bearing
+/// across its oil film, which cushions it.
 const VALVE_CONTACT_S: f64 = 0.00015;
 const SLAP_CONTACT_S: f64 = 0.0004;
+const KNOCK_CONTACT_S: f64 = 0.0006;
 
 /// Everything that forces a full rebuild of cylinders and ducts when it changes.
 #[derive(Clone, Copy, PartialEq)]
@@ -290,6 +341,27 @@ pub struct EngineSim {
     head_share: f64,
     /// Piston slaps triggered since construction.
     pub slap_count: u64,
+    /// Each cylinder's running noise: its rings rubbing the bore, its cam followers, its rod's bearings,
+    /// and the noise the rubbing is drawn from.
+    scuff: Vec<Resonator>,
+    follower: Vec<Resonator>,
+    knock: Vec<Resonator>,
+    knock_impact: Vec<Impact>,
+    rub_noise: Vec<Noise>,
+    /// Bearing knocks triggered since construction.
+    pub knock_count: u64,
+    /// The timing drive: where its mesh is in a tooth, 0..1; its rattle, drawn from its own noise and
+    /// scaled back to that noise's spread by `timing_rattle_gain`; and how many heads' drives it is.
+    timing_mesh: f64,
+    timing_rattle: f64,
+    timing_rattle_c: f64,
+    timing_rattle_gain: f64,
+    timing_noise: Noise,
+    timing_share: f64,
+    /// The crank's first torsional mode, and how much it twists per N m against the reference engine's
+    /// crank, stiffer as the engine is bigger.
+    twist: Resonator,
+    twist_share: f64,
     structure: Vec<Resonator>,
     dpdt_smooth: f64,
     dpdt_smooth_c: f64,
@@ -413,8 +485,21 @@ struct Bank {
     in_lift: f64,
     seating_now: bool,
     in_seating_now: bool,
+    /// Whether each valve left its seat this sample.
+    opening_now: bool,
+    in_opening_now: bool,
     /// Cylinder pressure at a top dead centre crossed this sample, Pa, or -1.
     tdc_pressure: f64,
+    /// What the cam followers carry: each open valve's spring load, as a share of a valve's at full
+    /// lift.
+    follower_load: f64,
+    /// The piston's speed, m/s, and the load pressing it and its rings on the bore, N.
+    piston_speed: f64,
+    bore_load: f64,
+    /// The force down the rod, N, positive in compression, and how fast it was changing where it
+    /// changed sign this sample, N/s, or -1.
+    rod_force: f64,
+    rod_reversal: f64,
     seat_pulse: Impact,
     /// The throat turbulence's two filter stages.
     turb1: f64,
@@ -442,7 +527,14 @@ impl Bank {
             in_lift: 0.0,
             seating_now: false,
             in_seating_now: false,
+            opening_now: false,
+            in_opening_now: false,
             tdc_pressure: -1.0,
+            follower_load: 0.0,
+            piston_speed: 0.0,
+            bore_load: 0.0,
+            rod_force: 0.0,
+            rod_reversal: -1.0,
             seat_pulse: Impact::new(VALVE_CONTACT_S, sample_rate),
             turb1: 0.0,
             turb2: 0.0,
@@ -465,6 +557,8 @@ struct ValveCtx<'a> {
     limiter_cut: bool,
     crackle: Option<CrackleSpark>,
     rpm: f64,
+    /// Crank speed, rad/s, ripple included.
+    omega: f64,
     sample_rate: f64,
 }
 
@@ -527,6 +621,8 @@ impl ValveCtx<'_> {
         bank.in_lift = in_lift;
         bank.seating_now = seating;
         bank.in_seating_now = bank.prev_in_lift > 0.0 && in_lift == 0.0;
+        bank.opening_now = bank.prev_ex_lift == 0.0 && ex_lift > 0.0;
+        bank.in_opening_now = bank.prev_in_lift == 0.0 && in_lift > 0.0;
         bank.tdc_pressure =
             if crossed_angle(bank.prev_angle, angle, 0.0) || crossed_angle(bank.prev_angle, angle, 360.0) {
                 p_cyl
@@ -534,6 +630,33 @@ impl ValveCtx<'_> {
                 -1.0
             };
         bank.prev_angle = angle;
+
+        // --- What the mechanism carries ---
+        // Each valve's spring, from its preload at the seat to its full load at full lift; several
+        // valves' noise adds as the square root of their number.
+        let spring = |lift: f64| {
+            if lift > 0.0 {
+                SPRING_PRELOAD_SHARE + (1.0 - SPRING_PRELOAD_SHARE) * (lift / math::max(lift_spec.max_lift, 1e-4))
+            } else {
+                0.0
+            }
+        };
+        bank.follower_load = spring(ex_lift) * math::sqrt(math::max(lift_spec.ex_valve_count, 1.0))
+            + spring(in_lift) * math::sqrt(math::max(lift_spec.in_valve_count, 1.0));
+
+        // Down the rod's line: the gas on the crown, and what it takes to move the piston as it moves.
+        // The rod leans, so the piston bears on the bore with the share of that its lean gives.
+        let g = &self.spec.crank;
+        let k = cyl.crank_now(self.spec);
+        let (sin, cos) = math::sincos(angle * (PI / 180.0));
+        let lean = (g.a * sin) / math::max(k.position - g.a * cos, 1e-6);
+        let axial = (p_cyl - gas::P_AMB) * g.area + spec.recip_mass * k.d2_position * self.omega * self.omega;
+        bank.piston_speed = k.d_position * self.omega;
+        bank.bore_load =
+            RING_TENSION_N + (axial * lean).abs() + RING_GAS_SHARE * math::max(p_cyl - gas::P_AMB, 0.0) * g.area;
+        bank.rod_reversal =
+            if axial * bank.rod_force < 0.0 { (axial - bank.rod_force).abs() * self.sample_rate } else { -1.0 };
+        bank.rod_force = axial;
     }
 }
 
@@ -599,6 +722,7 @@ impl EngineSim {
         let wg =
             build_exhaust_for(&spec.spec, &pipe, &collector_pipe, graph.as_ref(), sample_rate, &wg_options, 1.0, None);
         let plenum = IntakePlenum::new(&spec.spec, sample_rate);
+        let rattle_c = 1.0 - math::exp((-2.0 * PI * TIMING_RATTLE_HZ) / sample_rate);
 
         let mut sim = EngineSim {
             sample_rate,
@@ -619,6 +743,22 @@ impl EngineSim {
             slap_impact: Vec::new(),
             head_share: 1.0,
             slap_count: 0,
+            scuff: Vec::new(),
+            follower: Vec::new(),
+            knock: Vec::new(),
+            knock_impact: Vec::new(),
+            rub_noise: Vec::new(),
+            knock_count: 0,
+            timing_mesh: 0.0,
+            timing_rattle: 0.0,
+            timing_rattle_c: rattle_c,
+            // A one-pole low-pass leaves `c / (2 - c)` of the variance of the uniform noise it smooths,
+            // which is a third.
+            timing_rattle_gain: math::sqrt((3.0 * (2.0 - rattle_c)) / rattle_c),
+            timing_noise: Noise::new(0x6a09e667_u32 as f64),
+            timing_share: 1.0,
+            twist: Resonator::new(TWIST_MODE.0, TWIST_MODE.1, sample_rate),
+            twist_share: 1.0,
             structure: Vec::new(),
             dpdt_smooth: 0.0,
             dpdt_smooth_c: 1.0 - math::exp((-2.0 * PI * DPDT_BANDWIDTH_HZ) / sample_rate),
@@ -1168,6 +1308,18 @@ impl EngineSim {
         )
     }
 
+    /// What the running noise rings at, Hz: each cylinder's bore under its rings, head under its
+    /// followers and crankcase under its bearings, and the crank's twist.
+    pub fn running_frequencies(&self) -> (Vec<f64>, Vec<f64>, Vec<f64>, f64) {
+        let hz = |r: &Resonator| r.frequency(self.sample_rate);
+        (
+            self.scuff.iter().map(hz).collect(),
+            self.follower.iter().map(hz).collect(),
+            self.knock.iter().map(hz).collect(),
+            hz(&self.twist),
+        )
+    }
+
     fn allocate_per_cylinder(&mut self) {
         let n = self.spec.spec.cylinders as usize;
         let sr = self.sample_rate;
@@ -1179,6 +1331,11 @@ impl EngineSim {
         self.slap = (0..n).map(|_| Resonator::new(SLAP_MODE.0, SLAP_MODE.1, sr)).collect();
         self.clack_impact = (0..n).map(|_| Impact::new(VALVE_CONTACT_S, sr)).collect();
         self.slap_impact = (0..n).map(|_| Impact::new(SLAP_CONTACT_S, sr)).collect();
+        self.scuff = (0..n).map(|_| Resonator::new(SCUFF_MODE.0, SCUFF_MODE.1, sr)).collect();
+        self.follower = (0..n).map(|_| Resonator::new(FOLLOWER_MODE.0, FOLLOWER_MODE.1, sr)).collect();
+        self.knock = (0..n).map(|_| Resonator::new(KNOCK_MODE.0, KNOCK_MODE.1, sr)).collect();
+        self.knock_impact = (0..n).map(|_| Impact::new(KNOCK_CONTACT_S, sr)).collect();
+        self.rub_noise = (0..n).map(|b| Noise::new(0x3c6ef372 as f64 + b as f64 * 0x9e3779b as f64)).collect();
         if !self.structure.is_empty() {
             self.tune_structure();
         }
@@ -1201,7 +1358,22 @@ impl EngineSim {
             let u = spread_of(b, n, 3, 2);
             self.clack[b].set(CLACK_MODE.0 * valve * (1.0 + LOCAL_MODE_DETUNE * t), CLACK_MODE.1, self.sample_rate);
             self.slap[b].set(SLAP_MODE.0 * bore * (1.0 + LOCAL_MODE_DETUNE * u), SLAP_MODE.1, self.sample_rate);
+            let w = spread_of(b, n, 5, 1);
+            self.scuff[b].set(SCUFF_MODE.0 * bore * (1.0 + LOCAL_MODE_DETUNE * w), SCUFF_MODE.1, self.sample_rate);
+            self.follower[b].set(
+                FOLLOWER_MODE.0 * valve * (1.0 + LOCAL_MODE_DETUNE * u),
+                FOLLOWER_MODE.1,
+                self.sample_rate,
+            );
+            self.knock[b].set((KNOCK_MODE.0 / size) * (1.0 + LOCAL_MODE_DETUNE * t), KNOCK_MODE.1, self.sample_rate);
         }
+
+        // One timing drive to each head; the crank twists lower the more throws it has.
+        let heads = physical_bank_count(spec) as f64;
+        self.timing_share = math::sqrt(heads);
+        let throws = crank_pins(spec).len().max(1) as f64;
+        self.twist.set(TWIST_MODE.0 / math::sqrt(throws), TWIST_MODE.1, self.sample_rate);
+        self.twist_share = REFERENCE_DISPLACEMENT_M3 / math::max(displacement(spec) * spec.cylinders as f64, 1e-6);
     }
 
     /// Fixed per-cylinder breathing multipliers and cam timing offsets, spread evenly and shuffled.
@@ -1585,6 +1757,7 @@ impl EngineSim {
                 limiter_cut,
                 crackle,
                 rpm,
+                omega: self.omega,
                 sample_rate: self.sample_rate,
             };
             let cyls = Disjoint::new(&mut self.cyls);
@@ -1626,9 +1799,14 @@ impl EngineSim {
         let mut direct_pa = 0.0;
         let mech = self.spec.spec.mech_noise;
         let head_share = self.head_share;
+        let mut follower_load = 0.0;
         for b in 0..banks {
             let bank = &self.banks[b];
-            let seat = (if bank.seating_now { 1.0 } else { 0.0 }) + (if bank.in_seating_now { 0.7 } else { 0.0 });
+            // Each valve clacks onto its seat, and ticks more lightly as it leaves it and its lash closes.
+            let seat = (if bank.seating_now { 1.0 } else { 0.0 })
+                + (if bank.in_seating_now { 0.7 } else { 0.0 })
+                + LASH_TICK_SHARE
+                    * ((if bank.opening_now { 1.0 } else { 0.0 }) + (if bank.in_opening_now { 0.7 } else { 0.0 }));
             if seat > 0.0 {
                 self.clack_impact[b].trigger(CLACK_PA_AT_1M * mech * seat * (rpm / 3000.0) * head_share);
             }
@@ -1642,7 +1820,43 @@ impl EngineSim {
             }
             let hit = self.slap_impact[b].next();
             direct_pa += self.slap[b].process(hit);
+
+            // The rod's bearings cross their clearance whenever the force down the rod changes sign.
+            if bank.rod_reversal >= 0.0 {
+                self.knock_count += 1;
+                let rate = clamp(bank.rod_reversal / KNOCK_RATE_REF, 0.05, 1.5);
+                self.knock_impact[b].trigger(KNOCK_PA_AT_1M * mech * rate * head_share);
+            }
+            let hit = self.knock_impact[b].next();
+            direct_pa += self.knock[b].process(hit);
+
+            // The rings and skirt rubbing the bore, as loud as the speed they slide at and the load on
+            // them; the followers rubbing their cam lobes, as loud as what their springs push back with.
+            let noise = &mut self.rub_noise[b];
+            let rub = (bank.piston_speed.abs() / SCUFF_SPEED_REF) * (bank.bore_load / SCUFF_LOAD_REF);
+            direct_pa += self.scuff[b].process(SCUFF_PA_AT_1M * mech * rub * head_share * noise.next());
+            let cam = bank.follower_load * (rpm / 3000.0);
+            direct_pa += self.follower[b].process(FOLLOWER_PA_AT_1M * mech * cam * head_share * noise.next());
+            follower_load += bank.follower_load;
         }
+
+        // The timing drive meshing, its tension wavering with the valve springs it turns against and with
+        // its own slack.
+        let mesh_hz = (TIMING_TEETH * self.omega) / (2.0 * PI);
+        let mesh = self.timing_mesh + mesh_hz * dt;
+        self.timing_mesh = mesh - mesh.floor();
+        self.timing_rattle += self.timing_rattle_c * (self.timing_noise.next() - self.timing_rattle);
+        if mech > 0.0 {
+            let speed = math::max(rpm, 0.0) / TIMING_REF_RPM;
+            let load = follower_load / math::max(banks as f64, 1.0);
+            let level = TIMING_PA_AT_1M * mech * speed * math::sqrt(speed) * self.timing_share;
+            let tension = (0.6 + 0.4 * load) * (1.0 + TIMING_RATTLE * self.timing_rattle_gain * self.timing_rattle);
+            let phase = 2.0 * PI * self.timing_mesh;
+            direct_pa += level * tension * (math::sin(phase) + TIMING_SECOND_HARMONIC * math::sin(2.0 * phase));
+        }
+
+        // The crank twisting under the torque it carries, on its first torsional mode.
+        direct_pa += self.twist.process(TWIST_PA_PER_NM * mech * torque_sum * self.twist_share);
 
         // Combustion shaking the casing, driven by the summed pressure rise rate.
         if mech > 0.0 {

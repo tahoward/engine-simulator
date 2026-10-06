@@ -326,6 +326,12 @@ impl Cylinder {
         self.crank_state
     }
 
+    /// The crank where this cylinder's piston is now.
+    #[inline]
+    pub fn crank_now(&mut self, si: &SpecInstance) -> CrankState {
+        self.crank(si, self.angle)
+    }
+
     /// Pressure, temperature, burned fraction and fuel fraction now.
     #[inline]
     pub fn read_state(&mut self, si: &SpecInstance) -> CylState {

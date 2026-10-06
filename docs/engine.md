@@ -482,8 +482,26 @@ rise hits them. So the model drives four structural vibration modes from `dp/dt`
 pressure rise. Advance the ignition or shorten the burn, and the engine sounds harsher with no
 extra rule: peak `dp/dt` goes from 1.6 GPa/s with a 90° burn to 14 GPa/s with a 20° burn.
 [Piston slap](glossary.md#piston-slap) (the piston rocking against the bore) scales with cylinder pressure at [TDC](glossary.md#tdc) (top dead
-centre, the piston's highest point). So it is loud under load and almost gone when coasting. All
-this mechanical noise sits about 18 dB below an open header. That is why you only hear it once a
+centre, the piston's highest point). So it is loud under load and almost gone when coasting.
+
+**The moving parts make their own running noise.** Each one follows the loads the simulation
+already computes, so nothing runs on a timer:
+
+- **Piston and rings sliding.** The rings and skirt rub the bore. The rub is noise, as loud as the
+  piston's speed times the load pressing it on the bore: the rings' own tension, the gas behind the
+  top ring, and the side thrust from the rod's lean. It is quiet at each dead centre and loudest
+  mid-stroke, and under load loudest early in the firing stroke, where the gas load and the lean meet.
+- **Valvetrain.** Each valve ticks lightly as it leaves its seat and its lash closes, then clacks
+  shut. While it is open, its cam follower rubs the lobe, as loud as the spring it pushes against.
+  The timing drive whines at 21 meshes a crank turn, louder as the speed rises, and its tension
+  wavers with the valve springs it turns and with its chain's slack.
+- **Bearings and crank.** A rod's bearings knock across their oil clearance whenever the force down
+  the rod changes sign. At speed with a closed throttle, the piston's inertia flips it four times a
+  cycle. Under load, the gas holds the rod in compression through the firing top, so it flips only
+  twice. The crank twists on its first torsional mode under the torque it carries. A longer crank
+  twists lower, as the square root of its throws.
+
+All this mechanical noise sits about 18 dB below an open header. That is why you only hear it once a
 muffler has quietened the exhaust.
 
 **You hear the engine from where the camera is.** Each place the engine makes its sound is heard

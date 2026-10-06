@@ -166,3 +166,38 @@ fn structure_borne_makes_each_event_quieter_the_more_cylinders_share_its_casting
     // Power per event goes as one over the cylinders sharing: a bank of four is 6 dB down.
     assert_close(20.0 * clack_share(4.0).log10(), -6.02, 2.0);
 }
+
+/// Knocks its rod's bearings each time the force down the rod changes sign.
+///
+/// Light and fast, the piston's own inertia pulls the rod into tension over both top dead centres and
+/// pushes it into compression over both bottoms: four reversals a cycle at least. Under load, the gas
+/// holds the rod in compression through the firing stroke's top.
+#[test]
+fn structure_borne_knocks_its_bearings_as_the_rod_force_reverses() {
+    let count = |rpm: f64, throttle: f64| {
+        let mut s = sim(json!({ "cylinders": 1, "rpm": rpm, "throttle": throttle }));
+        s.render(FS as usize / 2);
+        let before = s.knock_count;
+        s.render(FS as usize);
+        (s.knock_count - before) as f64 / (rpm / 120.0)
+    };
+    let light = count(6000.0, 0.1);
+    let loaded = count(2000.0, 1.0);
+    assert!(light >= 3.9, "light, {light} a cycle");
+    assert!(loaded < light, "loaded, {loaded} a cycle against {light}");
+}
+
+/// Rings its running noise where the parts that make it are: a wider bore's liner lower, and a crank
+/// with more throws twisting lower.
+#[test]
+fn structure_borne_rings_its_running_noise_on_the_parts_that_make_it() {
+    let (small_scuff, _, _, single_twist) = sim(json!({ "cylinders": 1 })).running_frequencies();
+    let (big_scuff, follower, knock, four_twist) =
+        sim(json!({ "cylinders": 4, "vAngle": 0, "bore": 0.102 })).running_frequencies();
+    let mean = |v: &[f64]| v.iter().sum::<f64>() / v.len() as f64;
+    assert_close(mean(&big_scuff), small_scuff[0] * (0.089 / 0.102), -1.0);
+    assert_close(four_twist, single_twist / 2.0, -1.0);
+    let distinct = |v: &[f64]| v.iter().map(|hz| format!("{hz:.1}")).collect::<HashSet<_>>().len();
+    assert_eq!(distinct(&follower), 4);
+    assert_eq!(distinct(&knock), 4);
+}

@@ -62,7 +62,11 @@ Where the model is simplified, and by how much.
   solver has a small [second-order](glossary.md#order-of-accuracy) error that grows at about 1.4 /s. Normal damping is 150 /s,
   about a hundred times larger, so it stays suppressed. It is not zero.
 - **Engine body noise is simplified.** It uses four lumped modes, not a vibration model of a
-  real casting, radiating equally every way from the engine's middle.
+  real casting, radiating equally every way from the engine's middle. The running noise rings
+  per-cylinder modes of the bore, head and crankcase, and one torsional mode of the crank. Its
+  levels, like the clack's and slap's, are chosen by ear. The timing drive is a 21-tooth sprocket
+  on every engine, whether it drives a chain, a belt or gears. The bearings knock when the rod's
+  force reverses, not from a model of the journal moving in its oil film.
 - **The inlet tract is a fixed shape.** It is a snorkel, an airbox and a tube at the throttle's bore,
   sized by **Airbox volume**, **Snorkel length** and **Snorkel bore**. The view draws it routed the same
   way on every engine, to an airbox on top of the engine's front, and it cannot be moved or edited
@@ -81,7 +85,7 @@ Where the model is simplified, and by how much.
   tailpipe; there is no car body to shade or reflect anything.
 - **A few constants are tuned, not derived.** The linear acoustic damping coefficient is fitted
   to measured duct decay rates. It is the one openly empirical constant in the acoustics. The
-  only others chosen by ear are the two structure-borne noise levels and the turbulence
+  only others chosen by ear are the structure-borne noise levels and the turbulence
   intensity. All are labelled as such in the source.
 - **Cylinder wall temperature is fixed at 450 K.** The *pipe* wall temperature is simulated, but
   the cylinder's is not. So a cold engine does not burn or lose heat differently.
