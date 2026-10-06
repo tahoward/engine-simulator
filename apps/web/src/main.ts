@@ -32,6 +32,7 @@ import { JointMesh } from './scene/jointMesh.js';
 import { TurboMesh } from './scene/TurboMesh.js';
 import { engineFile, engineFileName, readConfig, readEngineFile } from './model/engineFile.js';
 import { launchSettingsJson, readLaunchSettings } from './model/launchSettings.js';
+import { UndoHistory } from './model/undoHistory.js';
 import { detachDuct, removePipe, reshapeBendKeepingLength, slideBend, splitDuct } from './scene/drawing.js';
 import {
   applyHeader,
@@ -660,6 +661,8 @@ const panel = new Panel(panelEl, toolsEl, config, {
   onView: applyView,
   onResetView: () => viewer.frameBounds(sceneBounds()),
   onLaunchSettings: saveConfig,
+  onUndo: () => stepHistory(false),
+  onRedo: () => stepHistory(true),
 }, sampleRate, readLaunchSettings(saved?.launch));
 
 const lagNotice = new LagNotice(must<HTMLElement>('#stage'), (hz) => {
@@ -1215,6 +1218,8 @@ function saveConfig(): void {
 
 function writeConfig(): void {
   saveTimer = 0;
+  // What is saved is also a step to undo, so a slider dragged through a range undoes in one.
+  if (undoHistory.record(undoState())) panel.setHistory(undoHistory.canUndo, undoHistory.canRedo);
   // The launch's car and settings ride along with the engine, so a refresh keeps them too.
   const json = JSON.stringify({ ...config, launch: launchSettingsJson(panel.launchSettings()) });
   history.replaceState(null, '', `#${btoa(encodeURIComponent(json))}`);
@@ -1229,10 +1234,93 @@ window.addEventListener('pagehide', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Undo and redo: whole states of the engine and its exhaust, taken as each edit is saved.
+// ---------------------------------------------------------------------------
+
+/**
+ * Engine fields that are driven rather than designed: the throttle and the load are worked live, like
+ * a pedal, and an undo leaves them where they are.
+ */
+const LIVE_FIELDS = ['throttle', 'load', 'rpm'] as const satisfies readonly (keyof EngineSpec)[];
+
+type UndoState = Pick<EngineConfig, 'engine' | 'pipe' | 'collector' | 'graph'>;
+
+/** The engine and its exhaust as they stand, but for `LIVE_FIELDS`, as `UndoHistory` keeps them. */
+function undoState(): string {
+  const engine: Partial<EngineSpec> = { ...config.engine };
+  for (const key of LIVE_FIELDS) delete engine[key];
+  return JSON.stringify({ engine, pipe: config.pipe, collector: config.collector, graph: config.graph });
+}
+
+/** Load a state `undoState` took, keeping the live fields as they are now, and the view where it is. */
+function restoreState(state: string): void {
+  const saved = JSON.parse(state) as UndoState;
+  // Fields the state does not have were not set then, and go, but for the live ones it leaves out.
+  const engine = config.engine as unknown as Record<string, unknown>;
+  const live: readonly string[] = LIVE_FIELDS;
+  for (const key of Object.keys(engine)) if (!(key in saved.engine) && !live.includes(key)) delete engine[key];
+  Object.assign(config.engine, saved.engine);
+  // A cell size left on a default follows the sample rate, which is not undone.
+  config.engine.pipeCellSize = cellSizeForRate(config.engine.pipeCellSize, audio.sampleRate);
+  config.pipe = saved.pipe;
+  config.collector = saved.collector;
+  config.graph = graphFromJson(saved.graph) ?? compileExhaust(config.engine, config.pipe, config.collector);
+  if (!config.graph.ducts.some((d) => d.id === editedDuctId)) editedDuctId = defaultDuctId(config.graph) ?? editedDuctId;
+  selectTurbo(null);
+  selectJoint(null);
+  editor.select(null);
+  panel.setSelected(null);
+  audio.setEngine(config.engine);
+  engineMesh.setSpec(config.engine);
+  rebuildPipeGeometry();
+  audio.setGraph(config.graph);
+  panel.rebuildAll();
+}
+
+/**
+ * Undo the last edit, or with `redo` redo the last undone. Not mid-drag or mid-route, where the edit is
+ * not finished: Escape abandons a route.
+ */
+function stepHistory(redo: boolean): void {
+  if (editor.dragging || editor.drawing) return;
+  // An edit still waiting to be saved is a step of its own, and the one to undo first.
+  if (saveTimer !== 0) {
+    clearTimeout(saveTimer);
+    writeConfig();
+  }
+  const state = redo ? undoHistory.redo() : undoHistory.undo();
+  if (state === null) return;
+  restoreState(state);
+  // Loaded, the exhaust is seated on its ports again, which can move it a hair from the state stored.
+  undoHistory.replace(undoState());
+  panel.setHistory(undoHistory.canUndo, undoHistory.canRedo);
+  writeConfig();
+}
+
+/**
+ * Ctrl+Z (Cmd+Z on a Mac) undoes, and Ctrl+Shift+Z or Ctrl+Y redoes. Not while typing in a field, which
+ * undoes its own text; a slider or a checkbox still focused after it was used has none, and is undone here.
+ */
+window.addEventListener('keydown', (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const key = e.key.toLowerCase();
+  if (key !== 'z' && key !== 'y') return;
+  const active = document.activeElement;
+  const typing =
+    active instanceof HTMLTextAreaElement ||
+    (active instanceof HTMLInputElement && !['range', 'checkbox', 'radio', 'button', 'file'].includes(active.type));
+  if (typing) return;
+  e.preventDefault();
+  stepHistory(key === 'y' || e.shiftKey);
+});
+
+// ---------------------------------------------------------------------------
 // Boot
 // ---------------------------------------------------------------------------
 
 rebuildPipeGeometry();
+/** Taken once the exhaust is first seated on its ports, so loading the app is not itself a step. */
+const undoHistory = new UndoHistory(undoState());
 applyView(panel.viewOptions);
 viewer.frameBounds(sceneBounds());
 viewer.start();

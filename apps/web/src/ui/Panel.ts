@@ -152,6 +152,10 @@ export interface PanelCallbacks {
   onLaunch: (config: LaunchConfig | null) => void;
   /** A launch setting, or the car, changed. */
   onLaunchSettings: () => void;
+  /** Undo the last edit to the engine or its exhaust. */
+  onUndo: () => void;
+  /** Redo the last edit undone. */
+  onRedo: () => void;
 }
 
 export interface ViewOptions {
@@ -312,6 +316,8 @@ export class Panel {
   /** Whether a route is in progress, so the hint can show where it is aimed. */
   private drawingRoute = false;
   private drawBtn!: HTMLButtonElement;
+  private undoBtn!: HTMLButtonElement;
+  private redoBtn!: HTMLButtonElement;
   /** The card beside the toolbar with the tool that is on's hint and settings, and each tool's part of it. */
   private toolOptions!: HTMLElement;
   private drawGroup!: HTMLElement;
@@ -1027,6 +1033,20 @@ export class Panel {
     this.placeHint = el('div', 'hint', this.placeGroup);
 
     el('div', 'tool-exit', this.toolOptions).textContent = 'Right-click or Esc to exit the tool';
+
+    // Undo and redo, below the tools: any edit to the engine or its exhaust, not only the tools'.
+    el('div', 'toolbar-sep', bar);
+    this.undoBtn = toolButton(
+      bar,
+      TOOL_ICONS.undo,
+      'Undo',
+      'Take back the last change to the engine or its exhaust: a setting, a preset, or a pipe, junction or turbo. ' +
+        'Ctrl+Z, or Cmd+Z on a Mac. The throttle and the load are left where they are.',
+    );
+    this.redoBtn = toolButton(bar, TOOL_ICONS.redo, 'Redo', 'Put back the last change undone. Ctrl+Shift+Z or Ctrl+Y, or Cmd+Shift+Z on a Mac.');
+    this.undoBtn.addEventListener('click', () => this.cb.onUndo());
+    this.redoBtn.addEventListener('click', () => this.cb.onRedo());
+    this.setHistory(false, false);
 
     this.headerBtn.addEventListener('click', () => {
       this.setHeaderToolState(!this.headerOn);
@@ -2167,6 +2187,12 @@ export class Panel {
     const read = o.sync;
     if (read) this.resyncers.push(() => s.render(read()));
     return s;
+  }
+
+  /** Whether there is an edit to undo, and one to redo. */
+  setHistory(canUndo: boolean, canRedo: boolean): void {
+    this.undoBtn.disabled = !canUndo;
+    this.redoBtn.disabled = !canRedo;
   }
 
   /**

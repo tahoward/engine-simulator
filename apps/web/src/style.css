@@ -123,6 +123,19 @@ button.tool-btn:hover {
   color: var(--ink);
 }
 
+button.tool-btn:disabled {
+  opacity: 0.35;
+  border-color: transparent;
+  background: transparent;
+  cursor: default;
+}
+
+.toolbar-sep {
+  height: 1px;
+  margin: 2px 4px;
+  background: var(--line);
+}
+
 button.tool-btn.active {
   border-color: var(--accent);
   background: rgba(79, 209, 255, 0.14);

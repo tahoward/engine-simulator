@@ -29,6 +29,10 @@ export const TOOL_ICONS = {
   turbo: svg(
     '<path d="M12 12a1 1 0 0 1 2 0 2 2 0 0 1-4 0 3 3 0 0 1 6 0 4 4 0 0 1-8 0 5 5 0 0 1 10 0"/><path d="M13 7h8"/>',
   ),
+  /** An arrow curling back to the left. */
+  undo: svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>'),
+  /** An arrow curling on to the right. */
+  redo: svg('<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H13"/>'),
 };
 
 /** The panel's sections, one icon each in the rail down its edge. */
