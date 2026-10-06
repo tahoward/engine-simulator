@@ -820,6 +820,27 @@ button.tool:hover {
   margin-bottom: 2px;
 }
 
+.launch-tip-table {
+  border-collapse: collapse;
+}
+
+.launch-tip-table th,
+.launch-tip-table td {
+  padding: 0 0 0 8px;
+  text-align: right;
+}
+
+.launch-tip-table th:first-child,
+.launch-tip-table td:first-child {
+  padding-left: 0;
+}
+
+.launch-tip-units th {
+  color: var(--ink-dim);
+  font-weight: 400;
+  font-size: 10px;
+}
+
 .launch-tip-row {
   color: var(--ink-dim);
 }

@@ -566,19 +566,32 @@ export class LaunchSheet {
 
     this.tooltip.replaceChildren();
     el('div', 'launch-tip-head', this.tooltip).textContent = `${formatNumber(Math.round(rpm))} rpm`;
+    // One column per measure, units in the header, so the box stays narrow enough for the card.
+    const dyno = this.config?.dyno ?? false;
+    const table = el('table', 'launch-tip-table', this.tooltip);
+    const head = el('tr', 'launch-tip-units', table);
+    const units = ['hp', 'lb·ft', 'kW', 'N·m', 'VE %', 'bar'];
+    for (const unit of dyno ? units : ['', ...units, 'mph']) el('th', '', head).textContent = unit;
     for (const q of rows) {
-      const readings =
-        `${Math.round(q.hp)} hp · ${Math.round(q.lbft)} lb·ft · ` +
-        `${Math.round(q.kw)} kW · ${Math.round(q.nm)} N·m · VE ${Math.round(q.ve)}% · ` +
-        `${q.map.toFixed(2)} bar`;
-      el('div', 'launch-tip-row', this.tooltip).textContent = this.config?.dyno
-        ? readings
-        : `${ordinal(q.gear)}  ${readings} · ${Math.round(q.mph)} mph`;
+      const tr = el('tr', 'launch-tip-row', table);
+      const cells = [
+        ...(dyno ? [] : [ordinal(q.gear)]),
+        `${Math.round(q.hp)}`,
+        `${Math.round(q.lbft)}`,
+        `${Math.round(q.kw)}`,
+        `${Math.round(q.nm)}`,
+        `${Math.round(q.ve)}`,
+        q.map.toFixed(2),
+        ...(dyno ? [] : [`${Math.round(q.mph)}`]),
+      ];
+      for (const text of cells) el('td', '', tr).textContent = text;
     }
     this.tooltip.classList.remove('hidden');
+    // Beside the crosshair, flipped to the left near the right edge, and always kept inside the plot.
     const tw = this.tooltip.offsetWidth;
     const flip = hx + 14 + tw > this.width;
-    this.tooltip.style.left = `${flip ? hx - 14 - tw : hx + 14}px`;
+    const tx = flip ? hx - 14 - tw : hx + 14;
+    this.tooltip.style.left = `${Math.max(0, Math.min(tx, this.width - tw))}px`;
     this.tooltip.style.top = `${top + 4}px`;
   }
 
