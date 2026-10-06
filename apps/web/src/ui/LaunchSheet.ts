@@ -130,6 +130,8 @@ export class LaunchSheet {
   private minRpm = 0;
   private dirty = true;
   private hoverX: number | null = null;
+  /** Pointer height in viewport pixels, so the tooltip stays with it as the card scrolls. */
+  private hoverClientY = 0;
   private running = false;
   /**
    * Whether a snapshot has shown this run going. Until one has, a snapshot without a run is one sent
@@ -201,11 +203,16 @@ export class LaunchSheet {
     this.canvas.addEventListener('pointermove', (e) => {
       const r = this.canvas.getBoundingClientRect();
       this.hoverX = e.clientX - r.left;
+      this.hoverClientY = e.clientY;
       this.dirty = true;
     });
     this.canvas.addEventListener('pointerleave', () => {
       this.hoverX = null;
       this.dirty = true;
+    });
+    // Scrolling moves the charts under a still pointer, so the tooltip has to follow.
+    this.card.addEventListener('scroll', () => {
+      if (this.hoverX !== null) this.dirty = true;
     });
     new ResizeObserver(() => this.resize()).observe(this.canvas);
   }
@@ -592,7 +599,16 @@ export class LaunchSheet {
     const flip = hx + 14 + tw > this.width;
     const tx = flip ? hx - 14 - tw : hx + 14;
     this.tooltip.style.left = `${Math.max(0, Math.min(tx, this.width - tw))}px`;
-    this.tooltip.style.top = `${top + 4}px`;
+    // Below the pointer, flipped above near the bottom, and kept within the part of the plot the
+    // card has scrolled into view.
+    const th = this.tooltip.offsetHeight;
+    const canvasTop = this.canvas.getBoundingClientRect().top;
+    const card = this.card.getBoundingClientRect();
+    const viewTop = Math.max(top, card.top - canvasTop) + 4;
+    const viewBottom = Math.min(bottom, card.bottom - canvasTop) - 4;
+    const hy = this.hoverClientY - canvasTop;
+    const ty = hy + 14 + th > viewBottom ? hy - 14 - th : hy + 14;
+    this.tooltip.style.top = `${Math.max(viewTop, Math.min(ty, viewBottom - th))}px`;
   }
 
   /** Peak power and torque in the header, and the per-gear table. */
