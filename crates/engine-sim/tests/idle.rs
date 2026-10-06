@@ -46,12 +46,13 @@ fn settles_near_the_idle_speed(name: &str) {
 }
 
 /// Every preset has an idle test below.
-const PRESETS: [&str; 14] = [
+const PRESETS: [&str; 15] = [
     "Single, Ducati Superquadro Mono",
     "45° V-twin, Harley-Davidson Milwaukee-Eight 121",
     "90° V-twin, Honda RC51",
     "Parallel twin, Triumph 1200 HT",
     "Inline three, Ford 1.5 EcoBoost Dragon",
+    "Inline four, Mazda BPT",
     "Inline four, Honda F20C",
     "Inline four, Toyota 3S-GTE",
     "Inline five, Audi EA855 EVO",
@@ -88,15 +89,16 @@ idle_tests! {
     presets_idle_90_v_twin_honda_rc51 => 2,
     presets_idle_parallel_twin_triumph_1200_ht => 3,
     presets_idle_inline_three_ford_1_5_ecoboost_dragon => 4,
-    presets_idle_inline_four_honda_f20c => 5,
-    presets_idle_inline_four_toyota_3s_gte => 6,
-    presets_idle_inline_five_audi_ea855_evo => 7,
-    presets_idle_inline_six_nissan_rb26dett => 8,
-    presets_idle_v6_toyota_2gr => 9,
-    presets_idle_v8_chevrolet_lt2 => 10,
-    presets_idle_v8_chevrolet_lt6 => 11,
-    presets_idle_boxer_four_subaru_fa20d => 12,
-    presets_idle_boxer_six_porsche_mezger_4_0 => 13,
+    presets_idle_inline_four_mazda_bpt => 5,
+    presets_idle_inline_four_honda_f20c => 6,
+    presets_idle_inline_four_toyota_3s_gte => 7,
+    presets_idle_inline_five_audi_ea855_evo => 8,
+    presets_idle_inline_six_nissan_rb26dett => 9,
+    presets_idle_v6_toyota_2gr => 10,
+    presets_idle_v8_chevrolet_lt2 => 11,
+    presets_idle_v8_chevrolet_lt6 => 12,
+    presets_idle_boxer_four_subaru_fa20d => 13,
+    presets_idle_boxer_six_porsche_mezger_4_0 => 14,
 }
 
 // --- the idle air valve ---

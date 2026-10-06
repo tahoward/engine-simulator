@@ -106,7 +106,7 @@ fn traction_control_beats_spinning_the_tyres() {
 
 /// The engines from real cars launch through those cars: the Skyline's six-speed to all four wheels, the
 /// Corvettes' eight-speed dual clutch, the MR2's five-speed, the RS 3's seven-speed dual clutch to all four
-/// wheels, the Fiesta ST's six-speed to the front wheels, the CVO Road Glide's six-speed, sixth direct,
+/// wheels, the Fiesta ST's six-speed to the front wheels, the Mazdaspeed MX-5's six-speed, the CVO Road Glide's six-speed, sixth direct,
 /// through its primary chain and belt, the RC51's six-speed through its primary gears and chain, and the
 /// Hypermotard 698's the same way.
 #[test]
@@ -128,6 +128,9 @@ fn real_engines_launch_through_their_own_cars() {
     assert_eq!(st.ratios, vec![3.59, 2.19, 1.52, 1.15, 0.92, 0.79]);
     assert_eq!(st.final_drive, 3.91);
     assert!(st.front_wheel_drive);
+    let msm = &common::engine_preset("Inline four, Mazda BPT").launch;
+    assert_eq!(msm.ratios, vec![3.76, 2.27, 1.65, 1.26, 1.0, 0.84]);
+    assert_eq!(msm.final_drive, 4.1);
     let cvo = &common::engine_preset("45° V-twin, Harley-Davidson Milwaukee-Eight 121").launch;
     assert_eq!((cvo.ratios.len(), cvo.ratios[5], cvo.final_drive), (6, 1.0, 2.875));
     assert!((cvo.ratios[0] * cvo.final_drive - 9.593).abs() < 1e-9);
@@ -172,6 +175,16 @@ fn the_fiesta_st_launches_about_as_quick_as_the_real_car() {
     let snaps = run("Inline three, Ford 1.5 EcoBoost Dragon", None);
     let sixty = snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph");
     assert!((5.7..6.9).contains(&sixty), "0-60 in {sixty} s");
+}
+
+/// The Mazdaspeed MX-5 gets to 60 mph in about the 6.5-6.9 s road tests time it at: 178 hp through the
+/// rear wheels. Its turbo is on boost by 3000 rpm, a little sooner than the real one's, so it runs a
+/// few tenths quicker.
+#[test]
+fn the_mazdaspeed_mx5_launches_about_as_quick_as_the_real_car() {
+    let snaps = run("Inline four, Mazda BPT", None);
+    let sixty = snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph");
+    assert!((5.6..7.2).contains(&sixty), "0-60 in {sixty} s");
 }
 
 /// Driving the front wheels, the weight the car moves back as it pulls away comes off them, so the same

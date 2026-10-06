@@ -2597,6 +2597,48 @@ const FORD_DRAGON: Partial<EngineSpec> = {
 };
 
 /**
+ * The 1.8 litre turbocharged BP of the 2004-05 Mazdaspeed MX-5: 83.0 x 85.0 mm on a 133 mm rod, 9.5:1, and
+ * an IHI turbo on 0.5-0.6 bar through an air-to-air intercooler, rated at 178 hp at 6000 rpm and 166 lb-ft
+ * (225 N*m) at 4500.
+ */
+const MAZDA_BPT: Partial<EngineSpec> = {
+  cylinders: 4,
+  vAngle: 0,
+  exhaustLayout: 'merged',
+  ...IDLING,
+  // Its fuel cut, a little past the 6500 rpm redline.
+  revLimit: 6700,
+  flywheelInertia: 0.2,
+  pipeCellSize: 0.035,
+  bore: 0.083,
+  stroke: 0.085,
+  rodLength: 0.133,
+  compressionRatio: 9.5,
+  ...fourValveHead(0.083),
+  // Estimated, like its timing: 245 degrees on the exhaust and 255 on the intake, with little overlap, as a
+  // turbo engine's are, and tuned with the boost and the intercooler for the rated torque at 4500 rpm and
+  // power at 6000. The late intake close holds its torque to 6000. No variable timing: the turbo engine
+  // kept the earlier head without it.
+  maxLift: 0.0091,
+  evo: 120,
+  evc: 365,
+  ivo: 355,
+  ivc: 610,
+  // Its 55 mm throttle body.
+  throttleDia: 0.055,
+  // On 0.5 bar, the low end of the 7.25-8.5 psi it is quoted at. Its size is an estimate: no map of its
+  // compressor is published.
+  boostTarget: 0.5e5,
+  turboSize: 0.14,
+  // Estimated, like the turbo: the stock core is a small one.
+  intercooler: 0.4,
+  // The factory valve recirculates.
+  blowOff: 'recirculating',
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 1.6,
+};
+
+/**
  * The 2.0 litre F20C of the AP1 Honda S2000: 87.0 x 84.0 mm on a 153 mm rod, 11.0:1, VTEC on both cams, a
  * 9000 rpm redline, rated at 240 hp at 8300 rpm and 210 N*m at 7500.
  */
@@ -3144,6 +3186,29 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     engine: FORD_DRAGON,
     pipe: () => fittedExhaust(fullSpec(FORD_DRAGON)).pipe,
     collector: () => fittedExhaust(fullSpec(FORD_DRAGON)).collector,
+    turbos: 1,
+  },
+  {
+    name: 'Inline four, Mazda BPT',
+    car: {
+      // The Mazdaspeed MX-5's six-speed manual and its 4.10 final drive. 205/40R17 tyres, about 1110 kg,
+      // with a little under half its weight on the rear.
+      name: 'Mazdaspeed MX-5 (NB, 2004-05)',
+      ratios: [3.76, 2.27, 1.65, 1.26, 1.0, 0.84],
+      finalDrive: 4.1,
+      tyreRadius: 0.291,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 1110 + DRIVER_MASS,
+      drive: 'rwd',
+      drivenLoad: 0.48,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
+    description:
+      'The 1.8 litre turbocharged four in the 2004-05 Mazdaspeed MX-5: 83 x 85 mm, 9.5:1, four valves a cylinder and a 6500 rpm redline. It fires every 180\u00b0, 1-3-4-2, like any inline four, all four into one small IHI turbo on 0.5 bar through an intercooler, and draws through a 55 mm throttle body. It makes about 230 N\u00b7m from 3000 to 5000 rpm, 235 N\u00b7m (173 lb\u00b7ft) at 4500 and 180 hp at 6000, against the real engine\u2019s rated 225 N\u00b7m (166 lb\u00b7ft) at 4500 and 178 hp at 6000. Its valves, cams, turbo size, intercooler and exhaust are estimates.',
+    engine: MAZDA_BPT,
+    pipe: () => fittedExhaust(fullSpec(MAZDA_BPT)).pipe,
+    collector: () => fittedExhaust(fullSpec(MAZDA_BPT)).collector,
     turbos: 1,
   },
   {

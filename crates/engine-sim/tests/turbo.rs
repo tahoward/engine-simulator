@@ -3,7 +3,8 @@
 //! the whine of the compressor; and the turbine running on its map.
 //!
 //! The Nissan RB26DETT preset is the turbocharged engine throughout, but for the Ford Dragon's, the Toyota
-//! 3S-GTE's and the Audi EA855 EVO's own torque and power: a three, a four and a five, each on one turbo.
+//! 3S-GTE's, the Mazda BPT's and the Audi EA855 EVO's own torque and power: a three, two fours and a five,
+//! each on one turbo.
 
 mod common;
 
@@ -250,6 +251,32 @@ fn a_four_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
     assert!((t5000 - 304.0).abs() < 0.1 * 304.0, "{t5000} N*m at 5000 rpm");
     let ps = torque(6000.0) * 6000.0 * 2.0 * std::f64::consts::PI / 60.0 / 735.5;
     assert!((ps - 225.0).abs() < 0.1 * 225.0, "{ps} PS at 6000 rpm");
+}
+
+/// The Mazda BPT, one small turbo on four cylinders, on its 0.5 bar makes about the real engine's rated
+/// 166 lb-ft (225 N*m) at 4500 rpm and 178 hp at 6000.
+#[test]
+fn the_mazda_bpt_makes_about_the_real_engines_torque_and_power() {
+    let torque = |rpm: f64| {
+        let mut cfg = common::engine_preset("Inline four, Mazda BPT").config.clone();
+        cfg.engine = common::with(
+            &cfg.engine,
+            json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm }),
+        );
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(3 * FS as usize);
+        let n = FS as usize / 2;
+        let mut t = 0.0;
+        for _ in 0..n {
+            sim.render(1);
+            t += sim.snapshot().torque - sim.friction_torque();
+        }
+        t / n as f64
+    };
+    let t4500 = torque(4500.0);
+    assert!((t4500 - 225.0).abs() < 0.1 * 225.0, "{t4500} N*m at 4500 rpm");
+    let hp = torque(6000.0) * 6000.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    assert!((hp - 178.0).abs() < 0.1 * 178.0, "{hp} hp at 6000 rpm");
 }
 
 /// The 1.5 EcoBoost Dragon, one turbo on three cylinders, on its 1.15 bar makes about the real engine's

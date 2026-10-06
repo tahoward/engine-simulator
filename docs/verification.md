@@ -88,7 +88,8 @@ matters.
   at 6800. The 3S-GTE, four cylinders on one turbo, on its 0.7 bar must make within 10% of the Japanese
   engine's rated 304 N·m at 5000 rpm, once on boost, and 225 PS at 6000, the 1.5 EcoBoost Dragon, three
   on one turbo, on its 1.15 bar within 10% of the real engine's rated 290 N·m at 3000 rpm, once on boost,
-  and 200 PS at 6000, and the EA855 EVO, five on one
+  and 200 PS at 6000, the Mazda BPT, four on one small turbo, on its 0.5 bar within 10% of the real
+  engine's rated 225 N·m at 4500 rpm and 178 hp at 6000, and the EA855 EVO, five on one
   turbo, on its 1.35 bar within 10% of the real engine's rated 480 N·m at 4500 rpm and 400 PS at 5850
   and 7000; with compressors too small for it, passing 0.12 kg/s each, it must make less power at 7900
   than at 7000, where they are at their choke. With
@@ -268,7 +269,10 @@ matters.
   and chains, and the Skyline through all four wheels must be quicker to 60 than through the rear. The
   RS 3 must run 0–60 mph in 3.1 to 4.1 s, around the 3.6 s road tests time it at; it runs 3.5 s and the quarter mile in 11.7 s at 120 mph. The Fiesta ST must run 0–60 mph in 5.7 to 6.9 s,
   around the 6.5 s Ford gives it to 62; it runs 6.1 s and the quarter mile in 14.5 s at 99 mph. Through
-  the rear wheels rather than the front it must be quicker to 60 by more than a tenth. The Toyota 86 must
+  the rear wheels rather than the front it must be quicker to 60 by more than a tenth. The Mazdaspeed MX-5
+  must run 0–60 mph in 5.6 to 7.2 s, around the 6.5–6.9 s road tests time it at; it runs 5.9 s and the
+  quarter mile in 14.5 s at 97 mph, a few tenths quick, its turbo on boost a little sooner than the real
+  one's. The Toyota 86 must
   run 0–60 mph in 5.8 to 7.2 s, around the 6.2–6.8 s road tests time the manual at; it runs 6.6 s and
   the quarter mile in 14.9 s at 95 mph. The GT3 RS 4.0 must run 0–60 mph in 3.2 to 4.4 s, around the
   3.5–4.0 s road tests time it at; it runs 3.7 s and the quarter mile in 11.8 s at 124 mph.

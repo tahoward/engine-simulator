@@ -27,6 +27,7 @@ Parallel twin, Triumph 1200 HT                      98           23.8%    27.5%
 Inline three, Ford 1.5 EcoBoost Dragon              97           23.2%    24.8%
 Inline four, Honda F20C                            112           21.9%    25.4%
 Inline four, Toyota 3S-GTE                         111           27.2%    30.1%
+Inline four, Mazda BPT                             111           27.3%    30.4%
 Boxer four, Subaru FA20D                            94           23.9%    27.3%
 Inline five, Audi EA855 EVO                        125           31.9%    35.4%
 Inline six, Nissan RB26DETT                        101           34.2%    38.3%

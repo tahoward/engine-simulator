@@ -71,6 +71,7 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 | Harley-Davidson Milwaukee-Eight 121 | Harley-Davidson CVO Road Glide, 466 kg | six-speed Cruise Drive, primary chain and belt | road |
 | Honda RC51 | Honda RC51 (SP-1), 298 kg | six-speed, primary gears and chain | road |
 | Triumph 1200 HT | Triumph Speed Twin 1200, 291 kg | six-speed, primary gears and chain | road |
+| Mazda BPT | Mazdaspeed MX-5 (NB, 2004–05), 1185 kg | six-speed manual | road |
 | Honda F20C | Honda S2000 (AP1), 1349 kg | six-speed manual | road |
 | Subaru FA20D | Toyota 86 (ZN6), 1325 kg | six-speed manual | road |
 | Porsche Mezger 4.0 | Porsche 911 GT3 RS 4.0 (997), 1445 kg | six-speed manual | road |
