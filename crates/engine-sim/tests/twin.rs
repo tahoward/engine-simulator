@@ -452,3 +452,27 @@ fn the_rc51_makes_about_the_real_engines_torque_and_power() {
     let hp = torque(9500.0) * 9500.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
     assert!((hp - 133.0).abs() < 0.1 * 133.0, "{hp} hp at 9500 rpm");
 }
+
+/// The Triumph 1200 makes about the real engine's rated 112.5 N*m (83 lb-ft) at 4250 rpm and 103.5 hp
+/// (77.2 kW) at 7750.
+#[test]
+fn the_triumph_1200_makes_about_the_real_engines_torque_and_power() {
+    let torque = |rpm: f64| {
+        let mut cfg = common::engine_preset("Parallel twin, Triumph 1200 HT").config.clone();
+        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
+        cfg.engine = common::with(&cfg.engine, held);
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.render(2 * FS as usize);
+        let n = FS as usize / 2;
+        let mut t = 0.0;
+        for _ in 0..n {
+            sim.render(1);
+            t += sim.snapshot().torque - sim.friction_torque();
+        }
+        t / n as f64
+    };
+    let t4250 = torque(4250.0);
+    assert!((t4250 - 112.5).abs() < 0.1 * 112.5, "{t4250} N*m at 4250 rpm");
+    let hp = torque(7750.0) * 7750.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    assert!((hp - 103.5).abs() < 0.1 * 103.5, "{hp} hp at 7750 rpm");
+}

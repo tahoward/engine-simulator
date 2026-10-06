@@ -247,7 +247,8 @@ matters.
   121 must make within 10% of the real engine's rated 189 N·m at 3500 rpm and 115 hp at 5020, and its
   cam map must lift the torque at 1750 rpm by more than 2 N·m over the cam fixed at rest. The RC51
   must make within 15% of the real engine's rated 105 N·m at 8000 rpm and within 10% of its 133 hp at
-  9500. The Superquadro Mono must make within 10% of the real engine's rated 63 N·m at 8000 rpm and
+  9500. The Triumph 1200 must make within 10% of the real engine's rated 112.5 N·m at 4250 rpm and
+  103.5 hp at 7750. The Superquadro Mono must make within 10% of the real engine's rated 63 N·m at 8000 rpm and
   77.5 hp at 9750. Every engine preset must run clean, and switching layout or cylinder count mid-run
   must stay finite. A three with a manifold drawn by hand, three junctions a few centimetres apart along a pipe of one runner's bore, must
   rev to its limiter at 32 kHz with nothing diverging, no junction clamping, and no pipe left above three
@@ -263,7 +264,7 @@ matters.
   has far more torque than its tyres can take: traction control must get it to 60 quicker than spinning
   them, and no quicker than 2.4 s, what their grip allows. The engines from real cars must launch through
   those cars' gearboxes, the Milwaukee-Eight through the CVO Road Glide's six-speed, primary chain and
-  belt to its overall ratios, the RC51 and the Hypermotard 698 through their six-speeds, primary gears
+  belt to its overall ratios, the RC51, the Speed Twin 1200 and the Hypermotard 698 through their six-speeds, primary gears
   and chains, and the Skyline through all four wheels must be quicker to 60 than through the rear. The
   RS 3 must run 0–60 mph in 3.1 to 4.1 s, around the 3.6 s road tests time it at; it runs 3.5 s and the quarter mile in 11.7 s at 120 mph. The Fiesta ST must run 0–60 mph in 5.7 to 6.9 s,
   around the 6.5 s Ford gives it to 62; it runs 6.1 s and the quarter mile in 14.5 s at 99 mph. Through

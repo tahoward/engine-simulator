@@ -2512,6 +2512,48 @@ const HONDA_RC51: Partial<EngineSpec> = {
 };
 
 /**
+ * The 1200 cc high-torque twin of the Triumph Speed Twin 1200 and Thruxton: 97.6 x 80.0 mm, 12.1:1, a
+ * liquid-cooled parallel twin on a 270-degree crank, one cam working four valves a cylinder, rated at
+ * 103.5 hp (77.2 kW) at 7750 rpm and 112.5 N*m (83 lb-ft) at 4250.
+ */
+const TRIUMPH_1200_HT: Partial<EngineSpec> = {
+  cylinders: 2,
+  vAngle: 0,
+  firingOffset: 270,
+  exhaustLayout: '2into2',
+  ...IDLING,
+  // Estimated: a little past its 7750 rpm power peak.
+  revLimit: 8000,
+  flywheelInertia: 0.25,
+  pipeCellSize: 0.035,
+  bore: 0.0976,
+  stroke: 0.08,
+  // Estimated: its published figures do not include the rod.
+  rodLength: 0.13,
+  compressionRatio: 12.1,
+  // Four valves a cylinder, the intakes a little smaller than a typical four-valve head's for the bore.
+  exValveDia: 0.0332,
+  exValveCount: 2,
+  inValveDia: 0.037,
+  inValveCount: 2,
+  // Estimated, like the runners and the exhaust, and tuned with them for the rated torque at 4250 rpm and
+  // power at 7750. The intake closes late, and long runners ram the charge in at the torque peak; there
+  // is no variable timing on its one cam.
+  maxLift: 0.0095,
+  evo: 120,
+  evc: 380,
+  ivo: 345,
+  ivc: 625,
+  intakeRunnerLength: 0.54,
+  intakeRunnerDia: 0.054,
+  // Its 50 mm throttle body.
+  throttleDia: 0.05,
+  recipMass: 0.7,
+  // Level-matched to the other twins.
+  outputGain: 0.54,
+};
+
+/**
  * The 1.5 litre EcoBoost "Dragon" of the Mk8 Fiesta ST: 84.0 x 90.0 mm, 9.7:1, and one turbo through an
  * air-to-air intercooler, rated at 200 PS (197 hp) at 6000 rpm and 290 N*m (214 lb-ft) from 1600 rpm.
  */
@@ -3055,6 +3097,33 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     graph: () => structuredClone(hondaRc51Exhaust) as ExhaustGraph,
   },
   {
+    name: 'Parallel twin, Triumph 1200 HT',
+    car: {
+      // Triumph's figures for the Speed Twin 1200: the six-speed, a 72/41 primary and a 43/18 chain. A
+      // 160/60ZR17 rear tyre, 216 kg wet.
+      name: 'Triumph Speed Twin 1200',
+      ratios: [2.583, 1.842, 1.38, 1.13, 0.966, 0.81],
+      finalDrive: (72 / 41) * (43 / 18),
+      tyreRadius: 0.31,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 216 + DRIVER_MASS,
+      drive: 'rwd',
+      drivenLoad: 0.5,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
+    description:
+      'The 1200 cc high-torque twin in the Triumph Speed Twin 1200 and Thruxton: 97.6 x 80 mm, 12.1:1, liquid-cooled, one cam working four valves a cylinder, and a 270\u00b0 crank, so it fires 270/450 like a 90\u00b0 V-twin and has the same lopsided beat. Each cylinder\u2019s header runs back to a silencer of its own. It makes 113 N\u00b7m at 4250 rpm and 104 hp at 7500, against the real engine\u2019s rated 112.5 N\u00b7m (83 lb\u00b7ft) at 4250 and 103.5 hp at 7750. It breathes through its 50 mm throttle body; its rod, valves, cam, runners and exhaust are estimates.',
+    engine: TRIUMPH_1200_HT,
+    // Estimated: each cylinder's header into a silencer of its own.
+    pipe: () => [
+      makeSegment({ kind: 'pipe', length: 1.0, dIn: 0.045 }),
+      makeSegment({ kind: 'cone', length: 0.1, dIn: 0.045, dOut: 0.055 }),
+      makeSegment({ kind: 'chamber', length: 0.45, dIn: 0.055, dOut: 0.1 }),
+      makeSegment({ kind: 'pipe', length: 0.1, dIn: 0.05 }),
+    ],
+  },
+  {
     name: 'Inline three, Ford 1.5 EcoBoost Dragon',
     car: {
       // The Mk8 Fiesta ST's six-speed manual and its 3.91 final drive. 205/40R18 tyres, about 1190 kg,
@@ -3318,30 +3387,6 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     // own back to a silencer. The headers flare to 66 mm where they meet: flared to the collector's 83 mm,
     // the gas goes supersonic in the flare at full throttle, faster than one solver step a sample allows.
     graph: () => structuredClone(porscheMezger40Exhaust) as ExhaustGraph,
-  },
-  {
-    name: 'Parallel twin, 360\u00b0',
-    description:
-      'Both pistons rise together, so it fires evenly every 360\u00b0 and has no half-order thump at all.',
-    engine: {
-      cylinders: 2,
-      vAngle: 0,
-      firingOffset: 360,
-      exhaustLayout: '2into1',
-      exhaustHeaders: true,
-      headerRun: 'lengthways',
-      ...IDLING,
-      // A modern 1200 cc parallel twin's.
-      revLimit: 7500,
-      ...fourValveHead(DEFAULT_ENGINE.bore),
-      outputGain: 0.54,
-    },
-    pipe: () => [makeSegment({ kind: 'pipe', length: 0.4, dIn: 0.04 })],
-    collector: () => [
-      makeSegment({ kind: 'pipe', length: 0.25, dIn: 0.055 }),
-      makeSegment({ kind: 'chamber', length: 0.3, dIn: 0.055, dOut: 0.13 }),
-      makeSegment({ kind: 'pipe', length: 0.2, dIn: 0.05 }),
-    ],
   },
 ];
 

@@ -134,6 +134,9 @@ fn real_engines_launch_through_their_own_cars() {
     let rc51 = &common::engine_preset("90° V-twin, Honda RC51").launch;
     assert_eq!(rc51.ratios, vec![2.461, 1.812, 1.428, 1.24, 1.08, 0.962]);
     assert!((rc51.final_drive - 4.25).abs() < 1e-9);
+    let speed_twin = &common::engine_preset("Parallel twin, Triumph 1200 HT").launch;
+    assert_eq!(speed_twin.ratios, vec![2.583, 1.842, 1.38, 1.13, 0.966, 0.81]);
+    assert!((speed_twin.final_drive - (72.0 / 41.0) * (43.0 / 18.0)).abs() < 1e-9);
     let gt86 = &common::engine_preset("Boxer four, Subaru FA20D").launch;
     assert_eq!(gt86.ratios, vec![3.626, 2.188, 1.541, 1.213, 1.0, 0.767]);
     assert_eq!(gt86.final_drive, 4.1);

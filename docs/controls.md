@@ -70,6 +70,7 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 | Ducati Superquadro Mono | Ducati Hypermotard 698 Mono, 235 kg | six-speed, primary gears and chain | road |
 | Harley-Davidson Milwaukee-Eight 121 | Harley-Davidson CVO Road Glide, 466 kg | six-speed Cruise Drive, primary chain and belt | road |
 | Honda RC51 | Honda RC51 (SP-1), 298 kg | six-speed, primary gears and chain | road |
+| Triumph 1200 HT | Triumph Speed Twin 1200, 291 kg | six-speed, primary gears and chain | road |
 | Honda F20C | Honda S2000 (AP1), 1349 kg | six-speed manual | road |
 | Subaru FA20D | Toyota 86 (ZN6), 1325 kg | six-speed manual | road |
 | Porsche Mezger 4.0 | Porsche 911 GT3 RS 4.0 (997), 1445 kg | six-speed manual | road |
@@ -81,7 +82,7 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 | Chevrolet LT2 | Chevrolet Corvette Stingray Z51 (C8), 1729 kg | Tremec eight-speed dual clutch | Pilot Sport 4S |
 | Chevrolet LT6 | Chevrolet Corvette Z06 with the Z07 package (C8), 1711 kg | Tremec eight-speed dual clutch | Pilot Sport Cup 2 R |
 
-The S2000's primary reduction, the Road Glide's primary chain and belt, the RC51's and the Hypermotard's primary gears and chain, and the Evora's and RS 3's second final drives
+The S2000's primary reduction, the Road Glide's primary chain and belt, the RC51's, the Speed Twin's and the Hypermotard's primary gears and chain, and the Evora's and RS 3's second final drives
 are folded into the ratios or final drive shown, so
 the overall gearing is the real car's. **Reset gearing** goes back to the car's own gearbox. The other
 presets get a car and a six-speed fitted to the engine.
