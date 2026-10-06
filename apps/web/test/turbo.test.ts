@@ -977,7 +977,7 @@ describe('a compiled header', () => {
 
   const lengthways = ENGINE_PRESETS.filter((p) => presetEngine(p, defaultConfig().engine).headerRun === 'lengthways').map((p) => p.name);
   it('builds every preset with a merge with lengthways headers, but those with manifolds', () => {
-    const manifolds = ['Inline four, Toyota 3S-GTE', 'Inline four, Mazda BPT', 'Inline three, Ford 1.5 EcoBoost Dragon', 'Inline five, Audi EA855 EVO', 'Inline six, Nissan RB26DETT', 'V6, Toyota 2GR'];
+    const manifolds = ['Inline four, Toyota 3S-GTE', 'Inline four, Mazda BPT', 'Inline three, Ford 1.5 EcoBoost Dragon', 'Inline five, Audi EA855 EVO', 'Inline six, Nissan RB26DETT', 'Inline six diesel, Cummins 6CT', 'V6, Toyota 2GR'];
     const merging = ENGINE_PRESETS.filter((p) => exhaustLayoutOf(presetEngine(p, defaultConfig().engine)) !== 'open');
     expect(lengthways).toEqual(merging.map((p) => p.name).filter((n) => !manifolds.includes(n)));
   });

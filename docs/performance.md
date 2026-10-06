@@ -31,6 +31,7 @@ Inline four, Mazda BPT                             111           27.3%    30.4%
 Boxer four, Subaru FA20D                            94           23.9%    27.3%
 Inline five, Audi EA855 EVO                        125           31.9%    35.4%
 Inline six, Nissan RB26DETT                        101           34.2%    38.3%
+Inline six diesel, Cummins 6CT                     139           41.1%    47.4%
 Boxer six, Porsche Mezger 4.0                      166           35.2%    40.6%
 V6, Toyota 2GR                                     144           42.3%    47.0%
 V8, Chevrolet LT6                                  216           42.5%    47.6%
@@ -47,6 +48,9 @@ cells, and get 234.
 Speed matters less than what the engine is made of — cylinders, junctions and pipe cells. From 3000
 to 6500 rpm every preset costs at most 4 points more, the most on the 2GR V6 and the turbocharged
 RB26.
+
+The Cummins 6CT is held there far past its governed speed, so it turns with no fuel; the gas costs the
+same to solve whatever it carries.
 
 The desktop app has headroom the web app does not, beyond the table: its render thread keeps two
 device buffers of audio ready ahead of the device, so an occasional slow block goes unheard, where

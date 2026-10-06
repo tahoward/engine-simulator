@@ -154,6 +154,17 @@ export type ExhaustLayoutSpec = ExhaustLayout | 'single' | '2into2' | '2into1';
  */
 export type BlowOff = 'atmospheric' | 'recirculating' | 'none';
 
+/**
+ * What the engine burns, and so how it lights its charge.
+ *
+ * - `gasoline`: port-injected and spark-lit. The throttle sets the air, and `lambda` the fuel with it.
+ * - `diesel`: injected into the cylinder near top dead centre and lit by the heat of compression after
+ *   an ignition delay. The intake is unthrottled: `throttle` is the pedal, and sets the fuel, up to
+ *   `smokeLambda` and `maxFuel`. A governor holds the idle at `idleRpm` and takes the fuel away towards
+ *   `revLimit`.
+ */
+export type Fuel = 'gasoline' | 'diesel';
+
 export const BLOW_OFFS: BlowOff[] = ['atmospheric', 'recirculating', 'none'];
 
 /**
@@ -349,8 +360,12 @@ export interface EngineSpec {
   pushrods: boolean;
 
   // --- Combustion ---
+  /** What the engine burns. See `Fuel`. */
+  fuel: Fuel;
   /**
-   * Spark timing, deg ATDC. Negative / >540 means before TDC firing.
+   * Spark timing, deg ATDC. Negative / >540 means before TDC firing. On a diesel, the start of
+   * injection: the charge lights after its ignition delay, from the pressure and temperature the
+   * compression leaves it at.
    *
    * With `advanceCurve` on, this is the timing for a charge that burns over `burnDuration`; the
    * spark moves from it to keep each cycle's combustion phased the same.
@@ -359,7 +374,8 @@ export interface EngineSpec {
   /**
    * Whether the spark follows an advance map. On, it moves with the predicted burn of each charge:
    * later at low rpm, where the burn is quick, earlier at part throttle and high rpm, where it is
-   * slow. Off, it fires at `ignition` whatever the charge, as a fixed-timing magneto does.
+   * slow. Off, it fires at `ignition` whatever the charge, as a fixed-timing magneto does. A diesel has
+   * no spark to move, and ignores it.
    */
   advanceCurve: boolean;
   /**
@@ -370,6 +386,10 @@ export interface EngineSpec {
    * The duration each cycle actually burns over is worked out from this for its own charge, from the
    * flame speed it will have at the spark: longer at part throttle and with residual gas, longer lean, and
    * somewhat longer the faster the engine turns. See `burn_angle` in `crates/engine-sim/src/cylinder.rs`.
+   *
+   * On a diesel, the duration of the diffusion burn at full fuel and 10 m/s mean piston speed, the part
+   * of the burn that follows the premixed spike: shorter with less fuel, longer the faster the engine
+   * turns.
    */
   burnDuration: number;
   /**
@@ -378,7 +398,8 @@ export interface EngineSpec {
    *
    * Each cylinder's port injector meters fuel in proportion to the air its runner draws, so this is
    * the mixture every cylinder traps. Lean, every kilogram of charge carries less fuel and burns
-   * slower; rich, the extra fuel has no oxygen to burn with and goes out unburned.
+   * slower; rich, the extra fuel has no oxygen to burn with and goes out unburned. A diesel's mixture
+   * is set by its pedal instead, and it ignores this.
    */
   lambda: number;
   /**
@@ -410,6 +431,16 @@ export interface EngineSpec {
    */
   combustionVariability: number;
   /**
+   * A diesel's smoke limit: the richest it is fuelled at full pedal, as λ. Past it the fuel finds too
+   * little air to burn clean, so the pump's stop, or its boost compensator, holds it there.
+   */
+  smokeLambda: number;
+  /**
+   * A diesel's full delivery: the most fuel its pump injects a cylinder each cycle, kg, which sets its
+   * torque where the smoke limit does not. 0 for no limit but the smoke limit.
+   */
+  maxFuel: number;
+  /**
    * Reciprocating mass: piston, rings, pin and the small end of the rod, kg.
    *
    * Its inertia torque is zero-mean over a cycle, so it does not change how fast the
@@ -425,6 +456,8 @@ export interface EngineSpec {
    * Expect it to feel nonlinear, because a real throttle is: area goes as `1 - cos(angle)`,
    * so most of the flow change happens in the first third of the travel, and past about
    * half open a throttle this size is barely a restriction at moderate rpm.
+   *
+   * On a diesel, the pedal: the share of the full fuel delivery it asks for, with the intake wide open.
    */
   throttle: number;
   /**
@@ -576,6 +609,9 @@ export interface EngineSpec {
    * charge still goes down the pipe, where it can light and pop, and the engine bounces off the
    * limit in the stuttering way a real one does. With the speed held (`freeRunning` off) at or past the limit, the crank is let
    * go instead, unloaded, so it can bounce too.
+   *
+   * On a diesel, the governed speed: its governor takes the fuel away over the 300 rpm below it, none
+   * left at it, so the engine runs up to it smoothly rather than bouncing off it.
    */
   revLimit: number;
   /**
@@ -583,7 +619,7 @@ export interface EngineSpec {
    * system does. The valve bypasses the throttle plate, opened by a controller on the crank speed: shut
    * above the idle speed, so the throttle alone sets the speed there, and opening further below it to
    * hold the idle against a load, up to its limit, past which the engine stalls. 0 for no idle control.
-   * Only for a free-running engine (`freeRunning`).
+   * Only for a free-running engine (`freeRunning`). On a diesel the governor holds it, with fuel.
    */
   idleRpm: number;
   /**
@@ -1382,6 +1418,7 @@ export const DEFAULT_ENGINE: EngineSpec = {
   vvtLinked: false,
   pushrods: false,
 
+  fuel: 'gasoline',
   ignition: 695, // 25 deg BTDC
   burnDuration: 55,
   advanceCurve: true,
@@ -1390,6 +1427,8 @@ export const DEFAULT_ENGINE: EngineSpec = {
   overrunCrackle: false,
   crackleIntensity: 0.6,
   combustionVariability: 1,
+  smokeLambda: 1.45,
+  maxFuel: 0,
   recipMass: 0.55,
   throttle: 0.75,
   // Zero means "derive it from the engine" — see `throttleDiaOf` and `plenumVolumeOf`.
@@ -2808,6 +2847,59 @@ const NISSAN_RB26: Partial<EngineSpec> = {
 };
 
 /**
+ * The 8.3 litre Cummins 6CT, the turbocharged C-series of medium-duty trucks, buses and boats: 114 x 135 mm,
+ * 16.5:1, two valves a cylinder on pushrods, direct injection from a mechanical pump, and a Holset turbo
+ * with no aftercooler, rated in its truck tunes at about 250 hp at 2200 rpm and 920 N*m (680 lb-ft) at 1500.
+ */
+const CUMMINS_6CT: Partial<EngineSpec> = {
+  cylinders: 6,
+  vAngle: 0,
+  exhaustLayout: 'merged',
+  fuel: 'diesel',
+  ...IDLING,
+  // Its governor's high idle: the fuel is all gone by 2500, full to the rated 2200.
+  revLimit: 2500,
+  // A truck's flywheel and clutch.
+  flywheelInertia: 1.6,
+  // Its piston, pin and the small end of its rod: a diesel's, heavy for its compression.
+  recipMass: 3.2,
+  pipeCellSize: 0.035,
+  bore: 0.114,
+  stroke: 0.135,
+  // Estimated.
+  rodLength: 0.216,
+  compressionRatio: 16.5,
+  // Pushrods, one intake and one exhaust valve a cylinder, about 46 and 41 mm: estimated.
+  pushrods: true,
+  exValveDia: 0.041,
+  inValveDia: 0.046,
+  // Estimated: a truck cam, short and with little overlap, for torque low down.
+  maxLift: 0.012,
+  evo: 128,
+  evc: 370,
+  ivo: 350,
+  ivc: 570,
+  // Injection 12 degrees before top dead centre, fixed, as a mechanical pump's static timing is, and a
+  // diffusion burn of about 55 degrees at full fuel.
+  ignition: 708,
+  burnDuration: 55,
+  // Fuelled to its rated torque at the pump's full delivery, and never richer than λ 1.5 below that, as
+  // its boost compensator holds it until the turbo is up.
+  maxFuel: 1.1e-4,
+  smokeLambda: 1.5,
+  // A diesel's charge lights the same way every cycle, far more alike than a spark's.
+  combustionVariability: 0.4,
+  // A Holset H1C on about 1.3 bar, wastegated, with no aftercooler and no blow-off valve: there is no
+  // throttle to shut against it. Its size is an estimate.
+  boostTarget: 1.3e5,
+  turboSize: 0.42,
+  intercooler: 0,
+  blowOff: 'none',
+  // Level-matched to the inline four, as the other presets are.
+  outputGain: 1.16,
+};
+
+/**
  * The 3.5 litre 2GR-FE of the Lotus Evora and half of Toyota's range: 94.0 x 83.0 mm, 10.8:1, a 60-degree
  * vee on a split-pin crank, and variable timing on the intake cam.
  */
@@ -3312,6 +3404,30 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     // Drawn in the editor: each half's three ports into a turbo, their outlets meeting behind them.
     graph: () => structuredClone(nissanRb26Exhaust) as ExhaustGraph,
     turbos: 2,
+  },
+  {
+    name: 'Inline six diesel, Cummins 6CT',
+    car: {
+      // The 6CT never came in a pickup, but it is the swap for one: a first-generation Dodge Ram 2500 with
+      // the NV4500 five-speed, 3.54 axle, 235/85R16 tyres and about 2400 kg, a little over half of it on
+      // the front.
+      name: 'Dodge Ram 2500, 6CT swap (1st gen)',
+      ratios: [5.61, 3.04, 1.67, 1.0, 0.75],
+      finalDrive: 3.54,
+      tyreRadius: 0.385,
+      tyreGrip: TYRE_GRIP.road,
+      mass: 2400 + DRIVER_MASS,
+      drive: 'rwd',
+      drivenLoad: 0.45,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
+    description:
+      'The 8.3 litre turbo diesel six of medium-duty trucks and buses: 114 x 135 mm, 16.5:1, two valves a cylinder on pushrods, and a 2500 rpm governed speed. It fires every 120\u00b0, 1-5-3-6-2-4, all six into one Holset turbo on 1.3 bar with no aftercooler. There is no throttle: the pedal meters the fuel its pump injects 12\u00b0 before top dead centre, and the charge lights by itself once compression has heated it, after an ignition delay. What mixes with the air in that delay burns all at once, which is the diesel\u2019s clatter, loudest at idle; the rest burns as it is injected. It makes about 930 N\u00b7m (685 lb\u00b7ft) at 1500 rpm and 265 hp at 2200, against the truck ratings\u2019 920 N\u00b7m at 1500 and about 250 hp at 2200. Its rod, valves, cams, turbo size and exhaust are estimates.',
+    engine: CUMMINS_6CT,
+    pipe: () => fittedExhaust(fullSpec(CUMMINS_6CT)).pipe,
+    collector: () => fittedExhaust(fullSpec(CUMMINS_6CT)).collector,
+    turbos: 1,
   },
   {
     name: 'V6, Toyota 2GR',

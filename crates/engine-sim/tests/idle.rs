@@ -46,7 +46,7 @@ fn settles_near_the_idle_speed(name: &str) {
 }
 
 /// Every preset has an idle test below.
-const PRESETS: [&str; 15] = [
+const PRESETS: [&str; 16] = [
     "Single, Ducati Superquadro Mono",
     "45° V-twin, Harley-Davidson Milwaukee-Eight 121",
     "90° V-twin, Honda RC51",
@@ -57,6 +57,7 @@ const PRESETS: [&str; 15] = [
     "Inline four, Toyota 3S-GTE",
     "Inline five, Audi EA855 EVO",
     "Inline six, Nissan RB26DETT",
+    "Inline six diesel, Cummins 6CT",
     "V6, Toyota 2GR",
     "V8, Chevrolet LT2",
     "V8, Chevrolet LT6",
@@ -94,11 +95,12 @@ idle_tests! {
     presets_idle_inline_four_toyota_3s_gte => 7,
     presets_idle_inline_five_audi_ea855_evo => 8,
     presets_idle_inline_six_nissan_rb26dett => 9,
-    presets_idle_v6_toyota_2gr => 10,
-    presets_idle_v8_chevrolet_lt2 => 11,
-    presets_idle_v8_chevrolet_lt6 => 12,
-    presets_idle_boxer_four_subaru_fa20d => 13,
-    presets_idle_boxer_six_porsche_mezger_4_0 => 14,
+    presets_idle_inline_six_diesel_cummins_6ct => 10,
+    presets_idle_v6_toyota_2gr => 11,
+    presets_idle_v8_chevrolet_lt2 => 12,
+    presets_idle_v8_chevrolet_lt6 => 13,
+    presets_idle_boxer_four_subaru_fa20d => 14,
+    presets_idle_boxer_six_porsche_mezger_4_0 => 15,
 }
 
 // --- the idle air valve ---
@@ -132,6 +134,7 @@ fn comes_down_off_a_lift_to_the_idle_without_stalling() {
         "Inline four, Honda F20C",
         "V8, Chevrolet LT2",
         "Inline six, Nissan RB26DETT",
+    "Inline six diesel, Cummins 6CT",
     ] {
         let mut sim = idling(name, json!({}));
         sim.set_controls(0.6, 0.0);

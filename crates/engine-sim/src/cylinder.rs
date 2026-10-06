@@ -10,7 +10,7 @@ use std::sync::OnceLock;
 use crate::dsp::{Noise, cycle_delta, window_phase, wrap_cycle};
 use crate::math::{self, PI, clamp};
 use crate::spec::{
-    CV_REF, CV_SLOPE, CrankGeometry, CrankState, EngineSpec, T_REF, crank_at, cylinder_volume, displacement,
+    CV_REF, CV_SLOPE, CrankGeometry, CrankState, EngineSpec, Fuel, T_REF, crank_at, cylinder_volume, displacement,
     fuel_fraction_at, gas,
 };
 
@@ -109,13 +109,27 @@ pub struct Cylinder {
     charge_residual: f64,
     /// Fresh charge trapped at the last intake valve closing, kg.
     pub trapped_fresh: f64,
-    /// Wiebe duration this cycle burns over, deg.
+    /// Wiebe duration this cycle burns over, deg: a diesel's diffusion burn.
     pub burn_angle: f64,
-    /// Crank angle this cycle's spark fires at, deg.
+    /// Crank angle this cycle's spark fires at, deg: where a diesel's charge lights, after its
+    /// ignition delay.
     pub spark: f64,
     armed: bool,
     /// Set by the rev limiter; read when the charge is committed.
     pub spark_cut: bool,
+    /// A diesel's fuel demand from its pedal and governor, 0..1 of the full delivery; read when the
+    /// charge is committed.
+    pub fuel_demand: f64,
+    /// This cycle's charge is a diesel's: injected as it burns, in two stages.
+    diesel: bool,
+    /// Of a diesel's fuel, the share that mixes during the ignition delay and burns at once, 0..1.
+    pub premixed_share: f64,
+    /// Wiebe duration of a diesel's premixed burn, deg.
+    pub premixed_angle: f64,
+    /// Stoichiometric air-fuel ratio of this cycle's fuel.
+    afr: f64,
+    /// Fuel injected this step, kg: it joins the gas as it burns.
+    injected: f64,
     /// Set by the overrun crackle map; read when the charge is committed.
     pub crackle: Option<CrackleSpark>,
     /// Unburned fuel, and the air with it, sent out through the exhaust valve since the last
@@ -207,6 +221,29 @@ const WIEBE_HALF: f64 = 0.516;
 const MAX_ADVANCE: f64 = 50.0;
 const MIN_ADVANCE: f64 = 0.0;
 
+/// Cetane number of the diesel fuel, which sets its autoignition activation energy.
+const CETANE: f64 = 45.0;
+/// Universal gas constant, J/(mol K).
+const R_UNIVERSAL: f64 = 8.3143;
+/// The pressure the ignition delay correlation is singular at, bar: it is floored a little above.
+const DELAY_PRESSURE_FLOOR: f64 = 13.0;
+/// Longest ignition delay, deg: a charge that would wait longer lights there, late.
+const MAX_IGNITION_DELAY: f64 = 60.0;
+/// Watson's premixed share: `1 - A phi^B / tau^C`, `tau` in ms.
+const PREMIXED_A: f64 = 0.926;
+const PREMIXED_B: f64 = 0.37;
+const PREMIXED_C: f64 = 0.26;
+const MAX_PREMIXED_SHARE: f64 = 0.9;
+/// How long the premixed burn takes, s: chemistry, so fixed in time rather than in degrees.
+const PREMIXED_TIME: f64 = 0.8e-3;
+const MIN_PREMIXED_ANGLE: f64 = 2.0;
+/// Wiebe form factor of the diffusion burn: fast to start and slow to finish, as the last of the
+/// fuel finds its air.
+const DIFFUSION_M: f64 = 0.9;
+/// Share of the spark's timing scatter a diesel's injection keeps: the pump meters the same
+/// moment each time, and only the ignition delay varies.
+const DIESEL_TIMING_SCATTER: f64 = 0.15;
+
 /// The constants derived through transcendental functions, computed once.
 struct Derived {
     stoich_speed: f64,
@@ -247,6 +284,12 @@ impl Cylinder {
             spark: 0.0,
             armed: false,
             spark_cut: false,
+            fuel_demand: 1.0,
+            diesel: false,
+            premixed_share: 0.0,
+            premixed_angle: 0.0,
+            afr: gas::AFR_STOICH,
+            injected: 0.0,
             crackle: None,
             exhausted_fuel: 0.0,
             exhausted_air: 0.0,
@@ -292,6 +335,11 @@ impl Cylinder {
         self.exhausted_fuel = 0.0;
         self.exhausted_air = 0.0;
         out
+    }
+
+    /// Fuel this cycle's charge burns, kg: a diesel's, what it is injected.
+    pub fn cycle_fuel(&self) -> f64 {
+        self.burn_fuel
     }
 
     /// Fraction of the trapped charge that is spent gas, 0..1.
@@ -441,7 +489,7 @@ impl Cylinder {
         };
         let du = dq + (-p * dv_dt - h_ex + h_in) * dt;
 
-        let dm = (in_mdot - ex_mdot) * dt;
+        let dm = (in_mdot - ex_mdot) * dt + self.injected;
         let mass_before = self.mass;
         self.mass = math::max(self.mass + dm, MIN_MASS);
         self.energy += du;
@@ -538,6 +586,11 @@ impl Cylinder {
             let q_scale = clamp(1.0 + shared * scatter * 0.45 + self.noise.gaussian() * scatter * 0.3, 0.3, 1.25);
             self.ignition_offset = clamp(self.noise.gaussian() * scatter * 22.0, -14.0, 14.0);
 
+            if spec.fuel == Fuel::Diesel {
+                self.commit_injection(spec, air, q_scale);
+                return;
+            }
+            self.diesel = false;
             self.q_cycle = self.burn_fuel * gas::FUEL_LHV * COMBUSTION_EFFICIENCY * q_scale;
 
             // --- Flammability, dilution, lean and rich limits ---
@@ -591,11 +644,79 @@ impl Cylinder {
         }
     }
 
+    /// Commit a diesel's charge at intake valve closing: the fuel the pedal and the governor ask for,
+    /// up to what the trapped air takes at the smoke limit and the pump's full delivery, injected at
+    /// `spec.ignition` and lit once its ignition delay has run.
+    fn commit_injection(&mut self, spec: &EngineSpec, air: f64, q_scale: f64) {
+        let afr = spec.fuel.afr_stoich();
+        let smoke = air / (afr * math::max(spec.smoke_lambda, 1.0));
+        let full = if spec.max_fuel > 0.0 { math::min(smoke, spec.max_fuel) } else { smoke };
+        let demand = clamp(self.fuel_demand, 0.0, 1.0);
+        self.diesel = true;
+        self.afr = afr;
+        self.burn_fuel = demand * full;
+        self.charge_phi = (self.burn_fuel * afr) / math::max(air, 1e-12);
+        self.q_cycle = self.burn_fuel * spec.fuel.lhv() * COMBUSTION_EFFICIENCY * q_scale;
+
+        // The charge as compression leaves it at top dead centre.
+        let squeeze = self.step_volume / cylinder_volume(spec, 0.0);
+        let p_tdc = self.step_pressure * math::pow(squeeze, COMPRESSION_EXPONENT);
+        let t_tdc = self.step_temp * math::pow(squeeze, COMPRESSION_EXPONENT - 1.0);
+        let piston_speed = (spec.stroke * self.step_omega.abs()) / PI;
+        let deg_per_s = math::max((self.step_omega.abs() * 180.0) / PI, 1e-3);
+        let delay = ignition_delay(piston_speed, p_tdc, t_tdc);
+
+        self.premixed_share = premixed_share(self.charge_phi, delay / deg_per_s);
+        self.premixed_angle = math::max(PREMIXED_TIME * deg_per_s, MIN_PREMIXED_ANGLE);
+        let diffusion =
+            spec.burn_duration * math::sqrt(piston_speed / REF_PISTON_SPEED) * (0.5 + 0.5 * demand) * self.burn_scale;
+        self.burn_angle = clamp(diffusion, 4.0, MAX_BURN_ANGLE);
+        let injection = spec.ignition + self.ignition_offset * DIESEL_TIMING_SCATTER;
+        self.spark = wrap_cycle(injection + delay);
+        self.burned = 0.0;
+        self.armed = !self.spark_cut && self.q_cycle > 0.0;
+    }
+
+    /// A diesel's heat release for this step, J: the premixed and diffusion burns together, each
+    /// fuel parcel injected as it burns.
+    fn diesel_release(&mut self) -> f64 {
+        let start = self.spark;
+        let premixed = self.premixed_share;
+        let burnt = |deg: f64, s: &Self| {
+            premixed * wiebe(deg, s.premixed_angle) + (1.0 - premixed) * wiebe_m(deg, s.burn_angle, DIFFUSION_M)
+        };
+        let from = burnt(cycle_delta(self.angle, start), self);
+        let to = burnt(cycle_delta(self.next_angle, start), self);
+        let d = to - from;
+        if d <= 0.0 {
+            return 0.0;
+        }
+        self.burned = to;
+        let mut fuel_burned = d * self.burn_fuel;
+        let mut q = d * self.q_cycle;
+        let left = math::max((self.fresh_mass - self.fuel_mass) / self.afr, 0.0);
+        if fuel_burned > left {
+            q *= left / fuel_burned;
+            fuel_burned = left;
+        }
+        self.fresh_mass = math::max(self.fresh_mass - fuel_burned * self.afr, 0.0);
+        self.fuel_mass = math::min(self.fuel_mass, self.fresh_mass);
+        self.injected = fuel_burned;
+        if to >= 0.999 {
+            self.armed = false;
+        }
+        q
+    }
+
     /// Wiebe-function heat release for this step, J.
     fn heat_release(&mut self) -> f64 {
         let next_angle = self.next_angle;
+        self.injected = 0.0;
         if !self.armed || self.q_cycle <= 0.0 {
             return 0.0;
+        }
+        if self.diesel {
+            return self.diesel_release();
         }
         let spark = self.spark;
         let duration = self.burn_angle;
@@ -701,6 +822,37 @@ pub fn burn_angle(spec: &EngineSpec, omega: f64, p: f64, t: f64, phi: f64, resid
     let burnup = (d.ref_laminar / laminar)
         * math::sqrt((kinematic_viscosity(t, p) / d.ref_viscosity) * (REF_TURBULENCE / turbulence));
     spec.burn_duration * (piston_speed / REF_PISTON_SPEED) * ((1.0 - BURNUP_SHARE) * front + BURNUP_SHARE * burnup)
+}
+
+/// Hardenberg and Hase's ignition delay, deg, of diesel fuel injected into air at `p` Pa and `t` K,
+/// at a mean piston speed of `piston_speed` m/s.
+pub fn ignition_delay(piston_speed: f64, p: f64, t: f64) -> f64 {
+    let activation = 618_840.0 / (CETANE + 25.0);
+    let bar = math::max(p / 1e5, DELAY_PRESSURE_FLOOR);
+    let exponent = activation * (1.0 / (R_UNIVERSAL * t) - 1.0 / 17_190.0) + math::pow(21.2 / (bar - 12.4), 0.63);
+    math::min((0.36 + 0.22 * piston_speed) * math::exp(exponent), MAX_IGNITION_DELAY)
+}
+
+/// Watson's share of a diesel's fuel that burns premixed, 0..1: what mixed with the air during an
+/// ignition delay of `delay` s, at overall equivalence ratio `phi`.
+pub fn premixed_share(phi: f64, delay: f64) -> f64 {
+    let ms = math::max(delay * 1e3, 1e-3);
+    let share = 1.0 - (PREMIXED_A * math::pow(math::max(phi, 0.0), PREMIXED_B)) / math::pow(ms, PREMIXED_C);
+    clamp(share, 0.0, MAX_PREMIXED_SHARE)
+}
+
+/// Wiebe mass fraction burned with form factor `m`, `a = 5`, normalised to reach exactly 1 at the
+/// duration.
+#[inline]
+pub fn wiebe_m(deg_after_start: f64, duration: f64, m: f64) -> f64 {
+    if deg_after_start <= 0.0 {
+        return 0.0;
+    }
+    if deg_after_start >= duration {
+        return 1.0;
+    }
+    let u = deg_after_start / duration;
+    (1.0 - math::exp(-5.0 * math::pow(u, m + 1.0))) * derived().wiebe_norm
 }
 
 /// Wiebe mass fraction burned, `a = 5`, `m = 2`, normalised to reach exactly 1 at the duration.

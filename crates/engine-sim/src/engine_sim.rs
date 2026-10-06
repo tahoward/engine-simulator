@@ -38,7 +38,7 @@ use crate::radiation::{FarField, MouthJet, Steepening};
 use crate::shell::ChamberShell;
 use crate::spec::{
     BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout,
-    FUEL_CUT_THROTTLE, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment, REV_LIMIT_HYSTERESIS_RPM,
+    FUEL_CUT_THROTTLE, Fuel, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment, REV_LIMIT_HYSTERESIS_RPM,
     RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, crank_pins, density, displacement,
     exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_cut_rpms, fuel_fraction_at, full_load_torque, gas,
     intake_runner_of, load_torque_of, physical_bank_count,
@@ -101,6 +101,20 @@ const IDLE_SETTLE_TIME: f64 = 2.0;
 /// round. And the time constant the rate is smoothed over, s.
 const IDLE_DASHPOT: f64 = 0.04;
 const IDLE_RATE_TAU: f64 = 0.05;
+
+/// A diesel's idle governor, which meters fuel where a petrol engine's idle air valve meters air: the
+/// fuel it starts from and the most it gives, as shares of the full delivery, and its gains on the
+/// speed error as a share of the idle speed, proportional and integral, /s, and on how fast the engine
+/// is falling, in idle speeds per second, s.
+const IDLE_FUEL_START: f64 = 0.06;
+const IDLE_FUEL_MAX: f64 = 0.35;
+const IDLE_FUEL_KP: f64 = 0.6;
+const IDLE_FUEL_KI: f64 = 0.3;
+const IDLE_FUEL_DASHPOT: f64 = 0.05;
+
+/// How far below a diesel's governed speed its governor starts taking the fuel away, rev/min: none is
+/// left at the governed speed itself.
+const GOVERNOR_DROOP: f64 = 300.0;
 
 /// The overrun crackle map: the speed above which a lift starts it, rev/min, and below which it
 /// stops; the longest it runs after a lift, s; how late it fires the spark, degrees after top dead
@@ -207,6 +221,9 @@ const LOCAL_MODE_DETUNE: f64 = 0.06;
 /// higher takes more air; started with too little, it falls through its idle while the controller learns
 /// the rest, and with too much it hangs above it.
 fn idle_valve_start(spec: &EngineSpec) -> f64 {
+    if spec.fuel == Fuel::Diesel {
+        return IDLE_FUEL_START;
+    }
     IDLE_VALVE_START * math::sqrt(math::max(spec.idle_rpm, IDLE_VALVE_START_RPM) / IDLE_VALVE_START_RPM)
 }
 
@@ -406,8 +423,13 @@ pub struct EngineSim {
     /// Whether the spark and the fuel are on. Off, the engine coasts to a stop on its own friction and
     /// pumping, and the pipes ring down with it.
     ignition: bool,
-    /// The idle air valve controller's learned opening: its integral term.
+    /// The idle air valve controller's learned opening: its integral term. A diesel's idle governor
+    /// learns its fuel here instead.
     idle_learned: f64,
+    /// A diesel's idle governor's fuel this sample, and the fuel its cylinders are given, as shares of
+    /// the full delivery, 0..1.
+    idle_fuel: f64,
+    fuel_demand: f64,
     /// The crank speed it last saw, rev/min, and how fast that is changing, rev/min per s, smoothed.
     idle_last_rpm: f64,
     idle_rate: f64,
@@ -555,6 +577,7 @@ struct ValveCtx<'a> {
     intake_shift: f64,
     exhaust_shift: f64,
     limiter_cut: bool,
+    fuel_demand: f64,
     crackle: Option<CrackleSpark>,
     rpm: f64,
     /// Crank speed, rad/s, ripple included.
@@ -569,6 +592,7 @@ impl ValveCtx<'_> {
     fn step(&self, b: usize, cyl: &mut Cylinder, bank: &mut Bank, noise: &mut Noise, port_abs: f64) {
         let angle = cyl.angle;
         cyl.spark_cut = self.limiter_cut;
+        cyl.fuel_demand = self.fuel_demand;
         cyl.crackle = self.crackle;
         cyl.intake_cam_offset = self.timing[b] + self.intake_shift;
         cyl.exhaust_cam_offset = self.timing[b] + self.exhaust_shift;
@@ -795,6 +819,8 @@ impl EngineSim {
             fuel_cut_active: false,
             ignition: true,
             idle_learned: idle_valve_start(&config.engine),
+            idle_fuel: 0.0,
+            fuel_demand: 0.0,
             idle_last_rpm: 0.0,
             idle_rate: 0.0,
             idle_trend: 0.0,
@@ -979,10 +1005,13 @@ impl EngineSim {
     /// With the ignition off it stays where it was, as a stepper motor, or a drive-by-wire throttle's own
     /// motor, does when its power goes: air goes on leaking into the plenum through it, and the manifold's
     /// vacuum bleeds away as the engine coasts to rest, rather than through the plate's clearance alone.
+    ///
+    /// On a diesel the same controller is its idle governor, and meters fuel, `idle_fuel`, in place of air.
     fn update_idle_valve(&mut self, dt: f64, throttle: f64) {
         let spec = &self.spec.spec;
         if !(spec.free_running && spec.idle_rpm > 0.0) {
             self.plenum.set_bypass(spec, 0.0);
+            self.idle_fuel = 0.0;
             return;
         }
         if !self.ignition {
@@ -1003,14 +1032,21 @@ impl EngineSim {
         } else {
             math::max(self.idle_settled_for - dt, 0.0)
         };
+        let (ki, most) =
+            if spec.fuel == Fuel::Diesel { (IDLE_FUEL_KI, IDLE_FUEL_MAX) } else { (IDLE_KI, IDLE_VALVE_MAX) };
         if !above {
-            self.idle_learned = clamp(self.idle_learned + IDLE_KI * error * dt, 0.0, IDLE_VALVE_MAX);
+            self.idle_learned = clamp(self.idle_learned + ki * error * dt, 0.0, most);
         } else if self.idle_settled_for >= IDLE_SETTLE_TIME {
-            let unwind = IDLE_KI * (1.0 - IDLE_HOLD_ABOVE) * dt;
-            self.idle_learned = clamp(self.idle_learned + unwind, 0.0, IDLE_VALVE_MAX);
+            let unwind = ki * (1.0 - IDLE_HOLD_ABOVE) * dt;
+            self.idle_learned = clamp(self.idle_learned + unwind, 0.0, most);
         }
         // How fast it is falling, in idle speeds per second: negative as it rises.
         let falling = -self.idle_rate / spec.idle_rpm;
+        if spec.fuel == Fuel::Diesel {
+            self.idle_fuel =
+                clamp(self.idle_learned + IDLE_FUEL_KP * error + IDLE_FUEL_DASHPOT * falling, 0.0, IDLE_FUEL_MAX);
+            return;
+        }
         let opening = clamp(self.idle_learned + IDLE_KP * error + IDLE_DASHPOT * falling, 0.0, IDLE_VALVE_MAX);
         self.plenum.set_bypass(spec, opening);
     }
@@ -1611,7 +1647,10 @@ impl EngineSim {
             self.omega_display += (self.omega_mean - self.omega_display) * (dt / IRREGULARITY_TAU);
             let spec = &self.spec.spec;
             let limit_omega = (spec.rev_limit * 2.0 * PI) / 60.0;
-            if self.omega_mean >= limit_omega {
+            if spec.fuel == Fuel::Diesel {
+                // Its governor takes the fuel away instead: see `fuel_demand`.
+                self.limiter_cut = false;
+            } else if self.omega_mean >= limit_omega {
                 self.limiter_cut = true;
             } else if self.omega_mean < ((spec.rev_limit - REV_LIMIT_HYSTERESIS_RPM) * 2.0 * PI) / 60.0 {
                 self.limiter_cut = false;
@@ -1678,14 +1717,15 @@ impl EngineSim {
         // --- Overrun fuel cut, and the crackle map that holds it off after a lift ---
         let rpm_now = (self.omega_mean * 60.0) / (2.0 * PI);
         let (cut_rpm, resume_rpm) = fuel_cut_rpms(&self.spec.spec);
-        if !self.spec.spec.fuel_cut || throttle > FUEL_CUT_THROTTLE {
+        let diesel = self.spec.spec.fuel == Fuel::Diesel;
+        if diesel || !self.spec.spec.fuel_cut || throttle > FUEL_CUT_THROTTLE {
             self.fuel_cut_active = false;
         } else if rpm_now > cut_rpm {
             self.fuel_cut_active = true;
         } else if rpm_now < resume_rpm {
             self.fuel_cut_active = false;
         }
-        if self.spec.spec.overrun_crackle && throttle <= FUEL_CUT_THROTTLE && self.ignition {
+        if self.spec.spec.overrun_crackle && !diesel && throttle <= FUEL_CUT_THROTTLE && self.ignition {
             if !self.crackle_active && !self.crackle_spent && rpm_now > CRACKLE_RPM {
                 self.crackle_active = true;
                 self.crackle_time = 0.0;
@@ -1725,6 +1765,17 @@ impl EngineSim {
         let mut torque_sum = 0.0;
         let mut dpdt_sum = 0.0;
         let limiter_cut = self.limiter_cut || !self.ignition || self.launch.as_ref().is_some_and(|l| l.spark_cut);
+        // --- A diesel's fuel: the pedal's, or the idle governor's where that asks for more, taken away
+        // over the last `GOVERNOR_DROOP` below the governed speed. Launch control cuts it as it would
+        // a spark ---
+        self.fuel_demand = if !diesel {
+            1.0
+        } else if limiter_cut {
+            0.0
+        } else {
+            let droop = clamp((self.spec.spec.rev_limit - rpm_now) / GOVERNOR_DROOP, 0.0, 1.0);
+            clamp(math::max(throttle, self.idle_fuel), 0.0, 1.0) * droop
+        };
         let rpm = self.rpm();
         // --- Exhaust gas dynamics, all ducts in lockstep, with the turbine in them and afterfire ---
         for b in 0..banks {
@@ -1736,7 +1787,7 @@ impl EngineSim {
         // --- Intake runners, all in lockstep, alongside the exhaust: neither reads the other ---
         let run_io = RunnerIo {
             dt,
-            inject: if (self.fuel_cut_active && !self.crackle_active) || !self.ignition {
+            inject: if diesel || (self.fuel_cut_active && !self.crackle_active) || !self.ignition {
                 0.0
             } else {
                 self.inject_fraction
@@ -1755,6 +1806,7 @@ impl EngineSim {
                 intake_shift: self.intake_shift,
                 exhaust_shift: self.exhaust_shift,
                 limiter_cut,
+                fuel_demand: self.fuel_demand,
                 crackle,
                 rpm,
                 omega: self.omega,

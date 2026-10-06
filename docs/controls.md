@@ -31,7 +31,9 @@
   it. **Flywheel inertia** sets how quickly it responds.
 - **Operating point → Rev limiter** sets the highest speed the engine will run. Each preset sets
   the limit of the real engine it copies. Above the limit the spark is cut, and it comes back
-  200 rpm lower, so the engine bounces off the limit the way a real one does.
+  200 rpm lower, so the engine bounces off the limit the way a real one does. On a diesel it is the
+  **Governed speed**: the governor takes the fuel away over the 300 rpm below it, so the engine runs
+  up to it smoothly instead.
 
 ## Launch
 
@@ -68,7 +70,7 @@ peak. The car is slowed by rolling resistance and by air drag, with a drag area 
   out of power against its drag. Type a value to set it yourself. **Reset gearing** puts back the
   six-speed and the auto final drive.
 
-The presets of real engines launch in the real cars they come from, marked **(stock)**. Each uses its car's
+The presets of real engines launch in the real cars they come from, or for the Cummins 6CT the pickup it is most often swapped into, marked **(stock)**. Each uses its car's
 gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the driven wheels and gearbox:
 
 | Preset | Car | Gearbox | Tyres |
@@ -85,6 +87,7 @@ gear ratios, final drive, tyres, kerb weight with a 75 kg driver, weight on the 
 | Toyota 3S-GTE | Toyota MR2 GT-S (SW20, 1992–93), 1325 kg | Toyota E153 five-speed manual | Yokohama A022 |
 | Audi EA855 EVO | Audi RS 3 Sportback (8V, 2017–20), 1585 kg, all-wheel drive | Audi seven-speed S tronic dual clutch | road |
 | Nissan RB26DETT | Nissan Skyline GT-R V-Spec (R34), 1635 kg, all-wheel drive | Getrag six-speed manual | road |
+| Cummins 6CT | Dodge Ram 2500 (1st gen) with the 6CT swapped in, 2475 kg | New Venture NV4500 five-speed manual | road |
 | Toyota 2GR | Lotus Evora (2012), 1457 kg | Toyota six-speed manual, close ratios | road |
 | Chevrolet LT2 | Chevrolet Corvette Stingray Z51 (C8), 1729 kg | Tremec eight-speed dual clutch | Pilot Sport 4S |
 | Chevrolet LT6 | Chevrolet Corvette Z06 with the Z07 package (C8), 1711 kg | Tremec eight-speed dual clutch | Pilot Sport Cup 2 R |
@@ -233,6 +236,19 @@ valves, the flutter and the wastegates. See [The turbocharger's sounds](acoustic
 
 ## Combustion
 
+- **Fuel** is gasoline or diesel. Gasoline is port-injected and lit by the spark, with the throttle
+  setting the air. Diesel has no throttle: the **Pedal** sets the fuel, injected into the cylinder
+  and lit by compression. A diesel wants a compression ratio of 15:1 or more to light. See
+  [The diesel](engine.md#the-diesel). On a diesel, **Mixture**, **Overrun fuel cut** and the
+  crackle map are hidden, since it has none of them, and these take their place:
+    - **Injection timing**, in place of **Ignition advance**: where the injection starts. The fuel
+      lights a few degrees later, after its ignition delay.
+    - **Smoke limit**: the richest it is fuelled at full pedal, as λ. Off boost this sets the torque.
+    - **Full fuel**: the most fuel the pump injects a cylinder each cycle, which sets the torque once
+      the boost gives the air for it.
+
+    **Burn duration** is the diffusion burn's, after the premixed spike, and **Idle speed** is what
+    the governor holds with fuel.
 - **Ignition advance** is the spark timing for a charge that burns over the reference **Burn
   duration**. An advance map moves it for each charge, so the spark fires later at low rpm and
   earlier at part throttle and high rpm. See [The flame](engine.md#the-advance-map).

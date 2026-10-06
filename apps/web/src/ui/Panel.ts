@@ -56,6 +56,7 @@ import {
   presetEngine,
   type BlowOff,
   type Car,
+  type Fuel,
   type Drive,
   type LaunchConfig,
   type EngineConfig,
@@ -410,7 +411,7 @@ export class Panel {
     this.rpmEl = el('div', 'big-readout', transport);
     this.rpmEl.textContent = '— rpm';
 
-    this.slider(transport, {
+    const pedal = this.slider(transport, {
       label: 'Throttle',
       min: 0,
       max: 1,
@@ -419,9 +420,19 @@ export class Panel {
       sync: () => this.config.engine.throttle,
       format: (v) => `${Math.round(v * 100)}%`,
       onInput: (v) => this.cb.onEngine({ throttle: v }),
-    }).row.title =
-      'The engine speed follows from this and the load: the crank is driven by the gas torque ' +
-      'against friction and the load, so the exhaust tuning moves it too.';
+    });
+    const showPedal = () => {
+      const diesel = this.config.engine.fuel === 'diesel';
+      pedal.row.querySelector('label')!.textContent = diesel ? 'Pedal' : 'Throttle';
+      pedal.row.title =
+        (diesel
+          ? 'The share of the full fuel delivery asked for: a diesel has no throttle, and draws its air wide open. '
+          : '') +
+        'The engine speed follows from this and the load: the crank is driven by the gas torque ' +
+        'against friction and the load, so the exhaust tuning moves it too.';
+    };
+    showPedal();
+    this.resyncers.push(showPedal);
 
     const load = this.slider(transport, {
       label: 'Load',
@@ -502,7 +513,7 @@ export class Panel {
     this.slider(launch, {
       label: 'Car mass',
       min: 100,
-      max: 2500,
+      max: 4000,
       step: 10,
       value: this.launchConfig().mass,
       sync: () => this.launch.mass ?? this.launchConfig().mass,
@@ -1088,7 +1099,7 @@ export class Panel {
     this.slider(geo, {
       label: 'Bore',
       min: 0.05,
-      max: 0.12,
+      max: 0.16,
       step: 0.001,
       value: spec.bore,
       sync: () => this.config.engine.bore,
@@ -1099,7 +1110,7 @@ export class Panel {
     this.slider(geo, {
       label: 'Stroke',
       min: 0.04,
-      max: 0.12,
+      max: 0.16,
       step: 0.001,
       value: spec.stroke,
       sync: () => this.config.engine.stroke,
@@ -1110,7 +1121,7 @@ export class Panel {
     this.slider(geo, {
       label: 'Rod length',
       min: 0.09,
-      max: 0.24,
+      max: 0.3,
       step: 0.001,
       value: spec.rodLength,
       sync: () => this.config.engine.rodLength,
@@ -1121,7 +1132,7 @@ export class Panel {
     this.slider(geo, {
       label: 'Reciprocating mass',
       min: 0.1,
-      max: 2,
+      max: 5,
       step: 0.01,
       value: spec.recipMass,
       sync: () => this.config.engine.recipMass,
@@ -1134,7 +1145,7 @@ export class Panel {
     this.slider(geo, {
       label: 'Flywheel inertia',
       min: 0.02,
-      max: 1.2,
+      max: 3,
       step: 0.01,
       value: spec.flywheelInertia,
       sync: () => this.config.engine.flywheelInertia,
@@ -1144,7 +1155,7 @@ export class Panel {
     this.slider(geo, {
       label: 'Compression ratio',
       min: 6,
-      max: 15,
+      max: 23,
       step: 0.1,
       value: spec.compressionRatio,
       sync: () => this.config.engine.compressionRatio,
@@ -1209,7 +1220,7 @@ export class Panel {
     this.slider(valves, {
       label: 'Max lift',
       min: 0.002,
-      max: 0.016,
+      max: 0.02,
       step: 0.0001,
       value: spec.maxLift,
       sync: () => this.config.engine.maxLift,
@@ -1219,7 +1230,7 @@ export class Panel {
     });
     this.slider(valves, {
       label: 'Exhaust opens',
-      min: 90,
+      min: 80,
       max: 180,
       step: 1,
       value: spec.evo,
@@ -1250,7 +1261,7 @@ export class Panel {
     this.slider(valves, {
       label: 'Intake closes',
       min: 520,
-      max: 630,
+      max: 650,
       step: 1,
       value: spec.ivc,
       sync: () => this.config.engine.ivc,
@@ -1280,7 +1291,7 @@ export class Panel {
     this.slider(valves, {
       label: 'High cam lift',
       min: 0.002,
-      max: 0.016,
+      max: 0.02,
       step: 0.0001,
       value: spec.highMaxLift,
       sync: () => this.config.engine.highMaxLift,
@@ -1670,8 +1681,23 @@ export class Panel {
     }).row.title = 'At 0 it is a little wider than the throttle. Narrower tunes the tract lower.';
 
     // ---- Combustion ------------------------------------------------------
-    const comb = section('Combustion', 'combustion', 'Idle speed, rev limiter, ignition advance, burn duration and mixture.');
-    this.slider(comb, {
+    const comb = section(
+      'Combustion',
+      'combustion',
+      'Fuel, idle speed, rev limiter, ignition or injection timing, burn duration and mixture.',
+    );
+    const fuelRow = el('div', 'row', comb);
+    el('label', '', fuelRow).textContent = 'Fuel';
+    const fuelSel = el('select', '', fuelRow) as HTMLSelectElement;
+    fuelSel.appendChild(option('gasoline', 'Gasoline'));
+    fuelSel.appendChild(option('diesel', 'Diesel'));
+    fuelSel.value = spec.fuel;
+    fuelRow.title =
+      'Gasoline is port-injected and lit by the spark, with the throttle setting the air. Diesel is ' +
+      'injected into the cylinder near top dead centre and lights by itself in the air compression has ' +
+      'heated, after an ignition delay; it has no throttle, and the pedal sets the fuel. A diesel wants a ' +
+      'compression ratio of 15:1 or more to light.';
+    const idle = this.slider(comb, {
       label: 'Idle speed',
       min: 500,
       max: 2500,
@@ -1680,9 +1706,7 @@ export class Panel {
       sync: () => this.config.engine.idleRpm,
       unit: 'rpm',
       onInput: (v) => this.cb.onEngine({ idleRpm: v }),
-    }).row.title =
-      'What the idle air valve holds with the throttle shut. It opens round the throttle to hold this ' +
-      'speed against a load, and past what it can open the engine stalls.';
+    });
     const revLimit = this.slider(comb, {
       label: 'Rev limiter',
       min: 2000,
@@ -1693,11 +1717,8 @@ export class Panel {
       unit: 'rpm',
       onInput: (v) => this.cb.onEngine({ revLimit: v }),
     });
-    revLimit.row.title =
-      'The spark is cut above this and returns once the crank has dropped back, so the engine ' +
-      'bounces off it.';
 
-    this.slider(comb, {
+    const timing = this.slider(comb, {
       label: 'Ignition advance',
       min: 0,
       max: 50,
@@ -1708,7 +1729,7 @@ export class Panel {
       // Stored as deg ATDC; 25 deg BTDC is 695.
       onInput: (v) => this.cb.onEngine({ ignition: 720 - v }),
     });
-    this.slider(comb, {
+    const burn = this.slider(comb, {
       label: 'Burn duration',
       min: 15,
       max: 110,
@@ -1717,12 +1738,34 @@ export class Panel {
       sync: () => this.config.engine.burnDuration,
       unit: '°',
       onInput: (v) => this.cb.onEngine({ burnDuration: v }),
-    }).row.title =
-      'How long the charge takes to burn at full throttle, stoichiometric, at 10 m/s mean ' +
-      'piston speed. Each cycle burns faster or slower than this with its own flame speed: ' +
-      'slower at part throttle, with residual gas and lean, and a little slower the faster ' +
-      'the engine turns.';
-    this.slider(comb, {
+    });
+    const smoke = this.slider(comb, {
+      label: 'Smoke limit',
+      min: 1.1,
+      max: 2.5,
+      step: 0.05,
+      value: spec.smokeLambda,
+      sync: () => this.config.engine.smokeLambda,
+      format: (v) => `λ ${v.toFixed(2)}`,
+      onInput: (v) => this.cb.onEngine({ smokeLambda: v }),
+    });
+    smoke.row.title =
+      'The richest the pump fuels it at full pedal. Off boost the trapped air holds the fuel here, ' +
+      'and the torque with it, until the turbo is up.';
+    const fullFuel = this.slider(comb, {
+      label: 'Full fuel',
+      min: 0,
+      max: 3e-4,
+      step: 1e-6,
+      value: spec.maxFuel,
+      sync: () => this.config.engine.maxFuel,
+      format: (v) => (v === 0 ? 'smoke limit only' : `${Math.round(v * 1e6)} mg`),
+      onInput: (v) => this.cb.onEngine({ maxFuel: v }),
+    });
+    fullFuel.row.title =
+      'The most fuel the pump injects a cylinder each cycle, which sets the torque once the boost ' +
+      'gives the air for it. At 0 only the smoke limit holds it.';
+    const mixture = this.slider(comb, {
       label: 'Mixture',
       min: 0.7,
       max: 1.6,
@@ -1732,7 +1775,8 @@ export class Panel {
       format: (v) =>
         `λ ${v.toFixed(2)}${Math.abs(v - 1) < 0.005 ? ' (stoichiometric)' : v < 1 ? ' (rich)' : ' (lean)'}`,
       onInput: (v) => this.cb.onEngine({ lambda: v }),
-    }).row.title =
+    });
+    mixture.row.title =
       'Air-fuel ratio as a multiple of stoichiometric. Rich, the extra fuel has no oxygen to ' +
       'burn with; lean, each charge carries less fuel and burns slower, and past about 1.5 ' +
       'cycles start to misfire.';
@@ -1750,7 +1794,7 @@ export class Panel {
       'A "pops and bangs" map: for up to 3 s after the throttle shuts above 2500 rpm, it holds off ' +
       'the fuel cut, cracks the throttle open and fires the spark long after top dead centre, ' +
       'skipping it on some cycles. The unburned charges light in the hot header and pop.';
-    this.slider(comb, {
+    const crackleLevel = this.slider(comb, {
       label: 'Crackle',
       min: 0,
       max: 1,
@@ -1759,9 +1803,50 @@ export class Panel {
       sync: () => this.config.engine.crackleIntensity,
       format: (v) => `${Math.round(v * 100)}%`,
       onInput: (v) => this.cb.onEngine({ crackleIntensity: v }),
-    }).row.title =
+    });
+    crackleLevel.row.title =
       'How hard the crackle map works: the spark from 15° to 45° after top dead centre, from 10% to ' +
       '35% of the sparks skipped, and the throttle further open to feed them.';
+    // A diesel has no spark, no throttle and no fuel in its intake: the rows that are about those give
+    // way to its own, and the shared ones say what they mean on it.
+    const label = (row: HTMLElement, text: string) => (row.querySelector('label')!.textContent = text);
+    const showFuel = () => {
+      const diesel = this.config.engine.fuel === 'diesel';
+      fuelSel.value = this.config.engine.fuel;
+      for (const row of [smoke.row, fullFuel.row]) row.classList.toggle('hidden', !diesel);
+      for (const row of [mixture.row, fuelCut, crackle, crackleLevel.row]) row.classList.toggle('hidden', diesel);
+      label(revLimit.row, diesel ? 'Governed speed' : 'Rev limiter');
+      label(timing.row, diesel ? 'Injection timing' : 'Ignition advance');
+      idle.row.title = diesel
+        ? 'What the governor holds with the pedal up, with fuel. It gives more to hold this speed ' +
+          'against a load, up to its limit, past which the engine stalls.'
+        : 'What the idle air valve holds with the throttle shut. It opens round the throttle to hold this ' +
+          'speed against a load, and past what it can open the engine stalls.';
+      revLimit.row.title = diesel
+        ? 'The governor takes the fuel away over the 300 rpm below this, none left at it, so the ' +
+          'engine runs up to it smoothly rather than bouncing off it.'
+        : 'The spark is cut above this and returns once the crank has dropped back, so the engine ' +
+          'bounces off it.';
+      timing.row.title = diesel
+        ? 'Where the pump starts the injection. The fuel lights a few degrees later, after an ignition ' +
+          'delay that is shorter the hotter and denser compression has left the air.'
+        : '';
+      burn.row.title = diesel
+        ? 'How long the diffusion burn takes at full fuel and 10 m/s mean piston speed: the fuel ' +
+          'burning as it is injected, after the premixed spike that is the clatter. Shorter on less ' +
+          'fuel, longer the faster the engine turns.'
+        : 'How long the charge takes to burn at full throttle, stoichiometric, at 10 m/s mean ' +
+          'piston speed. Each cycle burns faster or slower than this with its own flame speed: ' +
+          'slower at part throttle, with residual gas and lean, and a little slower the faster ' +
+          'the engine turns.';
+    };
+    fuelSel.addEventListener('change', () => {
+      this.cb.onEngine({ fuel: fuelSel.value as Fuel });
+      showFuel();
+      showPedal();
+    });
+    showFuel();
+    this.resyncers.push(showFuel);
     this.slider(comb, {
       label: 'Cycle-to-cycle scatter',
       min: 0,
@@ -1931,7 +2016,7 @@ export class Panel {
     this.slider(mix, {
       label: 'Output gain',
       min: 0,
-      max: 1.5,
+      max: 3,
       step: 0.01,
       value: spec.outputGain,
       sync: () => this.config.engine.outputGain,

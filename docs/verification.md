@@ -55,6 +55,18 @@ matters.
     a fifth and a half of the cycles at full intensity, end within its window and re-arm when the
     throttle opens. Every preset held steady at part and full throttle, and rich, must never
     afterfire.
+- **The diesel.**
+  - The correlations: the ignition delay must be 0.3 to 1.2 ms in a running diesel's air at top dead
+    centre, and shorten in hotter or denser air. The premixed share must grow with the delay, shrink
+    with the fuel, and stay within 0 to 0.9.
+  - The Cummins 6CT: its intake must carry no fuel, and with the pedal up its plenum must sit within
+    5% of the atmosphere. On 30% pedal at 1500 rpm, past λ 2.5, every cycle must light, 2° to 15° after
+    the injection. On 10% pedal much more of the fuel must burn premixed than on full. At 19:1 it must
+    light sooner than at 14:1. Full pedal must never be richer than its smoke limit nor more than its
+    full delivery, and off boost at 900 rpm the smoke limit must be what holds it. It must never
+    afterfire. Free, on full pedal with no load, the governor must hold it between 2200 and 2500 rpm,
+    within 60 rpm, with no limiter. With the pedal up above its idle it must get no fuel. Held at full
+    pedal it must make within 10% of 920 N·m at 1500 rpm and 250 hp at 2200.
 - **Intake runners.** Left on auto, a runner's bore must follow the valves and its length the rev
   limit, and set values must be used as given. On a 6.2 litre V8, the tuned runner must fill the
   cylinder to over 95% at its tuned speed. That must be more than 10 points above an 80 mm stub, and

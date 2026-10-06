@@ -18,7 +18,7 @@
 use crate::intake::Runner;
 use crate::math::{self, PI, clamp};
 use crate::spec::{
-    EngineSpec, crank_pins, cylinder_spacing, cylinder_z, displacement, gas, gas_energy, gas_enthalpy, gas_gamma,
+    EngineSpec, Fuel, crank_pins, cylinder_spacing, cylinder_z, displacement, gas, gas_energy, gas_enthalpy, gas_gamma,
     gas_temperature, intake_runner_of, physical_bank, physical_bank_count,
 };
 use crate::valve::orifice_mass_flow;
@@ -504,7 +504,10 @@ impl IntakePlenum {
         IntakePlenum::throttle_area_at(spec, opening) + valve
     }
 
+    /// Effective flow area of one throttle body at `opening`, m^2: wide open on a diesel, whose pedal
+    /// meters its fuel rather than its air.
     pub fn throttle_area_at(spec: &EngineSpec, opening: f64) -> f64 {
+        let opening = if spec.fuel == Fuel::Diesel { 1.0 } else { opening };
         plate_area(throttle_dia_of(spec), opening)
     }
 

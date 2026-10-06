@@ -124,8 +124,15 @@ Where the model is simplified, and by how much.
   catalytic converter.
 - **Port injection only, and no fuel film.** The fuel is injected in each runner as vapour, straight
   into the air it draws. A real port injector wets the port walls, and that film takes a few cycles
-  to follow a change of throttle. Direct injection, into the cylinder, is not modelled either. There
-  is no knock model, so an over-advanced spark just loses power.
+  to follow a change of throttle. A petrol engine's direct injection, into the cylinder, is not
+  modelled either. There is no knock model, so an over-advanced spark just loses power.
+- **The diesel is a correlation, not a spray.** Its ignition delay and premixed share are
+  Hardenberg and Hase's and Watson's correlations, fitted to direct-injection engines, for one fuel of
+  cetane number 45. There is no spray, wall wetting or evaporation cooling, and no swirl. The injection
+  is one shot at a fixed timing: no pilot or split injections, no rate shaping and no advance with
+  speed. The diffusion burn's dependence on speed and fuel is chosen, not derived. There is no smoke,
+  soot or NOx, and no cold start: the glow plugs are never needed, and air too cool to light the fuel
+  only delays it, up to 60°.
 - **The launch car is a point mass on a flat strip.** Its tyres' grip is one friction coefficient,
   whatever the speed, with no suspension, tyre heat or surface to change it. Where a real car's grip is
   known it is from a skidpad, which measures it cornering, raised by a fixed 7% for grip driving in a

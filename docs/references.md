@@ -111,3 +111,14 @@ for. Plain-language definitions of the terms are in the [Glossary](glossary.md).
   740191. [doi:10.4271/740191](https://doi.org/10.4271/740191)
   — The burn as a flame front taking in turbulent eddies, each of which then burns out at the
   laminar speed.
+- <a id="hardenberg1979"></a>**Hardenberg, H. O. and Hase, F. W. (1979).** "An empirical formula for
+  computing the pressure rise delay of a fuel from its cetane number and from the relevant parameters
+  of direct-injection diesel engines." SAE Technical Paper 790493.
+  [doi:10.4271/790493](https://doi.org/10.4271/790493)
+  — The diesel's ignition delay, from the air's temperature and pressure at top dead centre, the
+  piston speed and the fuel's cetane number.
+- <a id="watson1980"></a>**Watson, N., Pilley, A. D. and Marzouk, M. (1980).** "A combustion
+  correlation for diesel engine simulation." SAE Technical Paper 800029.
+  [doi:10.4271/800029](https://doi.org/10.4271/800029)
+  — The diesel's burn as a premixed spike and a diffusion burn, and the share of the fuel the
+  first takes from the ignition delay and the mixture.

@@ -102,6 +102,35 @@ pub enum BlowOff {
     None,
 }
 
+/// What the engine burns, and so how it lights its charge. See `Fuel::lhv`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Fuel {
+    /// Port-injected and spark-lit: the throttle sets the air, `lambda` the fuel with it.
+    Gasoline,
+    /// Injected into the cylinder near top dead centre and lit by the heat of compression: the
+    /// intake is unthrottled and the pedal sets the fuel. See `cylinder` and `engine_sim`.
+    Diesel,
+}
+
+impl Fuel {
+    /// Lower heating value, J/kg.
+    pub fn lhv(self) -> f64 {
+        match self {
+            Fuel::Gasoline => gas::FUEL_LHV,
+            Fuel::Diesel => 42.6e6,
+        }
+    }
+
+    /// Stoichiometric air-fuel ratio, by mass.
+    pub fn afr_stoich(self) -> f64 {
+        match self {
+            Fuel::Gasoline => gas::AFR_STOICH,
+            Fuel::Diesel => 14.5,
+        }
+    }
+}
+
 /// What the exhaust is made of. See `PipeMaterial::wall`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -218,6 +247,7 @@ pub struct EngineSpec {
     pub vvt_linked: bool,
 
     // --- Combustion ---
+    pub fuel: Fuel,
     pub ignition: f64,
     pub advance_curve: bool,
     pub burn_duration: f64,
@@ -226,6 +256,8 @@ pub struct EngineSpec {
     pub overrun_crackle: bool,
     pub crackle_intensity: f64,
     pub combustion_variability: f64,
+    pub smoke_lambda: f64,
+    pub max_fuel: f64,
     pub recip_mass: f64,
     pub throttle: f64,
     pub throttle_dia: f64,
@@ -320,6 +352,7 @@ impl Default for EngineSpec {
             vvt_high_rpm: 6000.0,
             vvt_linked: false,
 
+            fuel: Fuel::Gasoline,
             ignition: 695.0,
             burn_duration: 55.0,
             advance_curve: true,
@@ -328,6 +361,8 @@ impl Default for EngineSpec {
             overrun_crackle: false,
             crackle_intensity: 0.6,
             combustion_variability: 1.0,
+            smoke_lambda: 1.45,
+            max_fuel: 0.0,
             recip_mass: 0.55,
             throttle: 0.75,
             throttle_dia: 0.0,

@@ -449,6 +449,63 @@ cycles. The late burns fill the header with hot gas, and the charges it skips li
 The map stops below 2000 rpm, and the fuel cut takes over. Opening the throttle arms it for the next
 lift.
 
+## The diesel
+
+A diesel is set by **Fuel**. It draws its air through an intake with no throttle, wide open whatever
+the pedal does, so its plenum sits at the atmosphere, or at the boost, and never in vacuum. No fuel
+comes with the air. The pedal sets how much fuel the pump injects into each cylinder, as a share of
+its full delivery, and the injection starts at a fixed angle before top dead centre, as a mechanical
+pump's static timing does. The charge it lights is always lean overall: λ 14 at idle, and no richer
+than about 1.5 at full pedal.
+
+**How much fuel.** The fuel each cycle gets is committed when the intake valve closes and the air is
+trapped. At full pedal it is the less of two limits:
+- the **smoke limit**: the fuel the trapped air can take at λ `smokeLambda`. Richer than that the
+  fuel finds too little air to burn clean, so a real pump's stop, or its boost compensator, holds it
+  there. Off boost this is what limits the torque.
+- the **full delivery**, `maxFuel`: the most the pump injects a stroke. Once the turbo gives the air
+  for it, this is what sets the torque.
+
+**When it lights.** The fuel lights itself once the hot air has heated and vaporised it, after an
+ignition delay. The delay comes from Hardenberg and Hase's correlation, from the temperature and
+pressure compression leaves the air at by top dead centre, and the mean piston speed:
+
+    delay (deg) = (0.36 + 0.22 Sp) exp[ E (1/(R T) - 1/17190) + (21.2 / (p - 12.4))^0.63 ]
+
+with `Sp` in m/s, `T` in K, `p` in bar and `E = 618840 / (CN + 25)` J/mol for a fuel of cetane number
+45. Hotter, denser air lights it sooner, so a higher compression ratio or more boost shortens it. At
+a running diesel's top dead centre it is a few degrees, about 0.5 to 1 ms.
+
+**How it burns.** The burn is two Wiebe burns added together, as Watson's correlation has it:
+- the **premixed** burn: the fuel that has mixed with the air during the delay burns all at once,
+  in about 0.8 ms. Its share is `1 - 0.926 phi^0.37 / delay^0.26`, with the delay in ms and `phi` the
+  overall equivalence ratio. A long delay and a little fuel give a big share, so the sharp pressure
+  rise that is the diesel's clatter is loudest at idle and light load.
+- the **diffusion** burn: the rest burns as it is injected and finds its air, over **Burn
+  duration** at full fuel and 10 m/s mean piston speed. It is shorter on less fuel, and longer the
+  faster the engine turns.
+
+The fuel joins the cylinder's gas as it burns, so none of it is ever in the charge unburned, and a
+diesel never afterfires. Nor can a lean charge fail to light, as a spark's does: the misfire limits
+are a spark's, and a diesel does not have them.
+
+On the Cummins 6CT these come out as:
+
+```
+                              delay   premixed   diffusion   λ
+idle, 800 rpm                  5.8°     67%        18°       14
+1500 rpm, 10% pedal            7.3°     64%        25°       15
+1500 rpm, full pedal           5.0°     10%        46°       1.7     on boost: the full delivery
+2200 rpm, full pedal           6.5°      3%        56°       1.5     at the smoke limit
+```
+
+**The governor.** A diesel's speed is held by its fuel. With the pedal up, a governor holds the idle
+speed, giving it more fuel against a load, the same controller that is a petrol engine's idle air
+valve. Above its idle with the pedal up it gives none at all, so there is no overrun fuel cut to
+switch. At the top, over the 300 rpm below its **Governed speed** (the rev limit), it takes the fuel
+away, none left at the speed itself, so the engine runs up to it smoothly instead of bouncing off a
+spark cut. Launch control cuts its fuel where it would a spark.
+
 ## Why it does not sound looped
 
 A perfectly repeating engine sounds synthetic. Real engines vary from cycle to cycle, their cranks
@@ -737,5 +794,7 @@ cylinder by 4%. A twin is never two independent singles, whatever exhaust you fi
 - Runner boundary-layer damping: [Pierce 2019](references.md#pierce2019).
 - Laminar burning velocity: [Rhodes and Keck 1985](references.md#rhodes1985), with Heywood's
   gasoline constants; turbulent entrainment and burn-up: [Blizard and Keck 1974](references.md#blizard1974).
+- Diesel ignition delay: [Hardenberg and Hase 1979](references.md#hardenberg1979); its premixed and
+  diffusion burns: [Watson et al. 1980](references.md#watson1980).
 - Junction solve: [Toro 2009](references.md#toro2009).
 - Outdoor listener, ground reflection and air absorption: [Kinsler et al. 2000](references.md#kinsler2000).
