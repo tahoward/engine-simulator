@@ -31,6 +31,8 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   height: 100vh;
+  /* The visible height: on mobile, 100vh reaches behind the browser's toolbar. */
+  height: 100dvh;
 }
 
 /* ---------- stage ---------- */
