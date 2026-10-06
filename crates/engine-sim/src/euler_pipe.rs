@@ -22,7 +22,7 @@ use crate::spec::{
     chamber_body, chamber_offsets, gas, pipe_temperature, section_area, section_perimeter, segment_diameter,
     segment_section, speed_of_sound_exh,
 };
-use crate::valve::{VALVE_CD, orifice_solve};
+use crate::valve::{Orifice, VALVE_CD, orifice_solve};
 
 pub const GAMMA: f64 = gas::GAMMA_EXH;
 const CV: f64 = gas::R / (GAMMA - 1.0);
@@ -626,8 +626,8 @@ impl EulerPipe {
     }
 
     /// `valve_flux_for`, into `valve_flux_out`.
-    pub fn compute_valve_flux(&mut self, valve: &ValveState) {
-        self.valve_flux_out = self.valve_flux(valve);
+    pub fn compute_valve_flux(&mut self, valve: &ValveState, dt: f64) {
+        self.valve_flux_out = self.valve_flux(valve, dt);
     }
 
     pub fn set_primitive(&mut self, i: usize, rho: f64, u: f64, p: f64) {
@@ -856,7 +856,7 @@ impl EulerPipe {
         for _ in 0..substeps {
             self.begin_step(h);
             let mouth = self.apply_own_boundaries(h);
-            let valve_flow = self.valve_flux(valve);
+            let valve_flow = self.valve_flux(valve, h);
             self.end_step(h, valve_flow + valve.extra_mass_flow, valve);
             self.after_step(h);
             mouth_acc += mouth;
@@ -873,32 +873,55 @@ impl EulerPipe {
         AdvanceResult { mouth_flow, port_pressure: self.port_pressure(), substeps }
     }
 
-    /// Mass flow through the valve at this duct's inlet, kg/s, positive out of the cylinder.
-    fn valve_flux(&mut self, valve: &ValveState) -> f64 {
+    /// Mass flow through the valve at this duct's inlet over a substep of `dt`, kg/s, positive out of
+    /// the cylinder.
+    ///
+    /// Taken at the port pressure the substep ends on rather than the one it starts from: the flow
+    /// through an orifice goes as the square root of the pressure across it, so near equal pressures
+    /// any change in the port's swings it without limit, and a flow taken at the pressure before it
+    /// overshoots, the next one back, at the sample rate. The port cell ends on the pressure it would
+    /// with the valve shut, from what its other face carries on down the duct, moved by `gamma - 1` of
+    /// the enthalpy the valve brings or takes per unit of its volume. A valve choked throughout does
+    /// not feel it.
+    fn valve_flux(&mut self, valve: &ValveState, dt: f64) -> f64 {
         let area = valve.throat_area;
         if area <= 0.0 {
             return 0.0;
         }
         let (p_port, t_port, _) = self.read_port();
-        if valve.cyl_pressure > p_port {
-            let o = orifice_solve(area, VALVE_CD, valve.cyl_pressure, valve.cyl_temp, p_port, valve.cyl_gamma);
-            self.valve_throat_t = if o.mdot > 0.0 { o.throat_t } else { 1.0 };
-            return o.mdot;
+        let per_kg = ((GAMMA - 1.0) * dt) / (self.area_cell[0] * self.dx);
+        let shut = math::max(p_port - per_kg * self.area_face[1] * self.f2[1], MIN_SHUT_PORT_FRACTION * p_port);
+        let p_cyl = valve.cyl_pressure;
+        if p_cyl > shut {
+            let (t_cyl, g) = (valve.cyl_temp, valve.cyl_gamma);
+            let rise = per_kg * CP * t_cyl;
+            let o = orifice_solve(area, VALVE_CD, p_cyl, t_cyl, shut, g);
+            let (mdot, o) = if o.mdot > 0.0 && shut + rise * o.mdot > o.critical * p_cyl {
+                implicit_flow(o.mdot, (p_cyl - shut) / rise, |m| {
+                    orifice_solve(area, VALVE_CD, p_cyl, t_cyl, shut + rise * m, g)
+                })
+            } else {
+                (o.mdot, o)
+            };
+            self.valve_throat_t = if mdot > 0.0 && o.mdot > 0.0 { o.throat_t } else { 1.0 };
+            return mdot;
         }
         // Flowing back into the cylinder, the gas arrives moving: its total pressure and temperature
-        // drive it through.
+        // drive it through. It leaves the port cell with the cell's own stagnation enthalpy.
         let r0 = self.rho[0];
         let u0 = self.mom[0] / r0;
         let toward = if u0 < 0.0 { -u0 } else { 0.0 };
-        let o = orifice_solve(
-            area,
-            VALVE_CD,
-            p_port + 0.5 * r0 * toward * toward,
-            t_port + (toward * toward) / (2.0 * CP),
-            valve.cyl_pressure,
-            GAMMA,
-        );
-        -o.mdot
+        let p_total = shut + 0.5 * r0 * toward * toward;
+        let t_total = t_port + (toward * toward) / (2.0 * CP);
+        let fall = per_kg * (CP * t_port + 0.5 * u0 * u0);
+        let o = orifice_solve(area, VALVE_CD, p_total, t_total, p_cyl, GAMMA);
+        if o.mdot <= 0.0 || p_total - fall * o.mdot >= p_cyl / o.critical {
+            return -o.mdot;
+        }
+        -implicit_flow(o.mdot, (p_total - p_cyl) / fall, |m| {
+            orifice_solve(area, VALVE_CD, p_total - fall * m, t_total, p_cyl, GAMMA)
+        })
+        .0
     }
 
     /// Phase one of a substep: primitives, limited slopes, half-step evolution and every interior
@@ -995,10 +1018,11 @@ impl EulerPipe {
         self.pinned_substeps
     }
 
-    /// Mass flow through this duct's exhaust valve, kg/s, positive out of the cylinder.
+    /// Mass flow through this duct's exhaust valve over a substep of `dt`, kg/s, positive out of the
+    /// cylinder.
     #[inline]
-    pub fn valve_flux_for(&mut self, valve: &ValveState) -> f64 {
-        self.valve_flux(valve)
+    pub fn valve_flux_for(&mut self, valve: &ValveState, dt: f64) -> f64 {
+        self.valve_flux(valve, dt)
     }
 
     /// Apply the duct's own boundary conditions, for ends with no junction. Returns the volume flow
@@ -2146,6 +2170,42 @@ struct BuiltGeometry {
     launch_radius_ratio: f64,
     contraction_k: Vec<f64>,
     nozzle_area: f64,
+}
+
+/// Least the port pressure a shut valve would leave is taken as, against the pressure the substep
+/// starts from: a wave leaving faster than the cell holds gas for would otherwise empty it.
+const MIN_SHUT_PORT_FRACTION: f64 = 0.1;
+
+/// Most evaluations of the valve's flow `implicit_flow` makes.
+const IMPLICIT_FLOW_ITERATIONS: usize = 6;
+
+/// The flow `m`, kg/s, that a valve passes at the port pressure it leaves behind, `m = flow(m)`, and
+/// the orifice solve last taken: for a `flow` falling from `start` at no flow to nothing at
+/// `m = stop`. Each guess takes the flow as the square root of what is left of the pressure across
+/// the valve, `C sqrt(stop - m)`, which at low Mach numbers it all but is, with `C` refitted to the
+/// flow last found; a guess that leaves the bracket the flows found so far give is replaced by its
+/// middle.
+fn implicit_flow(start: f64, stop: f64, flow: impl Fn(f64) -> Orifice) -> (f64, Orifice) {
+    let fit = |c2: f64| (2.0 * c2 * stop) / (c2 + math::sqrt(c2 * c2 + 4.0 * c2 * stop));
+    let (mut lo, mut hi) = (0.0, math::min(start, stop));
+    let tolerance = 1e-3 * start;
+    let mut m = fit((start * start) / stop);
+    let mut o = flow(m);
+    for _ in 1..IMPLICIT_FLOW_ITERATIONS {
+        let g = o.mdot - m;
+        if g.abs() <= tolerance {
+            break;
+        }
+        if g > 0.0 {
+            lo = m;
+        } else {
+            hi = m;
+        }
+        let next = fit((o.mdot * o.mdot) / (stop - m));
+        m = if next > lo && next < hi { next } else { 0.5 * (lo + hi) };
+        o = flow(m);
+    }
+    (m, o)
 }
 
 /// Loss coefficient of a contraction, referred to the velocity in the narrow pipe: Crane TP-410's

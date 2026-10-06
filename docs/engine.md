@@ -42,6 +42,12 @@ Other details of the model:
   the 1.35 you'd get with no heat loss.
 - **Reverse flow is kept.** Gas can flow from the pipe back into the cylinder during valve overlap.
   That is exactly the effect a tuned exhaust relies on.
+- **A wide-open valve flows steadily.** The flow through a valve goes as the square root of the
+  pressure across it, so when the pressures either side are nearly equal (through the exhaust
+  stroke, or while the intake valve is open) a small change in either swings the flow a long way.
+  Each step takes the flow at the port pressure that flow will leave behind at the end of the step,
+  not the one before it; taken at the one before, it overshoots, flows back the next sample and out
+  again the one after.
 
 
 ## The intake

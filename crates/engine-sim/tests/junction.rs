@@ -491,23 +491,37 @@ mod junctions_conserve_mass_and_the_grid_stays_affordable {
 mod presets_stay_solvable_and_affordable {
     use super::*;
 
-    /// %s at 8000 rpm, full throttle
+    /// Below its rev limit, where the dyno holds it; the limiter, with its hysteresis, starts above.
+    const UNDER_LIMIT_RPM: f64 = 200.0;
+
+    /// Each preset at full throttle and `rpm` of its config's own for half a second: its ducts at the
+    /// end, and the hottest any of their gas was on the way.
+    fn run(preset: &common::EnginePreset, rpm: impl Fn(f64) -> f64) -> (EngineSim, EngineConfig, f64) {
+        let mut cfg = common::default_config();
+        let held = rpm(preset.config.engine.rev_limit);
+        cfg.engine = common::with(&preset.config.engine, json!({ "rpm": held, "throttle": 1, "freeRunning": false }));
+        cfg.pipe = preset.config.pipe.clone();
+        cfg.collector = preset_collector(preset).unwrap_or_default();
+        let mut sim = EngineSim::new(FS, &cfg);
+        let mut hottest = 0.0f64;
+        for _ in 0..FS as usize / 2 {
+            let out = sim.render(1);
+            assert!(out.iter().all(|v| v.is_finite()), "{}", preset.name);
+            hottest = hottest.max(max_temperature(&ducts(&sim)));
+        }
+        (sim, cfg, hottest)
+    }
+
+    /// %s at full throttle, held at up to 8000 rpm, below its rev limit
     #[test]
-    fn at_8000_rpm_full_throttle() {
+    fn at_full_throttle_up_to_8000_rpm() {
         for preset in &common::presets().engine_presets {
             let name = &preset.name;
-            let mut cfg = common::default_config();
-            cfg.engine =
-                common::with(&preset.config.engine, json!({ "rpm": 8000, "throttle": 1, "freeRunning": false }));
-            cfg.pipe = preset.config.pipe.clone();
-            cfg.collector = preset_collector(preset).unwrap_or_default();
-            let mut sim = EngineSim::new(FS, &cfg);
-            let out = sim.render(FS as usize / 2);
-            assert!(out.iter().all(|v| v.is_finite()), "{name}");
+            let (sim, cfg, hottest) = run(preset, |limit| f64::min(8000.0, limit - UNDER_LIMIT_RPM));
+            // Exhaust leaves a cylinder near 1200-1800 K and only cools from there.
+            assert!(hottest < 2500.0, "{name}: max T {hottest}");
 
             let ducts = ducts(&sim);
-            let max_t = max_temperature(&ducts);
-            assert!(max_t < 2500.0, "{name}: max T {max_t}");
             assert_eq!(recoveries(&ducts), 0, "{name}");
             assert_eq!(clamps(&ducts), 0, "{name}");
 
@@ -524,6 +538,24 @@ mod presets_stay_solvable_and_affordable {
                 cells * substeps,
                 budget_of(&cfg)
             );
+        }
+    }
+
+    /// %s at full throttle on its rev limiter
+    ///
+    /// Asked for more than its limit, the engine runs free on the limiter, and each cut leaves unburnt
+    /// charge in the pipe to burn there. A burn heats the gas it is in to at most 2600 K, about the
+    /// adiabatic flame temperature, and a pressure wave reaching it at a shut valve squeezes it hotter
+    /// still: double the pressure is about 3000 K.
+    #[test]
+    fn on_the_rev_limiter() {
+        for preset in &common::presets().engine_presets {
+            let name = &preset.name;
+            let (sim, _, hottest) = run(preset, |limit| limit + 1000.0);
+            assert!(hottest < 3100.0, "{name}: max T {hottest}");
+            let ducts = ducts(&sim);
+            assert_eq!(recoveries(&ducts), 0, "{name}");
+            assert_eq!(clamps(&ducts), 0, "{name}");
         }
     }
 }

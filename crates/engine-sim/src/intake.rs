@@ -256,7 +256,7 @@ impl IntakeStep<'_> {
             r.begin_step(h);
             r.apply_own_boundaries(h);
             pf += r.mouth_mass_flow;
-            r.compute_valve_flux(valve);
+            r.compute_valve_flux(valve, h);
             let flow = r.valve_flux_out;
             r.set_end_step(h, flow);
             for (i, y) in fractions.iter_mut().enumerate() {

@@ -2794,7 +2794,7 @@ const CHEVROLET_LT2: Partial<EngineSpec> = {
   // Estimated: tuned for the torque peak at 5150 rpm, and opened out from the valves' 49 mm so the
   // top end breathes.
   intakeRunnerLength: 0.44,
-  intakeRunnerDia: 0.055,
+  intakeRunnerDia: 0.056,
   throttleDia: 0.087,
   // Level-matched to the inline four, as the other presets are.
   outputGain: 2.1,

@@ -59,10 +59,12 @@ pub fn orifice_solve(area: f64, cd: f64, p_up: f64, t_up: f64, p_down: f64, gamm
     if pr < c.critical {
         pr = c.critical;
     }
-    let ratio = math::pow_base(pr);
-    let p2 = ratio.powf(c.exp2);
-    out.throat_t = p2 / pr;
-    let term = ratio.powf(c.exp1) - p2;
+    // `pr^(2/gamma)` and `pr^((gamma+1)/gamma)` are the square of `pr^(1/gamma)` and `pr` times it,
+    // and the isentropic temperature ratio `pr^((gamma-1)/gamma)` is `pr` over it.
+    let root = math::pow_base(pr).powf(c.inv_gamma);
+    let p2 = pr * root;
+    out.throat_t = pr / root;
+    let term = root * root - p2;
     if term <= 0.0 {
         return out;
     }
@@ -75,8 +77,7 @@ pub fn orifice_solve(area: f64, cd: f64, p_up: f64, t_up: f64, p_down: f64, gamm
 #[derive(Clone, Copy, Debug)]
 struct GammaConstants {
     critical: f64,
-    exp1: f64,
-    exp2: f64,
+    inv_gamma: f64,
     flux_scale: f64,
 }
 
@@ -89,8 +90,7 @@ fn constants_for_key(key: f64) -> GammaConstants {
     let gamma = key / GAMMA_STEPS;
     GammaConstants {
         critical: math::pow(2.0 / (gamma + 1.0), gamma / (gamma - 1.0)),
-        exp1: 2.0 / gamma,
-        exp2: (gamma + 1.0) / gamma,
+        inv_gamma: 1.0 / gamma,
         flux_scale: (2.0 * gamma) / (gamma - 1.0),
     }
 }

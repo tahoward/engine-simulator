@@ -221,7 +221,7 @@ impl FinishInputs<'_> {
         let mut out = DuctOut { mouth_flow: duct.apply_own_boundaries(h), ..DuctOut::default() };
         if i < self.primaries {
             let valve = (self.valves)(i);
-            let flow = duct.valve_flux_for(&valve);
+            let flow = duct.valve_flux_for(&valve, h);
             duct.set_end_step(h, flow + valve.extra_mass_flow);
             duct.end_step_set(&valve);
             out.valve_flow = flow * duct.source_scale;

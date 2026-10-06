@@ -708,6 +708,32 @@ mod geometry_and_robustness {
         assert!((total as f64 / iters as f64) < 4.0, "mean {}", total as f64 / iters as f64);
         assert!(worst <= 8, "worst {worst}");
     }
+
+    /// A wide-open valve with little pressure across it, as through the exhaust stroke, passes a
+    /// steady flow: one taken at the port pressure before it would overshoot, flowing back the next
+    /// sample and out again the one after, and pump the duct.
+    #[test]
+    fn a_wide_open_valve_across_a_small_pressure_difference_flows_steadily() {
+        for over in [200.0, 2000.0, 20000.0] {
+            let mut p = EulerPipe::new(
+                &[pipe(0.85, 0.044)],
+                FS,
+                950.0,
+                &EulerPipeOptions { port: Some(PORT), ..Default::default() },
+            );
+            let open = valve(1.1e-3, gas::P_AMB + over, 900.0);
+            let mut flows = Vec::new();
+            for _ in 0..4800 {
+                p.advance(1.0 / FS, &open);
+                flows.push(p.valve_source_flow());
+            }
+            let settled = &flows[4000..];
+            let mean = settled.iter().sum::<f64>() / settled.len() as f64;
+            let ripple = settled.windows(2).map(|w| (w[1] - w[0]).abs()).fold(0.0, f64::max);
+            assert!(settled.iter().all(|&f| f > 0.0), "{over} Pa over: the flow reverses");
+            assert!(ripple < 0.01 * mean, "{over} Pa over: steps of {ripple} kg/s on a flow of {mean}");
+        }
+    }
 }
 
 mod wall_temperature_is_solved_not_assumed {
