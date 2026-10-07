@@ -79,6 +79,19 @@ jobs:
             fs.writeFileSync(path, JSON.stringify(conf, null, 2) + '\n');
           " "$version"
 
+      # The release notes are the tag's message. Checkout leaves the tag lightweight, so the annotated
+      # tag is fetched again to read it.
+      - name: Read the release notes from the tag
+        id: notes
+        shell: bash
+        run: |
+          git fetch --force origin "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          {
+            echo 'body<<END_OF_NOTES'
+            git for-each-ref --format='%(contents:subject)%0a%0a%(contents:body)' "refs/tags/$GITHUB_REF_NAME"
+            echo 'END_OF_NOTES'
+          } >> "$GITHUB_OUTPUT"
+
       # Builds the interface (beforeBuildCommand in tauri.conf.json) and the app, then uploads the
       # bundles to the release, creating it if the other platform has not yet.
       - name: Build and upload
@@ -90,8 +103,12 @@ jobs:
           tauriScript: npx tauri
           args: ${{ matrix.args }}
           tagName: ${{ github.ref_name }}
-          releaseName: Engine Simulator ${{ github.ref_name }}
+          releaseName: ${{ github.ref_name }}
           releaseBody: |
+            ${{ steps.notes.outputs.body }}
+
+            ---
+
             The engine simulator as a desktop app, with the simulation running natively.
 
             - **macOS** (Apple silicon and Intel): the `.dmg`. The app is not signed, so the first time,

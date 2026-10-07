@@ -104,12 +104,16 @@ Only the workflow produces what gets published.
 
 ## The desktop app
 
-Pushing a version tag releases the desktop app:
+Pushing a version tag releases the desktop app. The tag's message is the release notes, so make it
+an annotated tag:
 
 ```bash
-git tag v0.2.0
+git tag -a v0.2.0 -m "Add undo/redo"
 git push origin v0.2.0
 ```
+
+For notes longer than a line, `git tag -a v0.2.0` opens an editor; the first line is the summary, and
+the rest, after a blank line, can be Markdown.
 
 [`.github/workflows/release.yml`](https://github.com/tahoward/engine-simulator/blob/main/.github/workflows/release.yml)
 then:
@@ -118,8 +122,9 @@ then:
 2. **Builds the app on macOS and on Windows**, each on its own runner, with Tauri's own action. The
    macOS build is universal, one app for Apple silicon and Intel. The tag sets the version, so
    nothing in the repository needs bumping first.
-3. **Publishes a GitHub release** named after the tag, with the macOS `.dmg` and the Windows `.exe`
-   and `.msi` installers attached.
+3. **Publishes a GitHub release** named after the tag, with the tag's message as its notes, followed
+   by install instructions, and the macOS `.dmg` and the Windows `.exe` and `.msi` installers
+   attached.
 
 The builds are not signed, which needs a paid Apple developer certificate and a Windows
 code-signing certificate. Unsigned, macOS asks for a right-click and **Open** the first time the app
