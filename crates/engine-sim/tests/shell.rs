@@ -1,15 +1,12 @@
 //! The walls of a muffler can: where they ring, and that they radiate only what changes.
 
-mod common;
+use crate::common;
+use common::pipe;
 
 use common::FS;
 use engine_sim::euler_pipe::{EulerPipe, EulerPipeOptions};
 use engine_sim::shell::ChamberShell;
 use engine_sim::spec::{ChamberSection, PipeSegment, SegmentKind, SegmentPartial, gas, make_segment};
-
-fn pipe(length: f64, d: f64) -> PipeSegment {
-    make_segment(SegmentPartial { length: Some(length), d_in: Some(d), ..Default::default() })
-}
 
 /// A can of `section`, `width` by `height`, between two pipes.
 fn can(section: ChamberSection, width: f64, height: f64) -> Vec<PipeSegment> {

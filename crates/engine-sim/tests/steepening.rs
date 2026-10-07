@@ -5,7 +5,7 @@
 //! it has no run to sharpen over, must grow harmonics with the amplitude, and must never fold a front
 //! over into a shock.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::radiation::Steepening;

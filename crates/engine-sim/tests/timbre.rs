@@ -5,7 +5,7 @@
 //! point: the radiation derivative tilts it +6 dB/octave into a rising hiss that dominates
 //! everything above 2 kHz, and nothing else notices. So the timbre needs its own guards.
 
-mod common;
+use crate::common;
 
 use common::{FS, hann, magnitude_spectrum};
 use engine_sim::EngineSim;

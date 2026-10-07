@@ -2,7 +2,7 @@
 //! pipes ring down to silence, the manifold's vacuum bleeds away, and switching it back on starts it
 //! again.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::EngineSim;

@@ -6,7 +6,7 @@
 //! 3S-GTE's, the Mazda BPT's and the Audi EA855 EVO's own torque and power: a three, two fours and a five,
 //! each on one turbo.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::EngineSim;
@@ -29,22 +29,6 @@ fn rb26(over: Value) -> EngineSim {
 /// Boost, bar gauge.
 fn boost(sim: &EngineSim) -> f64 {
     sim.turbo().unwrap().boost() / 1e5
-}
-
-/// Mean torque at the crank, less friction, over half a second, N*m, after `settle` seconds at `rpm` on
-/// full throttle, with the fields in `over` on top.
-fn torque_at(rpm: f64, settle: f64, over: Value) -> f64 {
-    let mut o = json!({ "throttle": 1, "rpm": rpm });
-    o.as_object_mut().unwrap().extend(over.as_object().unwrap().clone());
-    let mut sim = rb26(o);
-    sim.render((settle * FS) as usize);
-    let n = FS as usize / 2;
-    let mut t = 0.0;
-    for _ in 0..n {
-        sim.render(1);
-        t += sim.snapshot().torque - sim.friction_torque();
-    }
-    t / n as f64
 }
 
 /// Held on boost at `rpm`, then the throttle shut: the compressor flow every sample for half a second.
@@ -219,10 +203,9 @@ fn spools_up_from_idle_every_time() {
 /// rated at nor much more than the 320 or so real ones make.
 #[test]
 fn makes_about_the_real_engines_torque_and_power() {
-    let t4400 = torque_at(4400.0, 3.0, json!({}));
+    let [t4400, t6800] = common::brake_torques_at(RB26, 3.0, [4400.0, 6800.0]);
     assert!((t4400 - 368.0).abs() < 0.1 * 368.0, "{t4400} N*m at 4400 rpm");
-    let t6800 = torque_at(6800.0, 3.0, json!({}));
-    let ps = t6800 * 6800.0 * 2.0 * std::f64::consts::PI / 60.0 / 735.5;
+    let ps = common::ps(t6800, 6800.0);
     assert!(ps > 280.0 && ps < 350.0, "{ps} PS at 6800 rpm");
 }
 
@@ -231,25 +214,9 @@ fn makes_about_the_real_engines_torque_and_power() {
 /// turbo is still spooling.
 #[test]
 fn a_four_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
-    let torque = |rpm: f64| {
-        let mut cfg = common::engine_preset("Inline four, Toyota 3S-GTE").config.clone();
-        cfg.engine = common::with(
-            &cfg.engine,
-            json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm }),
-        );
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(3 * FS as usize);
-        let n = FS as usize / 2;
-        let mut t = 0.0;
-        for _ in 0..n {
-            sim.render(1);
-            t += sim.snapshot().torque - sim.friction_torque();
-        }
-        t / n as f64
-    };
-    let t5000 = torque(5000.0);
+    let [t5000, t6000] = common::brake_torques_at("Inline four, Toyota 3S-GTE", 3.0, [5000.0, 6000.0]);
     assert!((t5000 - 304.0).abs() < 0.1 * 304.0, "{t5000} N*m at 5000 rpm");
-    let ps = torque(6000.0) * 6000.0 * 2.0 * std::f64::consts::PI / 60.0 / 735.5;
+    let ps = common::ps(t6000, 6000.0);
     assert!((ps - 225.0).abs() < 0.1 * 225.0, "{ps} PS at 6000 rpm");
 }
 
@@ -257,25 +224,9 @@ fn a_four_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
 /// 166 lb-ft (225 N*m) at 4500 rpm and 178 hp at 6000.
 #[test]
 fn the_mazda_bpt_makes_about_the_real_engines_torque_and_power() {
-    let torque = |rpm: f64| {
-        let mut cfg = common::engine_preset("Inline four, Mazda BPT").config.clone();
-        cfg.engine = common::with(
-            &cfg.engine,
-            json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm }),
-        );
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(3 * FS as usize);
-        let n = FS as usize / 2;
-        let mut t = 0.0;
-        for _ in 0..n {
-            sim.render(1);
-            t += sim.snapshot().torque - sim.friction_torque();
-        }
-        t / n as f64
-    };
-    let t4500 = torque(4500.0);
+    let [t4500, t6000] = common::brake_torques_at("Inline four, Mazda BPT", 3.0, [4500.0, 6000.0]);
     assert!((t4500 - 225.0).abs() < 0.1 * 225.0, "{t4500} N*m at 4500 rpm");
-    let hp = torque(6000.0) * 6000.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    let hp = common::hp(t6000, 6000.0);
     assert!((hp - 178.0).abs() < 0.1 * 178.0, "{hp} hp at 6000 rpm");
 }
 
@@ -284,25 +235,9 @@ fn the_mazda_bpt_makes_about_the_real_engines_torque_and_power() {
 /// this turbo is still spooling.
 #[test]
 fn a_three_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
-    let torque = |rpm: f64| {
-        let mut cfg = common::engine_preset("Inline three, Ford 1.5 EcoBoost Dragon").config.clone();
-        cfg.engine = common::with(
-            &cfg.engine,
-            json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm }),
-        );
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(3 * FS as usize);
-        let n = FS as usize / 2;
-        let mut t = 0.0;
-        for _ in 0..n {
-            sim.render(1);
-            t += sim.snapshot().torque - sim.friction_torque();
-        }
-        t / n as f64
-    };
-    let t3000 = torque(3000.0);
+    let [t3000, t6000] = common::brake_torques_at("Inline three, Ford 1.5 EcoBoost Dragon", 3.0, [3000.0, 6000.0]);
     assert!((t3000 - 290.0).abs() < 0.1 * 290.0, "{t3000} N*m at 3000 rpm");
-    let ps = torque(6000.0) * 6000.0 * 2.0 * std::f64::consts::PI / 60.0 / 735.5;
+    let ps = common::ps(t6000, 6000.0);
     assert!((ps - 200.0).abs() < 0.1 * 200.0, "{ps} PS at 6000 rpm");
 }
 
@@ -310,26 +245,11 @@ fn a_three_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
 /// 480 N*m through the mid-range and 400 PS from 5850 rpm to 7000.
 #[test]
 fn a_five_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
-    let torque = |rpm: f64| {
-        let mut cfg = common::engine_preset("Inline five, Audi EA855 EVO").config.clone();
-        cfg.engine = common::with(
-            &cfg.engine,
-            json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm }),
-        );
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(3 * FS as usize);
-        let n = FS as usize / 2;
-        let mut t = 0.0;
-        for _ in 0..n {
-            sim.render(1);
-            t += sim.snapshot().torque - sim.friction_torque();
-        }
-        t / n as f64
-    };
-    let t4500 = torque(4500.0);
+    let rpms = [4500.0, 5850.0, 7000.0];
+    let [t4500, t5850, t7000] = common::brake_torques_at("Inline five, Audi EA855 EVO", 3.0, rpms);
     assert!((t4500 - 480.0).abs() < 0.1 * 480.0, "{t4500} N*m at 4500 rpm");
-    for rpm in [5850.0, 7000.0] {
-        let ps = torque(rpm) * rpm * 2.0 * std::f64::consts::PI / 60.0 / 735.5;
+    for (rpm, torque) in [(5850.0, t5850), (7000.0, t7000)] {
+        let ps = common::ps(torque, rpm);
         assert!((ps - 400.0).abs() < 0.1 * 400.0, "{ps} PS at {rpm} rpm");
     }
 }
@@ -338,8 +258,9 @@ fn a_five_on_one_turbo_makes_about_the_real_engines_torque_and_power() {
 /// pass little more air, so the power falls away rather than holding level to the limit.
 #[test]
 fn too_small_run_out_of_air_at_the_top_end() {
-    let power = |rpm: f64| torque_at(rpm, 3.0, json!({ "turboSize": 0.12 })) * rpm;
-    let (at_7000, at_7900) = (power(7000.0), power(7900.0));
+    let small = || json!({ "turboSize": 0.12 });
+    let [t7000, t7900] = common::brake_torques(RB26, 3.0, [(7000.0, small()), (7900.0, small())]);
+    let (at_7000, at_7900) = (t7000 * 7000.0, t7900 * 7900.0);
     assert!(at_7900 < 0.99 * at_7000, "power at 7900 {at_7900} against 7000 {at_7000}");
 }
 

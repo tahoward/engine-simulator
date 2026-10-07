@@ -7,9 +7,9 @@
 //! staying stable. An approximate nonlinear method is only worth having over an exact
 //! linear one if the linear behaviour survives.
 
-mod common;
+use crate::common;
 
-use common::{FS, find_peaks, hann, magnitude_spectrum};
+use common::{FS, find_peaks, hann, magnitude_spectrum, pipe};
 use engine_sim::dsp::Noise;
 use engine_sim::euler_pipe::{
     EulerPipe, EulerPipeOptions, GAMMA, HeadPort, SlopeLimiter, ValveState, darcy_factor, launch_radius,
@@ -30,11 +30,6 @@ fn seg(kind: SegmentKind, length: f64, d_in: f64, d_out: Option<f64>) -> PipeSeg
         d_out,
         ..Default::default()
     })
-}
-
-/// A plain pipe of `length` and diameter `d`.
-fn pipe(length: f64, d: f64) -> PipeSegment {
-    seg(SegmentKind::Pipe, length, d, None)
 }
 
 /// A closed-both-ends uniform duct, for pure gas-dynamics tests.

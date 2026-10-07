@@ -6,26 +6,17 @@
 //! is — that is the whole of the Harley thump. And a shared collector has to actually couple the
 //! banks, or it is just two singles playing at once.
 
-mod common;
+use crate::common;
 
-use common::{FS, band_energy, hann, magnitude_spectrum};
+use common::{FS, band_energy, hann, magnitude_spectrum, pipe};
 use engine_sim::EngineSim;
 use engine_sim::euler_pipe::{EulerPipe, EulerPipeOptions, ValveState};
 use engine_sim::exhaust_graph::{DuctSink, DuctSource, ExhaustDuct, ExhaustGraph};
 use engine_sim::exhaust_system::ExhaustSystem;
-use engine_sim::spec::{PipeSegment, SegmentKind, SegmentPartial, firing_offset_deg, gas, make_segment};
+use engine_sim::spec::{PipeSegment, firing_offset_deg, gas};
 use serde_json::{Value, json};
 
 const N: usize = 65536;
-
-fn pipe(length: f64, d_in: f64) -> PipeSegment {
-    make_segment(SegmentPartial {
-        kind: Some(SegmentKind::Pipe),
-        length: Some(length),
-        d_in: Some(d_in),
-        ..Default::default()
-    })
-}
 
 /// A twin, with the fields in `over` on top, run for two seconds.
 fn twin(over: Value) -> EngineSim {
@@ -337,26 +328,6 @@ mod the_collector_couples_the_banks {
 mod robustness {
     use super::*;
 
-    /// every engine preset runs clean
-    #[test]
-    fn every_engine_preset_runs_clean() {
-        for preset in &common::presets().engine_presets {
-            let name = &preset.name;
-            let mut sim = EngineSim::new(FS, &preset.config);
-            sim.render(FS as usize);
-            let buf = sim.render(FS as usize);
-            let mut peak = 0.0f32;
-            for v in &buf {
-                assert!(v.is_finite(), "{name}");
-                peak = peak.max(v.abs());
-            }
-            assert!(peak > 1e-3, "{name} silent");
-            assert!(peak < 1.0, "{name} pinned");
-            assert_eq!(sim.pipe_solver().recoveries(), 0, "{name}");
-            assert_eq!(sim.cylinder().clamp_hits, 0, "{name}");
-        }
-    }
-
     /// switching layout and cylinder count mid-run stays finite
     #[test]
     fn switching_layout_and_cylinder_count_mid_run_stays_finite() {
@@ -407,25 +378,14 @@ mod robustness {
 /// at 5020, and its phaser, advancing the one cam at low speed, lifts the torque at 1750.
 #[test]
 fn the_milwaukee_eight_makes_about_the_real_engines_torque_and_power() {
-    let torque = |rpm: f64, over: Value| {
-        let mut cfg = common::engine_preset("45° V-twin, Harley-Davidson Milwaukee-Eight 121").config.clone();
-        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
-        cfg.engine = common::with(&common::with(&cfg.engine, held), over);
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(2 * FS as usize);
-        let n = FS as usize / 2;
-        let mut t = 0.0;
-        for _ in 0..n {
-            sim.render(1);
-            t += sim.snapshot().torque - sim.friction_torque();
-        }
-        t / n as f64
-    };
-    let t3500 = torque(3500.0, json!({}));
+    let [t3500, t5020, mapped, fixed] = common::brake_torques(
+        "45° V-twin, Harley-Davidson Milwaukee-Eight 121",
+        2.0,
+        [(3500.0, json!({})), (5020.0, json!({})), (1750.0, json!({})), (1750.0, json!({ "vvtIntakeLow": 0 }))],
+    );
     assert!((t3500 - 189.0).abs() < 0.1 * 189.0, "{t3500} N*m at 3500 rpm");
-    let hp = torque(5020.0, json!({})) * 5020.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    let hp = common::hp(t5020, 5020.0);
     assert!((hp - 115.0).abs() < 0.1 * 115.0, "{hp} hp at 5020 rpm");
-    let (mapped, fixed) = (torque(1750.0, json!({})), torque(1750.0, json!({ "vvtIntakeLow": 0 })));
     assert!(mapped > fixed + 2.0, "{mapped} N*m at 1750 rpm on the cam map, against {fixed} with the cam fixed");
 }
 
@@ -433,23 +393,9 @@ fn the_milwaukee_eight_makes_about_the_real_engines_torque_and_power() {
 /// cams with the overlap for the rest would not let it idle.
 #[test]
 fn the_rc51_makes_about_the_real_engines_torque_and_power() {
-    let torque = |rpm: f64| {
-        let mut cfg = common::engine_preset("90° V-twin, Honda RC51").config.clone();
-        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
-        cfg.engine = common::with(&cfg.engine, held);
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(2 * FS as usize);
-        let n = FS as usize / 2;
-        let mut t = 0.0;
-        for _ in 0..n {
-            sim.render(1);
-            t += sim.snapshot().torque - sim.friction_torque();
-        }
-        t / n as f64
-    };
-    let t8000 = torque(8000.0);
+    let [t8000, t9500] = common::brake_torques_at("90° V-twin, Honda RC51", 2.0, [8000.0, 9500.0]);
     assert!((t8000 - 105.0).abs() < 0.15 * 105.0, "{t8000} N*m at 8000 rpm");
-    let hp = torque(9500.0) * 9500.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    let hp = common::hp(t9500, 9500.0);
     assert!((hp - 133.0).abs() < 0.1 * 133.0, "{hp} hp at 9500 rpm");
 }
 
@@ -457,22 +403,8 @@ fn the_rc51_makes_about_the_real_engines_torque_and_power() {
 /// (77.2 kW) at 7750.
 #[test]
 fn the_triumph_1200_makes_about_the_real_engines_torque_and_power() {
-    let torque = |rpm: f64| {
-        let mut cfg = common::engine_preset("Parallel twin, Triumph 1200 HT").config.clone();
-        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
-        cfg.engine = common::with(&cfg.engine, held);
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(2 * FS as usize);
-        let n = FS as usize / 2;
-        let mut t = 0.0;
-        for _ in 0..n {
-            sim.render(1);
-            t += sim.snapshot().torque - sim.friction_torque();
-        }
-        t / n as f64
-    };
-    let t4250 = torque(4250.0);
+    let [t4250, t7750] = common::brake_torques_at("Parallel twin, Triumph 1200 HT", 2.0, [4250.0, 7750.0]);
     assert!((t4250 - 112.5).abs() < 0.1 * 112.5, "{t4250} N*m at 4250 rpm");
-    let hp = torque(7750.0) * 7750.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    let hp = common::hp(t7750, 7750.0);
     assert!((hp - 103.5).abs() < 0.1 * 103.5, "{hp} hp at 7750 rpm");
 }

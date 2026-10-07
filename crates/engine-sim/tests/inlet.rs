@@ -1,7 +1,7 @@
 //! The inlet tract: the air drawn in through the snorkel and airbox to the throttle, its note, and the
 //! hiss of the jet past the throttle plate.
 
-mod common;
+use crate::common;
 
 use common::{FS, hann, magnitude_spectrum};
 use engine_sim::EngineSim;

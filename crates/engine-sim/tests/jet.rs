@@ -3,7 +3,7 @@
 //! It must follow Lighthill's law, so a faster jet is far louder and a pipe drawing air in is silent;
 //! and it must stay broadband noise round its Strouhal peak, not a hiss climbing to the top octave.
 
-mod common;
+use crate::common;
 
 use common::{FS, hann, magnitude_spectrum};
 use engine_sim::radiation::MouthJet;

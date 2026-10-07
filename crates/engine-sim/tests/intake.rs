@@ -1,14 +1,11 @@
 //! The intake runners: a column of air per cylinder, whose momentum rams the charge in and whose length
 //! tunes where it does so.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::EngineSim;
-use engine_sim::spec::{
-    EngineSpec, ExhaustLayout, PipeSegment, SegmentKind, SegmentPartial, collector_groups, displacement,
-    exhaust_layout_of, exhaust_port_diameter, gas, intake_runner_of, make_segment,
-};
+use engine_sim::spec::{EngineSpec, PipeSegment, SegmentKind, displacement, gas, intake_runner_of};
 use serde_json::{Value, json};
 
 /// A 6.2 litre pushrod V8 in the proportions of a Chevrolet LT2, with a late-closing cam.
@@ -35,48 +32,6 @@ fn v8() -> Value {
 
 fn v8_spec(over: Value) -> EngineSpec {
     common::with(&common::with(&common::presets().default_engine, v8()), over)
-}
-
-fn seg(kind: SegmentKind, length: f64, d_in: f64, d_out: f64, yaw: f64) -> PipeSegment {
-    make_segment(SegmentPartial {
-        kind: Some(kind),
-        length: Some(length),
-        d_in: Some(d_in),
-        d_out: Some(d_out),
-        yaw: Some(yaw),
-        ..Default::default()
-    })
-}
-
-/// The web app's `fittedExhaust`: a header runner bored for the valve and, where the layout merges, a
-/// constant-velocity collector with a silencer can. `(pipe, collector)`.
-fn fitted_exhaust(spec: &EngineSpec) -> (Vec<PipeSegment>, Vec<PipeSegment>) {
-    let layout = exhaust_layout_of(spec);
-    let groups = collector_groups(spec);
-    let collector_count = groups.iter().fold(0, |max, &g| i32::max(max, g + 1));
-    let per_collector = if collector_count > 0 { spec.cylinders as f64 / collector_count as f64 } else { 1.0 };
-
-    let d_primary = f64::max(0.85 * exhaust_port_diameter(spec), 0.02);
-    let primary_length = if layout == ExhaustLayout::Open { 0.75 } else { 0.45 };
-    let mut pipe = vec![seg(SegmentKind::Pipe, primary_length, d_primary, d_primary, 0.0)];
-    if layout == ExhaustLayout::Open {
-        pipe.push(seg(SegmentKind::Cone, 0.25, d_primary, d_primary * 1.7, 0.0));
-        return (pipe, Vec::new());
-    }
-
-    let d_collector = d_primary * per_collector.sqrt() * 0.92;
-    let served_disp = displacement(spec) * per_collector;
-    let can_dia = f64::min(d_collector * 2.5, 0.2);
-    let can_area = (std::f64::consts::PI * can_dia * can_dia) / 4.0;
-    let can_length = ((8.0 * served_disp) / can_area).clamp(0.25, 0.6);
-    let run_length = f64::max(2.2 - primary_length - can_length - 0.5, 0.35);
-    let collector = vec![
-        seg(SegmentKind::Cone, 0.16, d_primary * 1.25, d_collector, 0.0),
-        seg(SegmentKind::Pipe, run_length, d_collector, d_collector, 0.0),
-        seg(SegmentKind::Chamber, can_length, d_collector, can_dia, 0.0),
-        seg(SegmentKind::Pipe, 0.5, d_collector, d_collector, 0.0),
-    ];
-    (pipe, collector)
 }
 
 /// Mean gas torque, N m, over the next `samples` samples.
@@ -127,7 +82,7 @@ fn breathe(rpm: f64, over: Value) -> Breath {
     let mut cfg = common::default_config();
     cfg.engine =
         common::with(&spec, json!({ "freeRunning": false, "throttle": 1, "rpm": rpm, "combustionVariability": 0 }));
-    let (mut pipe, collector) = fitted_exhaust(&spec);
+    let (mut pipe, collector) = common::fitted_exhaust(&spec);
     // Long-tube headers for this valve, 44 mm primaries, rather than the fitted exhaust's narrower ones.
     for seg in pipe.iter_mut() {
         seg.d_in = 0.044;
@@ -141,14 +96,14 @@ fn breathe(rpm: f64, over: Value) -> Breath {
     Breath { ve, torque }
 }
 
-/// The local `fitted_exhaust` is the web app's, as the presets fixture records it.
+/// `common::fitted_exhaust` is the web app's, as the presets fixture records it.
 #[test]
 fn fitted_exhaust_matches_the_web_app() {
     let shape = |s: &[PipeSegment]| -> Vec<(SegmentKind, f64, f64, f64, f64)> {
         s.iter().map(|g| (g.kind, g.length, g.d_in, g.d_out, g.yaw)).collect()
     };
     for preset in &common::presets().engine_presets {
-        let (pipe, collector) = fitted_exhaust(&preset.config.engine);
+        let (pipe, collector) = common::fitted_exhaust(&preset.config.engine);
         assert_eq!(shape(&pipe), shape(&preset.fitted_exhaust.pipe), "{}", preset.name);
         assert_eq!(shape(&collector), shape(&preset.fitted_exhaust.collector), "{}", preset.name);
     }
@@ -255,7 +210,7 @@ mod variable_valve_timing {
             lt6(merged(json!({ "freeRunning": false, "throttle": 1, "rpm": rpm, "combustionVariability": 0 }), over));
         // The walls and the waves take a couple of seconds to settle at a new speed.
         sim.render(2 * FS as usize);
-        mean_torque(&mut sim, FS as usize / 2)
+        common::gas_torque(&mut sim)
     }
 
     /// lifts the mid-range of an engine cammed for the top end
@@ -264,10 +219,13 @@ mod variable_valve_timing {
     #[test]
     fn lifts_the_mid_range_of_an_engine_cammed_for_the_top_end() {
         let fixed = || json!({ "vvtIntakeLow": 0, "vvtExhaustLow": 0 });
-        let (phased, still) = (torque_at(4500.0, json!({})), torque_at(4500.0, fixed()));
+        let [phased, still, top_phased, top_still] = common::par(
+            [(4500.0, json!({})), (4500.0, fixed()), (8400.0, json!({})), (8400.0, fixed())],
+            |(rpm, over)| torque_at(*rpm, over.clone()),
+        );
         assert!(phased > 1.1 * still, "at 4500: phased {phased} fixed {still}");
         // At the top the map takes its high-speed settings, which the low-speed ones leave alone.
-        let ratio = torque_at(8400.0, json!({})) / torque_at(8400.0, fixed());
+        let ratio = top_phased / top_still;
         assert!((ratio - 1.0).abs() < 0.005, "at 8400: ratio {ratio}");
     }
 
@@ -307,7 +265,7 @@ mod two_stage_intake {
         let mut sim = build(merged(json!({ "rpm": rpm }), over));
         // The walls and the waves take a couple of seconds to settle at a new speed.
         sim.render(2 * FS as usize);
-        mean_torque(&mut sim, FS as usize / 2)
+        common::gas_torque(&mut sim)
     }
 
     fn switch_rpm() -> f64 {
@@ -323,9 +281,12 @@ mod two_stage_intake {
         let short_only = || json!({ "intakeRunnerLength": short_length, "intakeRunnerShortLength": 0 });
         // Just below the switch, where the two sets are nearest each other.
         let below = switch_rpm() - 100.0;
-        let (both, short) = (torque_at(below, json!({})), torque_at(below, short_only()));
+        let [both, short, top_both, top_short] = common::par(
+            [(below, json!({})), (below, short_only()), (8400.0, json!({})), (8400.0, short_only())],
+            |(rpm, over)| torque_at(*rpm, over.clone()),
+        );
         assert!(both > 1.003 * short, "at {below}: two-stage {both} short only {short}");
-        let ratio = torque_at(8400.0, json!({})) / torque_at(8400.0, short_only());
+        let ratio = top_both / top_short;
         assert!((ratio - 1.0).abs() < 0.005, "at 8400: ratio {ratio}");
     }
 

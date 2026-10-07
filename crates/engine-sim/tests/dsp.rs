@@ -6,22 +6,15 @@
 //! cylinders were added. The band-pass must still ring, decay and peak at the gain the calibration
 //! assumes, since the levels driving it are calibrated in pascals.
 
-mod common;
+use crate::common;
 
-use common::FS;
+use common::{FS, assert_close};
 use engine_sim::EngineSim;
 use engine_sim::dsp::Resonator;
 use engine_sim::engine_sim::clack_share;
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::f64::consts::PI;
-
-/// `actual` within half a unit of `expected` in the `digits`th decimal place.
-#[track_caller]
-fn assert_close(actual: f64, expected: f64, digits: f64) {
-    let tol = 10f64.powf(-digits) / 2.0;
-    assert!((actual - expected).abs() < tol, "expected {actual} to be within {tol} of {expected}");
-}
 
 /// Steady-state gain at `hz`, measured by driving a sine through and taking the settled amplitude.
 fn gain_at(r: &mut Resonator, hz: f64) -> f64 {

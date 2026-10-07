@@ -2,7 +2,7 @@
 //! `set_engine` does with the same two values, or the sound would depend on which path a change
 //! happened to take.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::EngineSim;

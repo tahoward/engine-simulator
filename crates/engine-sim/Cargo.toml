@@ -4,8 +4,13 @@ description = "The engine simulation: cylinders, valves, intake and exhaust gas 
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+autotests = false
 
 [dependencies]
 libm = "0.2"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
+
+[[test]]
+name = "physics"
+path = "tests/main.rs"

@@ -2,7 +2,7 @@
 //! notice: that the note tracks rpm, that it is a four-stroke, that the exhaust the user builds
 //! changes what they hear, and that nothing blows up.
 
-mod common;
+use crate::common;
 
 use common::{FS, band_energy, find_peaks, hann, magnitude_spectrum, rms};
 use engine_sim::EngineSim;
@@ -222,7 +222,8 @@ fn editing_the_pipe_mid_run_stays_finite_and_recovers_level() {
 /// Is audible but never clips, across rpm and every preset.
 #[test]
 fn is_audible_but_never_clips_across_rpm_and_every_preset() {
-    for p in 0..common::presets().pipe_presets.len() {
+    let pipes: Vec<usize> = (0..common::presets().pipe_presets.len()).collect();
+    common::each(&pipes, |&p| {
         for rpm in [900.0, 3200.0, 8000.0] {
             let buf = run(json!({ "rpm": rpm }), p).render(FS_N / 2);
             let mut peak = 0.0f32;
@@ -233,7 +234,7 @@ fn is_audible_but_never_clips_across_rpm_and_every_preset() {
             assert!(peak > 1e-3, "preset {p} at {rpm} rpm was silent");
             assert!(peak < 1.0, "preset {p} at {rpm} rpm pinned the output");
         }
-    }
+    });
 }
 
 /// Survives extreme and degenerate configurations.
@@ -357,22 +358,8 @@ fn slow_motion_takes_the_same_steps_drawn_out() {
 /// The Superquadro Mono makes about the real engine's rated 63 N*m at 8000 rpm and 77.5 hp (57 kW) at 9750.
 #[test]
 fn the_superquadro_mono_makes_about_the_real_engines_torque_and_power() {
-    let torque = |rpm: f64| {
-        let mut cfg = common::engine_preset("Single, Ducati Superquadro Mono").config.clone();
-        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
-        cfg.engine = common::with(&cfg.engine, held);
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(2 * FS as usize);
-        let n = FS as usize / 2;
-        let mut t = 0.0;
-        for _ in 0..n {
-            sim.render(1);
-            t += sim.snapshot().torque - sim.friction_torque();
-        }
-        t / n as f64
-    };
-    let t8000 = torque(8000.0);
+    let [t8000, t9750] = common::brake_torques_at("Single, Ducati Superquadro Mono", 2.0, [8000.0, 9750.0]);
     assert!((t8000 - 63.0).abs() < 0.1 * 63.0, "{t8000} N*m at 8000 rpm");
-    let hp = torque(9750.0) * 9750.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    let hp = common::hp(t9750, 9750.0);
     assert!((hp - 77.5).abs() < 0.1 * 77.5, "{hp} hp at 9750 rpm");
 }

@@ -6,7 +6,7 @@
 //! hearing a single anechoic monopole with no ground under it. Those are the properties guarded
 //! here.
 
-mod common;
+use crate::common;
 
 use common::{FS, magnitude_spectrum, rms};
 use engine_sim::EngineSim;
@@ -422,21 +422,6 @@ fn a_mouth_the_sources_do_not_name_is_still_heard() {
 }
 
 // --- the basics still hold ---
-
-/// Still produces a stable, audible signal across presets.
-#[test]
-fn still_produces_a_stable_audible_signal_across_presets() {
-    for p in 0..common::presets().pipe_presets.len() {
-        let buf = sim(json!({}), p).render(FS_N / 2);
-        let mut peak = 0.0f32;
-        for &v in &buf {
-            assert!(v.is_finite());
-            peak = peak.max(v.abs());
-        }
-        assert!(peak > 1e-3, "preset {p} silent");
-        assert!(peak < 1.0, "preset {p} pinned");
-    }
-}
 
 /// An empty pipe with a port still works.
 #[test]

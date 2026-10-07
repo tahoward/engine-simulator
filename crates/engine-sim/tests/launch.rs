@@ -1,29 +1,25 @@
 //! A launch from standstill: the clutch slipped off the line, a pull through every gear, and the
 //! timeslip it leaves.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::spec::LaunchSnapshot;
 use engine_sim::{EngineSim, LaunchConfig};
 
-/// Run `name`'s fitted car down the strip through `launch`, idling first. Returns every snapshot taken
-/// while the run lasted, one per 20 ms.
-fn run(name: &str, launch: Option<LaunchConfig>) -> Vec<LaunchSnapshot> {
-    let preset = common::engine_preset(name);
-    let mut sim = EngineSim::new(FS, &preset.config);
-    sim.render(FS as usize / 2);
-    sim.start_launch(launch.unwrap_or_else(|| preset.launch.clone()));
-    let mut out = Vec::new();
-    let block = (FS / 50.0) as usize;
-    for _ in 0..(180 * 50) {
-        sim.render(block);
-        match sim.snapshot().launch {
-            Some(s) => out.push(s),
-            None => break,
-        }
-    }
-    out
+/// Run `name`'s fitted car down the strip through `launch`, idling first, until `enough`.
+fn run(name: &str, launch: LaunchConfig, enough: impl Fn(&LaunchSnapshot) -> bool) -> Vec<LaunchSnapshot> {
+    common::launch(&common::engine_preset(name).config, launch, enough)
+}
+
+/// `name`'s car, as `launch` changes it, to 60 mph: the time it took, s.
+fn to_sixty(name: &str, launch: LaunchConfig) -> f64 {
+    run(name, launch, common::to_sixty).last().unwrap().zero_to_sixty.expect("reaches 60 mph")
+}
+
+/// `name`'s own car to 60 mph: the time it took, s.
+fn own_to_sixty(name: &str) -> f64 {
+    to_sixty(name, common::engine_preset(name).launch.clone())
 }
 
 fn last(snaps: &[LaunchSnapshot]) -> &LaunchSnapshot {
@@ -33,10 +29,10 @@ fn last(snaps: &[LaunchSnapshot]) -> &LaunchSnapshot {
 /// Moves off, pulls through all six of the S2000's gears, and times 60 mph, the quarter and the half mile.
 #[test]
 fn a_launch_leaves_a_timeslip() {
-    let snaps = run("Inline four, Honda F20C", None);
+    let snaps = common::preset_launch("Inline four, Honda F20C");
     let end = snaps.last().unwrap();
     assert!(snaps.iter().any(|s| s.phase == "launch"), "starts by slipping the clutch");
-    assert_eq!(last(&snaps).gear, 6.0, "pulls through every gear");
+    assert_eq!(last(snaps).gear, 6.0, "pulls through every gear");
     let sixty = end.zero_to_sixty.expect("reaches 60 mph");
     let quarter = end.quarter_mile.expect("covers the quarter mile");
     let half = end.half_mile.expect("covers the half mile");
@@ -55,7 +51,7 @@ fn a_launch_leaves_a_timeslip() {
 /// The clock starts as the car moves off, not while the engine revs up to the launch speed.
 #[test]
 fn the_clock_starts_as_the_car_moves() {
-    let snaps = run("Inline four, Honda F20C", None);
+    let snaps = common::preset_launch("Inline four, Honda F20C");
     let revving = snaps.iter().take_while(|s| s.speed_kmh == 0.0).count();
     assert!(revving > 0, "the engine revs up before the clutch bites");
     assert!(snaps[..revving].iter().all(|s| s.elapsed == 0.0 && s.distance == 0.0));
@@ -65,17 +61,20 @@ fn the_clock_starts_as_the_car_moves() {
 /// A gearbox of any length is pulled through to its last gear.
 #[test]
 fn the_gearing_is_the_users() {
-    let preset = common::engine_preset("Inline four, Honda F20C");
-    let short = LaunchConfig { final_drive: preset.launch.final_drive * 1.3, ..preset.launch.clone() };
+    let name = "Inline four, Honda F20C";
+    let preset = common::engine_preset(name);
     let into_second = |snaps: &[LaunchSnapshot]| snaps.iter().find(|s| s.gear == 2.0).unwrap().speed_kmh;
-    let (a, b) =
-        (into_second(&run("Inline four, Honda F20C", None)), into_second(&run("Inline four, Honda F20C", Some(short))));
+    let short = LaunchConfig { final_drive: preset.launch.final_drive * 1.3, ..preset.launch.clone() };
+    let three = LaunchConfig { ratios: vec![3.0, 1.8, 1.2], ..preset.launch.clone() };
+    // The short final drive only as far as second; the three-speed box to the end.
+    let [short, three] = common::par([(short, true), (three, false)], |(launch, to_second)| {
+        run(name, launch.clone(), |s| *to_second && s.gear == 2.0)
+    });
+    let (a, b) = (into_second(common::preset_launch(name)), into_second(&short));
     assert!((b * 1.3 / a - 1.0).abs() < 0.05, "into second at {b} km/h on the short final drive, against {a} km/h");
 
-    let three = LaunchConfig { ratios: vec![3.0, 1.8, 1.2], ..preset.launch.clone() };
-    let snaps = run("Inline four, Honda F20C", Some(three));
-    assert_eq!(last(&snaps).gear, 3.0);
-    assert!(snaps.iter().all(|s| s.gear <= 3.0));
+    assert_eq!(last(&three).gear, 3.0);
+    assert!(three.iter().all(|s| s.gear <= 3.0));
 }
 
 /// A gearbox without gears starts nothing.
@@ -94,11 +93,9 @@ fn an_empty_gearbox_starts_nothing() {
 fn traction_control_beats_spinning_the_tyres() {
     let preset = common::engine_preset("V8, Chevrolet LT2");
     let light = LaunchConfig { mass: 900.0, ..preset.launch.clone() };
-    let sixty = |tc: bool| {
-        let snaps = run("V8, Chevrolet LT2", Some(LaunchConfig { traction_control: tc, ..light.clone() }));
-        snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph")
-    };
-    let (held, spun) = (sixty(true), sixty(false));
+    let [held, spun] = common::par([true, false], |&tc| {
+        to_sixty("V8, Chevrolet LT2", LaunchConfig { traction_control: tc, ..light.clone() })
+    });
     assert!(held < spun, "0-60 in {held} s with traction control, against {spun} s spinning the tyres");
     // A grip of 1.31 on 60% of the weight, and more as it moves back: about 1 g, 2.7 s at best.
     assert!(held > 2.4, "0-60 in {held} s");
@@ -155,8 +152,7 @@ fn real_engines_launch_through_their_own_cars() {
 /// rear wheels.
 #[test]
 fn the_toyota_86_launches_about_as_quick_as_the_real_car() {
-    let snaps = run("Boxer four, Subaru FA20D", None);
-    let sixty = snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph");
+    let sixty = own_to_sixty("Boxer four, Subaru FA20D");
     assert!((5.8..7.2).contains(&sixty), "0-60 in {sixty} s");
 }
 
@@ -164,16 +160,14 @@ fn the_toyota_86_launches_about_as_quick_as_the_real_car() {
 /// wheels, its engine over them.
 #[test]
 fn the_gt3_rs_4_0_launches_about_as_quick_as_the_real_car() {
-    let snaps = run("Boxer six, Porsche Mezger 4.0", None);
-    let sixty = snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph");
+    let sixty = own_to_sixty("Boxer six, Porsche Mezger 4.0");
     assert!((3.2..4.4).contains(&sixty), "0-60 in {sixty} s");
 }
 
 /// The Fiesta ST gets to 60 mph in about the 6.5 s Ford gives it to 62: 200 PS through the front wheels.
 #[test]
 fn the_fiesta_st_launches_about_as_quick_as_the_real_car() {
-    let snaps = run("Inline three, Ford 1.5 EcoBoost Dragon", None);
-    let sixty = snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph");
+    let sixty = own_to_sixty("Inline three, Ford 1.5 EcoBoost Dragon");
     assert!((5.7..6.9).contains(&sixty), "0-60 in {sixty} s");
 }
 
@@ -182,8 +176,7 @@ fn the_fiesta_st_launches_about_as_quick_as_the_real_car() {
 /// few tenths quicker.
 #[test]
 fn the_mazdaspeed_mx5_launches_about_as_quick_as_the_real_car() {
-    let snaps = run("Inline four, Mazda BPT", None);
-    let sixty = snaps.last().unwrap().zero_to_sixty.expect("reaches 60 mph");
+    let sixty = own_to_sixty("Inline four, Mazda BPT");
     assert!((5.6..7.2).contains(&sixty), "0-60 in {sixty} s");
 }
 
@@ -192,18 +185,16 @@ fn the_mazdaspeed_mx5_launches_about_as_quick_as_the_real_car() {
 #[test]
 fn front_wheel_drive_launches_softer() {
     let name = "Inline three, Ford 1.5 EcoBoost Dragon";
-    let fwd = run(name, None);
-    let rwd = run(name, Some(LaunchConfig { front_wheel_drive: false, ..common::engine_preset(name).launch.clone() }));
-    let (f, r) = (fwd.last().unwrap().zero_to_sixty.unwrap(), rwd.last().unwrap().zero_to_sixty.unwrap());
+    let own = &common::engine_preset(name).launch;
+    let [f, r] =
+        common::par([true, false], |&front| to_sixty(name, LaunchConfig { front_wheel_drive: front, ..own.clone() }));
     assert!(f > r + 0.1, "0-60 in {f} s through the front wheels, against {r} s through the rear");
 }
 
 /// The RS 3 gets to 60 mph in about the 3.6 s road tests time it at: 400 PS through all four wheels.
 #[test]
 fn the_rs3_launches_about_as_quick_as_the_real_car() {
-    let snaps = run("Inline five, Audi EA855 EVO", None);
-    let end = snaps.last().unwrap();
-    let sixty = end.zero_to_sixty.expect("reaches 60 mph");
+    let sixty = own_to_sixty("Inline five, Audi EA855 EVO");
     assert!((3.1..4.1).contains(&sixty), "0-60 in {sixty} s");
 }
 
@@ -211,8 +202,8 @@ fn the_rs3_launches_about_as_quick_as_the_real_car() {
 #[test]
 fn all_wheel_drive_launches_harder() {
     let name = "Inline six, Nissan RB26DETT";
-    let awd = run(name, None);
-    let rwd = run(name, Some(LaunchConfig { driven_load: 0.6, ..common::engine_preset(name).launch.clone() }));
-    let (a, r) = (awd.last().unwrap().zero_to_sixty.unwrap(), rwd.last().unwrap().zero_to_sixty.unwrap());
+    let own = &common::engine_preset(name).launch;
+    let [a, r] =
+        common::par([own.driven_load, 0.6], |&load| to_sixty(name, LaunchConfig { driven_load: load, ..own.clone() }));
     assert!(a < r - 0.1, "0-60 in {a} s through all four wheels, against {r} s through the rear");
 }
