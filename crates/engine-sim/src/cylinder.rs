@@ -126,6 +126,11 @@ pub struct Cylinder {
     pub premixed_share: f64,
     /// Wiebe duration of a diesel's premixed burn, deg.
     pub premixed_angle: f64,
+    /// Heat a diesel's premixed burn releases this cycle, J: what sets its chamber ringing.
+    pub premixed_energy: f64,
+    /// Where a diesel's injection starts and ends this cycle, deg.
+    pub injection_start: f64,
+    pub injection_end: f64,
     /// Stoichiometric air-fuel ratio of this cycle's fuel.
     afr: f64,
     /// Fuel injected this step, kg: it joins the gas as it burns.
@@ -240,6 +245,10 @@ const MIN_PREMIXED_ANGLE: f64 = 2.0;
 /// Wiebe form factor of the diffusion burn: fast to start and slow to finish, as the last of the
 /// fuel finds its air.
 const DIFFUSION_M: f64 = 0.9;
+/// How long a diesel's injection lasts at the pump's full delivery, deg, and at the least: the pump
+/// meters the fuel over more of the crank's turn the more it delivers.
+const FULL_INJECTION_ANGLE: f64 = 22.0;
+const MIN_INJECTION_ANGLE: f64 = 3.0;
 /// Share of the spark's timing scatter a diesel's injection keeps: the pump meters the same
 /// moment each time, and only the ignition delay varies.
 const DIESEL_TIMING_SCATTER: f64 = 0.15;
@@ -288,6 +297,9 @@ impl Cylinder {
             diesel: false,
             premixed_share: 0.0,
             premixed_angle: 0.0,
+            premixed_energy: 0.0,
+            injection_start: 0.0,
+            injection_end: 0.0,
             afr: gas::AFR_STOICH,
             injected: 0.0,
             crackle: None,
@@ -673,6 +685,12 @@ impl Cylinder {
         self.burn_angle = clamp(diffusion, 4.0, MAX_BURN_ANGLE);
         let injection = spec.ignition + self.ignition_offset * DIESEL_TIMING_SCATTER;
         self.spark = wrap_cycle(injection + delay);
+        self.premixed_energy = self.premixed_share * self.q_cycle;
+        let rack = if spec.max_fuel > 0.0 { spec.max_fuel } else { full };
+        let delivered = clamp(self.burn_fuel / math::max(rack, 1e-12), 0.0, 1.0);
+        self.injection_start = wrap_cycle(injection);
+        self.injection_end =
+            wrap_cycle(injection + MIN_INJECTION_ANGLE + (FULL_INJECTION_ANGLE - MIN_INJECTION_ANGLE) * delivered);
         self.burned = 0.0;
         self.armed = !self.spark_cut && self.q_cycle > 0.0;
     }

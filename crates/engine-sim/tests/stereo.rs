@@ -27,6 +27,7 @@ fn heard_from(at: [f64; 3], ear: [f64; 3], right: [f64; 3]) -> EngineSim {
         second_intake: None,
         engine: Some(at),
         turbo: Some(at),
+        surfaces: Vec::new(),
     });
     s.set_stereo(true);
     s.set_listener_facing(Some(ear), Some(right));
@@ -240,6 +241,7 @@ fn a_wall_to_one_side_is_heard_from_that_side() {
             second_intake: None,
             engine: Some(at),
             turbo: Some(at),
+            surfaces: Vec::new(),
         });
         s.set_stereo(true);
         // The garage is centred on the sources, 3.5 m wide: this puts the ear 0.4 m from its right wall.

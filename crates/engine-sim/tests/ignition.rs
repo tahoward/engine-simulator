@@ -89,3 +89,30 @@ fn starts_again_after_stopping() {
     assert!(sim.rpm() > 450.0, "running again at {} rpm", sim.rpm());
     assert!(peak(&sim.render(FS as usize / 2)) > 0.0, "and making a sound");
 }
+
+/// A turbo diesel's plenum, wide open to its turbo's throttle body, holds what the turbo makes and no
+/// more: idling, its air is no colder than the atmosphere it came from and the plenum sits at the charge
+/// pressure, with no flow swinging back and forth between the two each sample; switched off, it bleeds
+/// back to the atmosphere as the turbo coasts down.
+#[test]
+fn a_turbo_diesels_plenum_bleeds_away_once_it_stops() {
+    let mut cfg = common::engine_preset("Inline six diesel, Cummins 6CT").config.clone();
+    cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true, "throttle": 0 }));
+    let mut sim = EngineSim::new(FS, &cfg);
+    sim.render(3 * FS as usize);
+    let turbo = sim.turbo().unwrap();
+    assert!(turbo.charge_temp() > gas::T_AMB - 1.0, "charge air at {} K", turbo.charge_temp());
+    let across = sim.plenum().throttle_pressure() - turbo.charge_pressure();
+    assert!(across.abs() < 1000.0, "{across} Pa across the throttle at idle");
+    sim.set_ignition(false);
+    sim.render(5 * FS as usize);
+    let mut largest = 0.0f64;
+    for _ in 0..FS as usize / 10 {
+        sim.render(1);
+        largest = largest.max(sim.plenum().throttle_flows()[0].abs());
+    }
+    assert!(largest < 0.01, "{largest} kg/s through the throttle at rest");
+    sim.render(15 * FS as usize);
+    let gauge = sim.plenum().pressure() - gas::P_AMB;
+    assert!(gauge.abs() < 1000.0, "{gauge} Pa in the plenum 20 s after switching off");
+}

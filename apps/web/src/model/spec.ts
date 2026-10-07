@@ -762,6 +762,24 @@ export interface SoundSources {
   engine?: [number, number, number];
   /** Where the turbochargers are. */
   turbo?: [number, number, number];
+  /**
+   * The casing's surfaces, each heard from where it is and louder the way it faces. Without them the casing
+   * radiates from `engine` alike every way.
+   */
+  surfaces?: CasingSurface[];
+}
+
+/**
+ * One of the casing's radiating surfaces, and so what it carries: a block side its bank's pistons and the
+ * block's combustion ring, a head its valvetrain, the oil pan the bottom end, the front cover the timing drive.
+ */
+export interface CasingSurface {
+  kind: 'blockSide' | 'head' | 'oilPan' | 'frontCover';
+  /** The bank whose casting it is, as `physicalBank` counts them: for a block side or a head. */
+  bank: number;
+  /** Its middle, and the way it faces, a unit vector out of the engine. */
+  position: [number, number, number];
+  facing: [number, number, number];
 }
 
 /** Per-cylinder state, so the renderer can animate each bank. */

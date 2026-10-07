@@ -286,7 +286,10 @@ part of the gas dynamics; the rest is lumped, one state each, and stepped every 
   solved like the exhaust on cells no shorter than 8 cm. The charge air's volume, twice the swept
   volume, is mostly the intercooler's; the throttle body, a fifth of the swept volume, is lumped. The
   charge air's pressure waves travel along it and reflect off its ends: when the throttle shuts, the
-  compressor feels it about 10 ms later, as the wave arrives.
+  compressor feels it about 10 ms later, as the wave arrives. No sample's flow through the throttle moves more air
+  than would bring the throttle body and the front of the plenum to the same pressure. A wide-open
+  throttle between them, as a diesel's always is, would otherwise pass many times that each sample and
+  swing the air back and forth between the two without ever settling.
 - **The shaft** is accelerated by the turbine's power less the compressor's and its bearings'. Its
   inertia grows as the wheel's diameter to the fifth, which is why a big turbo lags.
 - **The intercooler** takes a share of the compressor's heating back out of the air it delivers.
@@ -506,6 +509,31 @@ switch. At the top, over the 300 rpm below its **Governed speed** (the rev limit
 away, none left at the speed itself, so the engine runs up to it smoothly instead of bouncing off a
 spark cut. Launch control cuts its fuel where it would a spark.
 
+### The clatter
+
+A diesel's pressure rises ten times as fast as a petrol engine's: 5.6 bar per degree at the 6CT's
+idle against 0.5 on the RB26. Its block carries that to the ear as a broad, hard clatter. Three sources
+make it, all heard from the engine's casing (below), all only on a diesel:
+
+- **The block.** The pressure rise drives 22 block modes, log-spaced from about 400 Hz to 12 kHz on
+  the 6CT (lower on a bigger engine), each of Q 12. They overlap into one broad ring, where a petrol
+  engine's four modes would ring as four tones under a diesel's drive. How much each passes follows
+  the block's structure attenuation: little below 1 kHz, where a stiff casting radiates poorly, most
+  around 1.5 to 3 kHz, and less again above.
+- **The chamber.** The premixed burn lights all at once, unevenly, and sets the gas in the chamber
+  ringing at its own acoustic modes, `c alpha / (pi bore)`. With Draper's numbers for the first two
+  circumferential modes and the first radial (1.841, 3.054 and 3.832), the 6CT's 114 mm bore rings
+  near 3.2, 5.3 and 6.7 kHz in its 1000 K gas, for a millisecond or two. The ring is as loud as the
+  heat the premixed burn releases, and varies by a third either way from one firing to the next.
+- **The injectors.** Each needle ticks as it lifts at the start of injection, and harder as it
+  slams shut at the end, 3° to 22° later as the fuel grows.
+
+Set against a recording of a six-cylinder diesel idling near 815 rpm, heard from beside the engine,
+the 6CT at the same speed puts its sound's centre at 620 Hz against the recording's 1200, and its
+third-octave bands from 25 Hz to 16 kHz come within 8 dB RMS of the recording's. Its clatter dies
+away between firings, where the recording's carries on at about two thirds of its peak: whatever
+fills those gaps on a real engine is not modelled.
+
 ## Why it does not sound looped
 
 A perfectly repeating engine sounds synthetic. Real engines vary from cycle to cycle, their cranks
@@ -562,11 +590,39 @@ All this mechanical noise sits about 18 dB below an open header. That is why you
 muffler has quietened the exhaust.
 
 **You hear the engine from where the camera is.** Each place the engine makes its sound is heard
-from where it is drawn: every tailpipe's outlet, the intake above the front of the engine, the
-casing from the engine's middle, and the turbos from where they sit. Each has its own path to the
-camera, so its own delay and its own loss with distance, and moving the view moves your ear. The
-paths glide to their new lengths over 50 ms as the camera moves, so a turn of the view does not
-click. Nearer than 0.25 m, a source gets no louder.
+from where it is drawn: every tailpipe's outlet, the intake above the front of the engine, each of the
+casing's surfaces (below), and the turbos from where they sit. Each has its own path to the camera,
+so its own delay and its own loss with distance, and moving the view moves your ear. The paths glide
+to their new lengths over 50 ms as the camera moves, so a turn of the view does not click. Nearer
+than 0.25 m, a source gets no louder.
+
+**The casing is several surfaces.** Each part's noise comes out of the part of the casing it shakes:
+
+- **Each block side**, halfway up the casting from the crankcase to the deck: its bank's piston slap
+  and ring scuff, and three quarters of the block's combustion ring, shared between the sides. An
+  inline's one casting has both its sides; a vee's or a boxer's each casting has its outer side.
+- **Each head**, at the top of its valvetrain, facing out along its bank: its valves' clack and lash
+  ticks and its cam followers, and on a diesel its injectors' ticks. A diesel's chamber ring goes half
+  to the head and half to the block side.
+- **The oil pan**, under the crankcase, facing down: the rods' bearing knock, the crank's twist and
+  the last quarter of the block's ring.
+- **The front cover**, on the block's front end, facing forward: the timing drive.
+
+The cam covers and the oil pan are thin stamped panels and ring at three low modes of their own, at
+about 450, 950 and 1800 Hz and 300, 650 and 1300 Hz on a casing half a metre long, lower on a longer
+one. At its own frequency each mode adds as much again as the surface carries. The block's sides and
+the front cover are stiff castings and ring only as the block does.
+
+Each surface is loudest the way it faces, as a baffled panel is, and quietest behind, a fifth of that,
+where the engine is in the way. Each still radiates the power a source radiating alike every way
+would, so the casing is about as loud from any side as before, within a few dB. What changes is what
+it sounds like: on the LT2 from the side its 1-2.5 kHz band, the block's and the pistons', is 5.5 dB
+more of its sound than from the front, where the pan and the timing drive have more of it. From one
+place that difference was 1.2 dB. The ground and walls' reflections leave each surface the way they
+would reach the ear's image in them, so they are directional too.
+
+Without the app to place them, as in the tests' reference renders, the casing radiates from one
+place, the engine's middle, alike every way.
 
 The ground lies `exhaustHeight` below the lowest tailpipe, and each source's sound also bounces off
 it. The bounce arrives later and duller, and mixing it with the direct sound cancels some
@@ -794,6 +850,7 @@ cylinder by 4%. A twin is never two independent singles, whatever exhaust you fi
 - Runner boundary-layer damping: [Pierce 2019](references.md#pierce2019).
 - Laminar burning velocity: [Rhodes and Keck 1985](references.md#rhodes1985), with Heywood's
   gasoline constants; turbulent entrainment and burn-up: [Blizard and Keck 1974](references.md#blizard1974).
+- A diesel's chamber ringing: [Draper 1938](references.md#draper1938).
 - Diesel ignition delay: [Hardenberg and Hase 1979](references.md#hardenberg1979); its premixed and
   diffusion burns: [Watson et al. 1980](references.md#watson1980).
 - Junction solve: [Toro 2009](references.md#toro2009).

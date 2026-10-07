@@ -67,6 +67,10 @@ matters.
     afterfire. Free, on full pedal with no load, the governor must hold it between 2200 and 2500 rpm,
     within 60 rpm, with no limiter. With the pedal up above its idle it must get no fuel. Held at full
     pedal it must make within 10% of 920 N·m at 1500 rpm and 250 hp at 2200.
+  - The clatter: the chamber must ring at `c alpha / (pi bore)`, near 3.2 kHz on its first mode in
+    the 6CT's bore at 1000 K, as the square root of the temperature and inversely as the bore. Idling
+    at 815 rpm the 6CT must make more than 5 times the 2–8 kHz sound it makes with its mechanical
+    and turbo sound off, and its firings' clatter peaks must differ by more than 5%.
 - **Intake runners.** Left on auto, a runner's bore must follow the valves and its length the rev
   limit, and set values must be used as given. On a 6.2 litre V8, the tuned runner must fill the
   cylinder to over 95% at its tuned speed. That must be more than 10 points above an 80 mm stub, and
@@ -203,6 +207,14 @@ matters.
   from, by its duct, with the intake and casing; the default single's tailpipe must be at the end of
   its megaphone, out to the side, and the LT6's two within 0.25 m of each other in the middle. Through
   the Wasm build, a listener twice as far away must hear the engine half as loud.
+- **The casing's surfaces.** On every preset, the app must give one outer side and one head a bank on
+  a vee or a boxer, and both sides and one head on an inline, each facing out of the engine, the heads
+  above the deck, the oil pan under the crankcase and the front cover on the block's front end. A
+  surface must be five times as loud ahead as behind and radiate, over every direction, the power of a
+  source alike every way. Spread over its surfaces, the LT2's and the 6CT's casings must be within
+  5 dB of their one place's level from the front, both sides, above and the rear. From the LT2's side,
+  its casing's 1-2.5 kHz band must be at least 3 dB more of its sound against the front than it is from
+  one place.
 - **Headers.** On the LT6 at 8400 rpm, equal-length headers must fill the cylinder more than 1.5
   points past a manifold along the ports.
 - **Port injection.** With the fuel cut, neither the manifold nor a runner may hold more than a

@@ -117,6 +117,10 @@ for. Plain-language definitions of the terms are in the [Glossary](glossary.md).
   [doi:10.4271/790493](https://doi.org/10.4271/790493)
   — The diesel's ignition delay, from the air's temperature and pressure at top dead centre, the
   piston speed and the fuel's cetane number.
+- <a id="draper1938"></a>**Draper, C. S. (1938).** "Pressure waves accompanying detonation in the
+  internal combustion engine." *Journal of the Aeronautical Sciences* 5(6), 219–226.
+  — The acoustic modes of a cylindrical combustion chamber, which a diesel's premixed burn sets
+  ringing.
 - <a id="watson1980"></a>**Watson, N., Pilley, A. D. and Marzouk, M. (1980).** "A combustion
   correlation for diesel engine simulation." SAE Technical Paper 800029.
   [doi:10.4271/800029](https://doi.org/10.4271/800029)

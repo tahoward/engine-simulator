@@ -3,13 +3,48 @@ import { describe, expect, it } from 'vitest';
 import { presetConfig } from '../bench/presetConfig.js';
 import { Sim } from '../src/audio/worklet/sim.js';
 import { solverGraph, compileExhaust } from '../src/model/exhaustGraph.js';
-import { ENGINE_PRESETS, defaultConfig, intakeRunnerOf } from '../src/model/spec.js';
+import { ENGINE_PRESETS, defaultConfig, intakeRunnerOf, physicalBankCount, presetEngine } from '../src/model/spec.js';
 import { inletSegments } from '../src/model/intakeSizing.js';
-import { engineShell, exhaustPortOf, intakePortOf, sharedHead } from '../src/model/geometry.js';
+import { deckHeight, engineShell, exhaustPortOf, intakePortOf, sharedHead } from '../src/model/geometry.js';
 import { inletLayout } from '../src/scene/inletLayout.js';
-import { configSources } from '../src/scene/soundSources.js';
+import { casingSurfaces, configSources } from '../src/scene/soundSources.js';
 
 describe('where the engine makes its sound', () => {
+  it('puts the casing\u2019s surfaces round the drawn engine, each facing out of it, on every preset', () => {
+    for (const preset of ENGINE_PRESETS) {
+      const spec = presetEngine(preset, defaultConfig().engine);
+      const shell = engineShell(spec);
+      const surfaces = casingSurfaces(spec);
+      const of = (kind: string) => surfaces.filter((s) => s.kind === kind);
+      const banks = physicalBankCount(spec);
+      // One outer side and one head a bank on a vee or a boxer; both sides of an inline's one casting.
+      expect(of('blockSide'), preset.name).toHaveLength(banks > 1 ? banks : 2);
+      expect(of('head'), preset.name).toHaveLength(banks);
+      expect(of('oilPan'), preset.name).toHaveLength(1);
+      expect(of('frontCover'), preset.name).toHaveLength(1);
+      for (const s of surfaces) {
+        expect(Math.hypot(...s.facing), preset.name).toBeCloseTo(1, 9);
+        expect(s.position.every(Number.isFinite), preset.name).toBe(true);
+      }
+      for (const head of of('head')) {
+        // Above the deck along its bank, and facing out along it.
+        const along = head.position[0] * head.facing[0] + head.position[1] * head.facing[1];
+        expect(along, preset.name).toBeGreaterThan(deckHeight(spec));
+      }
+      for (const side of of('blockSide')) {
+        // Out from the crank the way it faces.
+        const out = side.position[0] * side.facing[0] + side.position[1] * side.facing[1];
+        expect(out, preset.name).toBeGreaterThan(0);
+      }
+      const pan = of('oilPan')[0]!;
+      expect(pan.position[1], preset.name).toBeLessThan(-shell.crankcase.radius);
+      expect(pan.facing, preset.name).toEqual([0, -1, 0]);
+      const front = of('frontCover')[0]!;
+      expect(front.position[2], preset.name).toBeCloseTo(-shell.length / 2, 9);
+      expect(front.facing, preset.name).toEqual([0, 0, -1]);
+    }
+  });
+
   it('places every mouth the solver radiates from, on every preset', () => {
     for (const preset of ENGINE_PRESETS) {
       const cfg = presetConfig(preset);

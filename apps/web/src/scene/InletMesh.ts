@@ -67,6 +67,9 @@ function colourable<T extends THREE.BufferGeometry>(g: T): T {
 const PIPE_METAL = new THREE.Color(0.55, 0.58, 0.62);
 
 /** Fill `g`'s vertex colours with `rgb`. */
+/** How long the intake takes to fade to the atmosphere's colour once the engine has come to rest, s. */
+const SETTLE_FADE_S = 1.2;
+
 function fill(g: THREE.BufferGeometry, rgb: THREE.Color): void {
   const c = g.getAttribute('color') as THREE.BufferAttribute | undefined;
   if (!c) return;
@@ -697,6 +700,13 @@ export class InletMesh {
   private runners: THREE.Mesh[] = [];
   private layout: InletLayout | null = null;
   private showPressure = false;
+  /**
+   * What it was last painted with: a snapshot's pressures and the scale they were on, the engine settled at
+   * rest, or nothing yet. A rebuild, as moving the throttle makes, paints it the same again.
+   */
+  private shown: { snap: EngineSnapshot; scale: number } | 'settled' | null = null;
+  /** How much longer its colours take to fade to the atmosphere's, s, once settled: 0 once they have. */
+  private fading = 0;
   /** The specks: where each is along the tract, 0 at the throttle to 1 at the mouth, and across it. */
   private readonly specks = new THREE.Points(
     new THREE.BufferGeometry(),
@@ -745,17 +755,43 @@ export class InletMesh {
   show(s: EngineSnapshot, scale: number): void {
     this.velocity = s.inletVelocity;
     this.setBalanced(!!s.plenumBalanced);
+    this.shown = { snap: s, scale };
+    this.fading = 0;
     if (!this.showPressure) return;
     this.paint(s, scale);
   }
 
-  /** The engine at rest: every part at the atmosphere's pressure, and the air still. */
-  settle(): void {
+  /**
+   * The engine at rest: every part at the atmosphere's pressure, and the air still. The last of the
+   * pressure it showed fades out over `SETTLE_FADE_S` (`fade`), rather than vanishing from one frame to the
+   * next; with `atOnce`, as when it is built afresh at rest, it is gone straight away.
+   */
+  settle(atOnce = false): void {
     this.velocity = new Float32Array(0);
-    if (!this.showPressure) return;
+    this.shown = 'settled';
+    this.fading = atOnce ? 0 : SETTLE_FADE_S;
+    if (!this.showPressure || !atOnce) return;
     const ambient = new THREE.Color();
     pressureColor(0, ambient);
     for (const m of [...this.plenum, ...this.runners]) fill(m.geometry, ambient);
+  }
+
+  /** Fade the colours `dt` seconds of real time further towards the atmosphere's, while settling. */
+  fade(dt: number): void {
+    if (this.fading <= 0) return;
+    const k = Math.min(1, dt / this.fading);
+    this.fading = Math.max(this.fading - dt, 0);
+    if (!this.showPressure) return;
+    const ambient = new THREE.Color();
+    pressureColor(0, ambient);
+    const target = [ambient.r, ambient.g, ambient.b];
+    for (const m of [...this.plenum, ...this.runners]) {
+      const c = m.geometry.getAttribute('color') as THREE.BufferAttribute | undefined;
+      if (!c) continue;
+      const arr = c.array as Float32Array;
+      for (let i = 0; i < arr.length; i++) arr[i] = arr[i]! + (target[i % 3]! - arr[i]!) * k;
+      c.needsUpdate = true;
+    }
   }
 
   /**
@@ -836,8 +872,15 @@ export class InletMesh {
     for (const tract of l.tracts) this.buildTract(tract, l);
     this.tract.add(this.specks);
     this.setThrottle(spec.throttle);
-    this.paint(null);
+    this.repaint();
     this.flow(0);
+  }
+
+  /** Paint it as it was last shown, after it has been built afresh. */
+  private repaint(): void {
+    if (this.shown === 'settled') this.settle(true);
+    else if (this.shown && this.showPressure) this.paint(this.shown.snap, this.shown.scale);
+    else this.paint(null);
   }
 
   /** The plenum, its runners and the throttle body. */

@@ -85,7 +85,7 @@ struct Geom {
 fn listener_at(geom: Geom) -> Listener {
     let mut l = Listener::new(FS);
     let ear = [geom.distance, geom.mic_height, 0.0];
-    l.set_geometry(ear, None, &[[0.0, geom.source_height, 0.0]], 0.0, geom.reflection, None, true);
+    l.set_geometry(ear, None, &[[0.0, geom.source_height, 0.0]], &[], 0.0, geom.reflection, None, true);
     l
 }
 
@@ -372,6 +372,7 @@ fn heard_from(at: [f64; 3], ear: [f64; 3]) -> EngineSim {
         second_intake: None,
         engine: Some(at),
         turbo: Some(at),
+        surfaces: Vec::new(),
     });
     s.set_listener(Some(ear));
     s.render(FS_N * 2);

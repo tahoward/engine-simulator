@@ -41,6 +41,34 @@ pub struct SoundSources {
     /// Where the turbochargers are.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turbo: Option<Vec3>,
+    /// The casing's surfaces, each heard from where it is and louder the way it faces. Without them the
+    /// casing radiates from `engine` alike every way.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub surfaces: Vec<SurfacePlace>,
+}
+
+/// One of the casing's radiating surfaces. See `SurfaceKind`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SurfacePlace {
+    pub kind: SurfaceKind,
+    /// The bank whose casting it is, for a block side or a head: as `physical_bank` counts them.
+    #[serde(default)]
+    pub bank: u32,
+    /// Its middle, and the way it faces, a unit vector out of the engine.
+    pub position: Vec3,
+    pub facing: Vec3,
+}
+
+/// What a casing surface is, and so what it carries: a block side its bank's pistons and the block's
+/// combustion ring, a head its valvetrain, the oil pan the bottom end, the front cover the timing drive.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SurfaceKind {
+    BlockSide,
+    Head,
+    OilPan,
+    FrontCover,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -97,6 +125,26 @@ impl Walls {
 
 /// The four walls and the ceiling. The floor is the ground.
 const WALLS: usize = 5;
+
+/// What a surface facing away from the ear still sends it, as a share of what it sends the way it faces:
+/// the sound that bends round the engine to its far side.
+const DIRECTIVITY_FLOOR: f64 = 0.2;
+
+/// How loud a surface's sound is along `to`, against a source radiating the same power alike every way:
+/// a baffled panel's, loudest ahead along `facing` and falling to `DIRECTIVITY_FLOOR` of that behind,
+/// scaled so its power over every direction is the same. 1 for a source with no facing.
+pub fn directivity(facing: Option<Vec3>, to: Vec3) -> f64 {
+    match facing {
+        None => 1.0,
+        Some(f) => {
+            let cos = math::cos(angle_off(to, f));
+            let g = DIRECTIVITY_FLOOR + (1.0 - DIRECTIVITY_FLOOR) * (1.0 + cos) / 2.0;
+            // `g = m + h cos`, whose square averages `m^2 + h^2 / 3` over the sphere.
+            let (m, h) = ((1.0 + DIRECTIVITY_FLOOR) / 2.0, (1.0 - DIRECTIVITY_FLOOR) / 2.0);
+            g / math::sqrt(m * m + (h * h) / 3.0)
+        }
+    }
+}
 
 /// Closest the ear may come to a source, m. Nearer, its level would run away as 1/r.
 const MIN_RANGE: f64 = 0.25;
@@ -228,7 +276,8 @@ impl Listener {
         Listener { sample_rate, paths: Vec::new(), glide_c: 1.0 - math::exp(-1.0 / (GLIDE_S * sample_rate)), ears: 1 }
     }
 
-    /// Put the listener at `ear` and the sources at `places`, above ground at height `ground` that
+    /// Put the listener at `ear` and the sources at `places`, each facing as `facings` says (a source past
+    /// its end radiates alike every way), above ground at height `ground` that
     /// reflects `reflection` of what reaches it, and inside `walls` if there are any. With `right`, the
     /// way the listener's right is, there are two ears, `HEAD_RADIUS` either side of `ear`, each in the
     /// head's shadow from the other side; without, one, at `ear`. With `snap` the paths take their new
@@ -240,6 +289,7 @@ impl Listener {
         ear: Vec3,
         right: Option<Vec3>,
         places: &[Vec3],
+        facings: &[Option<Vec3>],
         ground: f64,
         reflection: f64,
         walls: Option<&Walls>,
@@ -308,12 +358,16 @@ impl Listener {
         let most_wall = MAX_ROOM_DIFFERENCE_S * self.sample_rate;
         let fs = self.sample_rate;
         for (k, ((ear, axis), ranges)) in heads.iter().zip(&ranges).enumerate() {
-            for ((path, &(direct, bounced)), place) in self.paths.iter_mut().zip(ranges).zip(places) {
+            for (i, ((path, &(direct, bounced)), place)) in self.paths.iter_mut().zip(ranges).zip(places).enumerate() {
                 let e = &mut path.ears[k];
+                let facing = facings.get(i).copied().flatten();
                 e.direct_delay.target = math::min(((direct - nearest) / c) * fs, most);
                 e.ground_delay.target = math::min(((bounced - nearest) / c) * fs, most);
-                e.direct_gain.target = 1.0 / direct;
-                e.ground_gain.target = math::max(reflection, 0.0) / bounced;
+                // The ground's reflection sets off towards the ear's image below the ground.
+                let toward = [ear[0] - place[0], ear[1] - place[1], ear[2] - place[2]];
+                let downward = [toward[0], 2.0 * ground - ear[1] - place[1], toward[2]];
+                e.direct_gain.target = directivity(facing, toward) / direct;
+                e.ground_gain.target = (math::max(reflection, 0.0) * directivity(facing, downward)) / bounced;
                 e.ground_loss.set_cutoff(2600.0, fs);
                 e.air_direct.set_cutoff(air_cutoff_hz(direct), fs);
                 e.air_ground.set_cutoff(air_cutoff_hz(bounced), fs);
@@ -327,6 +381,7 @@ impl Listener {
                 match walls {
                     Some(w) => {
                         let place = w.inside(*place, ground, 0.0);
+                        let ear_images = w.images(*ear);
                         let mut mean = 0.0;
                         for (n, image) in w.images(place).iter().enumerate() {
                             let range = math::max(
@@ -337,7 +392,10 @@ impl Listener {
                             // Beyond what the line holds, a reflection that faint is left out.
                             let heard = delay <= most_wall && w.reflection[n] > 0.0;
                             e.wall_delay[n].target = math::min(delay, most_wall);
-                            e.wall_gain[n].target = if heard { w.reflection[n] / range } else { 0.0 };
+                            // Each wall's reflection sets off towards the ear's image in that wall.
+                            let out = ear_images[n];
+                            let spread = directivity(facing, [out[0] - place[0], out[1] - place[1], out[2] - place[2]]);
+                            e.wall_gain[n].target = if heard { (w.reflection[n] * spread) / range } else { 0.0 };
                             if let Some(axis) = *axis {
                                 let to = [image[0] - ear[0], image[1] - ear[1], image[2] - ear[2]];
                                 e.wall_shadow[n].set(angle_off(to, axis), fs);

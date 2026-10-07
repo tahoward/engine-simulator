@@ -4,7 +4,8 @@
 mod common;
 
 use engine_sim::cylinder::{ignition_delay, premixed_share};
-use engine_sim::engine_sim::EngineSim;
+use engine_sim::dsp::Resonator;
+use engine_sim::engine_sim::{EngineSim, chamber_mode_hz};
 use engine_sim::spec::{EngineConfig, gas};
 use serde_json::{Value, json};
 
@@ -207,3 +208,76 @@ fn the_6ct_makes_about_the_real_engines_torque_and_power() {
     assert!((hp - 250.0).abs() < 0.1 * 250.0, "{hp} hp at 2200 rpm");
 }
 
+// --- the clatter ---
+
+/// The chamber rings at `c alpha / (pi bore)`: the 6CT's 114 mm bore, its gas at 1000 K, near 3.2 kHz on
+/// its first mode, higher in hotter gas and in a smaller bore.
+#[test]
+fn the_chamber_rings_at_its_bore_and_temperature() {
+    let first = chamber_mode_hz(1.841, 1000.0, 0.114);
+    assert!((first - 3170.0).abs() < 50.0, "{first} Hz");
+    assert!((chamber_mode_hz(1.841, 1600.0, 0.114) / first - (1.6f64).sqrt()).abs() < 1e-9);
+    assert!((chamber_mode_hz(1.841, 1000.0, 0.057) / first - 2.0).abs() < 1e-9);
+}
+
+/// The 6CT idling, held at 815 rpm on its idle fuel, `seconds` of its sound, with the fields in `over`.
+fn idle_sound(over: Value, seconds: f64) -> Vec<f32> {
+    let mut sim = held(815.0, 0.08, 1.0, over);
+    sim.render((seconds * FS) as usize)
+}
+
+/// Each sample's band-passed level around `hz`, smoothed over 2 ms.
+fn band_envelope(sound: &[f32], hz: f64) -> Vec<f64> {
+    let mut band = Resonator::new(hz, 1.5, FS);
+    let n = (0.002 * FS) as usize;
+    let squared: Vec<f64> = sound.iter().map(|&x| band.process(x as f64).powi(2)).collect();
+    let mut out = vec![0.0; squared.len()];
+    let mut sum = 0.0;
+    for i in 0..squared.len() {
+        sum += squared[i];
+        if i >= n {
+            sum -= squared[i - n];
+        }
+        out[i] = (sum / n as f64).sqrt();
+    }
+    out
+}
+
+/// The envelope folded on the firing interval: its mean over a firing, and each firing's peak.
+fn folded(env: &[f64]) -> (Vec<f64>, Vec<f64>) {
+    let n = (FS * 120.0 / 815.0 / 6.0) as usize;
+    let k = env.len() / n;
+    let mut mean = vec![0.0; n];
+    let mut peaks = Vec::new();
+    for j in 0..k {
+        let firing = &env[j * n..(j + 1) * n];
+        for (m, &v) in mean.iter_mut().zip(firing) {
+            *m += v / k as f64;
+        }
+        peaks.push(firing.iter().cloned().fold(0.0, f64::max));
+    }
+    (mean, peaks)
+}
+
+/// Idling, its block carries the clatter: far more 2-8 kHz than with the mechanical and combustion noise
+/// off, where only the turbo's whine is up there.
+#[test]
+fn its_block_clatters_at_idle() {
+    let level = |over: Value| {
+        let sound = idle_sound(over, 2.0);
+        [2500.0, 5000.0].iter().map(|&hz| band_envelope(&sound, hz).iter().sum::<f64>()).sum::<f64>()
+    };
+    let clatter = level(json!({}));
+    let quiet = level(json!({ "mechNoise": 0, "turboNoise": 0 }));
+    assert!(clatter > 5.0 * quiet, "{clatter} against {quiet}");
+}
+
+/// No two firings clatter alike: each cylinder's chamber rings as hard as its own premixed burn, which
+/// varies from one cycle to the next.
+#[test]
+fn no_two_firings_clatter_alike() {
+    let (_, peaks) = folded(&band_envelope(&idle_sound(json!({}), 3.0), 2500.0));
+    let avg = peaks.iter().sum::<f64>() / peaks.len() as f64;
+    let spread = (peaks.iter().map(|p| (p - avg).powi(2)).sum::<f64>() / peaks.len() as f64).sqrt() / avg;
+    assert!(spread > 0.05, "firing-to-firing spread {spread}");
+}

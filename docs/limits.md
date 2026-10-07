@@ -62,11 +62,19 @@ Where the model is simplified, and by how much.
   solver has a small [second-order](glossary.md#order-of-accuracy) error that grows at about 1.4 /s. Normal damping is 150 /s,
   about a hundred times larger, so it stays suppressed. It is not zero.
 - **Engine body noise is simplified.** It uses four lumped modes, not a vibration model of a
-  real casting, radiating equally every way from the engine's middle. The running noise rings
+  real casting, heard from a handful of surfaces placed on the drawn engine: each block side and head,
+  the oil pan and the front cover. Which parts each carries is fixed by kind, not by a model of the
+  paths through the casting, and there are no valley, rear or bellhousing faces. The running noise rings
   per-cylinder modes of the bore, head and crankcase, and one torsional mode of the crank. Its
   levels, like the clack's and slap's, are chosen by ear. The timing drive is a 21-tooth sprocket
   on every engine, whether it drives a chain, a belt or gears. The bearings knock when the rod's
   force reverses, not from a model of the journal moving in its oil film.
+- **A diesel's clatter is set against one recording.** Its block's modes and how much each passes,
+  its chamber ring's level and its injectors' are chosen to match one recording
+  of an unknown six-cylinder diesel idling, heard from an unknown place, not measured on the 6CT. The
+  chamber rings at an ideal cylinder's modes, with the gas at its mean temperature rather than in its
+  hot burning pockets. There is no gear rattle and no injection pump's own noise, so between firings
+  it is quieter than a real diesel.
 - **The inlet tract is a fixed shape.** It is a snorkel, an airbox and a tube at the throttle's bore,
   sized by **Airbox volume**, **Snorkel length** and **Snorkel bore**. The view draws it routed the same
   way on every engine, to an airbox on top of the engine's front, and it cannot be moved or edited
@@ -77,9 +85,10 @@ Where the model is simplified, and by how much.
   mean flow loss is left out rather than solved (see [Acoustics](acoustics.md#the-intakes-sound)), and so
   is a filter element's. The solver resolves it only up to about 2 kHz on 35 mm cells, so the throttle's
   hiss stops there, where a real one goes on up.
-- **Every source radiates equally in every direction.** Each tailpipe, the intake, the casing and the
-  turbos are heard from where they are drawn, but none has a direction pattern: a real open pipe beams
-  its treble along its axis. The intake is placed above the front of the engine, where its throttle
+- **Only the casing's surfaces have a direction pattern.** Each tailpipe, the intake and the turbos
+  are heard from where they are drawn, but radiate equally every way: a real open pipe beams its
+  treble along its axis. The casing's surfaces radiate as baffled panels, the same pattern at every
+  frequency, where a real panel's beaming narrows as the frequency rises. The intake is placed above the front of the engine, where its throttle
   would be, not from a drawn airbox, and the muffler shells' sound comes from the middle of the
   tailpipes rather than from each can. The ground is flat and lies one height below the lowest
   tailpipe; there is no car body to shade or reflect anything.

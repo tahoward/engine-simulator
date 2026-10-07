@@ -855,6 +855,11 @@ impl Turbo {
         clamp(gas_temperature(self.energy / math::max(self.mass, 1e-9)), 150.0, 1000.0)
     }
 
+    /// The throttle body's volume, m^3: the air the turbos blow into, before the throttle.
+    pub fn throttle_body_volume(&self) -> f64 {
+        self.charge.volume
+    }
+
     pub fn charge_pressure(&self) -> f64 {
         (math::max(self.mass, 1e-9) * gas::R * self.charge_temp()) / self.charge.volume
     }

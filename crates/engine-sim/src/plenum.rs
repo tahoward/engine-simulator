@@ -532,7 +532,13 @@ impl IntakePlenum {
     /// back to the zone it leaves by what flowed out of its plenum end over the sample, at its own
     /// temperature and composition where it flows back in. Returns the flow in through the throttles,
     /// kg/s, each one's after in `throttle_flows`.
-    pub fn step(&mut self, dt: f64, p_up: &[f64], t_up: f64, runners: &[Runner]) -> f64 {
+    ///
+    /// With `up_volume`, m^3, the air before the throttle is a volume that size, as a turbocharger's
+    /// throttle body is, rather than an inlet tract open to the atmosphere. Then no sample's flow through a
+    /// throttle moves more than would bring the two to the same pressure: a wide-open throttle between two
+    /// small volumes passes in one sample many times what evens them out, and would swing the air back and
+    /// forth through itself each sample from then on, never settling.
+    pub fn step(&mut self, dt: f64, p_up: &[f64], t_up: f64, up_volume: Option<f64>, runners: &[Runner]) -> f64 {
         let follow = dt / STEADY_FLOW_TIME;
         let (dx, damping, area) = (self.dx, self.damping, self.area);
         let mut throttle_flow = 0.0;
@@ -555,11 +561,18 @@ impl IntakePlenum {
             // The throttle, into the front zone.
             let front = row.zones[0];
             let (p, t) = (front.pressure(), front.temp());
-            let through = if p < p_up {
+            let mut through = if p < p_up {
                 orifice_mass_flow(area, 1.0, p_up, t_up, p, gas::GAMMA_AIR)
             } else {
                 -orifice_mass_flow(area, 1.0, p, t, p_up, gas_gamma(t))
             };
+            if let Some(v_up) = up_volume {
+                // What would even the two out: at their mean temperature, as much as the pressure across
+                // the throttle times their volumes in series, over `R T`.
+                let v = (v_up * front.volume) / math::max(v_up + front.volume, 1e-12);
+                let most = ((p_up - p).abs() * v) / (gas::R * 0.5 * (t_up + t) * dt);
+                through = clamp(through, -most, most);
+            }
             throttle_flow += through;
             self.throttle_flows[k] = through;
             {

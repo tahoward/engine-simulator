@@ -893,6 +893,9 @@ let displayRpm = 0;
 /** Share of real time the simulation runs at, which the crank is turned between snapshots at too. */
 let timeScale = 1;
 
+/** The scale the last snapshot's pressures were coloured on, Pa. */
+let shownScale = 1;
+
 audio.onSnapshot((s) => {
   // One sent just before the audio suspends can land after it.
   if (!audio.running) return;
@@ -914,6 +917,7 @@ audio.onSnapshot((s) => {
   all.set(s.runnerPressure, s.ductPressure.length + s.inletPressure.length);
   all[all.length - 1] = s.plenumPressure;
   const scale = pipeScale.track(all, !engineOn);
+  shownScale = scale;
   // A pipe the solver has turned round has its cells from its far end, so they are read back.
   const ducts = config.graph!.ducts;
   const reversed = reversedDucts(config.graph!);
@@ -979,6 +983,7 @@ viewer.onFrame((dt) => {
   inletMesh.setThrottle(latest?.launch?.throttle ?? config.engine.throttle);
   // The air through the intake moves at the simulation's pace, stopped while the sound is.
   inletMesh.flow(audio.running ? dt * timeScale : 0);
+  inletMesh.fade(dt);
   if (displayRpm > 0) displayAngle = (displayAngle + displayRpm * 6 * dt * timeScale) % 720;
   // Combustion glow: a short flash after the burn begins.
   // Each cylinder trails the first by its firing offset, as the simulation phases it. Taken from the spec
@@ -1017,13 +1022,14 @@ const SILENT_PEAK = 1e-4;
 /** How long a stopped engine may keep making a sound before the audio is suspended anyway, ms. */
 const REST_TIMEOUT_MS = 3000;
 /**
- * How close to the atmosphere's pressure the plenum must have come before a stopped engine is let rest, Pa,
- * and how long it is given to, ms. Behind a shut throttle it can still be in vacuum when the crank stops,
- * and air takes a second or two to leak back in through the idle valve; suspended at once, the intake's
- * colours would jump to ambient.
+ * How close to the atmosphere's pressure the plenum must have come before a stopped engine is let rest, as a
+ * share of the scale the pressures are coloured on, where its colour is all but grey. However long that
+ * takes: behind a shut throttle it can still be in vacuum when the crank stops, and air takes a second or
+ * two to leak back in through the idle valve; on a turbocharged engine the turbo coasts on after the crank
+ * stops, and holds its charge until it has slowed, half a minute or so on a big diesel's. Suspended before,
+ * the intake's colours would jump to ambient.
  */
-const PLENUM_SETTLED_PA = 1500;
-const BLEED_TIMEOUT_MS = 5000;
+const PLENUM_SETTLED_SHARE = 0.01;
 /**
  * How long after the ignition goes on a standstill does not count as a stall, ms: snapshots from before
  * the simulation has the ignition can still arrive.
@@ -1074,7 +1080,7 @@ function settleWhenStill(s: EngineSnapshot): void {
   restSince ??= now;
   const silent = s.peak < SILENT_PEAK;
   if (!silent && now - restSince < REST_TIMEOUT_MS) return;
-  if (silent && Math.abs(s.plenumPressure) > PLENUM_SETTLED_PA && now - restSince < BLEED_TIMEOUT_MS) return;
+  if (Math.abs(s.plenumPressure) > PLENUM_SETTLED_SHARE * shownScale) return;
   void audio.suspend().then(() => {
     if (engineOn) return;
     displayRpm = 0;

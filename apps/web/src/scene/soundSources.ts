@@ -7,8 +7,8 @@
 import * as THREE from 'three';
 
 import { compileExhaust, reversedDucts, solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
-import { engineShell, exhaustPortOf, type Vec3 } from '../model/geometry.js';
-import { type EngineConfig, type EngineSpec, type SoundSources } from '../model/spec.js';
+import { deckHeight, engineShell, exhaustPortOf, valvetrainTop, type Vec3 } from '../model/geometry.js';
+import { type CasingSurface, type EngineConfig, type EngineSpec, type SoundSources } from '../model/spec.js';
 import { turboPortsOf } from '../model/turbo.js';
 import { seatEngineTurbos } from './engineTurbos.js';
 import { layoutGraph, type ExhaustPlacement, type ExhaustPort } from './exhaustLayout.js';
@@ -82,7 +82,55 @@ export function soundSources(graph: ExhaustGraph, placement: ExhaustPlacement, s
     ...(second ? { secondIntake: vec3(second.mouth) } : {}),
     engine: casing,
     ...(turbo ? { turbo } : {}),
+    surfaces: casingSurfaces(spec),
   };
+}
+
+/** How far below the crankcase the oil pan's floor is, m. */
+const PAN_DEPTH = 0.04;
+
+/**
+ * The casing's radiating surfaces, as the engine is drawn (`engineShell`): each casting's outer side,
+ * halfway up from the crankcase to the deck, facing away from the vee (both sides of an inline's one
+ * casting, the top of a boxer's); each head at the top of its valvetrain, facing out along its bank; the
+ * oil pan under the crankcase, facing down; and the front cover on the block's front end, facing forward.
+ */
+export function casingSurfaces(spec: EngineSpec): CasingSurface[] {
+  const shell = engineShell(spec);
+  const deck = deckHeight(spec);
+  const middle = (shell.bottom + deck) / 2;
+  const top = valvetrainTop(spec);
+  const surfaces: CasingSurface[] = [];
+  for (const turn of shell.banks) {
+    const bank = Math.abs(turn - shell.straddle) < 1e-9 ? 0 : 1;
+    // A bank's axis, from the crank up through its cylinders, and the two ways across it.
+    const axis: Vec3 = [-Math.sin(turn), Math.cos(turn), 0];
+    const across: Vec3 = [Math.cos(turn), Math.sin(turn), 0];
+    const outward = across[0] * axis[0];
+    const sides: Vec3[] =
+      Math.abs(axis[0]) < 1e-9
+        ? [across, [-across[0], -across[1], 0]]
+        : Math.abs(outward) < 1e-9
+          ? [across[1] >= 0 ? across : [-across[0], -across[1], 0]]
+          : [outward > 0 ? across : [-across[0], -across[1], 0]];
+    for (const side of sides) {
+      const position: Vec3 = [
+        axis[0] * middle + side[0] * (shell.width / 2),
+        axis[1] * middle + side[1] * (shell.width / 2),
+        0,
+      ];
+      surfaces.push({ kind: 'blockSide', bank, position, facing: side });
+    }
+    surfaces.push({ kind: 'head', bank, position: [axis[0] * top, axis[1] * top, 0], facing: axis });
+  }
+  surfaces.push({ kind: 'oilPan', bank: 0, position: [0, -(shell.crankcase.radius + PAN_DEPTH), 0], facing: [0, -1, 0] });
+  surfaces.push({
+    kind: 'frontCover',
+    bank: 0,
+    position: [0, (shell.top + shell.bottom) / 2, -shell.length / 2],
+    facing: [0, 0, -1],
+  });
+  return surfaces;
 }
 
 /**

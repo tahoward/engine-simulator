@@ -62,6 +62,17 @@ impl Resonator {
         (math::acos(self.a1 / (2.0 * r)) * sample_rate) / (2.0 * PI)
     }
 
+    /// How much it gains a steady tone at `hz`, as its magnitude response there.
+    pub fn gain_at(&self, hz: f64, sample_rate: f64) -> f64 {
+        let w = (2.0 * PI * hz) / sample_rate;
+        let (c1, s1) = (math::cos(w), math::sin(w));
+        let (c2, s2) = (math::cos(2.0 * w), math::sin(2.0 * w));
+        // `0.5 (1 - z^-2) / (1 - a1 z^-1 - a2 z^-2)` at `z = e^(i w)`.
+        let num = 0.5 * math::hypot2(1.0 - c2, s2);
+        let den = math::hypot2(1.0 - self.a1 * c1 - self.a2 * c2, self.a1 * s1 + self.a2 * s2);
+        num / math::max(den, 1e-12)
+    }
+
     /// Excite with `x`; the peak ring amplitude is approximately `x`.
     #[inline]
     pub fn process(&mut self, x: f64) -> f64 {

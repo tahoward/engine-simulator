@@ -29,7 +29,7 @@ use crate::exhaust_graph::{ExhaustGraph, compile_exhaust, node_order, validate_g
 use crate::exhaust_system::{ExhaustSystem, SideWork};
 use crate::inlet::{InletTract, airbox_volume_of, inlet_count_of, snorkel_dia_of};
 use crate::intake::{IntakeRunners, RunnerIo};
-use crate::listener::{Listener, SoundSources, Vec3, Walls};
+use crate::listener::{Listener, SoundSources, SurfaceKind, Vec3, Walls};
 use crate::room::Reverb;
 use crate::math::{self, PI, clamp};
 use crate::plenum::{IntakePlenum, throttle_dia_of};
@@ -39,9 +39,9 @@ use crate::shell::ChamberShell;
 use crate::spec::{
     BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout,
     FUEL_CUT_THROTTLE, Fuel, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment, REV_LIMIT_HYSTERESIS_RPM,
-    RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, crank_pins, density, displacement,
-    exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_cut_rpms, fuel_fraction_at, full_load_torque, gas,
-    intake_runner_of, load_torque_of, physical_bank_count,
+    RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, crank_pins, cylinder_spacing, density,
+    displacement, exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_cut_rpms, fuel_fraction_at,
+    full_load_torque, gas, intake_runner_of, load_torque_of, physical_bank, physical_bank_count,
 };
 use crate::turbo::{Turbo, TurboOut};
 use crate::valve::{valve_flow_area, valve_lift};
@@ -227,6 +227,34 @@ fn idle_valve_start(spec: &EngineSpec) -> f64 {
     IDLE_VALVE_START * math::sqrt(math::max(spec.idle_rpm, IDLE_VALVE_START_RPM) / IDLE_VALVE_START_RPM)
 }
 
+/// The frequency a cylinder `bore` m across rings at, Hz, on the chamber mode with Draper's number
+/// `alpha`, its gas at `temp` K: `c alpha / (pi bore)`. See `CHAMBER_MODES`.
+pub fn chamber_mode_hz(alpha: f64, temp: f64, bore: f64) -> f64 {
+    let c = math::sqrt(gas::GAMMA_EXH * gas::R * math::max(temp, 1.0));
+    (c * alpha) / (PI * math::max(bore, 1e-3))
+}
+
+/// The `i`th of a diesel's block modes on the reference engine, Hz.
+fn diesel_block_hz(i: usize) -> f64 {
+    let step = math::log(DIESEL_BLOCK_HIGH_HZ / DIESEL_BLOCK_LOW_HZ) / (DIESEL_BLOCK_COUNT - 1) as f64;
+    DIESEL_BLOCK_LOW_HZ * math::exp(step * i as f64)
+}
+
+/// How much of a diesel's combustion its block passes at `hz` on the reference engine, dB.
+fn diesel_block_gain_db(hz: f64) -> f64 {
+    let g = &DIESEL_BLOCK_GAIN_DB;
+    if hz <= g[0].0 {
+        return g[0].1;
+    }
+    for w in g.windows(2) {
+        let ((f0, d0), (f1, d1)) = (w[0], w[1]);
+        if hz <= f1 {
+            return d0 + (d1 - d0) * (math::log(hz / f0) / math::log(f1 / f0));
+        }
+    }
+    g[g.len() - 1].1
+}
+
 /// Cylinder `b` of `n`'s place in an even spread over [-1, 1], shuffled by a fixed permutation.
 pub fn spread_of(b: usize, n: usize, step: usize, offset: usize) -> f64 {
     if n <= 1 {
@@ -301,6 +329,62 @@ pub fn grid_budget_cells(cylinders: usize, junctions: usize) -> f64 {
 pub fn scaled_budget_cells(cylinders: usize, junctions: usize, scale: f64) -> f64 {
     SOLVER_COST_BUDGET * scale - CYLINDER_COST_IN_CELLS * cylinders as f64 - JUNCTION_COST_IN_CELLS * junctions as f64
 }
+
+/// A diesel's block as its combustion shakes it: `DIESEL_BLOCK_COUNT` modes log-spaced from
+/// `DIESEL_BLOCK_LOW_HZ` to `DIESEL_BLOCK_HIGH_HZ` on the reference engine, each of Q `DIESEL_BLOCK_Q`,
+/// denser than `STRUCTURAL_MODES`. A diesel's pressure rise is ten times a petrol engine's, hard enough
+/// to hear how many modes a block has: four would ring as four tones, where a real block's many
+/// overlap into one broad ring that carries on between firings.
+const DIESEL_BLOCK_COUNT: usize = 22;
+const DIESEL_BLOCK_LOW_HZ: f64 = 560.0;
+const DIESEL_BLOCK_HIGH_HZ: f64 = 16800.0;
+const DIESEL_BLOCK_Q: f64 = 12.0;
+/// How much of the combustion each passes, dB, at frequencies on the reference engine, in between
+/// by straight lines on a log scale: little at the bottom, where a stiff block radiates poorly, and
+/// most around 1.5-3 kHz, where its walls are most mobile. Its structure attenuation, the other way
+/// up.
+const DIESEL_BLOCK_GAIN_DB: [(f64, f64); 6] =
+    [(560.0, -16.0), (1000.0, 3.0), (1900.0, 8.0), (3400.0, -1.0), (8000.0, -8.0), (16800.0, -6.0)];
+/// Each diesel block mode's share of the drive.
+const DIESEL_BLOCK_GAIN: f64 = 0.12;
+/// A diesel's combustion pressure-rise drive bandwidth and structure-borne band limit, Hz: its burn
+/// is abrupt enough to drive the block well above a petrol engine's.
+const DIESEL_DPDT_BANDWIDTH_HZ: f64 = 6000.0;
+const DIESEL_STRUCTURE_LIMIT_HZ: f64 = 16000.0;
+
+/// A diesel's chamber ringing. Its premixed burn lights all at once, unevenly, and sets the gas in
+/// the chamber ringing at its own acoustic modes: `c alpha / (pi bore)`, with Draper's numbers for the
+/// first and second circumferential modes and the first radial, each with its share of the ring.
+const CHAMBER_MODES: [(f64, f64); 3] = [(1.841, 1.0), (3.054, 0.5), (3.832, 0.35)];
+/// How quickly the ring dies, as the Q of each mode, and the burst that sets it off, s.
+const CHAMBER_Q: f64 = 25.0;
+const CHAMBER_BURST_S: f64 = 0.0001;
+/// The ring's radiated level at 1 m, Pa, at `mech_noise = 1`, per joule its premixed burn releases,
+/// and how far it varies from one cycle to the next, as a share either way: no two cylinders light
+/// alike.
+const CHAMBER_PA_PER_J: f64 = 0.02;
+const CHAMBER_SCATTER: f64 = 0.35;
+
+/// A diesel's injector needle lifting off its seat as the injection starts and slamming back as it
+/// ends: its level at 1 m, Pa, at `mech_noise = 1`, the lift's share of it, the injector body's ring
+/// [Hz, Q], and the impact's contact time, s.
+const NEEDLE_PA_AT_1M: f64 = 4.0;
+const NEEDLE_LIFT_SHARE: f64 = 0.4;
+const NEEDLE_MODE: (f64, f64) = (4200.0, 12.0);
+const NEEDLE_CONTACT_S: f64 = 0.00015;
+
+/// The thin stamped panels of the casing, which ring at their own few low modes as what they are
+/// bolted to shakes them: the oil pan's and the cam cover's, [Hz, Q] on a casing `PANEL_REF_LENGTH` m
+/// long, lower in proportion on a longer one; and how much each adds to what its surface carries at its
+/// own frequency, where it rings most, as a share of what the surface carries there. The block's sides and
+/// its front cover are stiff castings, and ring only as the block does.
+const OIL_PAN_MODES: [(f64, f64); 3] = [(300.0, 8.0), (650.0, 8.0), (1300.0, 8.0)];
+const COVER_MODES: [(f64, f64); 3] = [(450.0, 8.0), (950.0, 8.0), (1800.0, 8.0)];
+const PANEL_REF_LENGTH: f64 = 0.5;
+const PANEL_SHARE: f64 = 1.0;
+/// The share of the block's combustion ring, by power, that its sides radiate: the oil pan, bolted
+/// under it, radiates the rest.
+const BLOCK_SIDE_SHARE: f64 = 0.75;
 
 /// Bandwidth of the combustion pressure-rise drive, Hz, and the band limit on everything
 /// structure-borne, Hz.
@@ -380,11 +464,35 @@ pub struct EngineSim {
     twist: Resonator,
     twist_share: f64,
     structure: Vec<Resonator>,
+    /// A diesel's block, its chamber rings, each three modes, and its injector needles' ticks, each
+    /// cylinder's own: see `DIESEL_BLOCK_MODES`, `CHAMBER_MODES` and `NEEDLE_MODE`.
+    diesel_block: Vec<Resonator>,
+    diesel_block_gain: Vec<f64>,
+    chamber: Vec<[Resonator; 3]>,
+    chamber_burst: Vec<Impact>,
+    needle: Vec<Resonator>,
+    needle_impact: Vec<Impact>,
     dpdt_smooth: f64,
     dpdt_smooth_c: f64,
+    diesel_dpdt_c: f64,
     structure_lp_c: f64,
+    diesel_structure_lp_c: f64,
     structure_lp1: f64,
     structure_lp2: f64,
+    /// The casing's surfaces, when the sources place them: what each is, its panel modes, its band
+    /// limit's state, what it carries this sample and its path's index. And where each part's sound
+    /// goes: each cylinder's to its bank's sides and head, and its chamber ring to both; the block's to
+    /// the sides and the pan; the bottom end's to the pan; the timing drive's to the front cover. Each
+    /// route a list of surfaces and the share of the sound each takes.
+    surfaces: Vec<Surface>,
+    surface_pa: Vec<f64>,
+    surface_path: usize,
+    side_route: Vec<Vec<(usize, f64)>>,
+    head_route: Vec<Vec<(usize, f64)>>,
+    chamber_route: Vec<Vec<(usize, f64)>>,
+    block_route: Vec<(usize, f64)>,
+    pan_route: Vec<(usize, f64)>,
+    front_route: Vec<(usize, f64)>,
     /// Every source's path to the ear: the mouths in order, then the muffler shells, the intake, the
     /// casing and the turbos (`Source`).
     listener: Listener,
@@ -522,6 +630,12 @@ struct Bank {
     /// changed sign this sample, N/s, or -1.
     rod_force: f64,
     rod_reversal: f64,
+    /// On a diesel: the heat its premixed burn releases as it lights this sample, J, or 0, and the gas
+    /// temperature that rings its chamber at, K; and its injector needle lifting (1) or seating (2)
+    /// this sample, or 0.
+    ring_energy: f64,
+    ring_temp: f64,
+    needle: u8,
     seat_pulse: Impact,
     /// The throat turbulence's two filter stages.
     turb1: f64,
@@ -557,6 +671,9 @@ impl Bank {
             bore_load: 0.0,
             rod_force: 0.0,
             rod_reversal: -1.0,
+            ring_energy: 0.0,
+            ring_temp: 0.0,
+            needle: 0,
             seat_pulse: Impact::new(VALVE_CONTACT_S, sample_rate),
             turb1: 0.0,
             turb2: 0.0,
@@ -565,6 +682,26 @@ impl Bank {
             prev_in_lift: 0.0,
             prev_angle: 0.0,
         }
+    }
+}
+
+/// One of the casing's radiating surfaces, as the sources place it.
+struct Surface {
+    kind: SurfaceKind,
+    /// A thin panel's own modes, none on a stiff casting, and each one's drive: `PANEL_SHARE` over what it
+    /// gains at its own frequency.
+    panel: Vec<Resonator>,
+    panel_gain: Vec<f64>,
+    /// The two-pole band limit on what it radiates.
+    lp1: f64,
+    lp2: f64,
+}
+
+/// Each sound in `x` that goes along `route`, shared out as it says.
+#[inline]
+fn emit(acc: &mut [f64], route: &[(usize, f64)], x: f64) {
+    for &(i, share) in route {
+        acc[i] += share * x;
     }
 }
 
@@ -653,6 +790,21 @@ impl ValveCtx<'_> {
             } else {
                 -1.0
             };
+        bank.ring_energy = 0.0;
+        bank.needle = 0;
+        if spec.fuel == Fuel::Diesel && cyl.cycle_fuel() > 0.0 {
+            let prev = bank.prev_angle;
+            if cyl.premixed_energy > 0.0 && crossed_angle(prev, angle, cyl.spark) {
+                // Lit, its premixed charge burns at once and heats the gas the chamber rings in.
+                bank.ring_energy = cyl.premixed_energy;
+                bank.ring_temp = t_cyl + cyl.premixed_energy / (math::max(cyl.mass, 1e-9) * CV_REF);
+            }
+            if crossed_angle(prev, angle, cyl.injection_start) {
+                bank.needle = 1;
+            } else if crossed_angle(prev, angle, cyl.injection_end) {
+                bank.needle = 2;
+            }
+        }
         bank.prev_angle = angle;
 
         // --- What the mechanism carries ---
@@ -784,11 +936,28 @@ impl EngineSim {
             twist: Resonator::new(TWIST_MODE.0, TWIST_MODE.1, sample_rate),
             twist_share: 1.0,
             structure: Vec::new(),
+            diesel_block: Vec::new(),
+            diesel_block_gain: Vec::new(),
+            chamber: Vec::new(),
+            chamber_burst: Vec::new(),
+            needle: Vec::new(),
+            needle_impact: Vec::new(),
             dpdt_smooth: 0.0,
             dpdt_smooth_c: 1.0 - math::exp((-2.0 * PI * DPDT_BANDWIDTH_HZ) / sample_rate),
+            diesel_dpdt_c: 1.0 - math::exp((-2.0 * PI * DIESEL_DPDT_BANDWIDTH_HZ) / sample_rate),
             structure_lp_c: 1.0 - math::exp((-2.0 * PI * STRUCTURE_LIMIT_HZ) / sample_rate),
+            diesel_structure_lp_c: 1.0 - math::exp((-2.0 * PI * DIESEL_STRUCTURE_LIMIT_HZ) / sample_rate),
             structure_lp1: 0.0,
             structure_lp2: 0.0,
+            surfaces: Vec::new(),
+            surface_pa: Vec::new(),
+            surface_path: 0,
+            side_route: Vec::new(),
+            head_route: Vec::new(),
+            chamber_route: Vec::new(),
+            block_route: Vec::new(),
+            pan_route: Vec::new(),
+            front_route: Vec::new(),
             listener: Listener::new(sample_rate),
             reverb: Reverb::new(sample_rate),
             sources: config.sources.clone().unwrap_or_default(),
@@ -872,6 +1041,9 @@ impl EngineSim {
         sim.allocate_per_cylinder();
         sim.build_intake();
         sim.structure = STRUCTURAL_MODES.iter().map(|&(hz, q)| Resonator::new(hz, q, sample_rate)).collect();
+        sim.diesel_block =
+            (0..DIESEL_BLOCK_COUNT).map(|_| Resonator::new(1000.0, DIESEL_BLOCK_Q, sample_rate)).collect();
+        sim.diesel_block_gain = vec![0.0; DIESEL_BLOCK_COUNT];
         sim.tune_structure();
         sim.omega_mean = (math::min(sim.spec.spec.rpm, sim.spec.spec.rev_limit) * 2.0 * PI) / 60.0;
         sim.omega = sim.omega_mean;
@@ -1371,6 +1543,10 @@ impl EngineSim {
         self.follower = (0..n).map(|_| Resonator::new(FOLLOWER_MODE.0, FOLLOWER_MODE.1, sr)).collect();
         self.knock = (0..n).map(|_| Resonator::new(KNOCK_MODE.0, KNOCK_MODE.1, sr)).collect();
         self.knock_impact = (0..n).map(|_| Impact::new(KNOCK_CONTACT_S, sr)).collect();
+        self.chamber = (0..n).map(|_| std::array::from_fn(|_| Resonator::new(4000.0, CHAMBER_Q, sr))).collect();
+        self.chamber_burst = (0..n).map(|_| Impact::new(CHAMBER_BURST_S, sr)).collect();
+        self.needle = (0..n).map(|_| Resonator::new(NEEDLE_MODE.0, NEEDLE_MODE.1, sr)).collect();
+        self.needle_impact = (0..n).map(|_| Impact::new(NEEDLE_CONTACT_S, sr)).collect();
         self.rub_noise = (0..n).map(|b| Noise::new(0x3c6ef372 as f64 + b as f64 * 0x9e3779b as f64)).collect();
         if !self.structure.is_empty() {
             self.tune_structure();
@@ -1383,6 +1559,12 @@ impl EngineSim {
         let size = clamp(math::cbrt(displacement(spec) / REFERENCE_DISPLACEMENT_M3), 0.5, 3.0);
         for (i, &(hz, q)) in STRUCTURAL_MODES.iter().enumerate() {
             self.structure[i].set(hz / size, q, self.sample_rate);
+        }
+        for (i, mode) in self.diesel_block.iter_mut().enumerate() {
+            let hz = diesel_block_hz(i);
+            let top = 0.45 * self.sample_rate;
+            mode.set(math::min(hz / size, top), DIESEL_BLOCK_Q, self.sample_rate);
+            self.diesel_block_gain[i] = DIESEL_BLOCK_GAIN * math::pow(10.0, diesel_block_gain_db(hz) / 20.0);
         }
         self.head_share = clack_share(spec.cylinders as f64 / physical_bank_count(spec) as f64);
 
@@ -1402,6 +1584,7 @@ impl EngineSim {
                 self.sample_rate,
             );
             self.knock[b].set((KNOCK_MODE.0 / size) * (1.0 + LOCAL_MODE_DETUNE * t), KNOCK_MODE.1, self.sample_rate);
+            self.needle[b].set(NEEDLE_MODE.0 * (1.0 + LOCAL_MODE_DETUNE * w), NEEDLE_MODE.1, self.sample_rate);
         }
 
         // One timing drive to each head; the crank twists lower the more throws it has.
@@ -1410,6 +1593,96 @@ impl EngineSim {
         let throws = crank_pins(spec).len().max(1) as f64;
         self.twist.set(TWIST_MODE.0 / math::sqrt(throws), TWIST_MODE.1, self.sample_rate);
         self.twist_share = REFERENCE_DISPLACEMENT_M3 / math::max(displacement(spec) * spec.cylinders as f64, 1e-6);
+        self.route_surfaces();
+    }
+
+    /// Set up the casing's surfaces from the sources, and where each part's sound goes among them. With
+    /// none, everything is heard from the casing's one place, as it always was.
+    fn route_surfaces(&mut self) {
+        let placed = &self.sources.surfaces;
+        let spec = &self.spec.spec;
+        let n = spec.cylinders as usize;
+        let length = (crank_pins(spec).len().max(1) as f64 - 1.0) * cylinder_spacing(spec)
+            + math::max(cylinder_spacing(spec), 1.3 * spec.bore);
+        let scale = clamp(PANEL_REF_LENGTH / math::max(length, 0.05), 0.5, 2.0);
+        let sr = self.sample_rate;
+        let modes_of = |kind: SurfaceKind| -> &'static [(f64, f64)] {
+            match kind {
+                SurfaceKind::OilPan => &OIL_PAN_MODES,
+                SurfaceKind::Head => &COVER_MODES,
+                _ => &[],
+            }
+        };
+        // The same surfaces as before keep ringing as they were, retuned; others start afresh.
+        let same =
+            self.surfaces.len() == placed.len() && self.surfaces.iter().zip(placed).all(|(s, p)| s.kind == p.kind);
+        if !same {
+            self.surfaces = placed
+                .iter()
+                .map(|p| Surface {
+                    kind: p.kind,
+                    panel: modes_of(p.kind).iter().map(|&(hz, q)| Resonator::new(hz, q, sr)).collect(),
+                    panel_gain: vec![0.0; modes_of(p.kind).len()],
+                    lp1: 0.0,
+                    lp2: 0.0,
+                })
+                .collect();
+            self.surface_pa = vec![0.0; placed.len()];
+        }
+        for surface in self.surfaces.iter_mut() {
+            let modes = surface.panel.iter_mut().zip(surface.panel_gain.iter_mut()).zip(modes_of(surface.kind));
+            for ((mode, gain), &(hz, q)) in modes {
+                let hz = math::min(hz * scale, 0.45 * sr);
+                mode.set(hz, q, sr);
+                *gain = PANEL_SHARE / mode.gain_at(hz, sr);
+            }
+        }
+
+        // The surfaces of `kind`, of `bank` where it is given: failing those, of any bank; failing those,
+        // every surface. Shared so the power they carry together is what one would.
+        let pick = |kind: SurfaceKind, bank: Option<u32>| -> Vec<(usize, f64)> {
+            let of = |bank: Option<u32>| -> Vec<usize> {
+                (0..placed.len())
+                    .filter(|&i| placed[i].kind == kind && bank.is_none_or(|b| placed[i].bank == b))
+                    .collect()
+            };
+            let mut found = of(bank);
+            if found.is_empty() {
+                found = of(None);
+            }
+            if found.is_empty() {
+                found = (0..placed.len()).collect();
+            }
+            let share = 1.0 / math::sqrt(found.len().max(1) as f64);
+            found.into_iter().map(|i| (i, share)).collect()
+        };
+        let scaled = |route: Vec<(usize, f64)>, by: f64| -> Vec<(usize, f64)> {
+            route.into_iter().map(|(i, s)| (i, s * by)).collect()
+        };
+        if placed.is_empty() {
+            self.side_route.clear();
+            self.head_route.clear();
+            self.chamber_route.clear();
+            self.block_route.clear();
+            self.pan_route.clear();
+            self.front_route.clear();
+            return;
+        }
+        let half = math::sqrt(0.5);
+        self.side_route = (0..n).map(|b| pick(SurfaceKind::BlockSide, Some(physical_bank(spec, b)))).collect();
+        self.head_route = (0..n).map(|b| pick(SurfaceKind::Head, Some(physical_bank(spec, b)))).collect();
+        self.chamber_route = (0..n)
+            .map(|b| {
+                let mut route = scaled(self.head_route[b].clone(), half);
+                route.extend(scaled(self.side_route[b].clone(), half));
+                route
+            })
+            .collect();
+        self.pan_route = pick(SurfaceKind::OilPan, None);
+        self.front_route = pick(SurfaceKind::FrontCover, None);
+        let mut block = scaled(pick(SurfaceKind::BlockSide, None), math::sqrt(BLOCK_SIDE_SHARE));
+        block.extend(scaled(self.pan_route.clone(), math::sqrt(1.0 - BLOCK_SIDE_SHARE)));
+        self.block_route = block;
     }
 
     /// Fixed per-cylinder breathing multipliers and cam timing offsets, spread evenly and shuffled.
@@ -1513,6 +1786,14 @@ impl EngineSim {
                 corner_hz: r.wall_corner_hz,
             }
         });
+        // The casing's surfaces after everything else, each facing out of the engine.
+        let mut facings: Vec<Option<Vec3>> = vec![None; places.len()];
+        self.surface_path = places.len();
+        for surface in &self.sources.surfaces {
+            places.push(surface.position);
+            facings.push(Some(surface.facing));
+        }
+        self.route_surfaces();
         let ear = match &walls {
             Some(w) => w.inside(ear, ground, EAR_MARGIN),
             None => ear,
@@ -1526,7 +1807,7 @@ impl EngineSim {
             })
         });
         let reflection = self.spec.spec.ground_reflection;
-        self.listener.set_geometry(ear, right, &places, ground, reflection, walls.as_ref(), snap);
+        self.listener.set_geometry(ear, right, &places, &facings, ground, reflection, walls.as_ref(), snap);
         self.reverb.set_room(room);
         self.reverb.set_head(right);
 
@@ -1849,7 +2130,10 @@ impl EngineSim {
 
         // --- Structure-borne noise ---
         let mut direct_pa = 0.0;
+        // Spread over the casing's surfaces when the sources place them, or all from its one place.
+        let split = !self.surfaces.is_empty();
         let mech = self.spec.spec.mech_noise;
+        let diesel = self.spec.spec.fuel == Fuel::Diesel;
         let head_share = self.head_share;
         let mut follower_load = 0.0;
         for b in 0..banks {
@@ -1863,7 +2147,8 @@ impl EngineSim {
                 self.clack_impact[b].trigger(CLACK_PA_AT_1M * mech * seat * (rpm / 3000.0) * head_share);
             }
             let hit = self.clack_impact[b].next();
-            direct_pa += self.clack[b].process(hit);
+            let x = self.clack[b].process(hit);
+            if split { emit(&mut self.surface_pa, &self.head_route[b], x) } else { direct_pa += x }
 
             let p = bank.tdc_pressure;
             if p >= 0.0 {
@@ -1871,7 +2156,8 @@ impl EngineSim {
                 self.slap_impact[b].trigger(SLAP_PA_AT_1M * mech * clamp(p / 3e6, 0.05, 1.6) * head_share);
             }
             let hit = self.slap_impact[b].next();
-            direct_pa += self.slap[b].process(hit);
+            let x = self.slap[b].process(hit);
+            if split { emit(&mut self.surface_pa, &self.side_route[b], x) } else { direct_pa += x }
 
             // The rod's bearings cross their clearance whenever the force down the rod changes sign.
             if bank.rod_reversal >= 0.0 {
@@ -1880,15 +2166,44 @@ impl EngineSim {
                 self.knock_impact[b].trigger(KNOCK_PA_AT_1M * mech * rate * head_share);
             }
             let hit = self.knock_impact[b].next();
-            direct_pa += self.knock[b].process(hit);
+            let x = self.knock[b].process(hit);
+            if split { emit(&mut self.surface_pa, &self.pan_route, x) } else { direct_pa += x }
+
+            // A diesel's chamber ringing as its premixed charge lights, pitched to the gas it rings in,
+            // and its injector needle ticking as it lifts and seats.
+            if diesel {
+                if bank.ring_energy > 0.0 {
+                    let detune = 1.0 + LOCAL_MODE_DETUNE * spread_of(b, banks, 7, 3);
+                    for (mode, &(alpha, _)) in self.chamber[b].iter_mut().zip(CHAMBER_MODES.iter()) {
+                        let hz = chamber_mode_hz(alpha, bank.ring_temp, self.spec.spec.bore) * detune;
+                        mode.set(math::min(hz, 0.45 * self.sample_rate), CHAMBER_Q, self.sample_rate);
+                    }
+                    let scatter = 1.0 + CHAMBER_SCATTER * self.rub_noise[b].next();
+                    self.chamber_burst[b].trigger(CHAMBER_PA_PER_J * mech * bank.ring_energy * scatter * head_share);
+                }
+                let burst = self.chamber_burst[b].next();
+                for (mode, &(_, share)) in self.chamber[b].iter_mut().zip(CHAMBER_MODES.iter()) {
+                    let x = share * mode.process(burst);
+                    if split { emit(&mut self.surface_pa, &self.chamber_route[b], x) } else { direct_pa += x }
+                }
+                if bank.needle > 0 {
+                    let share = if bank.needle == 1 { NEEDLE_LIFT_SHARE } else { 1.0 };
+                    self.needle_impact[b].trigger(NEEDLE_PA_AT_1M * mech * share * head_share);
+                }
+                let hit = self.needle_impact[b].next();
+                let x = self.needle[b].process(hit);
+                if split { emit(&mut self.surface_pa, &self.head_route[b], x) } else { direct_pa += x }
+            }
 
             // The rings and skirt rubbing the bore, as loud as the speed they slide at and the load on
             // them; the followers rubbing their cam lobes, as loud as what their springs push back with.
             let noise = &mut self.rub_noise[b];
             let rub = (bank.piston_speed.abs() / SCUFF_SPEED_REF) * (bank.bore_load / SCUFF_LOAD_REF);
-            direct_pa += self.scuff[b].process(SCUFF_PA_AT_1M * mech * rub * head_share * noise.next());
+            let x = self.scuff[b].process(SCUFF_PA_AT_1M * mech * rub * head_share * noise.next());
+            if split { emit(&mut self.surface_pa, &self.side_route[b], x) } else { direct_pa += x }
             let cam = bank.follower_load * (rpm / 3000.0);
-            direct_pa += self.follower[b].process(FOLLOWER_PA_AT_1M * mech * cam * head_share * noise.next());
+            let x = self.follower[b].process(FOLLOWER_PA_AT_1M * mech * cam * head_share * noise.next());
+            if split { emit(&mut self.surface_pa, &self.head_route[b], x) } else { direct_pa += x }
             follower_load += bank.follower_load;
         }
 
@@ -1904,24 +2219,46 @@ impl EngineSim {
             let level = TIMING_PA_AT_1M * mech * speed * math::sqrt(speed) * self.timing_share;
             let tension = (0.6 + 0.4 * load) * (1.0 + TIMING_RATTLE * self.timing_rattle_gain * self.timing_rattle);
             let phase = 2.0 * PI * self.timing_mesh;
-            direct_pa += level * tension * (math::sin(phase) + TIMING_SECOND_HARMONIC * math::sin(2.0 * phase));
+            let x = level * tension * (math::sin(phase) + TIMING_SECOND_HARMONIC * math::sin(2.0 * phase));
+            if split { emit(&mut self.surface_pa, &self.front_route, x) } else { direct_pa += x }
         }
 
         // The crank twisting under the torque it carries, on its first torsional mode.
-        direct_pa += self.twist.process(TWIST_PA_PER_NM * mech * torque_sum * self.twist_share);
+        let x = self.twist.process(TWIST_PA_PER_NM * mech * torque_sum * self.twist_share);
+        if split { emit(&mut self.surface_pa, &self.pan_route, x) } else { direct_pa += x }
 
-        // Combustion shaking the casing, driven by the summed pressure rise rate.
-        if mech > 0.0 {
+        // Combustion shaking the casing, driven by the summed pressure rise rate: a diesel's through its
+        // broader block.
+        if mech > 0.0 && diesel {
+            self.dpdt_smooth += self.diesel_dpdt_c * (dpdt_sum - self.dpdt_smooth);
+            let drive = (self.dpdt_smooth / 1e9) * STRUCTURE_PA_PER_GPA_S * mech;
+            for (mode, &gain) in self.diesel_block.iter_mut().zip(self.diesel_block_gain.iter()) {
+                let x = mode.process(drive) * gain;
+                if split { emit(&mut self.surface_pa, &self.block_route, x) } else { direct_pa += x }
+            }
+        } else if mech > 0.0 {
             self.dpdt_smooth += self.dpdt_smooth_c * (dpdt_sum - self.dpdt_smooth);
             let drive = (self.dpdt_smooth / 1e9) * STRUCTURE_PA_PER_GPA_S * mech;
             for mode in self.structure.iter_mut() {
-                direct_pa += mode.process(drive) * 0.25;
+                let x = mode.process(drive) * 0.25;
+                if split { emit(&mut self.surface_pa, &self.block_route, x) } else { direct_pa += x }
             }
         }
 
-        // Band limit for everything structure-borne.
-        self.structure_lp1 += self.structure_lp_c * (direct_pa - self.structure_lp1);
-        self.structure_lp2 += self.structure_lp_c * (self.structure_lp1 - self.structure_lp2);
+        // Each thin panel ringing with what it carries, then the band limit on everything
+        // structure-borne.
+        let lp_c = if diesel { self.diesel_structure_lp_c } else { self.structure_lp_c };
+        for (surface, carried) in self.surfaces.iter_mut().zip(self.surface_pa.iter_mut()) {
+            let mut x = *carried;
+            for (mode, &gain) in surface.panel.iter_mut().zip(surface.panel_gain.iter()) {
+                x += gain * mode.process(*carried);
+            }
+            surface.lp1 += lp_c * (x - surface.lp1);
+            surface.lp2 += lp_c * (surface.lp1 - surface.lp2);
+            *carried = surface.lp2;
+        }
+        self.structure_lp1 += lp_c * (direct_pa - self.structure_lp1);
+        self.structure_lp2 += lp_c * (self.structure_lp1 - self.structure_lp2);
         direct_pa = self.structure_lp2;
 
         self.torque_last = torque_sum;
@@ -1954,6 +2291,10 @@ impl EngineSim {
             }
         }
         add(&mut pa, self.listener.process(self.path_of(Source::Casing), direct_pa));
+        for i in 0..self.surface_pa.len() {
+            let carried = std::mem::take(&mut self.surface_pa[i]);
+            add(&mut pa, self.listener.process(self.surface_path + i, carried));
+        }
         if self.turbo.is_some() {
             add(&mut pa, self.listener.process(self.path_of(Source::Turbo), turbo_pa));
         }
@@ -2221,6 +2562,7 @@ impl EngineSim {
         let bore = throttle_dia_of(&self.spec.spec);
         let throat_noise = self.spec.spec.throat_noise;
         let (charge_p, charge_t) = (self.charge_p, self.charge_t);
+        let charge_volume = self.turbo.as_ref().map(|t| t.throttle_body_volume());
         let plenum = Disjoint::new(std::slice::from_mut(&mut self.plenum));
         let plenum_out = Disjoint::new(std::slice::from_mut(&mut self.plenum_out.0));
         let cyls = Disjoint::new(&mut self.cyls);
@@ -2306,9 +2648,9 @@ impl EngineSim {
                         for (k, p) in p_up.iter_mut().enumerate().take(inlet_count) {
                             *p = inlets.get(k).upstream_pressure();
                         }
-                        plenum.step(dt, &p_up[..inlet_count], gas::T_AMB, &intake.runners)
+                        plenum.step(dt, &p_up[..inlet_count], gas::T_AMB, None, &intake.runners)
                     } else {
-                        plenum.step(dt, &[charge_p], charge_t, &intake.runners)
+                        plenum.step(dt, &[charge_p], charge_t, charge_volume, &intake.runners)
                     };
                     let mut flows = [0.0; 2];
                     flows[..plenum.count()].copy_from_slice(plenum.throttle_flows());
