@@ -90,3 +90,6 @@ run as a network service — is released in full source under the same license.
 
 To use it in a closed-source product or service, a commercial license is available: contact
 [thatrevguy@gmail.com](mailto:thatrevguy@gmail.com).
+
+Contributions are welcome; contributors sign the [Contributor License Agreement](CLA.md) once, as
+[CONTRIBUTING.md](CONTRIBUTING.md) describes.
