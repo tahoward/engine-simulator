@@ -545,14 +545,15 @@ mod presets_stay_solvable_and_affordable {
     ///
     /// Asked for more than its limit, the engine runs free on the limiter, and each cut leaves unburnt
     /// charge in the pipe to burn there. A burn heats the gas it is in to at most 2600 K, about the
-    /// adiabatic flame temperature, and a pressure wave reaching it at a shut valve squeezes it hotter
-    /// still: double the pressure is about 3000 K.
+    /// adiabatic flame temperature, and a pressure wave reaching it squeezes it hotter still. A pocket
+    /// that burns in the trough between two waves can be squeezed hardest: the 2GR's burns at 51 kPa
+    /// and its next wave brings it to 154 kPa, three times the pressure, which is about 3400 K.
     #[test]
     fn on_the_rev_limiter() {
         for preset in &common::presets().engine_presets {
             let name = &preset.name;
             let (sim, _, hottest) = run(preset, |limit| limit + 1000.0);
-            assert!(hottest < 3100.0, "{name}: max T {hottest}");
+            assert!(hottest < 3500.0, "{name}: max T {hottest}");
             let ducts = ducts(&sim);
             assert_eq!(recoveries(&ducts), 0, "{name}");
             assert_eq!(clamps(&ducts), 0, "{name}");

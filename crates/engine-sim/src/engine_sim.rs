@@ -2563,7 +2563,6 @@ impl EngineSim {
         let throat_noise = self.spec.spec.throat_noise;
         let (charge_p, charge_t) = (self.charge_p, self.charge_t);
         let charge_volume = self.turbo.as_ref().map(|t| t.throttle_body_volume());
-        let diesel = self.spec.spec.fuel == Fuel::Diesel;
         let plenum = Disjoint::new(std::slice::from_mut(&mut self.plenum));
         let plenum_out = Disjoint::new(std::slice::from_mut(&mut self.plenum_out.0));
         let cyls = Disjoint::new(&mut self.cyls);
@@ -2649,10 +2648,7 @@ impl EngineSim {
                         for (k, p) in p_up.iter_mut().enumerate().take(inlet_count) {
                             *p = inlets.get(k).upstream_pressure();
                         }
-                        // A diesel's plate is held wide open, where its throttle passes many times in a sample
-                        // what the tract's end and the plenum's front need to even out.
-                        let up_volume = diesel.then(|| inlets.get(0).throttle_end_volume());
-                        plenum.step(dt, &p_up[..inlet_count], gas::T_AMB, up_volume, &intake.runners)
+                        plenum.step(dt, &p_up[..inlet_count], gas::T_AMB, None, &intake.runners)
                     } else {
                         plenum.step(dt, &[charge_p], charge_t, charge_volume, &intake.runners)
                     };

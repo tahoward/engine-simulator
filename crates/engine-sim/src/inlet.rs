@@ -140,11 +140,6 @@ impl InletTract {
         }
     }
 
-    /// The air the throttle draws on first, m^3: the cell of the tract at its throttle end.
-    pub fn throttle_end_volume(&self) -> f64 {
-        self.pipe.port_cell_volume()
-    }
-
     /// The pressure the throttle draws from, Pa: the atmosphere's, plus the tract's swing at its end.
     pub fn upstream_pressure(&self) -> f64 {
         gas::P_AMB + (self.pipe.port_pressure() - self.mean_p)

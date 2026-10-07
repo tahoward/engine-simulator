@@ -33,6 +33,9 @@ const IDLE_BYPASS: f64 = 0.002;
 const CD_CLOSED: f64 = 0.25;
 const CD_OPEN: f64 = 0.75;
 
+/// How long the air in a throttle body is, m: the column the pressure across the throttle accelerates.
+const THROTTLE_BODY_LENGTH: f64 = 0.06;
+
 /// Air velocity through a wide-open throttle at peak rpm, m/s, used to size the bore.
 const THROTTLE_DESIGN_VELOCITY: f64 = 25.0;
 const THROTTLE_DESIGN_RPM: f64 = 7000.0;
@@ -93,6 +96,12 @@ pub fn throttle_dia_of(spec: &EngineSpec) -> f64 {
         return spec.throttle_dia;
     }
     sized_throttle_dia(spec)
+}
+
+/// Each throttle body's bore, m^2.
+fn bore_area_of(spec: &EngineSpec) -> f64 {
+    let d = throttle_dia_of(spec);
+    (PI * d * d) / 4.0
 }
 
 /// The bore `throttle_dia_of` sizes each throttle body to, whatever the spec gives, m.
@@ -331,6 +340,8 @@ pub struct IntakePlenum {
     /// Effective area of each throttle body, m^2, and the flow through each last sample, kg/s.
     area: f64,
     throttle_flows: [f64; 2],
+    /// Each throttle body's bore, m^2: the section of the air in it.
+    bore_area: f64,
 }
 
 impl IntakePlenum {
@@ -353,6 +364,7 @@ impl IntakePlenum {
             bypass: 0.0,
             area: IntakePlenum::throttle_area(spec),
             throttle_flows: [0.0; 2],
+            bore_area: bore_area_of(spec),
         };
         plenum.reset();
         plenum
@@ -382,6 +394,7 @@ impl IntakePlenum {
     /// at its mean pressure, temperature and composition through a plenum of a new shape.
     pub fn set_geometry(&mut self, spec: &EngineSpec) {
         self.opening = spec.throttle;
+        self.bore_area = bore_area_of(spec);
         self.area = IntakePlenum::bypassed_area(spec, self.opening, self.bypass);
         self.balance_rpms = balance_rpms_of(spec);
         let shape = plenum_shape_of(spec);
@@ -533,11 +546,13 @@ impl IntakePlenum {
     /// temperature and composition where it flows back in. Returns the flow in through the throttles,
     /// kg/s, each one's after in `throttle_flows`.
     ///
-    /// With `up_volume`, m^3, the air before the throttle is a volume that size: a turbocharger's throttle
-    /// body, or on a diesel the cell of its inlet tract at the throttle end. Then no sample's flow through a throttle
-    /// moves more than would bring the two to the same pressure: a wide-open throttle between two small
-    /// volumes, as a diesel's always is, passes in one sample many times what evens them out, and would
-    /// swing the air back and forth through itself each sample from then on, never settling.
+    /// With `up_volume`, m^3, the air before the throttle is a volume that size, a turbocharger's throttle
+    /// body: then no sample's flow through a throttle moves more than would bring the two to the same
+    /// pressure. Without, the air before it is an inlet tract's, and the air in the throttle body has its
+    /// momentum: the pressure across the throttle accelerates it, and the throttle's loss holds it back,
+    /// so in steady flow it passes what the throttle's orifice does. Either way, a wide-open throttle,
+    /// which in one sample would pass many times what evens out the air either side of it, does not swing
+    /// that air back and forth through itself each sample, never settling.
     pub fn step(&mut self, dt: f64, p_up: &[f64], t_up: f64, up_volume: Option<f64>, runners: &[Runner]) -> f64 {
         let follow = dt / STEADY_FLOW_TIME;
         let (dx, damping, area) = (self.dx, self.damping, self.area);
@@ -561,18 +576,41 @@ impl IntakePlenum {
             // The throttle, into the front zone.
             let front = row.zones[0];
             let (p, t) = (front.pressure(), front.temp());
-            let mut through = if p < p_up {
+            let steady = if p < p_up {
                 orifice_mass_flow(area, 1.0, p_up, t_up, p, gas::GAMMA_AIR)
             } else {
                 -orifice_mass_flow(area, 1.0, p, t, p_up, gas_gamma(t))
             };
-            if let Some(v_up) = up_volume {
-                // What would even the two out: at their mean temperature, as much as the pressure across
-                // the throttle times their volumes in series, over `R T`.
-                let v = (v_up * front.volume) / math::max(v_up + front.volume, 1e-12);
-                let most = ((p_up - p).abs() * v) / (gas::R * 0.5 * (t_up + t) * dt);
-                through = clamp(through, -most, most);
-            }
+            let through = match up_volume {
+                Some(v_up) => {
+                    // What would even the two out: at their mean temperature, as much as the pressure across
+                    // the throttle times their volumes in series, over `R T`.
+                    let v = (v_up * front.volume) / math::max(v_up + front.volume, 1e-12);
+                    let most = ((p_up - p).abs() * v) / (gas::R * 0.5 * (t_up + t) * dt);
+                    clamp(steady, -most, most)
+                }
+                None => {
+                    // `dq/dt = (A / L) (dp - K q |q|)`, its loss `K` the orifice's, so that it passes `steady`
+                    // in steady flow, taken implicitly in `q` about the last sample's `|q|`; no more than the
+                    // orifice passes choked.
+                    let dp = p_up - p;
+                    let k_loss = if steady.abs() > 1e-12 {
+                        dp / (steady * steady.abs())
+                    } else {
+                        let rho = math::max(p_up, p) / (gas::R * math::max(t_up, t));
+                        1.0 / (2.0 * rho * math::max(area * area, 1e-18))
+                    };
+                    let inertia = self.bore_area / THROTTLE_BODY_LENGTH;
+                    let last = self.throttle_flows[k];
+                    let q = (last + dt * inertia * dp) / (1.0 + dt * inertia * k_loss * last.abs());
+                    let choked = if q >= 0.0 {
+                        orifice_mass_flow(area, 1.0, p_up, t_up, 0.0, gas::GAMMA_AIR)
+                    } else {
+                        orifice_mass_flow(area, 1.0, p, t, 0.0, gas_gamma(t))
+                    };
+                    clamp(q, -choked, choked)
+                }
+            };
             throttle_flow += through;
             self.throttle_flows[k] = through;
             {
@@ -687,6 +725,7 @@ impl IntakePlenum {
         for b in self.balances.iter_mut() {
             b.flow = 0.0;
         }
+        self.throttle_flows = [0.0; 2];
     }
 }
 

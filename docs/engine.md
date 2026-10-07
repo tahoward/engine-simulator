@@ -168,6 +168,13 @@ snorkel open to the air and an airbox, solved like the exhaust. The runners' pul
 through it, as the intake's note, and the jet past the throttle plate hisses through it. See
 [Acoustics](acoustics.md#the-intakes-sound).
 
+**The air in the throttle body has momentum.** The pressure across the throttle accelerates the column
+of air in its bore, 6 cm long, and the throttle's own loss holds it back, so in steady flow it passes just
+what the plate's opening does, choked when nearly shut. Wide open, a throttle would otherwise pass in one
+sample many times the air that evens out the inlet tract's end and the plenum's front, and swing that air
+back and forth through itself every sample: at full throttle, and with the plate left open after the
+engine stops, where it would hiss at the snorkel's mouth on and on.
+
 ## Cam profile switching
 
 A cam's lobe is a compromise. A wild one, open long and far, fills the cylinder at the top end, where
@@ -455,10 +462,7 @@ lift.
 ## The diesel
 
 A diesel is set by **Fuel**. It draws its air through an intake with no throttle, wide open whatever
-the pedal does, so its plenum sits at the atmosphere, or at the boost, and never in vacuum. Held wide open, the
-throttle passes in one sample many times the air that would even out the inlet tract's end and the
-plenum's front, so no sample's flow through it is let move more than that; otherwise the air would swing
-back and forth through it every sample, and hiss at the snorkel's mouth long after the engine stopped. No fuel
+the pedal does, so its plenum sits at the atmosphere, or at the boost, and never in vacuum. No fuel
 comes with the air. The pedal sets how much fuel the pump injects into each cylinder, as a share of
 its full delivery, and the injection starts at a fixed angle before top dead centre, as a mechanical
 pump's static timing does. The charge it lights is always lean overall: λ 14 at idle, and no richer
