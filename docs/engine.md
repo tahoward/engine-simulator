@@ -776,14 +776,19 @@ symmetrical. Two parts of the model keep it that way:
   that the two banks' firing orders mostly cancel from anywhere behind it, and the LT6 preset draws its
   collectors turned in to a centre exit, 0.21 m apart. A dyno recording of the Z06 shows the same: its
   firing order dominates, and the banks' own firing order sits about 10 dB below it.
-- **No two cylinders breathe quite alike.** `cylinderSpread` varies the runner pressure each
-  cylinder sees by a few percent, standing in for unequal runner lengths, valve seats and fuelling.
-  At the default, 0.3, it varies the pressure by up to 1.2% and the cam timing by up to 0.7°. The
+- **No two cylinders breathe quite alike.** `cylinderSpread` varies each cylinder's cam timing and how
+  much its runner's entry from the plenum loses of the air it draws, as no two lobes are ground alike
+  and no two runners are cast or flared alike. At the default, 0.3, it moves the cam timing by up to
+  0.7° and the entry's loss by up to 0.09 of the drawn air's dynamic head, either way. The entry's loss
+  is only felt while air flows into the runner, so no runner holds a pressure of its own against the
+  plenum; at idle, with little air moving, it is next to nothing, and the cam timing makes most of the
+  difference. On a diesel the spread also varies each pump element's delivery and its injection's
+  timing, which is what its half orders are made of. The
   LT6's odd orders then sit 17 to 29 dB below its firing order, close to the 20 to 26 dB of a dyno
   recording of the Z06 (see [Verification](verification.md#against-a-recording)), so there is a
   rumble under the firing note. An inline four on equal-length runners comes out a little cleaner,
-  at about −37 dB, and the full spread of 1 puts it at −25 dB. Pressure is varied rather than intake
-  valve area because it changes how much gas is trapped; valve area only changes how fast the
+  at about −34 dB, and the full spread of 1 puts it at −24 dB. The cam timing is varied rather than
+  intake valve area because it changes how much gas is trapped; valve area only changes how fast the
   cylinder fills.
 
 **The crank layout can be worked back out from the firing order**, which is a useful check on the

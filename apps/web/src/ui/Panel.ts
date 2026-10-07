@@ -1964,15 +1964,16 @@ export class Panel {
       step: 0.01,
       value: spec.cylinderSpread,
       sync: () => this.config.engine.cylinderSpread,
-      format: (v) => (v < 0.01 ? 'perfectly matched' : `${(v * 4).toFixed(1)}%`),
+      format: (v) => (v < 0.01 ? 'perfectly matched' : `\u00b1${(v * 2.2).toFixed(1)}\u00b0 cams`),
       onInput: (v) => this.cb.onEngine({ cylinderSpread: v }),
     });
     spreadRow.row.title =
-      'How unequally the cylinders breathe, as a spread in the pressure each intake runner opens ' +
-      'onto. No two cylinders of ' +
-      'a real engine are matched, and that is what stops the firing orders cancelling perfectly. ' +
-      'At zero an inline four is a pure tone on one frequency with no rumble under it; at the ' +
-      'default 1.2% its low orders sit about 37 dB down, and at 4% about 25.';
+      'How unequally the cylinders breathe: a spread in each one\u2019s cam timing, shown, and in how much ' +
+      'its runner\u2019s entry from the plenum loses of the air it draws. On a diesel, also in each pump ' +
+      'element\u2019s delivery and its injection\u2019s timing. No two cylinders of a real engine are ' +
+      'matched, and that is what stops the firing orders cancelling perfectly. At zero an inline four is ' +
+      'a pure tone on one frequency with no rumble under it; at the default its low orders sit about 34 dB ' +
+      'down, and at the full spread about 24.';
 
     this.slider(mix, {
       label: 'Ground reflection',

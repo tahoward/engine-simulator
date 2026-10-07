@@ -298,6 +298,12 @@ const STRUCTURAL_MODES: [(f64, f64); 4] = [(780.0, 11.0), (1550.0, 14.0), (2900.
 /// Structural radiation at 1 m per GPa/s of cylinder pressure rise, Pa.
 const STRUCTURE_PA_PER_GPA_S: f64 = 0.55;
 
+/// How far each runner's entry from the plenum loses more or less of the air it draws in than the
+/// others' do, at `cylinder_spread = 1`, as a share of the air's dynamic head there, peak: no two runners
+/// are cast or flared alike, and the loss of a well-radiused entry is a few hundredths of the head where
+/// a sharp-edged one's is half of it. It is on top of the loss the runners' ramming is tuned with, so it
+/// is as much less on some as more on others.
+const ENTRY_LOSS_SPREAD: f64 = 0.3;
 /// Per-cylinder valve-timing spread at `cylinder_spread = 1`, crank degrees peak.
 const CAM_SPREAD_DEG: f64 = 2.2;
 /// A diesel's pump elements and injectors are never alike: at `cylinder_spread = 1` each delivers up to
@@ -561,7 +567,7 @@ pub struct EngineSim {
     /// The air's way in to each throttle, and its snorkel's mouth, on an engine without a turbo.
     inlets: Vec<InletTract>,
     intake_far_fields: [FarField; 2],
-    breathing: Vec<f64>,
+    entry_loss: Vec<f64>,
     timing: Vec<f64>,
     /// A diesel's each cylinder's fuel delivery as a share of the mean, and its injection's offset, deg.
     delivery: Vec<f64>,
@@ -1061,7 +1067,7 @@ impl EngineSim {
             stereo: false,
             inlets: Vec::new(),
             intake_far_fields: [FarField::new(sample_rate, 0.0), FarField::new(sample_rate, 0.0)],
-            breathing: Vec::new(),
+            entry_loss: Vec::new(),
             timing: Vec::new(),
             delivery: Vec::new(),
             injection_offset: Vec::new(),
@@ -1792,17 +1798,17 @@ impl EngineSim {
         self.block_route = block;
     }
 
-    /// Fixed per-cylinder breathing multipliers and cam timing offsets, spread evenly and shuffled.
+    /// Fixed per-cylinder runner entry losses and cam timing offsets, spread evenly and shuffled.
     fn make_cylinder_variation(&mut self, n: usize) {
         let spread = clamp(self.spec.spec.cylinder_spread, 0.0, 2.0);
-        self.breathing = vec![0.0; n];
+        self.entry_loss = vec![0.0; n];
         self.timing = vec![0.0; n];
         self.delivery = vec![1.0; n];
         self.injection_offset = vec![0.0; n];
         for b in 0..n {
             let t = spread_of(b, n, 5, 2);
             let u = spread_of(b, n, 3, 1);
-            self.breathing[b] = 1.0 + 0.04 * spread * t;
+            self.entry_loss[b] = ENTRY_LOSS_SPREAD * spread * t;
             self.timing[b] = CAM_SPREAD_DEG * spread * u;
             self.delivery[b] = 1.0 + DELIVERY_SPREAD * spread * spread_of(b, n, 7, 3);
             self.injection_offset[b] = INJECTION_SPREAD_DEG * spread * spread_of(b, n, 2, 1);
@@ -2214,7 +2220,7 @@ impl EngineSim {
             self.port_pressure.clear();
             self.port_pressure.extend((0..banks).map(|b| self.wg.port_pressure(b)));
             let port_pressure = &self.port_pressure;
-            let step = intake.begin(&run_io, &self.plenum, &self.breathing);
+            let step = intake.begin(&run_io, &self.plenum, &self.entry_loss);
             // The exhaust steps each side item once, and reads a valve state only after they are all
             // done.
             let job = |b: usize| unsafe {

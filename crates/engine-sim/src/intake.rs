@@ -175,18 +175,19 @@ impl IntakeRunners {
     }
 
     /// Advance every runner by one sample, in lockstep, each drawing from `plenum` where it leaves it.
-    /// `breathing` is each cylinder's multiplier on the pressure its runner opens onto; `cyl_state` is each
-    /// cylinder's contents, from which what it pushes back up its runner takes its composition.
+    /// `entry_loss` is how far each runner's entry from the plenum loses more of the air it draws in
+    /// than the others', as a share of that air's dynamic head; `cyl_state` is each cylinder's contents,
+    /// from which what it pushes back up its runner takes its composition.
     pub fn advance(
         &mut self,
         io: &RunnerIo,
         plenum: &IntakePlenum,
         valves: &[ValveState],
-        breathing: &[f64],
+        entry_loss: &[f64],
         cyl_state: &[CylState],
     ) {
         let count = self.runners.len();
-        let step = self.begin(io, plenum, breathing);
+        let step = self.begin(io, plenum, entry_loss);
         for b in 0..count {
             unsafe { step.runner(b, &valves[b], &cyl_state[b]) };
         }
@@ -194,7 +195,7 @@ impl IntakeRunners {
 
     /// `advance`, set up for its runners to be stepped one at a time, in any order or at once: each
     /// touches only its own `Runner`. The substep count is shared, so it is settled here.
-    pub fn begin(&mut self, io: &RunnerIo, plenum: &IntakePlenum, breathing: &[f64]) -> IntakeStep<'_> {
+    pub fn begin(&mut self, io: &RunnerIo, plenum: &IntakePlenum, entry_loss: &[f64]) -> IntakeStep<'_> {
         let dt = io.dt;
         let mut substeps = 1;
         for r in self.runners.iter_mut() {
@@ -204,12 +205,15 @@ impl IntakeRunners {
             }
         }
 
-        // Each opens onto its own zone of the plenum. Breathing scales pressure and density together, so the
-        // zone's sound speed is its runner's.
-        for (c, (r, &bp)) in self.runners.iter_mut().zip(breathing).enumerate() {
+        // Each opens onto its own zone of the plenum. Drawing from it, the air speeds into the runner's end
+        // and loses its share of the head that takes there, as it did over the last sample: the zone's
+        // pressure less that, the air expanding to it as it goes.
+        for (c, (r, &k)) in self.runners.iter_mut().zip(entry_loss).enumerate() {
             let feed = plenum.feed(c);
-            let res_c = math::sqrt((gas::GAMMA_EXH * feed.p) / feed.rho);
-            r.pipe.set_reservoir(feed.p * bp, feed.rho * bp, res_c);
+            let drawn = math::max(-r.plenum_flow, 0.0) / math::max(feed.rho * r.pipe.mouth_area(), 1e-12);
+            let p = math::max(feed.p - k * 0.5 * feed.rho * drawn * drawn, 0.5 * feed.p);
+            let rho = feed.rho * math::pow(p / feed.p, 1.0 / gas::GAMMA_EXH);
+            r.pipe.set_reservoir(p, rho, math::sqrt((gas::GAMMA_EXH * p) / rho));
             r.feed = feed;
         }
         IntakeStep { io: *io, substeps, runners: self.runners.as_mut_ptr(), _runners: std::marker::PhantomData }
