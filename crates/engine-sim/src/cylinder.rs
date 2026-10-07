@@ -120,6 +120,10 @@ pub struct Cylinder {
     /// A diesel's fuel demand from its pedal and governor, 0..1 of the full delivery; read when the
     /// charge is committed.
     pub fuel_demand: f64,
+    /// A diesel's own pump element's delivery, as a share of the mean, and how far its injection is
+    /// moved from the spec's, deg: set by the engine, fixed for the cylinder.
+    pub delivery: f64,
+    pub injection_offset: f64,
     /// This cycle's charge is a diesel's: injected as it burns, in two stages.
     diesel: bool,
     /// Of a diesel's fuel, the share that mixes during the ignition delay and burns at once, 0..1.
@@ -254,6 +258,11 @@ const DIFFUSION_M: f64 = 0.9;
 const DELAY_SCATTER: f64 = 0.08;
 const PREMIXED_SCATTER: f64 = 0.2;
 
+/// How much a diesel's heat release flickers from one step to the next about its steady rate, RMS, as a
+/// share of it: the turbulent spray burning unevenly as it mixes, which is what makes its combustion roar
+/// rather than thud.
+const BURN_FLICKER: f64 = 0.8;
+
 /// How long a diesel's injection lasts at the pump's full delivery, deg, and at the least: the pump
 /// meters the fuel over more of the crank's turn the more it delivers.
 const FULL_INJECTION_ANGLE: f64 = 22.0;
@@ -303,6 +312,8 @@ impl Cylinder {
             armed: false,
             spark_cut: false,
             fuel_demand: 1.0,
+            delivery: 1.0,
+            injection_offset: 0.0,
             diesel: false,
             premixed_share: 0.0,
             premixed_angle: 0.0,
@@ -675,7 +686,7 @@ impl Cylinder {
         let demand = clamp(self.fuel_demand, 0.0, 1.0);
         self.diesel = true;
         self.afr = afr;
-        self.burn_fuel = demand * full;
+        self.burn_fuel = math::min(demand * full * math::max(self.delivery, 0.0), air / afr);
         self.charge_phi = (self.burn_fuel * afr) / math::max(air, 1e-12);
         self.q_cycle = self.burn_fuel * spec.fuel.lhv() * COMBUSTION_EFFICIENCY * q_scale;
 
@@ -698,7 +709,7 @@ impl Cylinder {
         let diffusion =
             spec.burn_duration * math::sqrt(piston_speed / REF_PISTON_SPEED) * (0.5 + 0.5 * demand) * self.burn_scale;
         self.burn_angle = clamp(diffusion, 4.0, MAX_BURN_ANGLE);
-        let injection = spec.ignition + self.ignition_offset * DIESEL_TIMING_SCATTER;
+        let injection = spec.ignition + self.injection_offset + self.ignition_offset * DIESEL_TIMING_SCATTER;
         self.spark = wrap_cycle(injection + delay);
         self.premixed_energy = self.premixed_share * self.q_cycle;
         let rack = if spec.max_fuel > 0.0 { spec.max_fuel } else { full };
@@ -726,7 +737,10 @@ impl Cylinder {
         }
         self.burned = to;
         let mut fuel_burned = d * self.burn_fuel;
-        let mut q = d * self.q_cycle;
+        // The burn flickers as the turbulence it burns in does, round the steady rate the Wiebe curves
+        // give, the same heat on average: its roar, all the while it burns.
+        let flicker = math::max(1.0 + BURN_FLICKER * self.noise.gaussian(), 0.0);
+        let mut q = d * self.q_cycle * flicker;
         let left = math::max((self.fresh_mass - self.fuel_mass) / self.afr, 0.0);
         if fuel_burned > left {
             q *= left / fuel_burned;

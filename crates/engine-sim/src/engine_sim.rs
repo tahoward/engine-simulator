@@ -20,7 +20,7 @@ use std::time::Instant;
 use crate::afterfire::Afterfire;
 use crate::cylinder::{AdvanceIo, CrackleSpark, CylState, Cylinder, SpecInstance};
 use crate::drivetrain::{LaunchPhase, LaunchRun};
-use crate::dsp::{Impact, Noise, Resonator, soft_clip, wrap_cycle};
+use crate::dsp::{Delay, Impact, Noise, Resonator, soft_clip, wrap_cycle};
 use crate::euler_pipe::{
     DEFAULT_CFL, DEFAULT_MAX_CELLS, EulerPipeOptions, HeadPort, ValveState, duct_cell_count, duct_grid_length,
     single_step_dx,
@@ -131,8 +131,28 @@ const CRACKLE_SKIP_MAX: f64 = 0.35;
 const CRACKLE_THROTTLE_MIN: f64 = 0.05;
 const CRACKLE_THROTTLE_MAX: f64 = 0.15;
 
+/// A valve's knock on its seat is an impact, and its sound goes as the momentum it brings: the mass that
+/// lands times how fast it lands. A cam sets its valves down on their seats on a closing ramp, at a speed
+/// it is ground for, `CLOSING_RAMP_M_PER_DEG` m for each degree the crank turns, so they land faster in
+/// proportion to the engine's speed; and it lifts them off theirs on an opening ramp the same, as the lash
+/// between the follower and the valve closes.
+///
+/// A valve weighs as `VALVE_MASS_PER_D3` times the cube of its head's diameter, kg: steel, its head and
+/// stem growing together, about 43 g for a 34 mm head and 107 g for a 46 mm one. What lands with it on
+/// its seat is `SEATING_MASS_SHARE` of that, its retainer, keepers and the moving part of its spring with
+/// it. What closes its lash on opening is a rocker and a pushrod, `LASH_MASS_PUSHROD` of the valve, or a
+/// bucket over it, `LASH_MASS_BUCKET`.
+///
+/// What that momentum sounds like at 1 m, Pa per N s, at `mech_noise = 1`, is the one figure set by ear:
+/// so the default single's 34 mm exhaust valve knocks at 6 Pa at 3000 rev/min.
+const CLOSING_RAMP_M_PER_DEG: f64 = 9e-6;
+const VALVE_MASS_PER_D3: f64 = 1100.0;
+const SEATING_MASS_SHARE: f64 = 1.5;
+const LASH_MASS_PUSHROD: f64 = 1.5;
+const LASH_MASS_BUCKET: f64 = 0.5;
+const CLACK_PA_PER_NS: f64 = 571.0;
+
 /// Peak structure-borne levels at 1 m, Pa, at `mech_noise = 1`.
-const CLACK_PA_AT_1M: f64 = 6.0;
 const SLAP_PA_AT_1M: f64 = 3.5;
 /// And a rod's bearings knocking across their oil clearance, as the force down the rod changes sign
 /// at `KNOCK_RATE_REF`, N/s.
@@ -160,9 +180,6 @@ const RING_GAS_SHARE: f64 = 0.05;
 /// A valve spring's load on its follower as the valve leaves its seat, as a share of its load at full
 /// lift.
 const SPRING_PRELOAD_SHARE: f64 = 0.4;
-
-/// How loud the lash closing as a valve leaves its seat is, as a share of its seating clack.
-const LASH_TICK_SHARE: f64 = 0.3;
 
 /// Teeth on the crank's timing sprocket: the timing drive meshes this many times a turn. And the second
 /// harmonic of the mesh, as a share of the first.
@@ -283,6 +300,13 @@ const STRUCTURE_PA_PER_GPA_S: f64 = 0.55;
 
 /// Per-cylinder valve-timing spread at `cylinder_spread = 1`, crank degrees peak.
 const CAM_SPREAD_DEG: f64 = 2.2;
+/// A diesel's pump elements and injectors are never alike: at `cylinder_spread = 1` each delivers up to
+/// `DELIVERY_SPREAD` more or less fuel than the mean, and starts its injection up to
+/// `INJECTION_SPREAD_DEG` crank degrees earlier or later. A pump is calibrated to a few percent and a
+/// fraction of a degree at full load, and drifts further apart at idle, where its deliveries are
+/// smallest; the cylinders' differences are what the engine's half orders are made of.
+const DELIVERY_SPREAD: f64 = 0.7;
+const INJECTION_SPREAD_DEG: f64 = 7.0;
 
 /// What the inlet tracts are built from: how many, the throttles' bore, the airbox and the snorkel.
 fn inlet_key(spec: &EngineSpec) -> [f64; 5] {
@@ -335,28 +359,34 @@ pub fn scaled_budget_cells(cylinders: usize, junctions: usize, scale: f64) -> f6
 /// denser than `STRUCTURAL_MODES`. A diesel's pressure rise is ten times a petrol engine's, hard enough
 /// to hear how many modes a block has: four would ring as four tones, where a real block's many
 /// overlap into one broad ring that carries on between firings.
-const DIESEL_BLOCK_COUNT: usize = 22;
+const DIESEL_BLOCK_COUNT: usize = 140;
 const DIESEL_BLOCK_LOW_HZ: f64 = 560.0;
 const DIESEL_BLOCK_HIGH_HZ: f64 = 16800.0;
-const DIESEL_BLOCK_Q: f64 = 12.0;
+const DIESEL_BLOCK_Q: f64 = 50.0;
 /// How much of the combustion each passes, dB, at frequencies on the reference engine, in between
 /// by straight lines on a log scale: little at the bottom, where a stiff block radiates poorly, and
 /// most around 1.5-3 kHz, where its walls are most mobile. Its structure attenuation, the other way
 /// up.
 const DIESEL_BLOCK_GAIN_DB: [(f64, f64); 6] =
-    [(560.0, -16.0), (1000.0, 3.0), (1900.0, 8.0), (3400.0, -1.0), (8000.0, -8.0), (16800.0, -6.0)];
+    [(560.0, -4.0), (1000.0, 0.0), (1900.0, 0.0), (4200.0, 0.0), (8000.0, -4.0), (16800.0, -10.0)];
 /// Below this, on the reference engine, a diesel's block takes its pressure rise ever less to heart,
 /// Hz: two poles of it. A stiff casting barely radiates the slow swing of compression and expansion,
-/// which is far the largest part of the rise, and the most regular; through the low skirts of its modes
-/// it would buzz at the firing frequency's harmonics.
-const DIESEL_BLOCK_HIGHPASS_HZ: f64 = 700.0;
+/// which is far the largest part of the rise, and the most regular: set so the 6CT's clatter stands as
+/// far over its low rumble as a 6CTA's does, idling, heard beside it. 0 for none.
+const DIESEL_BLOCK_HIGHPASS_HZ: f64 = 300.0;
+
+/// Over how long after a blow a diesel's block modes are struck, s. A knock is not felt all through the
+/// casting at once: bending waves carry it at a few hundred metres a second, slower the lower they are,
+/// and the walls that radiate it lie at their own distances from each cylinder. Struck all at once, its
+/// many modes would add to one hard spike, far peakier than the clatter of a real block.
+const DIESEL_BLOCK_SPREAD_S: f64 = 0.003;
 
 /// How hard a piston's slap drives a diesel's block, against ringing its own mode as on a petrol
 /// engine: its knock spreads through the block's modes, as the combustion's does.
 const DIESEL_SLAP_DRIVE: f64 = 2.0;
 
 /// Each diesel block mode's share of the drive.
-const DIESEL_BLOCK_GAIN: f64 = 0.12;
+const DIESEL_BLOCK_GAIN: f64 = 0.1;
 /// A diesel's combustion pressure-rise drive bandwidth and structure-borne band limit, Hz: its burn
 /// is abrupt enough to drive the block well above a petrol engine's.
 const DIESEL_DPDT_BANDWIDTH_HZ: f64 = 6000.0;
@@ -446,6 +476,8 @@ pub struct EngineSim {
     /// Each cylinder's throat turbulence, kept across rebuilds.
     throat_noise: Vec<CachePadded<Noise>>,
     clack: Vec<Resonator>,
+    /// What lands on each seat and closes each lash, kg, every valve of a kind together.
+    valve_masses: ValveMasses,
     slap: Vec<Resonator>,
     clack_impact: Vec<Impact>,
     slap_impact: Vec<Impact>,
@@ -478,6 +510,10 @@ pub struct EngineSim {
     /// cylinder's own: see `DIESEL_BLOCK_MODES`, `CHAMBER_MODES` and `NEEDLE_MODE`.
     diesel_block: Vec<Resonator>,
     diesel_block_gain: Vec<f64>,
+    /// What drives a diesel's block, kept a while, and how long after it each of its modes is struck,
+    /// samples: see `DIESEL_BLOCK_SPREAD_S`.
+    diesel_drive: Delay,
+    diesel_block_lag: Vec<f64>,
     chamber: Vec<[Resonator; 3]>,
     chamber_burst: Vec<Impact>,
     needle: Vec<Resonator>,
@@ -525,6 +561,9 @@ pub struct EngineSim {
     intake_far_fields: [FarField; 2],
     breathing: Vec<f64>,
     timing: Vec<f64>,
+    /// A diesel's each cylinder's fuel delivery as a share of the mean, and its injection's offset, deg.
+    delivery: Vec<f64>,
+    injection_offset: Vec<f64>,
     intake_long: IntakeRunners,
     intake_short: Option<IntakeRunners>,
     on_short_runners: bool,
@@ -701,6 +740,31 @@ impl Bank {
     }
 }
 
+/// What lands on a cylinder's seats as its valves close, and what closes their lash as they open, kg:
+/// every exhaust valve together, and every intake. See `CLOSING_RAMP_M_PER_DEG`.
+#[derive(Clone, Copy, Debug, Default)]
+struct ValveMasses {
+    seat_ex: f64,
+    seat_in: f64,
+    lash_ex: f64,
+    lash_in: f64,
+}
+
+impl ValveMasses {
+    fn of(spec: &EngineSpec) -> ValveMasses {
+        let valve = |dia: f64| VALVE_MASS_PER_D3 * dia * dia * dia;
+        let lash = if spec.pushrods { LASH_MASS_PUSHROD } else { LASH_MASS_BUCKET };
+        let ex = valve(spec.ex_valve_dia) * spec.ex_valve_count;
+        let inl = valve(spec.in_valve_dia) * spec.in_valve_count;
+        ValveMasses {
+            seat_ex: SEATING_MASS_SHARE * ex,
+            seat_in: SEATING_MASS_SHARE * inl,
+            lash_ex: lash * ex,
+            lash_in: lash * inl,
+        }
+    }
+}
+
 /// One of the casing's radiating surfaces, as the sources place it.
 struct Surface {
     kind: SurfaceKind,
@@ -727,6 +791,8 @@ struct ValveCtx<'a> {
     /// The cam profile in use, for the lifts.
     lift_spec: &'a EngineSpec,
     timing: &'a [f64],
+    delivery: &'a [f64],
+    injection_offset: &'a [f64],
     intake_shift: f64,
     exhaust_shift: f64,
     limiter_cut: bool,
@@ -746,6 +812,8 @@ impl ValveCtx<'_> {
         let angle = cyl.angle;
         cyl.spark_cut = self.limiter_cut;
         cyl.fuel_demand = self.fuel_demand;
+        cyl.delivery = self.delivery.get(b).copied().unwrap_or(1.0);
+        cyl.injection_offset = self.injection_offset.get(b).copied().unwrap_or(0.0);
         cyl.crackle = self.crackle;
         cyl.intake_cam_offset = self.timing[b] + self.intake_shift;
         cyl.exhaust_cam_offset = self.timing[b] + self.exhaust_shift;
@@ -930,6 +998,7 @@ impl EngineSim {
             banks: Vec::new(),
             throat_noise: Vec::new(),
             clack: Vec::new(),
+            valve_masses: ValveMasses::default(),
             slap: Vec::new(),
             clack_impact: Vec::new(),
             slap_impact: Vec::new(),
@@ -954,6 +1023,8 @@ impl EngineSim {
             structure: Vec::new(),
             diesel_block: Vec::new(),
             diesel_block_gain: Vec::new(),
+            diesel_drive: Delay::new(DIESEL_BLOCK_SPREAD_S * sample_rate + 4.0),
+            diesel_block_lag: Vec::new(),
             chamber: Vec::new(),
             chamber_burst: Vec::new(),
             needle: Vec::new(),
@@ -988,6 +1059,8 @@ impl EngineSim {
             intake_far_fields: [FarField::new(sample_rate, 0.0), FarField::new(sample_rate, 0.0)],
             breathing: Vec::new(),
             timing: Vec::new(),
+            delivery: Vec::new(),
+            injection_offset: Vec::new(),
             intake_long,
             intake_short: None,
             on_short_runners: false,
@@ -1064,6 +1137,15 @@ impl EngineSim {
         sim.diesel_block =
             (0..DIESEL_BLOCK_COUNT).map(|_| Resonator::new(1000.0, DIESEL_BLOCK_Q, sample_rate)).collect();
         sim.diesel_block_gain = vec![0.0; DIESEL_BLOCK_COUNT];
+        // Each mode struck a share of the spread after the blow, the shares scattered evenly over it by the
+        // golden ratio, so no two neighbours in pitch are struck together.
+        let golden = (math::sqrt(5.0) - 1.0) / 2.0;
+        sim.diesel_block_lag = (0..DIESEL_BLOCK_COUNT)
+            .map(|i| {
+                let share = (i as f64 * golden).fract();
+                share * DIESEL_BLOCK_SPREAD_S * sample_rate
+            })
+            .collect();
         sim.tune_structure();
         sim.omega_mean = (math::min(sim.spec.spec.rpm, sim.spec.spec.rev_limit) * 2.0 * PI) / 60.0;
         sim.omega = sim.omega_mean;
@@ -1502,6 +1584,8 @@ impl EngineSim {
         &self.cyls[0]
     }
 
+    /// Knocks each cam drive, then a diesel's injection pump's, has made across its slack since the
+    /// engine was built.
     pub fn cylinders(&self) -> &[Cylinder] {
         &self.cyls
     }
@@ -1580,7 +1664,11 @@ impl EngineSim {
         for (i, &(hz, q)) in STRUCTURAL_MODES.iter().enumerate() {
             self.structure[i].set(hz / size, q, self.sample_rate);
         }
-        self.diesel_hp_c = 1.0 - math::exp((-2.0 * PI * (DIESEL_BLOCK_HIGHPASS_HZ / size)) / self.sample_rate);
+        self.diesel_hp_c = if DIESEL_BLOCK_HIGHPASS_HZ > 0.0 {
+            1.0 - math::exp((-2.0 * PI * (DIESEL_BLOCK_HIGHPASS_HZ / size)) / self.sample_rate)
+        } else {
+            0.0
+        };
         for (i, mode) in self.diesel_block.iter_mut().enumerate() {
             let hz = diesel_block_hz(i);
             let top = 0.45 * self.sample_rate;
@@ -1588,6 +1676,7 @@ impl EngineSim {
             self.diesel_block_gain[i] = DIESEL_BLOCK_GAIN * math::pow(10.0, diesel_block_gain_db(hz) / 20.0);
         }
         self.head_share = clack_share(spec.cylinders as f64 / physical_bank_count(spec) as f64);
+        self.valve_masses = ValveMasses::of(spec);
 
         let n = self.clack.len();
         let valve = REFERENCE_EX_VALVE / math::max(spec.ex_valve_dia, 1e-3);
@@ -1611,6 +1700,7 @@ impl EngineSim {
         // One timing drive to each head; the crank twists lower the more throws it has.
         let heads = physical_bank_count(spec) as f64;
         self.timing_share = math::sqrt(heads);
+
         let throws = crank_pins(spec).len().max(1) as f64;
         self.twist.set(TWIST_MODE.0 / math::sqrt(throws), TWIST_MODE.1, self.sample_rate);
         self.twist_share = REFERENCE_DISPLACEMENT_M3 / math::max(displacement(spec) * spec.cylinders as f64, 1e-6);
@@ -1711,11 +1801,15 @@ impl EngineSim {
         let spread = clamp(self.spec.spec.cylinder_spread, 0.0, 2.0);
         self.breathing = vec![0.0; n];
         self.timing = vec![0.0; n];
+        self.delivery = vec![1.0; n];
+        self.injection_offset = vec![0.0; n];
         for b in 0..n {
             let t = spread_of(b, n, 5, 2);
             let u = spread_of(b, n, 3, 1);
             self.breathing[b] = 1.0 + 0.04 * spread * t;
             self.timing[b] = CAM_SPREAD_DEG * spread * u;
+            self.delivery[b] = 1.0 + DELIVERY_SPREAD * spread * spread_of(b, n, 7, 3);
+            self.injection_offset[b] = INJECTION_SPREAD_DEG * spread * spread_of(b, n, 2, 1);
         }
     }
 
@@ -2107,6 +2201,8 @@ impl EngineSim {
                 spec: &self.spec,
                 lift_spec: if self.on_high_cam { &self.high_cam_spec.as_ref().unwrap().spec } else { &self.spec.spec },
                 timing: &self.timing,
+                delivery: &self.delivery,
+                injection_offset: &self.injection_offset,
                 intake_shift: self.intake_shift,
                 exhaust_shift: self.exhaust_shift,
                 limiter_cut,
@@ -2162,13 +2258,17 @@ impl EngineSim {
         let mut slap_knocks = 0.0;
         for b in 0..banks {
             let bank = &self.banks[b];
-            // Each valve clacks onto its seat, and ticks more lightly as it leaves it and its lash closes.
-            let seat = (if bank.seating_now { 1.0 } else { 0.0 })
-                + (if bank.in_seating_now { 0.7 } else { 0.0 })
-                + LASH_TICK_SHARE
-                    * ((if bank.opening_now { 1.0 } else { 0.0 }) + (if bank.in_opening_now { 0.7 } else { 0.0 }));
-            if seat > 0.0 {
-                self.clack_impact[b].trigger(CLACK_PA_AT_1M * mech * seat * (rpm / 3000.0) * head_share);
+            // Each valve clacks onto its seat, and ticks as it leaves it and its lash closes: as loud as the
+            // momentum each brings, at the ramp's speed.
+            let on = |now: bool| if now { 1.0 } else { 0.0 };
+            let mass = self.valve_masses;
+            let landing = on(bank.seating_now) * mass.seat_ex
+                + on(bank.in_seating_now) * mass.seat_in
+                + on(bank.opening_now) * mass.lash_ex
+                + on(bank.in_opening_now) * mass.lash_in;
+            if landing > 0.0 {
+                let ramp = CLOSING_RAMP_M_PER_DEG * (math::max(rpm, 0.0) * 6.0);
+                self.clack_impact[b].trigger(CLACK_PA_PER_NS * mech * landing * ramp * head_share);
             }
             let hit = self.clack_impact[b].next();
             let x = self.clack[b].process(hit);
@@ -2261,13 +2361,18 @@ impl EngineSim {
         if mech > 0.0 && diesel {
             self.dpdt_smooth += self.diesel_dpdt_c * (dpdt_sum - self.dpdt_smooth);
             let mut fast = self.dpdt_smooth;
-            for stage in self.diesel_hp.iter_mut() {
-                *stage += self.diesel_hp_c * (fast - *stage);
-                fast -= *stage;
+            if self.diesel_hp_c > 0.0 {
+                for stage in self.diesel_hp.iter_mut() {
+                    *stage += self.diesel_hp_c * (fast - *stage);
+                    fast -= *stage;
+                }
             }
             let drive = (fast / 1e9) * STRUCTURE_PA_PER_GPA_S * mech + DIESEL_SLAP_DRIVE * slap_knocks;
-            for (mode, &gain) in self.diesel_block.iter_mut().zip(self.diesel_block_gain.iter()) {
-                let x = mode.process(drive) * gain;
+            self.diesel_drive.push(drive);
+            let modes =
+                self.diesel_block.iter_mut().zip(self.diesel_block_gain.iter()).zip(self.diesel_block_lag.iter());
+            for ((mode, &gain), &lag) in modes {
+                let x = mode.process(self.diesel_drive.tap(lag)) * gain;
                 if split { emit(&mut self.surface_pa, &self.block_route, x) } else { direct_pa += x }
             }
         } else if mech > 0.0 {

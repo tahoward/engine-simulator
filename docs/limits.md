@@ -66,7 +66,9 @@ Where the model is simplified, and by how much.
   the oil pan and the front cover. Which parts each carries is fixed by kind, not by a model of the
   paths through the casting, and there are no valley, rear or bellhousing faces. The running noise rings
   per-cylinder modes of the bore, head and crankcase, and one torsional mode of the crank. Its
-  levels, like the clack's and slap's, are chosen by ear. The timing drive is a 21-tooth sprocket
+  levels, like the slap's, are chosen by ear. A valve's knock follows the momentum it brings, from its
+  size and the engine's speed, but every cam's ramps are ground to the one speed, every valve weighs as
+  its head's diameter cubed, and the sound a unit of momentum makes is set by ear, once. The timing drive is a 21-tooth sprocket
   on every engine, whether it drives a chain, a belt or gears. The bearings knock when the rod's
   force reverses, not from a model of the journal moving in its oil film.
 - **A room is a box.** Its modes are a rectangular box's with rigid walls, each ringing for the room's

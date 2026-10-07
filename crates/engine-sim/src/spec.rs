@@ -245,6 +245,9 @@ pub struct EngineSpec {
     pub vvt_low_rpm: f64,
     pub vvt_high_rpm: f64,
     pub vvt_linked: bool,
+    /// The valves worked through pushrods and rockers from a cam in the block, rather than from cams over
+    /// them: a heavier train closing each valve's lash.
+    pub pushrods: bool,
 
     // --- Combustion ---
     pub fuel: Fuel,
@@ -350,6 +353,7 @@ impl Default for EngineSpec {
             vvt_exhaust_high: 0.0,
             vvt_low_rpm: 2000.0,
             vvt_high_rpm: 6000.0,
+            pushrods: false,
             vvt_linked: false,
 
             fuel: Fuel::Gasoline,

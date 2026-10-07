@@ -497,6 +497,18 @@ a running diesel's top dead centre it is a few degrees, about 0.5 to 1 ms.
   duration** at full fuel and 10 m/s mean piston speed. It is shorter on less fuel, and longer the
   faster the engine turns.
 
+The burn flickers as the turbulence it burns in does: from one step to the next its heat release
+wanders by 80% RMS about the steady rate the Wiebe curves give, the same heat on average, which is
+what makes it roar rather than thud while it burns.
+
+No two cylinders burn alike either. A mechanical pump's elements and the injectors they feed are
+calibrated to a few percent and a fraction of a degree at full load, and drift further apart at idle,
+where each delivers its least. At **Cylinder spread** 1 each cylinder's delivery is up to 70% more or
+less than the mean and its injection up to 7° early or late, so on the 6CT, at 0.3, up to 21% and 2.1°.
+Those differences, fixed for each cylinder, are what puts the half orders, at multiples of half the
+crank's speed, into a real diesel's sound: at the 6CT's idle they stand 8 dB above the noise between them
+from 150 to 460 Hz, as a 6CTA's do.
+
 No two cycles light alike: the spray and the swirl it meets never are. The ignition delay wanders by
 8% RMS from one cycle to the next, about half a degree at idle, and the premixed share by 20%, at
 **Cycle-to-cycle scatter** 1. That is what keeps the clatter from ringing as a tone at the firing
@@ -529,11 +541,15 @@ A diesel's pressure rises ten times as fast as a petrol engine's: 5.6 bar per de
 idle against 0.5 on the RB26. Its block carries that to the ear as a broad, hard clatter. Three sources
 make it, all heard from the engine's casing (below), all only on a diesel:
 
-- **The block.** The pressure rise drives 22 block modes, log-spaced from about 400 Hz to 12 kHz on
-  the 6CT (lower on a bigger engine), each of Q 12. They overlap into one broad ring, where a petrol
-  engine's four modes would ring as four tones under a diesel's drive. How much each passes follows
-  the block's structure attenuation: little below 1 kHz, where a stiff casting radiates poorly, most
-  around 1.5 to 3 kHz, and less again above. Below 500 Hz on the 6CT (700 Hz on the reference engine),
+- **The block.** The pressure rise drives 140 block modes, log-spaced from about 400 Hz to 12 kHz on
+  the 6CT (lower on a bigger engine), each of Q 50, as lightly damped as cast iron is. They overlap
+  into one broad ring that carries on for 10 ms and more, where a petrol engine's four modes would ring
+  as four tones under a diesel's drive. They pass the combustion alike from about 400 Hz to 3 kHz on
+  the 6CT, and less above, as the casting, its covers and the manifolds over it muffle the highs. A
+  knock is not felt all through the casting at once: bending waves carry it at a few hundred metres a
+  second, and the walls that radiate it lie at their own distances from each cylinder. So each mode is
+  struck at its own moment, spread over 3 ms after the blow. Struck all together, the many modes
+  would add to one hard spike every firing, three times as peaky as a real block's clatter. Below 214 Hz on the 6CT (300 Hz on the reference engine),
   two poles of high-pass take the rise ever less to heart: the slow swing of compression and expansion
   is far the largest part of it and the most regular, and through the low skirts of the modes it would
   buzz at the firing frequency's harmonics. A piston's slap on its liner is a knock the same block
@@ -547,12 +563,12 @@ make it, all heard from the engine's casing (below), all only on a diesel:
 - **The injectors.** Each needle ticks as it lifts at the start of injection, and harder as it
   slams shut at the end, 3° to 22° later as the fuel grows.
 
-Set against a recording of a six-cylinder diesel idling near 815 rpm, heard from beside the engine,
-the 6CT at the same speed puts its sound's centre at 720 Hz against the recording's 1200, and its
-third-octave bands from 25 Hz to 16 kHz come within 8.3 dB RMS of the recording's. Its block's sound
-stands 15.5 dB proud at the firing frequency's harmonics, against the recording's 12. Its clatter dies
-away between firings, where the recording's carries on at about two thirds of its peak: whatever
-fills those gaps on a real engine is not modelled.
+Set against a recording of a Cummins 6CTA idling at 662 rpm, made standing beside it, the 6CT at the
+same speed, heard from where a standing person's head would be, has as much clatter over its low rumble
+as the real engine: its 0.5-4 kHz band 12 dB over its 25-200 Hz, against 12.8. Each firing's clatter
+peaks 7 dB over its mean level, against the real engine's 4.6. Its third-octave bands come within 9 dB
+RMS of the recording's, with the same tilt; the clatter is still too strong around 1.6 kHz and short
+around 2.5 kHz and above 8 kHz.
 
 ## Why it does not sound looped
 
@@ -596,8 +612,15 @@ already computes, so nothing runs on a timer:
   piston's speed times the load pressing it on the bore: the rings' own tension, the gas behind the
   top ring, and the side thrust from the rod's lean. It is quiet at each dead centre and loudest
   mid-stroke, and under load loudest early in the firing stroke, where the gas load and the lean meet.
-- **Valvetrain.** Each valve ticks lightly as it leaves its seat and its lash closes, then clacks
-  shut. While it is open, its cam follower rubs the lobe, as loud as the spring it pushes against.
+- **Valvetrain.** Each valve ticks as it leaves its seat and its lash closes, then clacks shut, each
+  an impact as loud as the momentum it brings. A cam sets its valves down on a closing ramp and lifts
+  them on an opening one, ground for 0.009 mm of travel per crank degree, so they land faster in
+  proportion to the engine's speed: 0.3 m/s at 6000 rpm, 0.04 m/s at a diesel's idle. What lands is
+  the valve, weighing as the cube of its head's diameter (about 43 g at 34 mm, 107 g at 46 mm), with its
+  retainer, keepers and spring, half as much again; what closes the lash is a rocker and pushrod, half as
+  much again as the valve, or a bucket, half the valve. So a heavy pushrod diesel's valvetrain knocks far
+  louder at a given speed than a light overhead-cam engine's, and a head with two valves of a kind
+  knocks twice as hard as one with one. While it is open, its cam follower rubs the lobe, as loud as the spring it pushes against.
   The timing drive whines at 21 meshes a crank turn, louder as the speed rises, and its tension
   wavers with the valve springs it turns and with its chain's slack.
 - **Bearings and crank.** A rod's bearings knock across their oil clearance whenever the force down

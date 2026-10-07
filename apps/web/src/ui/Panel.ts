@@ -1377,7 +1377,8 @@ export class Panel {
       'How the valves are worked, as drawn: one camshaft in the block, in the valley of a V, through ' +
       'tappets and rocker arms, or with it off a cam over each row of valves. Pushrods work two valves ' +
       'a cylinder, in a row along the head, so turning them on makes it a two-valve head, and choosing ' +
-      'four valves turns them off. The simulation follows the valves\u2019 lift either way.';
+      'four valves turns them off. A rocker and pushrod close each valve\u2019s lash, heavier than a bucket, ' +
+      'so they knock harder.';
     this.resyncers.push(() => (checkbox(pushrods).checked = this.config.engine.pushrods));
 
     // ---- Intake ------------------------------------------------------------
