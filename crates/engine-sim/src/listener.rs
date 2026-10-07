@@ -438,6 +438,12 @@ impl Listener {
 
     /// The sum of what every path has been given since this was last called, each referred to 1 m, Pa:
     /// what the room's reverberation is fed.
+    /// What each source gave its path last, Pa referred to 1 m, into `out`, in the order of the places.
+    pub fn each_source(&self, out: &mut Vec<f64>) {
+        out.clear();
+        out.extend(self.paths.iter().map(|p| p.source));
+    }
+
     pub fn take_sources(&mut self) -> f64 {
         let mut sum = 0.0;
         for p in self.paths.iter_mut() {

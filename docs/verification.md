@@ -209,6 +209,11 @@ matters.
   from, by its duct, with the intake and casing; the default single's tailpipe must be at the end of
   its megaphone, out to the side, and the LT6's two within 0.25 m of each other in the middle. Through
   the Wasm build, a listener twice as far away must hear the engine half as loud.
+- **The room's modes.** A click in a corner of the garage, heard in the opposite one, must ring at its
+  first modes along its length, across it and up it, each within 0.6 Hz of `c / 2 L` and above the
+  spectrum's middle. A source at the middle of its length must drive its first length mode less than a
+  twentieth as hard as one at its end. A tunnel, a street and an underpass must have none. Idling in the
+  garage, the 6CT's strongest harmonic between 50 and 200 Hz must stand more than 40 dB above the noise.
 - **The casing's surfaces.** On every preset, the app must give one outer side and one head a bank on
   a vee or a boxer, and both sides and one head on an inline, each facing out of the engine, the heads
   above the deck, the oil pan under the crankcase and the front cover on the block's front end. A

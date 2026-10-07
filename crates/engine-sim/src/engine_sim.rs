@@ -30,7 +30,7 @@ use crate::exhaust_system::{ExhaustSystem, SideWork};
 use crate::inlet::{InletTract, airbox_volume_of, inlet_count_of, snorkel_dia_of};
 use crate::intake::{IntakeRunners, RunnerIo};
 use crate::listener::{Listener, SoundSources, SurfaceKind, Vec3, Walls};
-use crate::room::Reverb;
+use crate::room::{Reverb, RoomModes};
 use crate::math::{self, PI, clamp};
 use crate::plenum::{IntakePlenum, throttle_dia_of};
 use crate::pool::{CachePadded, Disjoint, ThreadPool};
@@ -509,8 +509,11 @@ pub struct EngineSim {
     /// Every source's path to the ear: the mouths in order, then the muffler shells, the intake, the
     /// casing and the turbos (`Source`).
     listener: Listener,
-    /// The room's reverberation, fed by every source.
+    /// The room's reverberation, fed by every source; and below it, its modes, each source driving them
+    /// where it stands, and what each gave its path this sample.
     reverb: Reverb,
+    room_modes: RoomModes,
+    mode_sources: Vec<f64>,
     sources: SoundSources,
     ear: Option<Vec3>,
     /// The way the listener's right is, m, in the sources' frame.
@@ -975,6 +978,8 @@ impl EngineSim {
             front_route: Vec::new(),
             listener: Listener::new(sample_rate),
             reverb: Reverb::new(sample_rate),
+            room_modes: RoomModes::new(sample_rate),
+            mode_sources: Vec::new(),
             sources: config.sources.clone().unwrap_or_default(),
             ear: config.listener,
             right: None,
@@ -1826,6 +1831,8 @@ impl EngineSim {
         self.listener.set_geometry(ear, right, &places, &facings, ground, reflection, walls.as_ref(), snap);
         self.reverb.set_room(room);
         self.reverb.set_head(right);
+        self.room_modes.set(room.as_ref(), walls.as_ref(), ground, &places, ear);
+        self.reverb.set_low_cut(self.room_modes.top_hz());
 
         self.refresh_intake_far_field();
     }
@@ -2326,6 +2333,13 @@ impl EngineSim {
             add(&mut pa, self.listener.process(self.path_of(Source::Turbo), turbo_pa));
         }
 
+        if self.room_modes.top_hz() > 0.0 {
+            // The room's modes, below where its field is diffuse, alike at both ears: their
+            // wavelengths are metres long.
+            self.listener.each_source(&mut self.mode_sources);
+            let modal = self.room_modes.process(&self.mode_sources);
+            add(&mut pa, [modal, modal]);
+        }
         let sources = self.listener.take_sources();
         if self.reverb.active() {
             if self.listener.ears() == 2 {

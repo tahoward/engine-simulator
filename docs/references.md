@@ -46,6 +46,9 @@ for. Plain-language definitions of the terms are in the [Glossary](glossary.md).
 
 ## Acoustics
 
+- <a id="kuttruff2009"></a>**Kuttruff, H. (2009).** *Room Acoustics*, 5th ed. Spon Press.
+  — A room's modes and where they overlap into a diffuse field, the Schroeder frequency, and the
+  diffuse field's level the room's absorption sets.
 - <a id="levine1948"></a>**Levine, H. and Schwinger, J. (1948).** "On the radiation of sound from an
   unflanged circular pipe." *Physical Review* 73, 383–406.
   [doi:10.1103/PhysRev.73.383](https://doi.org/10.1103/PhysRev.73.383)

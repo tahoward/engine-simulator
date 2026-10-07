@@ -256,6 +256,10 @@ pub struct Reverb {
     turn_c: f64,
     /// The way the listener's right is, a unit vector; `None` with no head.
     right: Option<Vec3>,
+    /// Below the room's modes' top, where they take over (`RoomModes`), what feeds the diffuse field is
+    /// cut, two poles of it: the coefficient, 0 for none, and the two stages' states.
+    low_cut_c: f64,
+    low_cut: [f64; 2],
 }
 
 #[derive(Clone, Copy, Debug, Default)]
@@ -283,6 +287,8 @@ impl Reverb {
             shadow: [[HeadShadow::default(); LINES]; 2],
             turn_c: 1.0 - math::exp(-1.0 / (TURN_S * sample_rate)),
             right: None,
+            low_cut_c: 0.0,
+            low_cut: [0.0; 2],
         }
     }
 
@@ -345,6 +351,12 @@ impl Reverb {
         } else {
             self.next = Some(tuning);
         }
+    }
+
+    /// Leave what is below `hz` to the room's modes, cutting it from what feeds the diffuse field; with 0,
+    /// feed it all.
+    pub fn set_low_cut(&mut self, hz: f64) {
+        self.low_cut_c = if hz > 0.0 { 1.0 - math::exp((-2.0 * PI * hz) / self.sample_rate) } else { 0.0 };
     }
 
     fn tune(&self, shape: &RoomShape) -> Tuning {
@@ -432,6 +444,13 @@ impl Reverb {
         }
         out *= self.fade / math::sqrt(LINES as f64);
         hadamard(&mut y);
+        let mut source = source;
+        if self.low_cut_c > 0.0 {
+            for stage in self.low_cut.iter_mut() {
+                *stage += self.low_cut_c * (source - *stage);
+                source -= *stage;
+            }
+        }
         let feed = (t.input * source) / math::sqrt(LINES as f64);
         for i in 0..LINES {
             let sign = if i % 3 == 0 { -1.0 } else { 1.0 };
@@ -500,4 +519,168 @@ fn hadamard(v: &mut [f64; LINES]) {
 fn next_prime(n: usize) -> usize {
     let is_prime = |k: usize| k >= 2 && (2..).take_while(|d| d * d <= k).all(|d| !k.is_multiple_of(d));
     (n.max(2)..).find(|&k| is_prime(k)).unwrap()
+}
+
+/// Below its Schroeder frequency a room does not reverberate diffusely: it rings at its own modes, few
+/// and far apart, each loudest where its standing wave has its antinodes, and a source and an ear in a
+/// node of one neither drive nor hear it. A box's modes are at `c/2 sqrt((nx/W)^2 + (ny/H)^2 + (nz/L)^2)`,
+/// each standing as `cos(nx pi x/W) cos(ny pi y/H) cos(nz pi z/L)` from a corner. An engine's harmonics
+/// that land on one boom, and in a small, hard room, a garage's, that is most of what its low end sounds
+/// like.
+///
+/// Only a room closed on every side has them; the diffuse field (`Reverb`) carries what is above.
+pub struct RoomModes {
+    sample_rate: f64,
+    modes: Vec<Mode>,
+    /// The modes' frequencies and decays, as last set up: what has to change for them to start afresh.
+    key: Vec<(f64, f64)>,
+    /// Their level against the diffuse field the same sources would make (`Reverb`).
+    scale: f64,
+    glide_c: f64,
+    /// The highest of them, Hz, which the diffuse field is cut below; 0 with none.
+    top_hz: f64,
+}
+
+struct Mode {
+    ring: crate::dsp::Resonator,
+    /// Its drive, so that it rings as loud as what drives it at its own frequency.
+    norm: f64,
+    /// How strongly each source drives it, and the ear hears it, where they stand: its standing wave
+    /// there, from -1 to 1. The ear's glides as the ear moves.
+    sources: Vec<f64>,
+    ear: f64,
+    ear_target: f64,
+}
+
+/// The least share of a room's energy its surfaces may take for it to count as closed and so to have
+/// modes: an open side has none along it.
+const MODES_OPEN_ABOVE: f64 = 0.9;
+/// The highest the modes go, Hz, whatever the Schroeder frequency, and the most there are.
+const MODES_TOP_HZ: f64 = 400.0;
+const MOST_MODES: usize = 256;
+/// How long the ear's hearing of each mode takes to glide to a new place, s.
+const MODE_GLIDE_S: f64 = 0.05;
+
+impl RoomModes {
+    pub fn new(sample_rate: f64) -> RoomModes {
+        RoomModes {
+            sample_rate,
+            modes: Vec::new(),
+            key: Vec::new(),
+            scale: 0.0,
+            glide_c: 1.0 - math::exp(-1.0 / (MODE_GLIDE_S * sample_rate)),
+            top_hz: 0.0,
+        }
+    }
+
+    /// The highest mode, Hz, below which the diffuse field is left to them; 0 with none.
+    pub fn top_hz(&self) -> f64 {
+        self.top_hz
+    }
+
+    /// Set up `shape`'s modes, the box `walls` and `ground` bound, for sources at `places` heard at `ear`:
+    /// none outdoors or in a room open on a side. The same modes as before keep ringing, heard from where
+    /// the ear and the sources now are.
+    pub fn set(
+        &mut self,
+        shape: Option<&RoomShape>,
+        walls: Option<&crate::listener::Walls>,
+        ground: f64,
+        places: &[Vec3],
+        ear: Vec3,
+    ) {
+        let (Some(shape), Some(walls)) = (shape, walls) else {
+            self.clear();
+            return;
+        };
+        let a = &shape.absorption;
+        if [a.left, a.right, a.front, a.rear, a.ceiling, a.floor].iter().any(|&s| s > MODES_OPEN_ABOVE) {
+            self.clear();
+            return;
+        }
+        let (w, h, l) = (shape.width, shape.height, shape.length);
+        let c = crate::spec::ambient_sound_speed();
+        let t60 = shape.reverb_time();
+        // Schroeder's frequency, above which the modes overlap into a diffuse field.
+        let top = math::min(2000.0 * math::sqrt(t60 / shape.volume()), MODES_TOP_HZ);
+        let most = |side: f64| ((2.0 * top * side) / c).floor() as usize;
+        let mut found: Vec<(f64, [usize; 3])> = Vec::new();
+        for nx in 0..=most(w) {
+            for ny in 0..=most(h) {
+                for nz in 0..=most(l) {
+                    if nx + ny + nz == 0 {
+                        continue;
+                    }
+                    let (fx, fy, fz) = (nx as f64 / w, ny as f64 / h, nz as f64 / l);
+                    let hz = (c / 2.0) * math::sqrt(fx * fx + fy * fy + fz * fz);
+                    if hz <= top {
+                        found.push((hz, [nx, ny, nz]));
+                    }
+                }
+            }
+        }
+        found.sort_by(|p, q| p.0.partial_cmp(&q.0).unwrap());
+        found.truncate(MOST_MODES);
+        if found.is_empty() {
+            self.clear();
+            return;
+        }
+        let fs = self.sample_rate;
+        let q_of = |hz: f64| (PI * hz * t60) / 6.908;
+        let key: Vec<(f64, f64)> = found.iter().map(|&(hz, _)| (hz, q_of(hz))).collect();
+        let fresh = key != self.key;
+        if fresh {
+            self.modes = key
+                .iter()
+                .map(|&(hz, q)| {
+                    let ring = crate::dsp::Resonator::new(hz, q, fs);
+                    let norm = 1.0 / math::max(ring.gain_at(hz, fs), 1e-9);
+                    Mode { ring, norm, sources: Vec::new(), ear: 0.0, ear_target: 0.0 }
+                })
+                .collect();
+            self.key = key;
+        }
+        // The standing wave of mode `n` at `p`, from the box's corner, `p` brought inside it.
+        let inside = |p: Vec3| walls.inside(p, ground, 0.0);
+        let wave = |n: [usize; 3], p: Vec3| {
+            let p = inside(p);
+            let along = |k: usize, at: f64, side: f64| math::cos((k as f64 * PI * at) / side);
+            along(n[0], p[0] - walls.x[0], w) * along(n[1], p[1] - ground, h) * along(n[2], p[2] - walls.z[0], l)
+        };
+        // A unit-peak mode passes `pi f / (2 Q)` of white noise's bandwidth; heard and driven at its
+        // average standing wave, a half for each axis it varies along, the modes together give the
+        // diffuse field's energy over the band they cover.
+        let mut passed = 0.0;
+        for ((hz, n), &(_, q)) in found.iter().zip(&self.key) {
+            let mean: f64 = n.iter().map(|&k| if k == 0 { 1.0 } else { 0.5 }).product();
+            passed += ((PI * hz) / (2.0 * q)) * mean * mean;
+        }
+        self.scale = shape.diffuse_gain() * math::sqrt(top / math::max(passed, 1e-12));
+        for (mode, (_, n)) in self.modes.iter_mut().zip(&found) {
+            mode.sources = places.iter().map(|&p| wave(*n, p)).collect();
+            mode.ear_target = wave(*n, ear);
+            if fresh {
+                mode.ear = mode.ear_target;
+            }
+        }
+        self.top_hz = top;
+    }
+
+    fn clear(&mut self) {
+        self.modes.clear();
+        self.key.clear();
+        self.top_hz = 0.0;
+    }
+
+    /// The modes' pressure at the ear, Pa, from what each source radiates this sample, referred to 1 m,
+    /// in the order of the places they were set up with.
+    pub fn process(&mut self, sources: &[f64]) -> f64 {
+        let mut out = 0.0;
+        for mode in self.modes.iter_mut() {
+            let drive: f64 = mode.sources.iter().zip(sources).map(|(c, x)| c * x).sum();
+            mode.ear += self.glide_c * (mode.ear_target - mode.ear);
+            out += mode.ear * mode.ring.process(mode.norm * drive);
+        }
+        out * self.scale
+    }
 }

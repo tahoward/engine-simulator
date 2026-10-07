@@ -7,7 +7,7 @@ mod common;
 use common::FS;
 use engine_sim::EngineSim;
 use engine_sim::dsp::{Noise, OnePole};
-use engine_sim::room::{Absorption, Reverb, Room, RoomShape};
+use engine_sim::room::{Absorption, Reverb, Room, RoomModes, RoomShape};
 use serde_json::json;
 
 const ROOMS: [Room; 7] =
@@ -161,4 +161,108 @@ fn an_open_side_shortens_and_quietens_the_reverberation() {
         closed.reverb_time()
     );
     assert!(open.diffuse_gain() < closed.diffuse_gain() / 2.0);
+}
+
+// --- the room's modes ---
+
+/// The garage's box, from its corner at the origin, with `shape`'s walls.
+fn garage_box(shape: &RoomShape) -> engine_sim::listener::Walls {
+    engine_sim::listener::Walls {
+        x: [0.0, shape.width],
+        z: [0.0, shape.length],
+        ceiling: shape.height,
+        reflection: shape.wall_reflections(),
+        corner_hz: shape.wall_corner_hz,
+    }
+}
+
+/// A closed room rings at its box's modes: a click in one corner of the garage, heard in the opposite
+/// one, rings in peaks at the first along its length, across it and up it, `c / 2 L` and so on, each
+/// above the spectrum's middle, which from a corner, where every mode is driven, their skirts fill.
+#[test]
+fn a_closed_room_rings_at_its_boxs_modes() {
+    let shape = Room::Garage.shape().unwrap();
+    let walls = garage_box(&shape);
+    let mut modes = RoomModes::new(FS);
+    modes.set(
+        Some(&shape),
+        Some(&walls),
+        0.0,
+        &[[0.05, 0.05, 0.05]],
+        [shape.width - 0.05, shape.height - 0.05, shape.length - 0.05],
+    );
+    assert!(modes.top_hz() > 200.0, "modes up to {} Hz", modes.top_hz());
+    let n = 1 << 17;
+    let out: Vec<f32> = (0..n).map(|i| modes.process(&[if i == 0 { 1.0 } else { 0.0 }]) as f32).collect();
+    let mag = common::magnitude_spectrum(&out, n);
+    let c = engine_sim::spec::ambient_sound_speed();
+    let bin = |hz: f64| (hz * n as f64 / FS).round() as usize;
+    let mut low: Vec<f64> = mag[bin(15.0)..bin(120.0)].to_vec();
+    low.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let median = low[low.len() / 2];
+    for (side, axis) in [(shape.length, "length"), (shape.width, "width"), (shape.height, "height")] {
+        let mode = c / (2.0 * side);
+        // The strongest bin within 2 Hz of it: there, and far above the spectrum's middle.
+        let (lo, hi) = (bin(mode - 2.0), bin(mode + 2.0));
+        let peak = (lo..=hi).max_by(|&a, &b| mag[a].partial_cmp(&mag[b]).unwrap()).unwrap();
+        let found = peak as f64 * FS / n as f64;
+        assert!((found - mode).abs() < 0.6, "{axis}'s first mode at {found:.2} Hz, not {mode:.2}");
+        assert!(mag[peak] > 1.5 * median, "{axis}'s first mode {} against the spectrum's middle {median}", mag[peak]);
+    }
+}
+
+/// A source at the middle of the garage's length sits in a node of every mode that varies along it an
+/// odd number of times, and drives none of them; nor is a room open on a side given any modes.
+#[test]
+fn a_node_drives_nothing_and_an_open_room_has_no_modes() {
+    let shape = Room::Garage.shape().unwrap();
+    let walls = garage_box(&shape);
+    let c = engine_sim::spec::ambient_sound_speed();
+    let first = c / (2.0 * shape.length);
+    let ring_at = |z: f64| {
+        let mut modes = RoomModes::new(FS);
+        modes.set(Some(&shape), Some(&walls), 0.0, &[[0.05, 0.05, z]], [0.05, 0.05, 0.05]);
+        let n = 1 << 16;
+        let out: Vec<f32> = (0..n).map(|i| modes.process(&[if i == 0 { 1.0 } else { 0.0 }]) as f32).collect();
+        common::magnitude_spectrum(&out, n)[(first * n as f64 / FS).round() as usize]
+    };
+    let (end, middle) = (ring_at(0.05), ring_at(shape.length / 2.0));
+    assert!(middle < 0.05 * end, "{middle} from the middle against {end} from the end");
+    for room in [Room::Tunnel, Room::Street, Room::Underpass] {
+        let shape = room.shape().unwrap();
+        let mut modes = RoomModes::new(FS);
+        modes.set(Some(&shape), Some(&garage_box(&shape)), 0.0, &[[1.0, 1.0, 1.0]], [2.0, 1.0, 2.0]);
+        assert_eq!(modes.top_hz(), 0.0, "{room:?}");
+    }
+}
+
+/// In the garage the room's modes carry the low end, and where a diesel's harmonics land on them they
+/// stand out: idling in it, the 6CT's sound has much more of its 50-200 Hz harmonics above the noise
+/// between them than its diffuse field alone, all noise down there, would leave.
+#[test]
+fn in_the_garage_the_modes_carry_the_low_end() {
+    let render = |room: &str| {
+        let mut cfg = common::engine_preset("Inline six diesel, Cummins 6CT").config.clone();
+        cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true, "room": room }));
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.set_listener(Some([1.3, 0.9, -0.8]));
+        sim.render(3 * FS as usize);
+        let n = 1 << 15;
+        let x = sim.render(4 * n);
+        let mut power = vec![0.0; n / 2 + 1];
+        for w in x.chunks(n) {
+            for (p, m) in power.iter_mut().zip(common::magnitude_spectrum(&common::hann(w), n)) {
+                *p += m * m;
+            }
+        }
+        let hz = |i: usize| i as f64 * FS / n as f64;
+        let mut low: Vec<f64> =
+            power.iter().enumerate().filter(|(i, _)| (50.0..200.0).contains(&hz(*i))).map(|(_, p)| *p).collect();
+        low.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        10.0 * (low[low.len() - 1] / low[low.len() / 2]).log10()
+    };
+    let garage = render("garage");
+    println!("50-200 Hz: the strongest harmonic {garage:.1} dB over the noise in the garage");
+    // Its diffuse field alone, the modes left out, leaves 35 dB.
+    assert!(garage > 40.0, "{garage:.1} dB");
 }

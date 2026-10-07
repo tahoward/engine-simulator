@@ -69,6 +69,11 @@ Where the model is simplified, and by how much.
   levels, like the clack's and slap's, are chosen by ear. The timing drive is a 21-tooth sprocket
   on every engine, whether it drives a chain, a belt or gears. The bearings knock when the rod's
   force reverses, not from a model of the journal moving in its oil film.
+- **A room is a box.** Its modes are a rectangular box's with rigid walls, each ringing for the room's
+  reverberation time at low frequencies, with no car, bench or doorway in it to scatter them, and the
+  walls' absorption the same at every mode. Above the modes, the diffuse field is a feedback delay
+  network's: flutter between a garage's parallel walls, the ring a real one has, is not in it beyond the
+  first reflections.
 - **A diesel's clatter is set against one recording.** Its block's modes and how much each passes,
   its chamber ring's level and its injectors' are chosen to match one recording
   of an unknown six-cylinder diesel idling, heard from an unknown place, not measured on the 6CT. The

@@ -409,8 +409,34 @@ body below the atmosphere, the pressure across its piston holds it shut.
 simulated pressure there rises. The flap is mechanical, so this is an impact ringing two of its modes,
 at 1.85 and 3.3 kHz. Further open it rattles less.
 
+## The room
+
+Outdoors, each source is heard along its direct path and its reflection off the ground. In a room it is
+heard off the room's four walls and its ceiling too, each reflection's way to the ear its own, duller
+than the sound that reached the wall. After those first reflections the reverberation builds up: a
+feedback delay network of eight lines, mixed and fed back, each losing as much per pass as the room's
+reverberation time says, the highs faster than the lows. Fed every source, it gives the diffuse field's
+level the room's absorption sets, `16 pi / R` in power, wherever the ear stands.
+
+**Below its Schroeder frequency a closed room rings at its modes.** A diffuse field is only what a room
+does where its modes overlap: above `2000 sqrt(T / V)` Hz, about 285 Hz in the garage. Below that a room
+rings at a few of its own modes, far apart, each a standing wave, `c/2 sqrt((nx/W)^2 + (ny/H)^2 +
+(nz/L)^2)`: in the garage at 26 Hz along its length, 49 Hz across it, 66 Hz floor to ceiling, and their
+harmonics and combinations, about a hundred and forty of them up to 285 Hz. Each rings for the room's
+reverberation time, so in a hard room as sharply as a Q of 20 to 50. Each source drives a mode as its
+standing wave is where the source stands, and the ear hears it as it is where the ear stands, so a corner
+booms and a node is quiet. Where an engine's harmonics land on a mode they boom, and the rest of the low
+end goes quiet, as in a real garage. Together, heard at their average standing wave, the modes give the
+diffuse field's energy over the band they cover, and the diffuse field is fed only above it, so nothing is
+counted twice. In the garage, idling, the 6CT's strongest harmonic between 50 and 200 Hz stands 45 dB
+above the noise between them, against 35 dB from the diffuse field alone.
+
+Only a room closed on every side has modes: a tunnel's, a street's and an underpass's sound runs out of
+their open ends. They are heard alike at both ears, as their wavelengths are metres long.
+
 ## Sources
 
+- Room modes, the Schroeder frequency and the diffuse field: [Kuttruff 2009](references.md#kuttruff2009).
 - Gas solver: [Toro 2009](references.md#toro2009); MUSCL: [van Leer 1979](references.md#vanleer1979);
   HLLC: [Toro, Spruce and Speares 1994](references.md#toro1994); limiters:
   [van Leer 1974](references.md#vanleer1974), [van Leer 1977](references.md#vanleer1977),
