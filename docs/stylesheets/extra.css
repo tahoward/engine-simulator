@@ -1,0 +1,6 @@
+/* The home page's buttons: spaced evenly whether they sit on one line or wrap onto two. */
+.md-typeset .buttons p {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}

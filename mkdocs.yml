@@ -56,6 +56,9 @@ nav:
   - References: references.md
   - Deployment: deployment.md
 
+extra_css:
+  - stylesheets/extra.css
+
 markdown_extensions:
   - admonition
   - attr_list

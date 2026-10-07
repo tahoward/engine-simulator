@@ -7,9 +7,13 @@ Hear engines from a single-cylinder to a V8, in your browser or in the desktop a
 time, so MkDocs can't see it at build time and a relative link would fail the strict check. This
 means the button opens the live app even from a local preview. -->
 
+<div class="buttons" markdown>
+
 [Launch the simulator :material-engine:](https://tahoward.github.io/engine-simulator/app/){ .md-button .md-button--primary }
 [Download the desktop app :material-download:](https://github.com/tahoward/engine-simulator/releases/latest){ .md-button }
 [Source on GitHub :fontawesome-brands-github:](https://github.com/tahoward/engine-simulator){ .md-button }
+
+</div>
 
 There are no recordings here, and no synthesizer tones run through filters. Instead, the simulator
 models what really happens:
