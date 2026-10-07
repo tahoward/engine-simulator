@@ -239,12 +239,21 @@ const PREMIXED_A: f64 = 0.926;
 const PREMIXED_B: f64 = 0.37;
 const PREMIXED_C: f64 = 0.26;
 const MAX_PREMIXED_SHARE: f64 = 0.9;
-/// How long the premixed burn takes, s: chemistry, so fixed in time rather than in degrees.
-const PREMIXED_TIME: f64 = 0.8e-3;
+/// How long the premixed burn takes, s: chemistry, so fixed in time rather than in degrees; and its Wiebe
+/// form factor, low, so it takes off at once, as Watson's premixed burn does, rather than easing in as a
+/// spark's flame does.
+const PREMIXED_TIME: f64 = 0.5e-3;
+const PREMIXED_M: f64 = 1.0;
 const MIN_PREMIXED_ANGLE: f64 = 2.0;
 /// Wiebe form factor of the diffusion burn: fast to start and slow to finish, as the last of the
 /// fuel finds its air.
 const DIFFUSION_M: f64 = 0.9;
+/// How far a diesel's ignition delay, and the share of its fuel that burns premixed, wander from one cycle
+/// to the next, as shares of themselves, RMS, at `combustion_variability = 1`: the spray and the swirl it
+/// meets are never twice alike, so neither is when it lights, nor how much has mixed by then.
+const DELAY_SCATTER: f64 = 0.08;
+const PREMIXED_SCATTER: f64 = 0.2;
+
 /// How long a diesel's injection lasts at the pump's full delivery, deg, and at the least: the pump
 /// meters the fuel over more of the crank's turn the more it delivers.
 const FULL_INJECTION_ANGLE: f64 = 22.0;
@@ -676,9 +685,15 @@ impl Cylinder {
         let t_tdc = self.step_temp * math::pow(squeeze, COMPRESSION_EXPONENT - 1.0);
         let piston_speed = (spec.stroke * self.step_omega.abs()) / PI;
         let deg_per_s = math::max((self.step_omega.abs() * 180.0) / PI, 1e-3);
-        let delay = ignition_delay(piston_speed, p_tdc, t_tdc);
+        let variability = math::max(spec.combustion_variability, 0.0);
+        let wander = |noise: &mut Noise, share: f64| clamp(1.0 + share * variability * noise.gaussian(), 0.5, 1.5);
+        let delay = ignition_delay(piston_speed, p_tdc, t_tdc) * wander(&mut self.noise, DELAY_SCATTER);
 
-        self.premixed_share = premixed_share(self.charge_phi, delay / deg_per_s);
+        self.premixed_share = clamp(
+            premixed_share(self.charge_phi, delay / deg_per_s) * wander(&mut self.noise, PREMIXED_SCATTER),
+            0.0,
+            MAX_PREMIXED_SHARE,
+        );
         self.premixed_angle = math::max(PREMIXED_TIME * deg_per_s, MIN_PREMIXED_ANGLE);
         let diffusion =
             spec.burn_duration * math::sqrt(piston_speed / REF_PISTON_SPEED) * (0.5 + 0.5 * demand) * self.burn_scale;
@@ -701,7 +716,7 @@ impl Cylinder {
         let start = self.spark;
         let premixed = self.premixed_share;
         let burnt = |deg: f64, s: &Self| {
-            premixed * wiebe(deg, s.premixed_angle) + (1.0 - premixed) * wiebe_m(deg, s.burn_angle, DIFFUSION_M)
+            premixed * wiebe_m(deg, s.premixed_angle, PREMIXED_M) + (1.0 - premixed) * wiebe_m(deg, s.burn_angle, DIFFUSION_M)
         };
         let from = burnt(cycle_delta(self.angle, start), self);
         let to = burnt(cycle_delta(self.next_angle, start), self);

@@ -2905,8 +2905,9 @@ const CUMMINS_6CT: Partial<EngineSpec> = {
   // its boost compensator holds it until the turbo is up.
   maxFuel: 1.1e-4,
   smokeLambda: 1.5,
-  // A diesel's charge lights the same way every cycle, far more alike than a spark's.
-  combustionVariability: 0.4,
+  // The realistic amount: its ignition delay and premixed share wander from cycle to cycle, as a real
+  // diesel's spray does, so no two firings clatter alike.
+  combustionVariability: 1,
   // A Holset H1C on about 1.3 bar, wastegated, with no aftercooler and no blow-off valve: there is no
   // throttle to shut against it. Its size is an estimate.
   boostTarget: 1.3e5,

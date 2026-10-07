@@ -281,3 +281,46 @@ fn no_two_firings_clatter_alike() {
     let spread = (peaks.iter().map(|p| (p - avg).powi(2)).sum::<f64>() / peaks.len() as f64).sqrt() / avg;
     assert!(spread > 0.05, "firing-to-firing spread {spread}");
 }
+
+/// Idling, a diesel's casing clatters rather than buzzing: its sound is spread between the firing
+/// frequency's harmonics, where through four narrow modes, driven by the whole regular swing of its
+/// compression, it would ring them as a tone; and next to none of it is down at the firing frequency's
+/// first few harmonics, which a stiff block barely radiates.
+#[test]
+fn its_casing_clatters_rather_than_buzzing() {
+    let casing = |mech: f64| {
+        let mut cfg = cummins(json!({ "freeRunning": false, "rpm": 815, "throttle": 0.08, "turboNoise": 0, "mechNoise": mech }));
+        let sources = cfg.sources.as_mut().unwrap();
+        for m in sources.mouths.iter_mut() {
+            m.position = [0.0, 0.0, 30.0];
+        }
+        let mut sim = EngineSim::new(FS, &cfg);
+        sim.set_listener(Some([1.0, 0.4, -0.5]));
+        sim.render(FS as usize);
+        // Averaged over 8192-sample windows, as the ear hears a buzz, not one long one's finest lines.
+        let n = 8192;
+        let x = sim.render(16 * n);
+        let mut power = vec![0.0; n / 2 + 1];
+        for w in x.chunks(n) {
+            for (p, m) in power.iter_mut().zip(common::magnitude_spectrum(&common::hann(w), n)) {
+                *p += m * m;
+            }
+        }
+        power
+    };
+    let (on, off) = (casing(0.45), casing(0.0));
+    let power: Vec<f64> = on.iter().zip(&off).map(|(a, b)| (a - b).max(0.0)).collect();
+    let hz = |i: usize| i as f64 * FS / 8192.0;
+    let band = |lo: f64, hi: f64| -> Vec<f64> {
+        power.iter().enumerate().filter(|(i, _)| hz(*i) >= lo && hz(*i) < hi).map(|(_, p)| *p).collect()
+    };
+    let mut mid = band(200.0, 1500.0);
+    mid.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    let tonal = 10.0 * (mid[mid.len() - 1] / mid[mid.len() / 2]).log10();
+    let low: f64 = band(40.0, 180.0).iter().sum();
+    let clatter: f64 = band(500.0, 4000.0).iter().sum();
+    let below = 10.0 * (clatter / low).log10();
+    println!("the casing's harmonics stand {tonal:.1} dB over its noise; its 40-180 Hz is {below:.1} dB under its clatter");
+    assert!(tonal < 24.0, "{tonal:.1} dB tonal");
+    assert!(below > 25.0, "only {below:.1} dB under");
+}

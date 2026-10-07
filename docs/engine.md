@@ -488,18 +488,25 @@ a running diesel's top dead centre it is a few degrees, about 0.5 to 1 ms.
 
 **How it burns.** The burn is two Wiebe burns added together, as Watson's correlation has it:
 - the **premixed** burn: the fuel that has mixed with the air during the delay burns all at once,
-  in about 0.8 ms. Its share is `1 - 0.926 phi^0.37 / delay^0.26`, with the delay in ms and `phi` the
-  overall equivalence ratio. A long delay and a little fuel give a big share, so the sharp pressure
-  rise that is the diesel's clatter is loudest at idle and light load.
+  in about 0.5 ms, taking off at once rather than easing in as a spark's flame does (a Wiebe form
+  factor of 1, against a spark's 2), as Watson's premixed burn does. Its share is
+  `1 - 0.926 phi^0.37 / delay^0.26`, with the delay in ms and `phi` the overall equivalence ratio. A long
+  delay and a little fuel give a big share, so the sharp pressure rise that is the diesel's clatter is
+  loudest at idle and light load.
 - the **diffusion** burn: the rest burns as it is injected and finds its air, over **Burn
   duration** at full fuel and 10 m/s mean piston speed. It is shorter on less fuel, and longer the
   faster the engine turns.
+
+No two cycles light alike: the spray and the swirl it meets never are. The ignition delay wanders by
+8% RMS from one cycle to the next, about half a degree at idle, and the premixed share by 20%, at
+**Cycle-to-cycle scatter** 1. That is what keeps the clatter from ringing as a tone at the firing
+frequency's harmonics.
 
 The fuel joins the cylinder's gas as it burns, so none of it is ever in the charge unburned, and a
 diesel never afterfires. Nor can a lean charge fail to light, as a spark's does: the misfire limits
 are a spark's, and a diesel does not have them.
 
-On the Cummins 6CT these come out as:
+On the Cummins 6CT these come out, on average, as:
 
 ```
                               delay   premixed   diffusion   λ
@@ -526,7 +533,12 @@ make it, all heard from the engine's casing (below), all only on a diesel:
   the 6CT (lower on a bigger engine), each of Q 12. They overlap into one broad ring, where a petrol
   engine's four modes would ring as four tones under a diesel's drive. How much each passes follows
   the block's structure attenuation: little below 1 kHz, where a stiff casting radiates poorly, most
-  around 1.5 to 3 kHz, and less again above.
+  around 1.5 to 3 kHz, and less again above. Below 500 Hz on the 6CT (700 Hz on the reference engine),
+  two poles of high-pass take the rise ever less to heart: the slow swing of compression and expansion
+  is far the largest part of it and the most regular, and through the low skirts of the modes it would
+  buzz at the firing frequency's harmonics. A piston's slap on its liner is a knock the same block
+  rings to, so on a diesel it drives these modes too, rather than one narrow mode of its own, which
+  every firing would ring as a note.
 - **The chamber.** The premixed burn lights all at once, unevenly, and sets the gas in the chamber
   ringing at its own acoustic modes, `c alpha / (pi bore)`. With Draper's numbers for the first two
   circumferential modes and the first radial (1.841, 3.054 and 3.832), the 6CT's 114 mm bore rings
@@ -536,8 +548,9 @@ make it, all heard from the engine's casing (below), all only on a diesel:
   slams shut at the end, 3° to 22° later as the fuel grows.
 
 Set against a recording of a six-cylinder diesel idling near 815 rpm, heard from beside the engine,
-the 6CT at the same speed puts its sound's centre at 620 Hz against the recording's 1200, and its
-third-octave bands from 25 Hz to 16 kHz come within 8 dB RMS of the recording's. Its clatter dies
+the 6CT at the same speed puts its sound's centre at 720 Hz against the recording's 1200, and its
+third-octave bands from 25 Hz to 16 kHz come within 8.3 dB RMS of the recording's. Its block's sound
+stands 15.5 dB proud at the firing frequency's harmonics, against the recording's 12. Its clatter dies
 away between firings, where the recording's carries on at about two thirds of its peak: whatever
 fills those gaps on a real engine is not modelled.
 

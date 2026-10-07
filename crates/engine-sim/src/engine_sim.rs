@@ -345,6 +345,16 @@ const DIESEL_BLOCK_Q: f64 = 12.0;
 /// up.
 const DIESEL_BLOCK_GAIN_DB: [(f64, f64); 6] =
     [(560.0, -16.0), (1000.0, 3.0), (1900.0, 8.0), (3400.0, -1.0), (8000.0, -8.0), (16800.0, -6.0)];
+/// Below this, on the reference engine, a diesel's block takes its pressure rise ever less to heart,
+/// Hz: two poles of it. A stiff casting barely radiates the slow swing of compression and expansion,
+/// which is far the largest part of the rise, and the most regular; through the low skirts of its modes
+/// it would buzz at the firing frequency's harmonics.
+const DIESEL_BLOCK_HIGHPASS_HZ: f64 = 700.0;
+
+/// How hard a piston's slap drives a diesel's block, against ringing its own mode as on a petrol
+/// engine: its knock spreads through the block's modes, as the combustion's does.
+const DIESEL_SLAP_DRIVE: f64 = 2.0;
+
 /// Each diesel block mode's share of the drive.
 const DIESEL_BLOCK_GAIN: f64 = 0.12;
 /// A diesel's combustion pressure-rise drive bandwidth and structure-borne band limit, Hz: its burn
@@ -475,6 +485,9 @@ pub struct EngineSim {
     dpdt_smooth: f64,
     dpdt_smooth_c: f64,
     diesel_dpdt_c: f64,
+    /// The high-pass on a diesel's block drive: its coefficient and its two stages' states.
+    diesel_hp_c: f64,
+    diesel_hp: [f64; 2],
     structure_lp_c: f64,
     diesel_structure_lp_c: f64,
     structure_lp1: f64,
@@ -945,6 +958,8 @@ impl EngineSim {
             dpdt_smooth: 0.0,
             dpdt_smooth_c: 1.0 - math::exp((-2.0 * PI * DPDT_BANDWIDTH_HZ) / sample_rate),
             diesel_dpdt_c: 1.0 - math::exp((-2.0 * PI * DIESEL_DPDT_BANDWIDTH_HZ) / sample_rate),
+            diesel_hp_c: 0.0,
+            diesel_hp: [0.0; 2],
             structure_lp_c: 1.0 - math::exp((-2.0 * PI * STRUCTURE_LIMIT_HZ) / sample_rate),
             diesel_structure_lp_c: 1.0 - math::exp((-2.0 * PI * DIESEL_STRUCTURE_LIMIT_HZ) / sample_rate),
             structure_lp1: 0.0,
@@ -1560,6 +1575,7 @@ impl EngineSim {
         for (i, &(hz, q)) in STRUCTURAL_MODES.iter().enumerate() {
             self.structure[i].set(hz / size, q, self.sample_rate);
         }
+        self.diesel_hp_c = 1.0 - math::exp((-2.0 * PI * (DIESEL_BLOCK_HIGHPASS_HZ / size)) / self.sample_rate);
         for (i, mode) in self.diesel_block.iter_mut().enumerate() {
             let hz = diesel_block_hz(i);
             let top = 0.45 * self.sample_rate;
@@ -2136,6 +2152,7 @@ impl EngineSim {
         let diesel = self.spec.spec.fuel == Fuel::Diesel;
         let head_share = self.head_share;
         let mut follower_load = 0.0;
+        let mut slap_knocks = 0.0;
         for b in 0..banks {
             let bank = &self.banks[b];
             // Each valve clacks onto its seat, and ticks more lightly as it leaves it and its lash closes.
@@ -2156,8 +2173,13 @@ impl EngineSim {
                 self.slap_impact[b].trigger(SLAP_PA_AT_1M * mech * clamp(p / 3e6, 0.05, 1.6) * head_share);
             }
             let hit = self.slap_impact[b].next();
-            let x = self.slap[b].process(hit);
-            if split { emit(&mut self.surface_pa, &self.side_route[b], x) } else { direct_pa += x }
+            if diesel {
+                // A diesel's heavy block rings to the knock as it does to the combustion, broadly.
+                slap_knocks += hit;
+            } else {
+                let x = self.slap[b].process(hit);
+                if split { emit(&mut self.surface_pa, &self.side_route[b], x) } else { direct_pa += x }
+            }
 
             // The rod's bearings cross their clearance whenever the force down the rod changes sign.
             if bank.rod_reversal >= 0.0 {
@@ -2231,7 +2253,12 @@ impl EngineSim {
         // broader block.
         if mech > 0.0 && diesel {
             self.dpdt_smooth += self.diesel_dpdt_c * (dpdt_sum - self.dpdt_smooth);
-            let drive = (self.dpdt_smooth / 1e9) * STRUCTURE_PA_PER_GPA_S * mech;
+            let mut fast = self.dpdt_smooth;
+            for stage in self.diesel_hp.iter_mut() {
+                *stage += self.diesel_hp_c * (fast - *stage);
+                fast -= *stage;
+            }
+            let drive = (fast / 1e9) * STRUCTURE_PA_PER_GPA_S * mech + DIESEL_SLAP_DRIVE * slap_knocks;
             for (mode, &gain) in self.diesel_block.iter_mut().zip(self.diesel_block_gain.iter()) {
                 let x = mode.process(drive) * gain;
                 if split { emit(&mut self.surface_pa, &self.block_route, x) } else { direct_pa += x }

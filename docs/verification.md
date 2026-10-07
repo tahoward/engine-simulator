@@ -70,7 +70,9 @@ matters.
   - The clatter: the chamber must ring at `c alpha / (pi bore)`, near 3.2 kHz on its first mode in
     the 6CT's bore at 1000 K, as the square root of the temperature and inversely as the bore. Idling
     at 815 rpm the 6CT must make more than 5 times the 2–8 kHz sound it makes with its mechanical
-    and turbo sound off, and its firings' clatter peaks must differ by more than 5%.
+    and turbo sound off, and its firings' clatter peaks must differ by more than 5%. Its casing's
+    sound, averaged over 8192-sample windows, must stand less than 24 dB proud at its harmonics between
+    200 and 1500 Hz, and have more than 25 dB less from 40 to 180 Hz than from 500 Hz to 4 kHz.
 - **Intake runners.** Left on auto, a runner's bore must follow the valves and its length the rev
   limit, and set values must be used as given. On a 6.2 litre V8, the tuned runner must fill the
   cylinder to over 95% at its tuned speed. That must be more than 10 points above an 80 mm stub, and
