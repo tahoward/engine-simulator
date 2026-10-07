@@ -455,7 +455,10 @@ lift.
 ## The diesel
 
 A diesel is set by **Fuel**. It draws its air through an intake with no throttle, wide open whatever
-the pedal does, so its plenum sits at the atmosphere, or at the boost, and never in vacuum. No fuel
+the pedal does, so its plenum sits at the atmosphere, or at the boost, and never in vacuum. Held wide open, the
+throttle passes in one sample many times the air that would even out the inlet tract's end and the
+plenum's front, so no sample's flow through it is let move more than that; otherwise the air would swing
+back and forth through it every sample, and hiss at the snorkel's mouth long after the engine stopped. No fuel
 comes with the air. The pedal sets how much fuel the pump injects into each cylinder, as a share of
 its full delivery, and the injection starts at a fixed angle before top dead centre, as a mechanical
 pump's static timing does. The charge it lights is always lean overall: λ 14 at idle, and no richer

@@ -402,6 +402,11 @@ pub struct EulerPipe {
 }
 
 impl EulerPipe {
+    /// The volume of the cell at its valve end, m^3: what a valve or throttle there draws on first.
+    pub fn port_cell_volume(&self) -> f64 {
+        self.cell_volume[0]
+    }
+
     pub fn new(pipe: &[PipeSegment], sample_rate: f64, port_gas_temp: f64, opts: &EulerPipeOptions) -> EulerPipe {
         let cell_size = opts.cell_size.unwrap_or(DEFAULT_CELL_SIZE);
         let max_cells = opts.max_cells.unwrap_or(DEFAULT_MAX_CELLS);

@@ -533,11 +533,11 @@ impl IntakePlenum {
     /// temperature and composition where it flows back in. Returns the flow in through the throttles,
     /// kg/s, each one's after in `throttle_flows`.
     ///
-    /// With `up_volume`, m^3, the air before the throttle is a volume that size, as a turbocharger's
-    /// throttle body is, rather than an inlet tract open to the atmosphere. Then no sample's flow through a
-    /// throttle moves more than would bring the two to the same pressure: a wide-open throttle between two
-    /// small volumes passes in one sample many times what evens them out, and would swing the air back and
-    /// forth through itself each sample from then on, never settling.
+    /// With `up_volume`, m^3, the air before the throttle is a volume that size: a turbocharger's throttle
+    /// body, or on a diesel the cell of its inlet tract at the throttle end. Then no sample's flow through a throttle
+    /// moves more than would bring the two to the same pressure: a wide-open throttle between two small
+    /// volumes, as a diesel's always is, passes in one sample many times what evens them out, and would
+    /// swing the air back and forth through itself each sample from then on, never settling.
     pub fn step(&mut self, dt: f64, p_up: &[f64], t_up: f64, up_volume: Option<f64>, runners: &[Runner]) -> f64 {
         let follow = dt / STEADY_FLOW_TIME;
         let (dx, damping, area) = (self.dx, self.damping, self.area);

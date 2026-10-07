@@ -116,3 +116,29 @@ fn a_turbo_diesels_plenum_bleeds_away_once_it_stops() {
     let gauge = sim.plenum().pressure() - gas::P_AMB;
     assert!(gauge.abs() < 1000.0, "{gauge} Pa in the plenum 20 s after switching off");
 }
+
+/// A naturally aspirated diesel draws through a throttle held wide open, between its inlet tract and its
+/// plenum: stopped, nothing goes on flowing back and forth through it, so its intake falls quiet as the
+/// crank does rather than hissing on.
+#[test]
+fn a_naturally_aspirated_diesels_intake_falls_quiet_once_it_stops() {
+    let mut cfg = common::engine_preset("Inline four, Honda F20C").config.clone();
+    cfg.engine = common::with(
+        &cfg.engine,
+        json!({ "freeRunning": true, "fuel": "diesel", "compressionRatio": 18, "ignition": 708, "maxFuel": 4e-5 }),
+    );
+    let mut sim = EngineSim::new(FS, &cfg);
+    sim.render(3 * FS as usize);
+    let idling = sim.plenum().throttle_flows()[0].abs();
+    sim.set_ignition(false);
+    sim.render(FS as usize);
+    assert!(sim.rpm_instant() < 1.0, "stopped");
+    let (mut flow, mut mouth) = (0.0f64, 0.0f64);
+    for _ in 0..FS as usize / 4 {
+        sim.render(1);
+        flow = flow.max(sim.plenum().throttle_flows()[0].abs());
+        mouth = mouth.max(sim.inlet().unwrap().mouth_flow.abs());
+    }
+    assert!(flow < 1e-3, "{flow} kg/s through the throttle at rest, {idling} idling");
+    assert!(mouth < 1e-3, "{mouth} m^3/s at the snorkel's mouth at rest");
+}
