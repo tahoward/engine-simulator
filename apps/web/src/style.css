@@ -494,6 +494,26 @@ button.primary.running {
   flex: 1;
 }
 
+.download-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  align-self: flex-start;
+  color: var(--accent);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.download-link svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
+}
+
+.download-link:hover {
+  text-decoration: underline;
+}
+
 .toggle {
   flex-direction: row;
   align-items: center;

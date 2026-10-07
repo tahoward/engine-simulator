@@ -81,7 +81,7 @@ import {
 import { airboxVolumeOf, plenumCountOf, snorkelDiaOf, throttleDiaOf } from '../model/intakeSizing.js';
 import { solvedPlenum, solvedPlenumVolume } from '../scene/inletLayout.js';
 import { autoLaunchSettings, type LaunchSettings } from '../model/launchSettings.js';
-import { SECTION_ICONS, TOOL_ICONS, toolButton } from './toolbar.js';
+import { DOWNLOAD_ICON, SECTION_ICONS, TOOL_ICONS, toolButton } from './toolbar.js';
 
 export interface PanelCallbacks {
   onEngine: (partial: Partial<EngineSpec>) => void;
@@ -698,6 +698,17 @@ export class Panel {
         this.cb.onResetView();
       });
     });
+
+    // The desktop app, from the latest release: only offered in the browser, not in the app itself.
+    if (import.meta.env.VITE_TARGET !== 'desktop') {
+      const desktopLink = el('a', 'download-link', transport) as HTMLAnchorElement;
+      desktopLink.href = 'https://github.com/tahoward/engine-simulator/releases/latest';
+      desktopLink.target = '_blank';
+      desktopLink.rel = 'noopener';
+      desktopLink.innerHTML = DOWNLOAD_ICON;
+      desktopLink.append('Download the desktop app');
+      desktopLink.title = 'The latest release for macOS and Windows, with the simulation running natively.';
+    }
 
     // ---- Layout ----------------------------------------------------------
     const layout = section('Layout', 'layout', 'Cylinders, crank and firing order, headers and turbos.');

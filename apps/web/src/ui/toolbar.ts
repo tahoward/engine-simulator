@@ -59,6 +59,9 @@ export const SECTION_ICONS = {
   view: svg('<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.5"/>'),
 };
 
+/** An arrow down onto a tray: the desktop app's download link. */
+export const DOWNLOAD_ICON = svg('<path d="M12 4v11"/><path d="m7 10 5 5 5-5"/><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"/>');
+
 /** Add a tool's button to `parent`: `icon`, and a tip naming the tool, `name`, and saying what it does. */
 export function toolButton(parent: HTMLElement, icon: string, name: string, tip: string): HTMLButtonElement {
   const button = document.createElement('button');

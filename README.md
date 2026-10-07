@@ -4,7 +4,7 @@ An engine of one or two banks of up to six cylinders — a single, an inline six
 twin or flat twelve — whose sound is **simulated from physics**, in the browser or as a desktop app, with an exhaust system you build
 yourself.
 
-**[Live Demo](https://tahoward.github.io/engine-simulator/app/)** · **[Documentation](https://tahoward.github.io/engine-simulator/)**
+**[Live Demo](https://tahoward.github.io/engine-simulator/app/)** · **[Desktop App](https://github.com/tahoward/engine-simulator/releases/latest)** · **[Documentation](https://tahoward.github.io/engine-simulator/)**
 
 Nothing here is sampled, and nothing is an oscillator through a filter bank. A crank-angle
 thermodynamic model works out the cylinder pressure; the exhaust valve is a compressible orifice

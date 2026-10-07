@@ -38,6 +38,10 @@ you click or press a key, so you won't hear anything until you do.
 
 ## Run the desktop app
 
+To use the desktop app without building it, download the macOS `.dmg` or the Windows `.exe` from
+the [latest release](https://github.com/tahoward/engine-simulator/releases/latest). To build and
+run it from the source:
+
 ```bash
 npm install
 npm run desktop:dev
