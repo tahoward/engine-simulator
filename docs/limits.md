@@ -76,11 +76,12 @@ Where the model is simplified, and by how much.
   walls' absorption the same at every mode. Above the modes, the diffuse field is a feedback delay
   network's: flutter between a garage's parallel walls, the ring a real one has, is not in it beyond the
   first reflections.
-- **A diesel's clatter is set against one recording.** Its block's modes and how much each passes,
-  its chamber ring's level and its injectors' are chosen to match one recording
-  of an unknown six-cylinder diesel idling, heard from an unknown place, not measured on the 6CT. The
-  chamber rings at an ideal cylinder's modes, with the gas at its mean temperature rather than in its
-  hot burning pockets. There is no gear rattle and no injection pump's own noise, so between firings
+- **A diesel's clatter is set against recordings.** How much each of its block's modes passes, and its
+  injectors' level, are chosen to match a recording of an unknown six-cylinder diesel idling, heard
+  from an unknown place, and the block's lowest modes one of a 6CTA idling, heard beside it, not
+  measured on the 6CT. The chamber rings at an ideal cylinder's modes, with the gas at its mean
+  temperature rather than in its hot burning pockets, and by a share of the premixed burn's rise taken
+  from what direct-injection diesels are measured to ring by, not from where in the bowl it lights. There is no gear rattle and no injection pump's own noise, so between firings
   it is quieter than a real diesel.
 - **The inlet tract is a fixed shape.** It is a snorkel, an airbox and a tube at the throttle's bore,
   sized by **Airbox volume**, **Snorkel length** and **Snorkel bore**. The view draws it routed the same

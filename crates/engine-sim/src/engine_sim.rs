@@ -399,10 +399,12 @@ const CHAMBER_MODES: [(f64, f64); 3] = [(1.841, 1.0), (3.054, 0.5), (3.832, 0.35
 /// How quickly the ring dies, as the Q of each mode, and the burst that sets it off, s.
 const CHAMBER_Q: f64 = 25.0;
 const CHAMBER_BURST_S: f64 = 0.0001;
-/// The ring's radiated level at 1 m, Pa, at `mech_noise = 1`, per joule its premixed burn releases,
-/// and how far it varies from one cycle to the next, as a share either way: no two cylinders light
-/// alike.
-const CHAMBER_PA_PER_J: f64 = 0.02;
+/// How hard the ring swings the cylinder's pressure, as a share of the rise its premixed burn makes:
+/// lit in pockets across the bowl, not evenly, the burn rings the chamber's modes by about a bar at
+/// idle, as direct-injection diesels are measured to. And how far it varies from one cycle to the next, as a share either way: no two
+/// cylinders light alike. The ring is part of the cylinder's pressure, and shakes the block with the
+/// rest of it.
+const CHAMBER_SHARE: f64 = 0.15;
 const CHAMBER_SCATTER: f64 = 0.35;
 
 /// A diesel's injector needle lifting off its seat as the injection starts and slamming back as it
@@ -516,6 +518,7 @@ pub struct EngineSim {
     diesel_block_lag: Vec<f64>,
     chamber: Vec<[Resonator; 3]>,
     chamber_burst: Vec<Impact>,
+    chamber_last: Vec<f64>,
     needle: Vec<Resonator>,
     needle_impact: Vec<Impact>,
     dpdt_smooth: f64,
@@ -538,7 +541,6 @@ pub struct EngineSim {
     surface_path: usize,
     side_route: Vec<Vec<(usize, f64)>>,
     head_route: Vec<Vec<(usize, f64)>>,
-    chamber_route: Vec<Vec<(usize, f64)>>,
     block_route: Vec<(usize, f64)>,
     pan_route: Vec<(usize, f64)>,
     front_route: Vec<(usize, f64)>,
@@ -685,10 +687,10 @@ struct Bank {
     /// changed sign this sample, N/s, or -1.
     rod_force: f64,
     rod_reversal: f64,
-    /// On a diesel: the heat its premixed burn releases as it lights this sample, J, or 0, and the gas
+    /// On a diesel: the pressure its premixed burn raises as it lights this sample, Pa, or 0, and the gas
     /// temperature that rings its chamber at, K; and its injector needle lifting (1) or seating (2)
     /// this sample, or 0.
-    ring_energy: f64,
+    ring_rise: f64,
     ring_temp: f64,
     needle: u8,
     seat_pulse: Impact,
@@ -726,7 +728,7 @@ impl Bank {
             bore_load: 0.0,
             rod_force: 0.0,
             rod_reversal: -1.0,
-            ring_energy: 0.0,
+            ring_rise: 0.0,
             ring_temp: 0.0,
             needle: 0,
             seat_pulse: Impact::new(VALVE_CONTACT_S, sample_rate),
@@ -779,11 +781,6 @@ struct Surface {
 
 /// Each sound in `x` that goes along `route`, shared out as it says.
 #[inline]
-fn mute(k: &str) -> f64 {
-    static M: std::sync::OnceLock<String> = std::sync::OnceLock::new();
-    if M.get_or_init(|| std::env::var("MUTE").unwrap_or_default()).split(',').any(|m| m == k) { 0.0 } else { 1.0 }
-}
-
 fn emit(acc: &mut [f64], route: &[(usize, f64)], x: f64) {
     for &(i, share) in route {
         acc[i] += share * x;
@@ -879,14 +876,16 @@ impl ValveCtx<'_> {
             } else {
                 -1.0
             };
-        bank.ring_energy = 0.0;
+        bank.ring_rise = 0.0;
         bank.needle = 0;
         if spec.fuel == Fuel::Diesel && cyl.cycle_fuel() > 0.0 {
             let prev = bank.prev_angle;
             if cyl.premixed_energy > 0.0 && crossed_angle(prev, angle, cyl.spark) {
-                // Lit, its premixed charge burns at once and heats the gas the chamber rings in.
-                bank.ring_energy = cyl.premixed_energy;
-                bank.ring_temp = t_cyl + cyl.premixed_energy / (math::max(cyl.mass, 1e-9) * CV_REF);
+                // Lit, its premixed charge burns at once and heats the gas the chamber rings in, raising
+                // its pressure as it would at a standstill.
+                let heat = cyl.premixed_energy / (math::max(cyl.mass, 1e-9) * CV_REF);
+                bank.ring_rise = p_cyl * heat / math::max(t_cyl, 1.0);
+                bank.ring_temp = t_cyl + heat;
             }
             if crossed_angle(prev, angle, cyl.injection_start) {
                 bank.needle = 1;
@@ -1032,6 +1031,7 @@ impl EngineSim {
             diesel_block_lag: Vec::new(),
             chamber: Vec::new(),
             chamber_burst: Vec::new(),
+            chamber_last: Vec::new(),
             needle: Vec::new(),
             needle_impact: Vec::new(),
             dpdt_smooth: 0.0,
@@ -1048,7 +1048,6 @@ impl EngineSim {
             surface_path: 0,
             side_route: Vec::new(),
             head_route: Vec::new(),
-            chamber_route: Vec::new(),
             block_route: Vec::new(),
             pan_route: Vec::new(),
             front_route: Vec::new(),
@@ -1654,6 +1653,7 @@ impl EngineSim {
         self.knock_impact = (0..n).map(|_| Impact::new(KNOCK_CONTACT_S, sr)).collect();
         self.chamber = (0..n).map(|_| std::array::from_fn(|_| Resonator::new(4000.0, CHAMBER_Q, sr))).collect();
         self.chamber_burst = (0..n).map(|_| Impact::new(CHAMBER_BURST_S, sr)).collect();
+        self.chamber_last = vec![0.0; n];
         self.needle = (0..n).map(|_| Resonator::new(NEEDLE_MODE.0, NEEDLE_MODE.1, sr)).collect();
         self.needle_impact = (0..n).map(|_| Impact::new(NEEDLE_CONTACT_S, sr)).collect();
         self.rub_noise = (0..n).map(|b| Noise::new(0x3c6ef372 as f64 + b as f64 * 0x9e3779b as f64)).collect();
@@ -1778,22 +1778,13 @@ impl EngineSim {
         if placed.is_empty() {
             self.side_route.clear();
             self.head_route.clear();
-            self.chamber_route.clear();
             self.block_route.clear();
             self.pan_route.clear();
             self.front_route.clear();
             return;
         }
-        let half = math::sqrt(0.5);
         self.side_route = (0..n).map(|b| pick(SurfaceKind::BlockSide, Some(physical_bank(spec, b)))).collect();
         self.head_route = (0..n).map(|b| pick(SurfaceKind::Head, Some(physical_bank(spec, b)))).collect();
-        self.chamber_route = (0..n)
-            .map(|b| {
-                let mut route = scaled(self.head_route[b].clone(), half);
-                route.extend(scaled(self.side_route[b].clone(), half));
-                route
-            })
-            .collect();
         self.pan_route = pick(SurfaceKind::OilPan, None);
         self.front_route = pick(SurfaceKind::FrontCover, None);
         let mut block = scaled(pick(SurfaceKind::BlockSide, None), math::sqrt(BLOCK_SIDE_SHARE));
@@ -2261,6 +2252,7 @@ impl EngineSim {
         let head_share = self.head_share;
         let mut follower_load = 0.0;
         let mut slap_knocks = 0.0;
+        let mut ring_dpdt = 0.0;
         for b in 0..banks {
             let bank = &self.banks[b];
             // Each valve clacks onto its seat, and ticks as it leaves it and its lash closes: as loud as the
@@ -2276,7 +2268,7 @@ impl EngineSim {
                 self.clack_impact[b].trigger(CLACK_PA_PER_NS * mech * landing * ramp * head_share);
             }
             let hit = self.clack_impact[b].next();
-            let x = self.clack[b].process(hit) * mute("clack");
+            let x = self.clack[b].process(hit);
             if split { emit(&mut self.surface_pa, &self.head_route[b], x) } else { direct_pa += x }
 
             let p = bank.tdc_pressure;
@@ -2304,28 +2296,31 @@ impl EngineSim {
             if split { emit(&mut self.surface_pa, &self.pan_route, x) } else { direct_pa += x }
 
             // A diesel's chamber ringing as its premixed charge lights, pitched to the gas it rings in,
-            // and its injector needle ticking as it lifts and seats.
+            // its pressure swinging with the rest of the cylinder's; and its injector needle ticking as
+            // it lifts and seats.
             if diesel {
-                if bank.ring_energy > 0.0 {
+                if bank.ring_rise > 0.0 {
                     let detune = 1.0 + LOCAL_MODE_DETUNE * spread_of(b, banks, 7, 3);
                     for (mode, &(alpha, _)) in self.chamber[b].iter_mut().zip(CHAMBER_MODES.iter()) {
                         let hz = chamber_mode_hz(alpha, bank.ring_temp, self.spec.spec.bore) * detune;
                         mode.set(math::min(hz, 0.45 * self.sample_rate), CHAMBER_Q, self.sample_rate);
                     }
                     let scatter = 1.0 + CHAMBER_SCATTER * self.rub_noise[b].next();
-                    self.chamber_burst[b].trigger(CHAMBER_PA_PER_J * mech * bank.ring_energy * scatter * head_share);
+                    self.chamber_burst[b].trigger(CHAMBER_SHARE * bank.ring_rise * scatter);
                 }
                 let burst = self.chamber_burst[b].next();
+                let mut ring = 0.0;
                 for (mode, &(_, share)) in self.chamber[b].iter_mut().zip(CHAMBER_MODES.iter()) {
-                    let x = share * mode.process(burst) * mute("chamber");
-                    if split { emit(&mut self.surface_pa, &self.chamber_route[b], x) } else { direct_pa += x }
+                    ring += share * mode.process(burst);
                 }
+                ring_dpdt += (ring - self.chamber_last[b]) / dt;
+                self.chamber_last[b] = ring;
                 if bank.needle > 0 {
                     let share = if bank.needle == 1 { NEEDLE_LIFT_SHARE } else { 1.0 };
                     self.needle_impact[b].trigger(NEEDLE_PA_AT_1M * mech * share * head_share);
                 }
                 let hit = self.needle_impact[b].next();
-                let x = self.needle[b].process(hit) * mute("needle");
+                let x = self.needle[b].process(hit);
                 if split { emit(&mut self.surface_pa, &self.head_route[b], x) } else { direct_pa += x }
             }
 
@@ -2364,7 +2359,7 @@ impl EngineSim {
         // Combustion shaking the casing, driven by the summed pressure rise rate: a diesel's through its
         // broader block.
         if mech > 0.0 && diesel {
-            self.dpdt_smooth += self.diesel_dpdt_c * (dpdt_sum - self.dpdt_smooth);
+            self.dpdt_smooth += self.diesel_dpdt_c * (dpdt_sum + ring_dpdt - self.dpdt_smooth);
             let mut fast = self.dpdt_smooth;
             if self.diesel_hp_c > 0.0 {
                 for stage in self.diesel_hp.iter_mut() {
@@ -2372,13 +2367,12 @@ impl EngineSim {
                     fast -= *stage;
                 }
             }
-            let drive = (fast / 1e9) * STRUCTURE_PA_PER_GPA_S * mech * mute("burn") + DIESEL_SLAP_DRIVE * slap_knocks * mute("slap");
-            if std::env::var("DPDT_DUMP").is_ok() { use std::io::Write; let mut f = std::fs::OpenOptions::new().append(true).create(true).open("/tmp/dpdt.txt").unwrap(); writeln!(f, "{} {} {}", dpdt_sum, self.cyls[0].pressure, self.cyls[0].angle).unwrap(); }
+            let drive = (fast / 1e9) * STRUCTURE_PA_PER_GPA_S * mech + DIESEL_SLAP_DRIVE * slap_knocks;
             self.diesel_drive.push(drive);
             let modes =
                 self.diesel_block.iter_mut().zip(self.diesel_block_gain.iter()).zip(self.diesel_block_lag.iter());
             for ((mode, &gain), &lag) in modes {
-                let x = mode.process(self.diesel_drive.tap(lag)) * gain * mute("block");
+                let x = mode.process(self.diesel_drive.tap(lag)) * gain;
                 if split { emit(&mut self.surface_pa, &self.block_route, x) } else { direct_pa += x }
             }
         } else if mech > 0.0 {
@@ -2415,7 +2409,7 @@ impl EngineSim {
             pa[1] += heard[1];
         };
         for out in &self.mouth_out {
-            add(&mut pa, [out.0[0] * mute("gas"), out.0[1] * mute("gas")]);
+            add(&mut pa, out.0);
         }
         let mut shells_pa = 0.0;
         for out in &self.shell_out {
@@ -2441,7 +2435,7 @@ impl EngineSim {
             add(&mut pa, self.listener.process(self.surface_path + i, carried));
         }
         if self.turbo.is_some() {
-            add(&mut pa, self.listener.process(self.path_of(Source::Turbo), turbo_pa * mute("turbo")));
+            add(&mut pa, self.listener.process(self.path_of(Source::Turbo), turbo_pa));
         }
 
         if self.room_modes.top_hz() > 0.0 {

@@ -559,8 +559,10 @@ make it, all heard from the engine's casing (below), all only on a diesel:
 - **The chamber.** The premixed burn lights all at once, unevenly, and sets the gas in the chamber
   ringing at its own acoustic modes, `c alpha / (pi bore)`. With Draper's numbers for the first two
   circumferential modes and the first radial (1.841, 3.054 and 3.832), the 6CT's 114 mm bore rings
-  near 3.2, 5.3 and 6.7 kHz in its 1000 K gas, for a millisecond or two. The ring is as loud as the
-  heat the premixed burn releases, and varies by a third either way from one firing to the next.
+  near 3.2, 5.3 and 6.7 kHz in its 1000 K gas, for a millisecond or two. The ring is part of the
+  cylinder's pressure, swinging it by 15% of the rise the premixed burn makes, about a bar at idle,
+  as measured direct-injection diesels ring, and varies by a third either way from one firing to the
+  next. It shakes the block with the rest of the pressure rise, through the same modes.
 - **The injectors.** Each needle ticks as it lifts at the start of injection, and harder as it
   slams shut at the end, 3° to 22° later as the fuel grows.
 
@@ -646,8 +648,7 @@ than 0.25 m, a source gets no louder.
   and ring scuff, and three quarters of the block's combustion ring, shared between the sides. An
   inline's one casting has both its sides; a vee's or a boxer's each casting has its outer side.
 - **Each head**, at the top of its valvetrain, facing out along its bank: its valves' clack and lash
-  ticks and its cam followers, and on a diesel its injectors' ticks. A diesel's chamber ring goes half
-  to the head and half to the block side.
+  ticks and its cam followers, and on a diesel its injectors' ticks.
 - **The oil pan**, under the crankcase, facing down: the rods' bearing knock, the crank's twist and
   the last quarter of the block's ring.
 - **The front cover**, on the block's front end, facing forward: the timing drive.
