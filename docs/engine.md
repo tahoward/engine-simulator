@@ -541,11 +541,12 @@ A diesel's pressure rises ten times as fast as a petrol engine's: 5.6 bar per de
 idle against 0.5 on the RB26. Its block carries that to the ear as a broad, hard clatter. Three sources
 make it, all heard from the engine's casing (below), all only on a diesel:
 
-- **The block.** The pressure rise drives 140 block modes, log-spaced from about 400 Hz to 12 kHz on
+- **The block.** The pressure rise drives 168 block modes, log-spaced from about 200 Hz to 12 kHz on
   the 6CT (lower on a bigger engine), each of Q 50, as lightly damped as cast iron is. They overlap
   into one broad ring that carries on for 10 ms and more, where a petrol engine's four modes would ring
-  as four tones under a diesel's drive. They pass the combustion alike from about 400 Hz to 3 kHz on
-  the 6CT, and less above, as the casting, its covers and the manifolds over it muffle the highs. A
+  as four tones under a diesel's drive. They pass the combustion alike from about 700 Hz to 3 kHz on
+  the 6CT. Below that they pass ever less, 20 dB less at 200 Hz, as a stiff casting radiates its
+  slow bending poorly; and less above, as the casting, its covers and the manifolds over it muffle the highs. A
   knock is not felt all through the casting at once: bending waves carry it at a few hundred metres a
   second, and the walls that radiate it lie at their own distances from each cylinder. So each mode is
   struck at its own moment, spread over 3 ms after the blow. Struck all together, the many modes

@@ -359,16 +359,16 @@ pub fn scaled_budget_cells(cylinders: usize, junctions: usize, scale: f64) -> f6
 /// denser than `STRUCTURAL_MODES`. A diesel's pressure rise is ten times a petrol engine's, hard enough
 /// to hear how many modes a block has: four would ring as four tones, where a real block's many
 /// overlap into one broad ring that carries on between firings.
-const DIESEL_BLOCK_COUNT: usize = 140;
-const DIESEL_BLOCK_LOW_HZ: f64 = 560.0;
+const DIESEL_BLOCK_COUNT: usize = 168;
+const DIESEL_BLOCK_LOW_HZ: f64 = 280.0;
 const DIESEL_BLOCK_HIGH_HZ: f64 = 16800.0;
 const DIESEL_BLOCK_Q: f64 = 50.0;
 /// How much of the combustion each passes, dB, at frequencies on the reference engine, in between
 /// by straight lines on a log scale: little at the bottom, where a stiff block radiates poorly, and
 /// most around 1.5-3 kHz, where its walls are most mobile. Its structure attenuation, the other way
 /// up.
-const DIESEL_BLOCK_GAIN_DB: [(f64, f64); 6] =
-    [(560.0, -4.0), (1000.0, 0.0), (1900.0, 0.0), (4200.0, 0.0), (8000.0, -4.0), (16800.0, -10.0)];
+const DIESEL_BLOCK_GAIN_DB: [(f64, f64); 7] =
+    [(280.0, -24.0), (560.0, -4.0), (1000.0, 0.0), (1900.0, 0.0), (4200.0, 0.0), (8000.0, -4.0), (16800.0, -10.0)];
 /// Below this, on the reference engine, a diesel's block takes its pressure rise ever less to heart,
 /// Hz: two poles of it. A stiff casting barely radiates the slow swing of compression and expansion,
 /// which is far the largest part of the rise, and the most regular: set so the 6CT's clatter stands as
@@ -779,6 +779,11 @@ struct Surface {
 
 /// Each sound in `x` that goes along `route`, shared out as it says.
 #[inline]
+fn mute(k: &str) -> f64 {
+    static M: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    if M.get_or_init(|| std::env::var("MUTE").unwrap_or_default()).split(',').any(|m| m == k) { 0.0 } else { 1.0 }
+}
+
 fn emit(acc: &mut [f64], route: &[(usize, f64)], x: f64) {
     for &(i, share) in route {
         acc[i] += share * x;
@@ -2271,7 +2276,7 @@ impl EngineSim {
                 self.clack_impact[b].trigger(CLACK_PA_PER_NS * mech * landing * ramp * head_share);
             }
             let hit = self.clack_impact[b].next();
-            let x = self.clack[b].process(hit);
+            let x = self.clack[b].process(hit) * mute("clack");
             if split { emit(&mut self.surface_pa, &self.head_route[b], x) } else { direct_pa += x }
 
             let p = bank.tdc_pressure;
@@ -2312,7 +2317,7 @@ impl EngineSim {
                 }
                 let burst = self.chamber_burst[b].next();
                 for (mode, &(_, share)) in self.chamber[b].iter_mut().zip(CHAMBER_MODES.iter()) {
-                    let x = share * mode.process(burst);
+                    let x = share * mode.process(burst) * mute("chamber");
                     if split { emit(&mut self.surface_pa, &self.chamber_route[b], x) } else { direct_pa += x }
                 }
                 if bank.needle > 0 {
@@ -2320,7 +2325,7 @@ impl EngineSim {
                     self.needle_impact[b].trigger(NEEDLE_PA_AT_1M * mech * share * head_share);
                 }
                 let hit = self.needle_impact[b].next();
-                let x = self.needle[b].process(hit);
+                let x = self.needle[b].process(hit) * mute("needle");
                 if split { emit(&mut self.surface_pa, &self.head_route[b], x) } else { direct_pa += x }
             }
 
@@ -2367,12 +2372,13 @@ impl EngineSim {
                     fast -= *stage;
                 }
             }
-            let drive = (fast / 1e9) * STRUCTURE_PA_PER_GPA_S * mech + DIESEL_SLAP_DRIVE * slap_knocks;
+            let drive = (fast / 1e9) * STRUCTURE_PA_PER_GPA_S * mech * mute("burn") + DIESEL_SLAP_DRIVE * slap_knocks * mute("slap");
+            if std::env::var("DPDT_DUMP").is_ok() { use std::io::Write; let mut f = std::fs::OpenOptions::new().append(true).create(true).open("/tmp/dpdt.txt").unwrap(); writeln!(f, "{} {} {}", dpdt_sum, self.cyls[0].pressure, self.cyls[0].angle).unwrap(); }
             self.diesel_drive.push(drive);
             let modes =
                 self.diesel_block.iter_mut().zip(self.diesel_block_gain.iter()).zip(self.diesel_block_lag.iter());
             for ((mode, &gain), &lag) in modes {
-                let x = mode.process(self.diesel_drive.tap(lag)) * gain;
+                let x = mode.process(self.diesel_drive.tap(lag)) * gain * mute("block");
                 if split { emit(&mut self.surface_pa, &self.block_route, x) } else { direct_pa += x }
             }
         } else if mech > 0.0 {
@@ -2409,7 +2415,7 @@ impl EngineSim {
             pa[1] += heard[1];
         };
         for out in &self.mouth_out {
-            add(&mut pa, out.0);
+            add(&mut pa, [out.0[0] * mute("gas"), out.0[1] * mute("gas")]);
         }
         let mut shells_pa = 0.0;
         for out in &self.shell_out {
@@ -2435,7 +2441,7 @@ impl EngineSim {
             add(&mut pa, self.listener.process(self.surface_path + i, carried));
         }
         if self.turbo.is_some() {
-            add(&mut pa, self.listener.process(self.path_of(Source::Turbo), turbo_pa));
+            add(&mut pa, self.listener.process(self.path_of(Source::Turbo), turbo_pa * mute("turbo")));
         }
 
         if self.room_modes.top_hz() > 0.0 {
