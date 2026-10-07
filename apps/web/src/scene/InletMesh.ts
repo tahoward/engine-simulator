@@ -1,6 +1,6 @@
 /**
  * The intake as a car has it: a cast plenum on the engine, a throttle body with its butterfly turning with
- * the throttle, a black rubber tube with a bellows coupler and hose clamps, a black plastic airbox with its
+ * the throttle (none on a diesel), a black rubber tube with a bellows coupler and hose clamps, a black plastic airbox with its
  * lid's seam and clips, and a flattened snorkel flaring at its mouth. Where each goes is `inletLayout`.
  *
  * In the pressure view the plenum and an inline engine's runners take the colour of their gauge pressure,
@@ -986,7 +986,8 @@ export class InletMesh {
     }
 
     // Each throttle body: a cast barrel with a flange each end, a shaft across, and the butterfly on it.
-    for (const t of l.throttles) this.buildThrottle(t);
+    // A diesel has none.
+    for (const t of l.throttles) if (t.length > 0) this.buildThrottle(t);
   }
 
   /** A throttle body, as `inletLayout` places it. */

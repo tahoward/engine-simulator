@@ -185,9 +185,10 @@ fn a_longer_primary_pipe_lowers_the_exhaust_resonance() {
         let bin_hz = FS / FFT_SIZE as f64;
         let mut best = 0.0;
         let mut best_hz = 0.0;
-        for i in (40.0 / bin_hz).floor() as usize..(1200.0 / bin_hz).floor() as usize {
-            if mag[i] > best {
-                best = mag[i];
+        let (lo, hi) = ((40.0 / bin_hz).floor() as usize, (1200.0 / bin_hz).floor() as usize);
+        for (i, &m) in mag.iter().enumerate().take(hi).skip(lo) {
+            if m > best {
+                best = m;
                 best_hz = i as f64 * bin_hz;
             }
         }

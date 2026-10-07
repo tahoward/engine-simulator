@@ -569,7 +569,7 @@ mod geometry_and_robustness {
     fn takes_the_plane_wave_limit_from_where_higher_modes_are_launched_not_always_the_mouth() {
         let header = pipe(0.5, 0.048);
         // Straight to the end: the mouth.
-        assert!(close_to(launch_radius(&[header.clone()]), 0.024, 9));
+        assert!(close_to(launch_radius(std::slice::from_ref(&header)), 0.024, 9));
         // A gradual megaphone: its throat, however wide the mouth.
         assert!(close_to(launch_radius(&[header.clone(), seg(SegmentKind::Cone, 1.2, 0.048, Some(0.2))]), 0.024, 9));
         // A step up to a wide tail: the tail, which the step launches modes into.

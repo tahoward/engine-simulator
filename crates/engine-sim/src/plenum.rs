@@ -517,11 +517,15 @@ impl IntakePlenum {
         IntakePlenum::throttle_area_at(spec, opening) + valve
     }
 
-    /// Effective flow area of one throttle body at `opening`, m^2: wide open on a diesel, whose pedal
-    /// meters its fuel rather than its air.
+    /// Effective flow area of one throttle body at `opening`, m^2. A diesel, whose pedal meters its fuel
+    /// rather than its air, has none: its tube opens into the plenum at its full bore, with no plate or
+    /// shaft across it.
     pub fn throttle_area_at(spec: &EngineSpec, opening: f64) -> f64 {
-        let opening = if spec.fuel == Fuel::Diesel { 1.0 } else { opening };
-        plate_area(throttle_dia_of(spec), opening)
+        let d = throttle_dia_of(spec);
+        if spec.fuel == Fuel::Diesel {
+            return (PI * d * d) / 4.0;
+        }
+        plate_area(d, opening)
     }
 
     /// The flow in through each throttle body last sample, kg/s, as the plenums are ordered.

@@ -318,15 +318,25 @@ fn a_faster_burn_produces_a_steeper_pressure_rise() {
 fn and_therefore_rings_the_casing_harder() {
     // Isolated by differencing mechNoise on against off, so the gas path — which is also affected
     // by burn duration, and far louder — cancels out. Measuring the total instead just measures
-    // the exhaust.
-    let structure = |burn_duration: f64| {
+    // the exhaust. And by taking away the power of the same engine's mechanism unlit, at the same speed:
+    // what it makes whatever the burn, its valves clacking onto their seats above all. Unlit, the crank's
+    // speed ripples differently through the cycle, so its valves do not land on the same samples, but
+    // they land as hard.
+    let mechanism = |burn_duration: f64, lit: bool| {
         let base = |mech: f64| json!({ "burnDuration": burn_duration, "combustionVariability": 0, "throatNoise": 0, "mechNoise": mech });
-        let on = sim(base(1.0), 3).render(FS_N / 2);
-        let off = sim(base(0.0), 3).render(FS_N / 2);
-        let d: f64 = on.iter().zip(&off).map(|(&a, &b)| (a as f64 - b as f64).powi(2)).sum();
-        (d / on.len() as f64).sqrt()
+        let run = |mech: f64| {
+            let mut s = sim(base(mech), 3);
+            s.set_ignition(lit);
+            s.render(FS_N);
+            s.render(FS_N / 2)
+        };
+        let (on, off) = (run(1.0), run(0.0));
+        on.iter().zip(&off).map(|(&a, &b)| (a as f64 - b as f64).powi(2)).sum::<f64>() / on.len() as f64
     };
-    assert!(structure(20.0) > structure(90.0) * 2.0);
+    let unlit = mechanism(45.0, false);
+    let structure = |burn_duration: f64| (mechanism(burn_duration, true) - unlit).max(0.0).sqrt();
+    let (fast, slow) = (structure(20.0), structure(90.0));
+    assert!(fast > slow * 2.0, "20 deg {fast} vs 90 deg {slow}");
 }
 
 /// Mechanical noise sits well below an open exhaust.

@@ -1,6 +1,6 @@
 /**
- * Where the intake's parts are drawn: the plenum on the engine, the throttle body on its front, the tube
- * from it up and over into the front of an airbox across the top of the engine's front, and the snorkel from the airbox forwards
+ * Where the intake's parts are drawn: the plenum on the engine, the throttle body on its front (none on a
+ * diesel, whose tube joins the plenum itself), the tube from it up and over into the front of an airbox across the top of the engine's front, and the snorkel from the airbox forwards
  * to just ahead of the engine. Pure geometry, so what is drawn and where the intake is heard from (`soundSources`) agree.
  * Dual plenums are one casting divided down its middle, with a throttle body and an inlet tract each, the
  * tracts mirrored either side of the engine.
@@ -70,7 +70,7 @@ export interface InletLayout {
   runners: Runner[];
   /**
    * The throttle body on each plenum, as `plenum.sides`: its middle, on the plenum's front face, its bore
-   * and its length along -z, m.
+   * and its length along -z, m. A diesel's has no length: there is none, and its tube starts at the face.
    */
   throttles: { centre: THREE.Vector3; bore: number; length: number }[];
   /** Dual plenums' balance valves, in the wall between them: each one's middle and its radius, m. */
@@ -322,8 +322,9 @@ export function inletLayout(spec: EngineSpec): InletLayout {
       : [0];
   const plenum = { centre, size: new THREE.Vector3(width, height, length), base, taper, sides };
 
-  // The throttle body on each plenum's front face, looking forwards: in the middle of its half.
-  const throttleLength = 0.05 + bore * 0.3;
+  // The throttle body on each plenum's front face, looking forwards: in the middle of its half. A diesel
+  // has none.
+  const throttleLength = spec.fuel === 'diesel' ? 0 : 0.05 + bore * 0.3;
   const plenumFront = centre.z - length / 2;
   const throttles = sides.map((side) => ({
     centre: new THREE.Vector3(centre.x + (side * width) / 4, centre.y, plenumFront - throttleLength / 2),

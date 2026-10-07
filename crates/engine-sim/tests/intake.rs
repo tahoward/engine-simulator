@@ -68,7 +68,7 @@ fn fitted_exhaust(spec: &EngineSpec) -> (Vec<PipeSegment>, Vec<PipeSegment>) {
     let served_disp = displacement(spec) * per_collector;
     let can_dia = f64::min(d_collector * 2.5, 0.2);
     let can_area = (std::f64::consts::PI * can_dia * can_dia) / 4.0;
-    let can_length = f64::min(f64::max((8.0 * served_disp) / can_area, 0.25), 0.6);
+    let can_length = ((8.0 * served_disp) / can_area).clamp(0.25, 0.6);
     let run_length = f64::max(2.2 - primary_length - can_length - 0.5, 0.35);
     let collector = vec![
         seg(SegmentKind::Cone, 0.16, d_primary * 1.25, d_collector, 0.0),
