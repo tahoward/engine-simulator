@@ -3,6 +3,7 @@ name = "engine-simulator-desktop"
 description = "The engine simulator as a desktop app: the web app's interface, with the simulation running natively"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

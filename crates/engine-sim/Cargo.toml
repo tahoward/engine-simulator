@@ -3,6 +3,7 @@ name = "engine-sim"
 description = "The engine simulation: cylinders, valves, intake and exhaust gas dynamics, radiation"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [dependencies]
 libm = "0.2"

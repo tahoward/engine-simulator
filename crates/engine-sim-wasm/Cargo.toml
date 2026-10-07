@@ -3,6 +3,7 @@ name = "engine-sim-wasm"
 description = "The engine simulation for the web app's AudioWorklet, behind a plain C ABI"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
 
 [lib]
 crate-type = ["cdylib"]

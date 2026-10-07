@@ -2,6 +2,7 @@
   "name": "@engine-simulator/web",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "type": "module",
   "description": "Engines from a single to a V8, simulated from physics in the browser, with an exhaust you build yourself",
   "scripts": {

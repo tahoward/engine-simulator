@@ -2,6 +2,7 @@
   "name": "@engine-simulator/desktop",
   "version": "0.1.0",
   "private": true,
+  "license": "AGPL-3.0-only",
   "description": "The engine simulator as a desktop app, with the simulation running natively",
   "scripts": {
     "tauri": "tauri",

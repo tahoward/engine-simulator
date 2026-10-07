@@ -79,3 +79,14 @@ site root, the simulator under `/app/`. See `docs/deployment.md`.
   browser
 - Tauri for the desktop app (`apps/desktop`), with cpal for its audio
 - Vite for development and building, Vitest for the interface tests, `cargo test` for the physics
+
+## License
+
+Copyright © 2026 Trevor Howard.
+
+Licensed under the [GNU Affero General Public License v3.0](LICENSE). You may use, modify and
+distribute it, including commercially, provided anything you build on it — including a version you
+run as a network service — is released in full source under the same license.
+
+To use it in a closed-source product or service, a commercial license is available: contact
+[thatrevguy@gmail.com](mailto:thatrevguy@gmail.com).
