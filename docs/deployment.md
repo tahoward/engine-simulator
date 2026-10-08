@@ -79,12 +79,19 @@ The workflow uses `actions/configure-pages`, `actions/upload-pages-artifact` and
     `mkdocs gh-deploy` pushes to a `gh-pages` branch, which is a *different* Pages source. It
     would clash with the Actions deployment and overwrite the app. Only use the workflow.
 
-## What the workflow does not run
+## Tests
 
 The deploy doesn't run the tests, and doesn't build the simulation: it has no Rust toolchain. The
-tests are there to protect the physics, not the publishing. Run `cargo test --release -p engine-sim`
-and `npm test` yourself before pushing. The build does check types, so a type error still stops a
-deploy.
+build does check types, so a type error still stops a deploy.
+
+The tests run in their own workflow,
+[`.github/workflows/test.yml`](https://github.com/tahoward/engine-simulator/blob/main/.github/workflows/test.yml),
+on every pull request and every push to `main`. It has two jobs, which run side by side:
+
+- **physics**: `cargo test --release -p engine-sim`.
+- **interface**: `npm run typecheck` and `npm test`.
+
+A newer push to the same pull request or branch cancels the run still going for the older one.
 
 ## Cache and pinning
 
