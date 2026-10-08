@@ -239,12 +239,16 @@ fn a_node_drives_nothing_and_an_open_room_has_no_modes() {
 /// In the garage the room's modes carry the low end, and where a diesel's harmonics land on them they
 /// stand out: idling in it, the 6CT's sound has much more of its 50-200 Hz harmonics above the noise
 /// between them than its diffuse field alone, all noise down there, would leave. Its cylinders are held
-/// alike, as the half orders their differences add between the harmonics would count as that noise.
+/// alike, as the half orders their differences add between the harmonics would count as that noise, and
+/// it idles at 800 rpm, where its 40 Hz firing's harmonics land on the garage's modes.
 #[test]
 fn in_the_garage_the_modes_carry_the_low_end() {
     let render = |room: &str| {
         let mut cfg = common::engine_preset("Inline six diesel, Cummins 6CT").config.clone();
-        cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true, "room": room, "cylinderSpread": 0 }));
+        cfg.engine = common::with(
+            &cfg.engine,
+            json!({ "freeRunning": true, "room": room, "cylinderSpread": 0, "rpm": 800, "idleRpm": 800 }),
+        );
         let mut sim = EngineSim::new(FS, &cfg);
         sim.set_listener(Some([1.3, 0.9, -0.8]));
         sim.render(3 * FS as usize);

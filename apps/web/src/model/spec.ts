@@ -2875,6 +2875,9 @@ const CUMMINS_6CT: Partial<EngineSpec> = {
   exhaustLayout: 'merged',
   fuel: 'diesel',
   ...IDLING,
+  // A truck diesel's low idle, and the speed it starts at.
+  rpm: 650,
+  idleRpm: 650,
   // Its governor's high idle: the fuel is all gone by 2500, full to the rated 2200.
   revLimit: 2500,
   // A truck's flywheel and clutch.
@@ -2897,6 +2900,9 @@ const CUMMINS_6CT: Partial<EngineSpec> = {
   evc: 370,
   ivo: 350,
   ivc: 570,
+  // The charge air's way into the plenum, about 3.5 in across, as a truck's intake elbow is: no throttle
+  // plate, and its air at about 20 m/s at the rated speed. Estimated.
+  throttleDia: 0.09,
   // Injection 12 degrees before top dead centre, fixed, as a mechanical pump's static timing is, and a
   // diffusion burn of about 55 degrees at full fuel.
   ignition: 708,

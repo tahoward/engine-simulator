@@ -5397,8 +5397,8 @@
     "vAngle": 0,
     "exhaustLayout": "merged",
     "fuel": "diesel",
-    "rpm": 800,
-    "idleRpm": 800,
+    "rpm": 650,
+    "idleRpm": 650,
     "load": 0,
     "throttle": 0,
     "revLimit": 2500,
@@ -5417,6 +5417,7 @@
     "evc": 370,
     "ivo": 350,
     "ivc": 570,
+    "throttleDia": 0.09,
     "ignition": 708,
     "burnDuration": 55,
     "maxFuel": 0.00011,
@@ -5480,7 +5481,7 @@
      "maxFuel": 0.00011,
      "recipMass": 3.2,
      "throttle": 0,
-     "throttleDia": 0,
+     "throttleDia": 0.09,
      "plenumVolume": 0,
      "plenumLength": 0,
      "plenumWidth": 0,
@@ -5502,9 +5503,9 @@
      "intercooler": 0,
      "blowOff": "none",
      "turboNoise": 1,
-     "rpm": 800,
+     "rpm": 650,
      "revLimit": 2500,
-     "idleRpm": 800,
+     "idleRpm": 650,
      "freeRunning": false,
      "flywheelInertia": 1.6,
      "load": 0,
@@ -5787,9 +5788,9 @@
       }
      ],
      "intake": [
-      0.28065898724266136,
-      0.5860019318657188,
-      -0.5507382402662355
+      0.2647851642135299,
+      0.579863887481974,
+      -0.5922874120902801
      ],
      "engine": [
       0,
