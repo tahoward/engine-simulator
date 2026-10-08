@@ -14,8 +14,8 @@ use engine_sim::EngineSim;
 use engine_sim::spec::gas;
 use serde_json::json;
 
-/// The speed the presets load at, rpm, but for any that sets its own.
-const PRESET_IDLE_RPM: f64 = 800.0;
+/// The slowest any preset idles at, rpm: a big truck diesel's low idle.
+const LOWEST_IDLE_RPM: f64 = 600.0;
 
 /// The speed `name` idles at, rpm.
 fn idle_rpm_of(name: &str) -> f64 {
@@ -27,7 +27,7 @@ fn settles_near_the_idle_speed(name: &str) {
     let mut cfg = common::engine_preset(name).config.clone();
     cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true }));
     let idle = cfg.engine.idle_rpm;
-    assert!(idle >= PRESET_IDLE_RPM, "{name}: idles at {idle} rpm");
+    assert!(idle >= LOWEST_IDLE_RPM, "{name}: idles at {idle} rpm");
     assert_eq!(cfg.engine.rpm, idle);
     assert_eq!(cfg.engine.throttle, 0.0);
     assert_eq!(cfg.engine.load, 0.0);
