@@ -62,8 +62,5 @@ The Maintainer is not required to use or include any Contribution.
 
 ## Signing
 
-Comment the following on your pull request:
-
-> I have read the CLA Document and I hereby sign the CLA
-
+Sign at https://cla-assistant.io/tahoward/engine-simulator by signing in with GitHub and agreeing.
 Your signature covers every Contribution you submit to the Project, now and in the future.
