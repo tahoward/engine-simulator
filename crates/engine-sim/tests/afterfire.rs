@@ -2,7 +2,7 @@
 //! the overrun crackle map sends some on a lift; a steady engine burns its fuel in the cylinder and
 //! leaves none to light.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::EngineSim;
@@ -115,7 +115,7 @@ fn the_crackle_map_ends_after_its_window_and_rearms_on_the_throttle() {
 /// first cycles are let go by: a charge drawn from the still-empty manifold can misfire, and pop.
 #[test]
 fn a_steady_engine_never_afterfires() {
-    for preset in &common::presets().engine_presets {
+    common::sweep(|preset| {
         for (throttle, lambda) in [(0.3, 1.0), (1.0, 1.0), (1.0, 0.8)] {
             let mut cfg = preset.config.clone();
             cfg.engine = common::with(
@@ -133,7 +133,7 @@ fn a_steady_engine_never_afterfires() {
                 preset.name
             );
         }
-    }
+    });
 }
 
 /// The crackle map fires the spark well after top dead centre, and skips it on some cycles. A cylinder

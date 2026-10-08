@@ -1,7 +1,7 @@
 //! The cross-wise modes of a chamber: the section eigenproblem against shapes with known answers, and
 //! the coupled duct against what a wide, offset-pipe can should do to the sound.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::cross_modes::{PipeOpening, mode_cutoff_k, section_modes};

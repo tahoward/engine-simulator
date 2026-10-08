@@ -3,7 +3,7 @@
 //! room's reverberation is as loud at each ear as at the one, alike between them in the lows and
 //! unalike in the highs.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::EngineSim;

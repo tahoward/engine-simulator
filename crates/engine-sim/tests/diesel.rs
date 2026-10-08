@@ -1,7 +1,7 @@
 //! The diesel: fuel injected into the cylinder near top dead centre and lit by compression, the pedal
 //! metering it into an unthrottled intake, and a governor on the speed.
 
-mod common;
+use crate::common;
 
 use engine_sim::cylinder::{ignition_delay, premixed_share};
 use engine_sim::dsp::Resonator;
@@ -27,17 +27,6 @@ fn held(rpm: f64, pedal: f64, settle: f64, over: Value) -> EngineSim {
     let mut sim = EngineSim::new(FS, &cfg);
     sim.render((settle * FS) as usize);
     sim
-}
-
-/// Mean torque at the crank less friction over half a second, N*m.
-fn mean_torque(sim: &mut EngineSim) -> f64 {
-    let n = FS as usize / 2;
-    let mut t = 0.0;
-    for _ in 0..n {
-        sim.render(1);
-        t += sim.snapshot().torque - sim.friction_torque();
-    }
-    t / n as f64
 }
 
 /// The delay shortens as the air the fuel meets is hotter and denser, and is a few degrees at a running
@@ -209,9 +198,9 @@ fn the_pedal_up_above_the_idle_gives_no_fuel() {
 /// The 6CT makes about the 920 N*m (680 lb-ft) at 1500 rpm and 250 hp at 2200 its truck ratings give.
 #[test]
 fn the_6ct_makes_about_the_real_engines_torque_and_power() {
-    let t1500 = mean_torque(&mut held(1500.0, 1.0, 2.0, json!({})));
+    let [t1500, t2200] = common::brake_torques_at(CUMMINS, 2.0, [1500.0, 2200.0]);
     assert!((t1500 - 920.0).abs() < 0.1 * 920.0, "{t1500} N*m at 1500 rpm");
-    let hp = mean_torque(&mut held(2200.0, 1.0, 2.0, json!({}))) * 2200.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    let hp = common::hp(t2200, 2200.0);
     assert!((hp - 250.0).abs() < 0.1 * 250.0, "{hp} hp at 2200 rpm");
 }
 

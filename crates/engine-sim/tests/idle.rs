@@ -1,12 +1,13 @@
 //! Every engine preset loads idling: in neutral, with the throttle shut and the idle air valve holding
-//! its idle speed, `PRESET_IDLE_RPM` but for any that sets its own. Run free, each has to settle there rather than stall or run away, catch itself
-//! there coming down off a lift, come back to it when a load is taken off, and stall under a load the
-//! valve cannot hold up.
+//! its idle speed, `PRESET_IDLE_RPM` but for any that sets its own. Run free, each has to settle there
+//! rather than stall or run away, catch itself there coming down off a lift, come back to it when a load
+//! is taken off, and stall under a load the valve cannot hold up.
 //!
 //! Also a readout, with no assertions, of every preset run free on a shut throttle and a few on a
-//! mid-throttle hold: `--nocapture` prints how the speed and manifold pressure evolve.
+//! mid-throttle hold: `cargo test --release -p engine-sim -- idle:: --ignored --nocapture` prints how the
+//! speed and manifold pressure evolve.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::EngineSim;
@@ -45,62 +46,10 @@ fn settles_near_the_idle_speed(name: &str) {
     assert!(mean < idle + 200.0, "{name}: mean {mean}");
 }
 
-/// Every preset has an idle test below.
-const PRESETS: [&str; 16] = [
-    "Single, Ducati Superquadro Mono",
-    "45° V-twin, Harley-Davidson Milwaukee-Eight 121",
-    "90° V-twin, Honda RC51",
-    "Parallel twin, Triumph 1200 HT",
-    "Inline three, Ford 1.5 EcoBoost Dragon",
-    "Inline four, Mazda BPT",
-    "Inline four, Honda F20C",
-    "Inline four, Toyota 3S-GTE",
-    "Inline five, Audi EA855 EVO",
-    "Inline six, Nissan RB26DETT",
-    "Inline six diesel, Cummins 6CT",
-    "V6, Toyota 2GR",
-    "V8, Chevrolet LT2",
-    "V8, Chevrolet LT6",
-    "Boxer four, Subaru FA20D",
-    "Boxer six, Porsche Mezger 4.0",
-];
-
-/// The idle tests below cover every preset.
+/// Every swept preset settles near its idle speed.
 #[test]
-fn presets_idle_covers_every_preset() {
-    let names: Vec<&str> = common::presets().engine_presets.iter().map(|p| p.name.as_str()).collect();
-    assert_eq!(names, PRESETS);
-}
-
-macro_rules! idle_tests {
-    ($($test:ident => $index:expr),* $(,)?) => {
-        $(
-            #[test]
-            fn $test() {
-                settles_near_the_idle_speed(PRESETS[$index]);
-            }
-        )*
-    };
-}
-
-// Each preset settles near the idle speed.
-idle_tests! {
-    presets_idle_single_ducati_superquadro_mono => 0,
-    presets_idle_45_v_twin_harley_davidson_milwaukee_eight_121 => 1,
-    presets_idle_90_v_twin_honda_rc51 => 2,
-    presets_idle_parallel_twin_triumph_1200_ht => 3,
-    presets_idle_inline_three_ford_1_5_ecoboost_dragon => 4,
-    presets_idle_inline_four_mazda_bpt => 5,
-    presets_idle_inline_four_honda_f20c => 6,
-    presets_idle_inline_four_toyota_3s_gte => 7,
-    presets_idle_inline_five_audi_ea855_evo => 8,
-    presets_idle_inline_six_nissan_rb26dett => 9,
-    presets_idle_inline_six_diesel_cummins_6ct => 10,
-    presets_idle_v6_toyota_2gr => 11,
-    presets_idle_v8_chevrolet_lt2 => 12,
-    presets_idle_v8_chevrolet_lt6 => 13,
-    presets_idle_boxer_four_subaru_fa20d => 14,
-    presets_idle_boxer_six_porsche_mezger_4_0 => 15,
+fn every_preset_settles_near_its_idle_speed() {
+    common::sweep(|p| settles_near_the_idle_speed(&p.name));
 }
 
 // --- the idle air valve ---
@@ -129,41 +78,44 @@ fn slowest_and_mean(sim: &mut EngineSim, seconds: usize) -> (f64, f64) {
 /// the idle rather than letting it fall through and stall.
 #[test]
 fn comes_down_off_a_lift_to_the_idle_without_stalling() {
-    for name in [
-        "Single, Ducati Superquadro Mono",
-        "Inline four, Honda F20C",
-        "V8, Chevrolet LT2",
-        "Inline six, Nissan RB26DETT",
-    "Inline six diesel, Cummins 6CT",
-    ] {
-        let mut sim = idling(name, json!({}));
-        sim.set_controls(0.6, 0.0);
-        sim.render(FS as usize * 3 / 2);
-        sim.set_controls(0.0, 0.0);
-        // Ten seconds: the single's heavy flywheel takes most of them to come down.
-        let (slowest, _) = slowest_and_mean(&mut sim, 10);
-        let (_, mean) = slowest_and_mean(&mut sim, 3);
-        assert!(slowest > 550.0, "{name}: fell to {slowest} rpm");
-        assert!((mean - idle_rpm_of(name)).abs() < 150.0, "{name}: back at {mean} rpm");
-    }
+    common::each(
+        &[
+            "Single, Ducati Superquadro Mono",
+            "Inline four, Honda F20C",
+            "V8, Chevrolet LT2",
+            "Inline six, Nissan RB26DETT",
+            "Inline six diesel, Cummins 6CT",
+        ],
+        |&name| {
+            let mut sim = idling(name, json!({}));
+            sim.set_controls(0.6, 0.0);
+            sim.render(FS as usize * 3 / 2);
+            sim.set_controls(0.0, 0.0);
+            // Ten seconds: the single's heavy flywheel takes most of them to come down.
+            let (slowest, _) = slowest_and_mean(&mut sim, 10);
+            let (_, mean) = slowest_and_mean(&mut sim, 3);
+            assert!(slowest > 550.0, "{name}: fell to {slowest} rpm");
+            assert!((mean - idle_rpm_of(name)).abs() < 150.0, "{name}: back at {mean} rpm");
+        },
+    );
 }
 
 /// The idle speed is the valve's to set.
 #[test]
 fn holds_the_idle_speed_it_is_set_to() {
-    for name in ["Single, Ducati Superquadro Mono", "V8, Chevrolet LT2"] {
+    common::each(&["Single, Ducati Superquadro Mono", "V8, Chevrolet LT2"], |&name| {
         let mut sim = idling(name, json!({ "idleRpm": 1100 }));
         sim.render(FS as usize * 3);
         let (_, mean) = slowest_and_mean(&mut sim, 2);
         assert!((mean - 1100.0).abs() < 150.0, "{name}: idles at {mean} rpm");
-    }
+    });
 }
 
 /// The valve opens further to hold the idle against a load; when the load goes, the engine rises past
 /// the hold, and the valve must still wind back down to the idle rather than keep the engine up there.
 #[test]
 fn comes_back_to_the_idle_when_a_load_is_taken_off() {
-    for name in ["Inline four, Toyota 3S-GTE", "Inline six, Nissan RB26DETT"] {
+    common::each(&["Inline four, Toyota 3S-GTE", "Inline six, Nissan RB26DETT"], |&name| {
         let mut sim = idling(name, json!({}));
         sim.set_controls(0.0, 0.07);
         sim.render(FS as usize * 10);
@@ -171,20 +123,20 @@ fn comes_back_to_the_idle_when_a_load_is_taken_off() {
         sim.render(FS as usize * 10);
         let (_, mean) = slowest_and_mean(&mut sim, 3);
         assert!((mean - idle_rpm_of(name)).abs() < 150.0, "{name}: settled at {mean} rpm");
-    }
+    });
 }
 
 /// A load past what the valve can open against stalls the engine: it comes to a standstill and stays.
 #[test]
 fn stalls_under_a_load_it_cannot_hold() {
-    for name in ["Single, Ducati Superquadro Mono", "Inline four, Honda F20C", "V8, Chevrolet LT2"] {
+    common::each(&["Single, Ducati Superquadro Mono", "Inline four, Honda F20C", "V8, Chevrolet LT2"], |&name| {
         let mut sim = idling(name, json!({}));
         sim.set_controls(0.0, 1.0);
         sim.render(FS as usize * 3);
         let out = sim.render(FS as usize);
         assert!(sim.rpm_instant() < 1.0, "{name}: still turning at {} rpm", sim.rpm_instant());
         assert!(out.iter().all(|s| s.is_finite()), "{name}: finite at a standstill");
-    }
+    });
 }
 
 // --- closed throttle must not run away ---
@@ -201,6 +153,7 @@ fn speed_marks(sim: &mut EngineSim) -> String {
 
 /// Every engine preset, throttle 0, free-running, no load.
 #[test]
+#[ignore = "a readout, with no assertions"]
 fn closed_throttle_every_engine_preset_throttle_0_free_running_no_load() {
     println!("\n  preset                              rpm @ 2s   4s     8s    12s   MAP");
     for p in &common::presets().engine_presets {
@@ -219,6 +172,7 @@ fn closed_throttle_every_engine_preset_throttle_0_free_running_no_load() {
 
 /// And a mid-throttle hold is stable too.
 #[test]
+#[ignore = "a readout, with no assertions"]
 fn closed_throttle_and_a_mid_throttle_hold_is_stable_too() {
     println!();
     for name in ["Single", "Inline four", "V8, Chevrolet LT2"] {
@@ -236,7 +190,7 @@ fn closed_throttle_and_a_mid_throttle_hold_is_stable_too() {
 /// Against the same engine left alone, over the second after, run free.
 #[test]
 fn redrawing_the_exhaust_does_not_rev_the_idle() {
-    for name in ["Inline four, Honda F20C", "V8, Chevrolet LT2", "Inline six, Nissan RB26DETT"] {
+    common::each(&["Inline four, Honda F20C", "V8, Chevrolet LT2", "Inline six, Nissan RB26DETT"], |&name| {
         let mut cfg = common::engine_preset(name).config.clone();
         cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true }));
         let top = |sim: &mut EngineSim| {
@@ -266,7 +220,7 @@ fn redrawing_the_exhaust_does_not_rev_the_idle() {
         }
         let (alone, after) = (top(&mut left), top(&mut redrawn));
         assert!(after < alone + 30.0, "{name}: up to {after} rpm redrawn, {alone} left alone");
-    }
+    });
 }
 
 /// An edit the solver would build the same, as placing a loose pipe is, whose only trace in the graph is

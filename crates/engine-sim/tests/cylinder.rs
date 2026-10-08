@@ -1,9 +1,9 @@
 //! The cylinder: crank geometry, motored compression, the Wiebe burn, valve flow, and the gas state
 //! staying admissible while the cylinder empties.
 
-mod common;
+use crate::common;
 
-use common::FS;
+use common::{FS, assert_close, default_engine};
 use engine_sim::EngineSim;
 use engine_sim::cylinder::{Cylinder, SpecInstance, wiebe};
 use engine_sim::spec::{CrankGeometry, EngineSpec, clearance_volume, crank_at, cylinder_volume, displacement, gas};
@@ -13,17 +13,6 @@ use std::f64::consts::PI;
 
 /// The first cylinder's noise seed, as the engine seeds it.
 const SEED: f64 = 0x51f3a7 as f64;
-
-fn default_engine() -> EngineSpec {
-    common::presets().default_engine.clone()
-}
-
-/// `actual` within half a unit of `expected` in the `digits`th decimal place.
-#[track_caller]
-fn assert_close(actual: f64, expected: f64, digits: f64) {
-    let tol = 10f64.powf(-digits) / 2.0;
-    assert!((actual - expected).abs() < tol, "expected {actual} to be within {tol} of {expected}");
-}
 
 /// dV/dtheta, m^3 per radian: the sim's own, from the consolidated crank evaluation.
 fn d_volume_d_theta(spec: &EngineSpec, deg: f64) -> f64 {

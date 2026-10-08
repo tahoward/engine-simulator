@@ -15,9 +15,9 @@
 //!     A junction can clamp on a large share of samples while reporting zero recoveries,
 //!     which is exactly the failure a recoveries-only test misses.
 
-mod common;
+use crate::common;
 
-use common::{EnginePreset, FS};
+use common::{FS, ducts, pipe, preset_collector};
 use engine_sim::EngineSim;
 use engine_sim::engine_sim::grid_budget_cells;
 use engine_sim::euler_pipe::EulerPipe;
@@ -33,10 +33,6 @@ fn seg(kind: SegmentKind, length: f64, d_in: f64, d_out: f64) -> PipeSegment {
         d_out: Some(d_out),
         ..Default::default()
     })
-}
-
-fn pipe(length: f64, d_in: f64) -> PipeSegment {
-    seg(SegmentKind::Pipe, length, d_in, d_in)
 }
 
 fn cone(length: f64, d_in: f64, d_out: f64) -> PipeSegment {
@@ -60,24 +56,6 @@ fn v8() -> Value {
 /// `base` with `a` and then `b` over it.
 fn spec_with(base: &EngineSpec, a: Value, b: Value) -> EngineSpec {
     common::with(&common::with(base, a), b)
-}
-
-/// The preset's own collector, or `None` where it has none and the app falls back to the default.
-///
-/// The fixture's configs fill a missing collector in with `defaultCollector()`, so a collector of
-/// exactly that geometry is one the preset did not draw.
-fn preset_collector(preset: &EnginePreset) -> Option<Vec<PipeSegment>> {
-    let shape = |s: &[PipeSegment]| -> Vec<(SegmentKind, f64, f64, f64)> {
-        s.iter().map(|g| (g.kind, g.length, g.d_in, g.d_out)).collect()
-    };
-    let own = &preset.config.collector;
-    if shape(own) == shape(&common::presets().default_collector) { None } else { Some(own.clone()) }
-}
-
-/// Primaries then collectors: every duct in the system.
-fn ducts(sim: &EngineSim) -> Vec<&EulerPipe> {
-    let sys = sim.pipe_solver();
-    sys.primaries().iter().chain(sys.collectors()).collect()
 }
 
 fn recoveries(ducts: &[&EulerPipe]) -> u64 {
@@ -233,15 +211,15 @@ mod collector_junctions_stay_solvable {
     /// Every shipped preset must be clean on both counters too.
     #[test]
     fn preset_is_clean() {
-        for preset in &common::presets().engine_presets {
+        common::sweep(|preset| {
             let Some(collector) = preset_collector(preset) else {
-                continue;
+                return;
             };
             let h = run_health(&preset.config.engine, preset.config.pipe.clone(), collector, 6500.0, 1.0);
             assert!(h.finite, "{}", preset.name);
             assert_eq!(h.recoveries, 0, "{}", preset.name);
             assert_eq!(h.clamps, 0, "{}", preset.name);
-        }
+        });
     }
 }
 
@@ -515,7 +493,7 @@ mod presets_stay_solvable_and_affordable {
     /// %s at full throttle, held at up to 8000 rpm, below its rev limit
     #[test]
     fn at_full_throttle_up_to_8000_rpm() {
-        for preset in &common::presets().engine_presets {
+        common::sweep(|preset| {
             let name = &preset.name;
             let (sim, cfg, hottest) = run(preset, |limit| f64::min(8000.0, limit - UNDER_LIMIT_RPM));
             // Exhaust leaves a cylinder near 1200-1800 K and only cools from there.
@@ -538,7 +516,7 @@ mod presets_stay_solvable_and_affordable {
                 cells * substeps,
                 budget_of(&cfg)
             );
-        }
+        });
     }
 
     /// %s at full throttle on its rev limiter
@@ -550,14 +528,14 @@ mod presets_stay_solvable_and_affordable {
     /// and its next wave brings it to 154 kPa, three times the pressure, which is about 3400 K.
     #[test]
     fn on_the_rev_limiter() {
-        for preset in &common::presets().engine_presets {
+        common::sweep(|preset| {
             let name = &preset.name;
             let (sim, _, hottest) = run(preset, |limit| limit + 1000.0);
             assert!(hottest < 3500.0, "{name}: max T {hottest}");
             let ducts = ducts(&sim);
             assert_eq!(recoveries(&ducts), 0, "{name}");
             assert_eq!(clamps(&ducts), 0, "{name}");
-        }
+        });
     }
 }
 

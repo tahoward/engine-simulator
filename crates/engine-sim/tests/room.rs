@@ -2,7 +2,7 @@
 //! absorption sets and dies away in its reverberation time; the engine is heard in it louder than in
 //! the open; and changing room or leaving it is smooth.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::EngineSim;

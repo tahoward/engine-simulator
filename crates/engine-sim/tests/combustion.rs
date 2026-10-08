@@ -5,25 +5,14 @@
 //! throttle and lean. The mixture is carried as fuel and air through the manifold and the cylinder,
 //! so λ sets how much heat a charge can release, and cutting the fuel leaves nothing to burn.
 
-mod common;
+use crate::common;
 
-use common::FS;
+use common::{FS, assert_close, default_engine};
 use engine_sim::EngineSim;
 use engine_sim::cylinder::{burn_angle, laminar_flame_speed, laminar_speed_base};
 use engine_sim::spec::EngineSpec;
 use serde_json::{Value, json};
 use std::f64::consts::PI;
-
-fn default_engine() -> EngineSpec {
-    common::presets().default_engine.clone()
-}
-
-/// `actual` within half a unit of `expected` in the `digits`th decimal place.
-#[track_caller]
-fn assert_close(actual: f64, expected: f64, digits: f64) {
-    let tol = 10f64.powf(-digits) / 2.0;
-    assert!((actual - expected).abs() < tol, "expected {actual} to be within {tol} of {expected}");
-}
 
 /// Crank speed, rad/s, at which `spec` has mean piston speed `sp` (m/s).
 fn omega_at(spec: &EngineSpec, sp: f64) -> f64 {
@@ -251,42 +240,17 @@ fn fuel_cut_brings_the_fuel_back_as_soon_as_the_throttle_opens() {
 
 /// Mean gas torque, N*m, of the FA20D boxer four at full throttle and `rpm`.
 fn boxer_torque(rpm: f64, over: Value) -> f64 {
-    let mut cfg = common::engine_preset("Boxer four, Subaru FA20D").config.clone();
-    cfg.engine = common::with(
-        &cfg.engine,
-        json!({ "freeRunning": false, "throttle": 1, "rpm": rpm, "combustionVariability": 0 }),
-    );
-    cfg.engine = common::with(&cfg.engine, over);
-    let mut sim = EngineSim::new(FS, &cfg);
+    let mut sim = common::held("Boxer four, Subaru FA20D", rpm, over);
     sim.render(FS as usize / 2);
-    let mut t = 0.0;
-    for _ in 0..FS as usize / 2 {
-        sim.render(1);
-        t += sim.snapshot().torque;
-    }
-    t / (FS / 2.0)
+    common::gas_torque(&mut sim)
 }
 
 /// The FA20D makes about the real engine's rated 205 N*m (151 lb-ft) at 6400-6600 rpm and 200 hp at 7000.
 #[test]
 fn the_fa20d_makes_about_the_real_engines_torque_and_power() {
-    let torque = |rpm: f64| {
-        let mut cfg = common::engine_preset("Boxer four, Subaru FA20D").config.clone();
-        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
-        cfg.engine = common::with(&cfg.engine, held);
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(2 * FS as usize);
-        let n = FS as usize / 2;
-        let mut t = 0.0;
-        for _ in 0..n {
-            sim.render(1);
-            t += sim.snapshot().torque - sim.friction_torque();
-        }
-        t / n as f64
-    };
-    let t6500 = torque(6500.0);
+    let [t6500, t7000] = common::brake_torques_at("Boxer four, Subaru FA20D", 2.0, [6500.0, 7000.0]);
     assert!((t6500 - 205.0).abs() < 0.1 * 205.0, "{t6500} N*m at 6500 rpm");
-    let hp = torque(7000.0) * 7000.0 * 2.0 * std::f64::consts::PI / 60.0 / 745.7;
+    let hp = common::hp(t7000, 7000.0);
     assert!((hp - 200.0).abs() < 0.1 * 200.0, "{hp} hp at 7000 rpm");
 }
 
@@ -294,23 +258,9 @@ fn the_fa20d_makes_about_the_real_engines_torque_and_power() {
 /// 8250.
 #[test]
 fn the_mezger_4_0_makes_about_the_real_engines_torque_and_power() {
-    let torque = |rpm: f64| {
-        let mut cfg = common::engine_preset("Boxer six, Porsche Mezger 4.0").config.clone();
-        let held = json!({ "freeRunning": false, "combustionVariability": 0, "throttle": 1, "rpm": rpm });
-        cfg.engine = common::with(&cfg.engine, held);
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(2 * FS as usize);
-        let n = FS as usize / 2;
-        let mut t = 0.0;
-        for _ in 0..n {
-            sim.render(1);
-            t += sim.snapshot().torque - sim.friction_torque();
-        }
-        t / n as f64
-    };
-    let t5750 = torque(5750.0);
+    let [t5750, t8250] = common::brake_torques_at("Boxer six, Porsche Mezger 4.0", 2.0, [5750.0, 8250.0]);
     assert!((t5750 - 460.0).abs() < 0.1 * 460.0, "{t5750} N*m at 5750 rpm");
-    let kw = torque(8250.0) * 8250.0 * 2.0 * std::f64::consts::PI / 60.0 / 1000.0;
+    let kw = common::kw(t8250, 8250.0);
     assert!((kw - 368.0).abs() < 0.1 * 368.0, "{kw} kW at 8250 rpm");
 }
 
@@ -322,8 +272,9 @@ fn the_mezger_4_0_makes_about_the_real_engines_torque_and_power() {
 #[test]
 fn valves_per_cylinder_let_a_four_valve_head_breathe_at_high_rpm_where_one_valve_of_each_chokes() {
     let one = json!({ "exValveCount": 1, "inValveCount": 1 });
-    let four = boxer_torque(6200.0, json!({})) / boxer_torque(3600.0, json!({}));
-    let two = boxer_torque(6200.0, one.clone()) / boxer_torque(3600.0, one);
+    let points = [(6200.0, json!({})), (3600.0, json!({})), (6200.0, one.clone()), (3600.0, one)];
+    let [four_high, four_low, two_high, two_low] = common::par(points, |(rpm, over)| boxer_torque(*rpm, over.clone()));
+    let (four, two) = (four_high / four_low, two_high / two_low);
     assert!(four > 0.75, "four {four}");
     assert!(two < four - 0.2, "two {two} four {four}");
 }

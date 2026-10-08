@@ -7,19 +7,18 @@
 //!
 //! The graph editing the UI does stays in the web app and is tested there.
 
-mod common;
+use crate::common;
 
-use common::{EnginePreset, FS};
+use common::{FS, ducts, fitted_exhaust, pipe, preset_collector};
 use engine_sim::EngineSim;
-use engine_sim::euler_pipe::{EulerPipe, EulerPipeOptions};
+use engine_sim::euler_pipe::EulerPipeOptions;
 use engine_sim::exhaust_graph::{
     DuctRole, DuctSink, DuctSource, End, ExhaustDuct, ExhaustGraph, compile_collector_layout, compile_layout, ends_at,
     node_order, path_to_air, radiating_ducts, validate_graph, valve_ducts,
 };
 use engine_sim::exhaust_system::ExhaustSystem;
 use engine_sim::spec::{
-    EngineConfig, EngineSpec, ExhaustLayout, PipeSegment, SegmentKind, SegmentPartial, collector_groups, copy_segment,
-    displacement, exhaust_layout_of, exhaust_port_diameter, gas, make_segment,
+    EngineConfig, EngineSpec, PipeSegment, SegmentPartial, collector_groups, copy_segment, gas, make_segment,
 };
 use serde_json::{Value, json};
 
@@ -31,10 +30,6 @@ fn spec_of(partial: Value) -> EngineSpec {
 /// A segment of `length` and inlet diameter `d_in`, either left to its default.
 fn seg(length: Option<f64>, d_in: Option<f64>) -> PipeSegment {
     make_segment(SegmentPartial { length, d_in, ..Default::default() })
-}
-
-fn pipe(length: f64, d_in: f64) -> PipeSegment {
-    seg(Some(length), Some(d_in))
 }
 
 fn of_length(length: f64) -> PipeSegment {
@@ -75,67 +70,8 @@ fn ids(graph: &ExhaustGraph, ducts: &[usize]) -> Vec<String> {
     ducts.iter().map(|&i| graph.ducts[i].id.clone()).collect()
 }
 
-/// The preset's own collector, or `None` where it has none and the app falls back to the default.
-///
-/// The fixture's configs fill a missing collector in with `defaultCollector()`, so a collector of
-/// exactly that geometry is one the preset did not draw.
-fn preset_collector(preset: &EnginePreset) -> Option<Vec<PipeSegment>> {
-    let shape = |s: &[PipeSegment]| -> Vec<(SegmentKind, f64, f64, f64)> {
-        s.iter().map(|g| (g.kind, g.length, g.d_in, g.d_out)).collect()
-    };
-    let own = &preset.config.collector;
-    if shape(own) == shape(&common::presets().default_collector) { None } else { Some(own.clone()) }
-}
-
-/// The web app's `fittedExhaust`: a header runner bored for the valve and, where the layout merges, a
-/// constant-velocity collector with a silencer can. `(pipe, collector)`.
-fn fitted_exhaust(spec: &EngineSpec) -> (Vec<PipeSegment>, Vec<PipeSegment>) {
-    let s = |kind: SegmentKind, length: f64, d_in: f64, d_out: f64, yaw: f64| {
-        make_segment(SegmentPartial {
-            kind: Some(kind),
-            length: Some(length),
-            d_in: Some(d_in),
-            d_out: Some(d_out),
-            yaw: Some(yaw),
-            ..Default::default()
-        })
-    };
-    let layout = exhaust_layout_of(spec);
-    let groups = collector_groups(spec);
-    let collector_count = groups.iter().fold(0, |max, &g| i32::max(max, g + 1));
-    let per_collector = if collector_count > 0 { spec.cylinders as f64 / collector_count as f64 } else { 1.0 };
-
-    let d_primary = f64::max(0.85 * exhaust_port_diameter(spec), 0.02);
-    let primary_length = if layout == ExhaustLayout::Open { 0.75 } else { 0.45 };
-    let mut pipe = vec![s(SegmentKind::Pipe, primary_length, d_primary, d_primary, 0.0)];
-    if layout == ExhaustLayout::Open {
-        pipe.push(s(SegmentKind::Cone, 0.25, d_primary, d_primary * 1.7, 0.0));
-        return (pipe, Vec::new());
-    }
-
-    let d_collector = d_primary * per_collector.sqrt() * 0.92;
-    let served_disp = displacement(spec) * per_collector;
-    let can_dia = f64::min(d_collector * 2.5, 0.2);
-    let can_area = (std::f64::consts::PI * can_dia * can_dia) / 4.0;
-    let can_length = ((8.0 * served_disp) / can_area).clamp(0.25, 0.6);
-    let run_length = f64::max(2.2 - primary_length - can_length - 0.5, 0.35);
-    let collector = vec![
-        s(SegmentKind::Cone, 0.16, d_primary * 1.25, d_collector, 0.0),
-        s(SegmentKind::Pipe, run_length, d_collector, d_collector, 0.2),
-        s(SegmentKind::Chamber, can_length, d_collector, can_dia, 0.0),
-        s(SegmentKind::Pipe, 0.5, d_collector, d_collector, 0.0),
-    ];
-    (pipe, collector)
-}
-
 fn v8_spec() -> EngineSpec {
     spec_of(json!({ "cylinders": 8, "vAngle": 90, "crankType": "crossplane", "exhaustLayout": "perBank" }))
-}
-
-/// Primaries then collectors: every duct in the system.
-fn ducts(sim: &EngineSim) -> Vec<&EulerPipe> {
-    let sys = sim.pipe_solver();
-    sys.primaries().iter().chain(sys.collectors()).collect()
 }
 
 mod compile_collector_layout_reproduces_the_primaries_and_collectors_layout {

@@ -1,7 +1,7 @@
 //! A dyno pull: the engine held at the start speed on an absorber at 1:1, then swept up at a steady rate
 //! to the end, and the power curve it leaves.
 
-mod common;
+use crate::common;
 
 use common::FS;
 use engine_sim::spec::LaunchSnapshot;
@@ -25,20 +25,7 @@ fn dyno(from: f64, to: f64, rate: f64) -> LaunchConfig {
 
 /// Every snapshot taken while `config`'s run lasted, one per 20 ms, idling first.
 fn run(config: LaunchConfig) -> Vec<LaunchSnapshot> {
-    let preset = common::engine_preset(ENGINE);
-    let mut sim = EngineSim::new(FS, &preset.config);
-    sim.render(FS as usize / 2);
-    sim.start_launch(config);
-    let mut out = Vec::new();
-    let block = (FS / 50.0) as usize;
-    for _ in 0..(180 * 50) {
-        sim.render(block);
-        match sim.snapshot().launch {
-            Some(s) => out.push(s),
-            None => break,
-        }
-    }
-    out
+    common::launch(&common::engine_preset(ENGINE).config, config, common::to_the_end)
 }
 
 /// Every recorded cycle's rpm and torque, N*m, in order.
@@ -71,9 +58,11 @@ fn a_pull_sweeps_at_its_rate() {
 /// through the S2000's gearbox. And a slower sweep reads about the same.
 #[test]
 fn a_pull_reads_the_launchs_power() {
-    let launch = peak_kw(&points(&run(common::engine_preset(ENGINE).launch.clone())));
-    let fast = peak_kw(&points(&run(dyno(3000.0, 8500.0, 500.0))));
-    let slow = peak_kw(&points(&run(dyno(3000.0, 8500.0, 250.0))));
+    // The launch, and the pulls at 500 and 250 rpm/s, all at once.
+    let [launch, fast, slow] = common::par([None, Some(500.0), Some(250.0)], |rate| match rate {
+        None => peak_kw(&points(common::preset_launch(ENGINE))),
+        Some(rate) => peak_kw(&points(&run(dyno(3000.0, 8500.0, *rate)))),
+    });
     println!("peak {launch:.1} kW launching, {fast:.1} kW at 500 rpm/s, {slow:.1} kW at 250 rpm/s");
     assert!((fast / launch - 1.0).abs() < 0.05, "{fast} kW on the dyno against {launch} kW launching");
     assert!((slow / fast - 1.0).abs() < 0.04, "{slow} kW at 250 rpm/s against {fast} kW at 500");
@@ -141,17 +130,7 @@ fn a_single_holds_and_pulls() {
         sweep_rate: 500.0,
         ..preset.launch.clone()
     };
-    let mut sim = EngineSim::new(FS, &preset.config);
-    sim.render(FS as usize / 2);
-    sim.start_launch(config);
-    let mut snaps = Vec::new();
-    for _ in 0..(40 * 50) {
-        sim.render((FS / 50.0) as usize);
-        match sim.snapshot().launch {
-            Some(s) => snaps.push(s),
-            None => break,
-        }
-    }
+    let snaps = common::launch(&preset.config, config, common::to_the_end);
     assert!(snaps.iter().any(|s| s.phase == "pull"), "starts the sweep");
     let last = points(&snaps).last().map_or(0.0, |p| p.0);
     assert!(last > 9200.0, "pulls to {last} rpm");

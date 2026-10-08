@@ -7,15 +7,15 @@
 //! audible once each bank has its own collector. That is a strong claim and it is the one worth
 //! nailing down.
 
-mod common;
+use crate::common;
 
-use common::{FS, band_energy, hann, magnitude_spectrum};
+use common::{FS, band_energy, hann, magnitude_spectrum, pipe};
 use engine_sim::engine_sim::spread_of;
 use engine_sim::exhaust_graph::{compile_collector_layout, radiating_ducts};
 use engine_sim::listener::{MouthPlace, SoundSources};
 use engine_sim::spec::{
-    EngineSpec, ExhaustLayout, PipeSegment, SegmentKind, SegmentPartial, collector_groups, crank_pins,
-    cylinders_per_bank, exhaust_layout_of, firing_plan, gas, has_two_banks, is_boxer, make_segment, valid_layout,
+    EngineSpec, ExhaustLayout, collector_groups, crank_pins, cylinders_per_bank, exhaust_layout_of, firing_plan, gas,
+    has_two_banks, is_boxer, valid_layout,
 };
 use engine_sim::{EngineConfig, EngineSim};
 use serde_json::{Value, json};
@@ -41,15 +41,6 @@ fn merge(a: Value, b: Value) -> Value {
 /// The V8 the tests share, with `extra` over it.
 fn v8(extra: Value) -> Value {
     merge(json!({ "cylinders": 8, "vAngle": 90, "exhaustLayout": "perBank" }), extra)
-}
-
-fn pipe(length: f64, d_in: f64) -> PipeSegment {
-    make_segment(SegmentPartial {
-        kind: Some(SegmentKind::Pipe),
-        length: Some(length),
-        d_in: Some(d_in),
-        ..Default::default()
-    })
 }
 
 /// A sim on 0.4 m runners into 0.8 m collectors, with `extra` over `base` over the defaults, run
@@ -634,28 +625,33 @@ fn every_new_layout_runs_clean_and_audible() {
 
 // --- every preset ---
 
-/// Runs clean and audible.
+/// Runs clean and audible, as it loads and at full throttle: finite, neither silent nor pinned, with no
+/// duct recovered and no cylinder clamped.
 #[test]
 fn every_preset_runs_clean_and_audible() {
-    for preset in &common::presets().engine_presets {
-        let name = &preset.name;
-        let mut cfg = preset.config.clone();
-        cfg.engine.throttle = 1.0;
-        let mut sim = EngineSim::new(FS, &cfg);
-        sim.render(FS_N);
-        let buf = sim.render(FS_N / 2);
-        let mut peak = 0.0f32;
-        for &v in &buf {
-            assert!(v.is_finite(), "{name}");
-            peak = peak.max(v.abs());
+    common::sweep(|preset| {
+        for full in [false, true] {
+            let name = format!("{}{}", preset.name, if full { " at full throttle" } else { "" });
+            let mut cfg = preset.config.clone();
+            if full {
+                cfg.engine.throttle = 1.0;
+            }
+            let mut sim = EngineSim::new(FS, &cfg);
+            sim.render(FS_N);
+            let buf = sim.render(FS_N);
+            let mut peak = 0.0f32;
+            for &v in &buf {
+                assert!(v.is_finite(), "{name}");
+                peak = peak.max(v.abs());
+            }
+            assert!(peak > 1e-3, "{name} silent");
+            assert!(peak < 1.0, "{name} pinned");
+            assert_eq!(sim.pipe_solver().recoveries(), 0, "{name}");
+            for c in sim.cylinders() {
+                assert_eq!(c.clamp_hits, 0, "{name}");
+            }
         }
-        assert!(peak > 1e-3, "{name} silent");
-        assert!(peak < 1.0, "{name} pinned");
-        assert_eq!(sim.pipe_solver().recoveries(), 0, "{name}");
-        for c in sim.cylinders() {
-            assert_eq!(c.clamp_hits, 0, "{name}");
-        }
-    }
+    });
 }
 
 // --- why a multi-cylinder engine does not just go up in pitch ---

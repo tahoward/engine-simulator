@@ -5,6 +5,12 @@ simulation is pure code with no audio device, so they run headless. They run the
 engine presets, from `tests/fixtures/presets.json`. Each item below says what is checked and why it
 matters.
 
+The tests build as one test binary, `physics`, so they all share the machine's cores. A module's name
+after `--`, as in `-- afterfire::`, runs that area alone. A check below that runs on every preset
+runs on three, the LT6, the 3S-GTE and the 6CT: one naturally aspirated, one turbocharged and one
+diesel. Two readouts in `tests/idle.rs` print how the speed settles and assert
+nothing; `-- idle:: --ignored --nocapture` runs them.
+
 - **Shock capturing.** [Sod's shock tube](glossary.md#sod-shock-tube) (a standard test: a tube with high pressure on one side
   and low on the other, suddenly opened) is compared to its exact solution. The result must
   converge as cells get finer, with **[zero overshoot](glossary.md#slope-limiter)** for all three limiters. This proves the

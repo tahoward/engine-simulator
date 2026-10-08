@@ -1,11 +1,12 @@
 //! The casing's surfaces: each block side, head, the oil pan and the front cover heard from where it is,
 //! louder the way it faces, each carrying its own parts' sound.
 
-mod common;
+use crate::common;
 
 use engine_sim::engine_sim::EngineSim;
 use engine_sim::listener::directivity;
 use serde_json::json;
+use std::sync::OnceLock;
 
 const FS: f64 = 48000.0;
 
@@ -45,8 +46,7 @@ fn casing_bands(name: &str, surfaces: bool, ear: [f64; 3]) -> Vec<f64> {
             .map(|w| mag.iter().enumerate().filter(|(i, _)| hz(*i) >= w[0] && hz(*i) < w[1]).map(|(_, m)| m * m).sum())
             .collect()
     };
-    let on = bands(&render(name, surfaces, ear, 0.45));
-    let off = bands(&render(name, surfaces, ear, 0.0));
+    let [on, off] = common::par([0.45, 0.0], |&mech| bands(&render(name, surfaces, ear, mech)));
     on.iter().zip(&off).map(|(a, b)| (a - b).max(1e-30)).collect()
 }
 
@@ -57,6 +57,18 @@ const AROUND: [(&str, [f64; 3]); 5] = [
     ("above", [0.0, 2.0, 0.3]),
     ("rear", [0.0, 0.6, 2.0]),
 ];
+const FRONT: usize = 0;
+const LEFT: usize = 1;
+
+const ENGINES: [&str; 2] = ["V8, Chevrolet LT2", "Inline six diesel, Cummins 6CT"];
+const LT2: usize = 0;
+
+/// `casing_bands` of `ENGINES[engine]` from `AROUND[ear]`: rendered once, however many tests read it.
+fn bands_around(engine: usize, surfaces: bool, ear: usize) -> &'static [f64] {
+    static BANDS: [OnceLock<Vec<f64>>; 20] = [const { OnceLock::new() }; 20];
+    BANDS[(engine * 2 + surfaces as usize) * AROUND.len() + ear]
+        .get_or_init(|| casing_bands(ENGINES[engine], surfaces, AROUND[ear].1))
+}
 
 /// A surface is loudest the way it faces and quietest behind, `DIRECTIVITY_FLOOR` of that, and over every
 /// direction radiates the power a source radiating alike every way would. A source with no facing is
@@ -84,14 +96,14 @@ fn a_surface_is_loudest_the_way_it_faces() {
 /// louder from the way its heads face.
 #[test]
 fn spread_over_its_surfaces_the_casing_is_about_as_loud() {
-    for name in ["V8, Chevrolet LT2", "Inline six diesel, Cummins 6CT"] {
-        for (label, ear) in AROUND {
-            let split: f64 = casing_bands(name, true, ear).iter().sum();
-            let one: f64 = casing_bands(name, false, ear).iter().sum();
-            let db = 10.0 * (split / one).log10();
-            assert!(db.abs() < 5.0, "{name} from the {label}: {db:+.1} dB");
-        }
-    }
+    let each_way: Vec<(usize, usize)> =
+        (0..ENGINES.len()).flat_map(|e| (0..AROUND.len()).map(move |a| (e, a))).collect();
+    common::each(&each_way, |&(engine, ear)| {
+        let split: f64 = bands_around(engine, true, ear).iter().sum();
+        let one: f64 = bands_around(engine, false, ear).iter().sum();
+        let db = 10.0 * (split / one).log10();
+        assert!(db.abs() < 5.0, "{} from the {}: {db:+.1} dB", ENGINES[engine], AROUND[ear].0);
+    });
 }
 
 /// From the side, the casing's block and pistons carry its 1-2.5 kHz band, where from the front the oil pan
@@ -99,11 +111,11 @@ fn spread_over_its_surfaces_the_casing_is_about_as_loud() {
 #[test]
 fn from_the_side_the_block_and_pistons_stand_out() {
     let lift = |surfaces: bool| -> f64 {
-        let share = |ear: [f64; 3]| {
-            let bands = casing_bands("V8, Chevrolet LT2", surfaces, ear);
+        let share = |ear: usize| {
+            let bands = bands_around(LT2, surfaces, ear);
             10.0 * (bands[2] / bands.iter().sum::<f64>()).log10()
         };
-        share([-2.0, 0.6, 0.0]) - share([0.0, 0.6, -2.0])
+        share(LEFT) - share(FRONT)
     };
     let (split, one) = (lift(true), lift(false));
     println!(
