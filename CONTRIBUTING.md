@@ -21,3 +21,5 @@ npm test                             # the interface, and the Wasm build against
 ```
 
 After changing anything in Rust, rebuild the Wasm with `npm run build:sim`.
+
+Every pull request runs both again, in the Test workflow; a failing run shows as a failed check on it.
