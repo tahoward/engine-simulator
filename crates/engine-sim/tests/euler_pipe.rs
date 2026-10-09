@@ -559,6 +559,38 @@ mod geometry_and_robustness {
         (a - b).abs() < 10f64.powi(-digits) / 2.0
     }
 
+    /// The end states a junction is solved against ahead of the reconstruction are the ones the
+    /// reconstruction leaves, to the bit, at both ends of a tapering duct through blowdown pulses,
+    /// whether its cells pair up or not.
+    #[test]
+    fn end_states_ahead_of_the_reconstruction_are_what_it_leaves() {
+        use engine_sim::euler_pipe::{DuctEnd, EndState};
+        let bits = |s: &EndState| {
+            [s.toward, s.rho_c, s.area, s.c, s.rho, s.p, s.u].map(f64::to_bits)
+        };
+        for length in [0.6, 0.63] {
+            let mut p = EulerPipe::new(
+                &[pipe(0.2, 0.04), seg(SegmentKind::Cone, length - 0.2, 0.04, Some(0.07))],
+                FS,
+                900.0,
+                &EulerPipeOptions { cell_size: Some(0.035), ..Default::default() },
+            );
+            let dt = 1.0 / FS;
+            for k in 0..4000 {
+                let open = (k % 400) < 120;
+                let v = valve(if open { 6e-4 } else { 0.0 }, 4e5, 1300.0);
+                let ahead = [DuctEnd::Inlet, DuctEnd::Outlet].map(|e| p.end_state_ahead(e, dt));
+                p.begin_step(dt);
+                for (e, want) in [DuctEnd::Inlet, DuctEnd::Outlet].iter().zip(&ahead) {
+                    assert_eq!(bits(want), bits(&p.end_state(*e)), "step {k}, {e:?}, {length} m");
+                }
+                let flow = p.valve_flux_for(&v, dt);
+                p.end_step(dt, flow, &v);
+                p.after_step(dt);
+            }
+        }
+    }
+
     /// takes the plane-wave limit from where higher modes are launched, not always the mouth
     #[test]
     fn takes_the_plane_wave_limit_from_where_higher_modes_are_launched_not_always_the_mouth() {

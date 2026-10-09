@@ -396,9 +396,131 @@ pub struct EulerPipe {
     heat_batch: f64,
     /// Thermal refreshes until the Nusselt correlation is evaluated again.
     nusselt_counter: i32,
-    /// The last `(p_ghost / p)^(1/gamma)` each end's junction boundary took, keyed by the bits of
-    /// its base.
-    junction_pow: [(u64, f64); 2],
+    /// Each end's junction boundary, where it has one of its own rather than a junction's.
+    junction_faces: [JunctionFace; 2],
+}
+
+/// A junction's boundary at one duct end, solved apart from the duct: the end face's area, the
+/// flux it last committed, for the duct to take with `take_junction_face`, and the times it had to
+/// clamp a degenerate end state since.
+#[derive(Clone, Copy, Debug)]
+pub struct JunctionFace {
+    pub area: f64,
+    flux: (f64, f64, f64, f64),
+    clamps: u64,
+    /// The last `(p_ghost / p)^(1/gamma)` it took, keyed by the bits of its base.
+    pow: (u64, f64),
+}
+
+impl Default for JunctionFace {
+    fn default() -> JunctionFace {
+        JunctionFace { area: 0.0, flux: (0.0, 0.0, 0.0, 0.0), clamps: 0, pow: (f64::NAN.to_bits(), f64::NAN) }
+    }
+}
+
+impl JunctionFace {
+    /// One at a face of `area`, m^2, that has solved nothing yet.
+    pub fn new(area: f64) -> JunctionFace {
+        JunctionFace { area, ..JunctionFace::default() }
+    }
+
+    /// The mass flux through the face at a junction pressure, kg/s, positive in the duct's +x
+    /// direction; committed, for the duct to take, if `commit`.
+    pub fn flux(&mut self, end: DuctEnd, junction_gauge: f64, junction_temp: f64, commit: bool, st: &EndState) -> f64 {
+
+        // Supersonic outflow into the junction: a choked end cannot be told what pressure to be at, so long
+        // as the junction is no higher than it. Into a junction higher than it, the gas meets a shock that
+        // runs back up the duct against it, which the Riemann flux below resolves: passed through as if
+        // nothing were there, the duct would go on pouring into a junction it cannot fill.
+        let c_end = math::sqrt((GAMMA * math::max(st.p, MIN_JUNCTION_P)) / math::max(st.rho, MIN_JUNCTION_RHO));
+        let outward = if end == DuctEnd::Outlet { st.u } else { -st.u };
+        if outward >= c_end && gas::P_AMB + junction_gauge <= st.p {
+            let flux = hllc(st.rho, st.u, st.p, st.rho, st.u, st.p);
+            if !commit {
+                return flux.0 * self.area;
+            }
+            self.flux = flux;
+            return flux.0 * self.area;
+        }
+
+        let returning = junction_gauge - st.toward;
+        let p_ghost = math::max(gas::P_AMB + junction_gauge, 1e-3);
+        let ambient_c = ambient_sound_speed();
+        if commit && (st.rho < MIN_JUNCTION_RHO || st.rho_c < MIN_JUNCTION_RHO * ambient_c) {
+            self.clamps += 1;
+        }
+        let rho_safe = math::max(st.rho, MIN_JUNCTION_RHO);
+        let c_local = math::sqrt((GAMMA * math::max(st.p, MIN_JUNCTION_P)) / rho_safe);
+        let u_limit = math::min(5.0 * c_local, DESIGN_WAVE_SPEED);
+        let rho_c = math::max(st.rho_c, MIN_JUNCTION_RHO * ambient_c);
+        let u_raw =
+            if end == DuctEnd::Outlet { (st.toward - returning) / rho_c } else { (returning - st.toward) / rho_c };
+        let area = self.area;
+
+        // Filling the duct, the junction's gas cannot come in faster than sound: from its pressure and
+        // temperature it accelerates to the duct's end as through a nozzle, and chokes there, at the sonic
+        // state, however far below it the duct's end pressure falls. Asked for more by the acoustic
+        // estimate, which knows nothing of choking, the end takes that state instead.
+        let filling = if end == DuctEnd::Outlet { u_raw < 0.0 } else { u_raw > 0.0 };
+        if filling {
+            let t_star = (2.0 * math::max(junction_temp, gas::T_AMB)) / (GAMMA + 1.0);
+            let c_star = math::sqrt(GAMMA * gas::R * t_star);
+            if u_raw.abs() > c_star {
+                let p_star = math::max(gas::P_AMB + junction_gauge, 1e-3) * CHOKED_PRESSURE_RATIO;
+                let r_star = p_star / (gas::R * t_star);
+                let u_star = if end == DuctEnd::Outlet { -c_star } else { c_star };
+                let flux = if end == DuctEnd::Inlet {
+                    hllc(r_star, u_star, p_star, st.rho, st.u, st.p)
+                } else {
+                    hllc(st.rho, st.u, st.p, r_star, u_star, p_star)
+                };
+                if !commit {
+                    return flux.0 * area;
+                }
+                self.flux = flux;
+                return flux.0 * area;
+            }
+        }
+
+        if commit && u_raw.abs() > u_limit {
+            self.clamps += 1;
+        }
+        let u_ghost = clamp(u_raw, -u_limit, u_limit);
+        let inflow = if end == DuctEnd::Outlet { u_ghost < 0.0 } else { u_ghost > 0.0 };
+        let r_ghost = if inflow {
+            math::max(
+                p_ghost / (gas::R * math::max(junction_temp - (u_ghost * u_ghost) / (2.0 * CP), gas::T_AMB)),
+                MIN_JUNCTION_RHO,
+            )
+        } else {
+            let base = p_ghost / st.p;
+            // A junction's last trial pressure is usually the one it commits, so the power it was
+            // probed with is kept rather than taken again.
+            if base.to_bits() != self.pow.0 {
+                self.pow = (base.to_bits(), math::pow(base, INV_GAMMA));
+            }
+            math::max(st.rho * self.pow.1, MIN_JUNCTION_RHO)
+        };
+
+        let flux = if end == DuctEnd::Inlet {
+            hllc(r_ghost, u_ghost, p_ghost, st.rho, st.u, st.p)
+        } else {
+            hllc(st.rho, st.u, st.p, r_ghost, u_ghost, p_ghost)
+        };
+        if !commit {
+            return flux.0 * area;
+        }
+        self.flux = flux;
+        flux.0 * area
+    }
+}
+
+/// The face at one end of a duct of `n` cells.
+fn face_of(end: DuctEnd, n: usize) -> usize {
+    match end {
+        DuctEnd::Inlet => 0,
+        DuctEnd::Outlet => n,
+    }
 }
 
 impl EulerPipe {
@@ -550,7 +672,7 @@ impl EulerPipe {
             heat_counter: 0,
             heat_batch: 0.0,
             nusselt_counter: 0,
-            junction_pow: [(f64::NAN.to_bits(), f64::NAN); 2],
+            junction_faces: [JunctionFace::default(); 2],
         };
         let p = &mut pipe_;
 
@@ -1732,6 +1854,12 @@ impl EulerPipe {
                 (i, self.rr[i], self.ru[i], self.rp[i])
             }
         };
+        self.end_state_of(end, i, r, u, p)
+    }
+
+    /// The end state of end cell `i` with reconstructed density `r`, velocity `u` and pressure `p`.
+    #[inline]
+    fn end_state_of(&self, end: DuctEnd, i: usize, r: f64, u: f64, p: f64) -> EndState {
         let c = math::sqrt((GAMMA * p) / r);
         let rho_c = r * c;
         let toward = match end {
@@ -1741,115 +1869,84 @@ impl EulerPipe {
         EndState { toward, rho_c, area: self.area_cell[i], c, rho: r, p, u }
     }
 
+    /// What `end_state` will give once `begin_step(dt)` has reconstructed the duct, from the end cell
+    /// alone: an end cell takes no slope, so its half step reads nothing else, and a junction can be
+    /// solved against it while the rest of the duct is reconstructed. The same to the bit.
+    pub fn end_state_ahead(&self, end: DuctEnd, dt: f64) -> EndState {
+        let i = match end {
+            DuctEnd::Inlet => 0,
+            DuctEnd::Outlet => self.n - 1,
+        };
+        // As `reconstruct` takes the cell: its primitives, then its half step with no slope.
+        let r = self.rho[i];
+        let inv_r = 1.0 / r;
+        let u = self.mom[i] * inv_r;
+        let p = math::max((GAMMA - 1.0) * (self.en[i] - 0.5 * r * u * u), 1e-3);
+        let (pri, pui, ppi) = (r, u, p);
+        let (sri, sui, spi) = (0.0, 0.0, 0.0);
+        let half_dt = 0.5 * dt;
+        let r_l = pri - 0.5 * sri;
+        let u_l = pui - 0.5 * sui;
+        let p_l = ppi - 0.5 * spi;
+        let r_r = pri + 0.5 * sri;
+        let u_r = pui + 0.5 * sui;
+        let p_r = ppi + 0.5 * spi;
+
+        let ul1 = r_l * u_l;
+        let ul2 = p_l * INV_GM1 + 0.5 * r_l * u_l * u_l;
+        let ur1 = r_r * u_r;
+        let ur2 = p_r * INV_GM1 + 0.5 * r_r * u_r * u_r;
+
+        let a_lh = self.area_face[i];
+        let a_rh = self.area_face[i + 1];
+        let hk = half_dt * self.inv_vol[i];
+
+        let d0 = hk * (a_lh * ul1 - a_rh * ur1);
+        let d1 = hk * (a_lh * (ul1 * u_l + p_l) - a_rh * (ur1 * u_r + p_r)) + hk * ppi * (a_rh - a_lh);
+        let d2 = hk * (a_lh * (ul2 + p_l) * u_l - a_rh * (ur2 + p_r) * u_r);
+
+        // The left state at the inlet, the right at the outlet.
+        let (a0, a1, a2) = match end {
+            DuctEnd::Inlet => (r_l + d0, ul1 + d1, ul2 + d2),
+            DuctEnd::Outlet => (r_r + d0, ur1 + d1, ur2 + d2),
+        };
+        let dens = if a0 > 1e-7 { a0 } else { 1e-7 };
+        let inv_dens = 1.0 / dens;
+        let vel = a1 * inv_dens;
+        let pres = math::max((GAMMA - 1.0) * (a2 - 0.5 * a1 * a1 * inv_dens), 1e-3);
+        self.end_state_of(end, i, dens, vel, pres)
+    }
+
     /// Impose a junction pressure at one end. Returns the mass flux through that face, kg/s, positive
     /// in the duct's +x direction.
     pub fn apply_junction(&mut self, end: DuctEnd, junction_gauge: f64, junction_temp: f64, st: &EndState) -> f64 {
-        self.junction_flux(end, junction_gauge, junction_temp, true, st)
+        let e = end as usize;
+        let mut face = self.junction_faces[e];
+        face.area = self.area_face[face_of(end, self.n)];
+        let flow = face.flux(end, junction_gauge, junction_temp, true, st);
+        self.take_junction_face(end, &mut face);
+        self.junction_faces[e] = face;
+        flow
     }
 
     /// Mass flux this duct would pass at a trial junction pressure, committing nothing.
     pub fn probe_junction(&mut self, end: DuctEnd, junction_gauge: f64, junction_temp: f64, st: &EndState) -> f64 {
-        self.junction_flux(end, junction_gauge, junction_temp, false, st)
+        let e = end as usize;
+        self.junction_faces[e].area = self.area_face[face_of(end, self.n)];
+        self.junction_faces[e].flux(end, junction_gauge, junction_temp, false, st)
     }
 
-    fn junction_flux(
-        &mut self,
-        end: DuctEnd,
-        junction_gauge: f64,
-        junction_temp: f64,
-        commit: bool,
-        st: &EndState,
-    ) -> f64 {
-        let face = match end {
-            DuctEnd::Inlet => 0,
-            DuctEnd::Outlet => self.n,
-        };
+    /// Take the flux `face` committed at one end, and the clamps it counted. Between `begin_step` and
+    /// `end_step`.
+    pub fn take_junction_face(&mut self, end: DuctEnd, face: &mut JunctionFace) {
+        self.set_face(face_of(end, self.n), face.flux);
+        self.junction_clamps += face.clamps;
+        face.clamps = 0;
+    }
 
-        // Supersonic outflow into the junction: a choked end cannot be told what pressure to be at, so long
-        // as the junction is no higher than it. Into a junction higher than it, the gas meets a shock that
-        // runs back up the duct against it, which the Riemann flux below resolves: passed through as if
-        // nothing were there, the duct would go on pouring into a junction it cannot fill.
-        let c_end = math::sqrt((GAMMA * math::max(st.p, MIN_JUNCTION_P)) / math::max(st.rho, MIN_JUNCTION_RHO));
-        let outward = if end == DuctEnd::Outlet { st.u } else { -st.u };
-        if outward >= c_end && gas::P_AMB + junction_gauge <= st.p {
-            let flux = hllc(st.rho, st.u, st.p, st.rho, st.u, st.p);
-            if !commit {
-                return flux.0 * self.area_face[face];
-            }
-            self.set_face(face, flux);
-            return self.f0[face] * self.area_face[face];
-        }
-
-        let returning = junction_gauge - st.toward;
-        let p_ghost = math::max(gas::P_AMB + junction_gauge, 1e-3);
-        let ambient_c = ambient_sound_speed();
-        if commit && (st.rho < MIN_JUNCTION_RHO || st.rho_c < MIN_JUNCTION_RHO * ambient_c) {
-            self.junction_clamps += 1;
-        }
-        let rho_safe = math::max(st.rho, MIN_JUNCTION_RHO);
-        let c_local = math::sqrt((GAMMA * math::max(st.p, MIN_JUNCTION_P)) / rho_safe);
-        let u_limit = math::min(5.0 * c_local, DESIGN_WAVE_SPEED);
-        let rho_c = math::max(st.rho_c, MIN_JUNCTION_RHO * ambient_c);
-        let u_raw =
-            if end == DuctEnd::Outlet { (st.toward - returning) / rho_c } else { (returning - st.toward) / rho_c };
-        let area = self.area_face[face];
-
-        // Filling the duct, the junction's gas cannot come in faster than sound: from its pressure and
-        // temperature it accelerates to the duct's end as through a nozzle, and chokes there, at the sonic
-        // state, however far below it the duct's end pressure falls. Asked for more by the acoustic
-        // estimate, which knows nothing of choking, the end takes that state instead.
-        let filling = if end == DuctEnd::Outlet { u_raw < 0.0 } else { u_raw > 0.0 };
-        if filling {
-            let t_star = (2.0 * math::max(junction_temp, gas::T_AMB)) / (GAMMA + 1.0);
-            let c_star = math::sqrt(GAMMA * gas::R * t_star);
-            if u_raw.abs() > c_star {
-                let p_star = math::max(gas::P_AMB + junction_gauge, 1e-3) * CHOKED_PRESSURE_RATIO;
-                let r_star = p_star / (gas::R * t_star);
-                let u_star = if end == DuctEnd::Outlet { -c_star } else { c_star };
-                let flux = if end == DuctEnd::Inlet {
-                    hllc(r_star, u_star, p_star, st.rho, st.u, st.p)
-                } else {
-                    hllc(st.rho, st.u, st.p, r_star, u_star, p_star)
-                };
-                if !commit {
-                    return flux.0 * area;
-                }
-                self.set_face(face, flux);
-                return self.f0[face] * area;
-            }
-        }
-
-        if commit && u_raw.abs() > u_limit {
-            self.junction_clamps += 1;
-        }
-        let u_ghost = clamp(u_raw, -u_limit, u_limit);
-        let inflow = if end == DuctEnd::Outlet { u_ghost < 0.0 } else { u_ghost > 0.0 };
-        let r_ghost = if inflow {
-            math::max(
-                p_ghost / (gas::R * math::max(junction_temp - (u_ghost * u_ghost) / (2.0 * CP), gas::T_AMB)),
-                MIN_JUNCTION_RHO,
-            )
-        } else {
-            let base = p_ghost / st.p;
-            let e = end as usize;
-            // A junction's last trial pressure is usually the one it commits, so the power it was
-            // probed with is kept rather than taken again.
-            if base.to_bits() != self.junction_pow[e].0 {
-                self.junction_pow[e] = (base.to_bits(), math::pow(base, INV_GAMMA));
-            }
-            math::max(st.rho * self.junction_pow[e].1, MIN_JUNCTION_RHO)
-        };
-
-        let flux = if end == DuctEnd::Inlet {
-            hllc(r_ghost, u_ghost, p_ghost, st.rho, st.u, st.p)
-        } else {
-            hllc(st.rho, st.u, st.p, r_ghost, u_ghost, p_ghost)
-        };
-        if !commit {
-            return flux.0 * area;
-        }
-        self.set_face(face, flux);
-        self.f0[face] * area
+    /// The area of one end's face, m^2.
+    pub fn end_face_area(&self, end: DuctEnd) -> f64 {
+        self.area_face[face_of(end, self.n)]
     }
 
     /// Cross-sectional area of the outlet face, m^2.
