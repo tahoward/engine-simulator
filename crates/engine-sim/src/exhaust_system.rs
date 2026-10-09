@@ -29,8 +29,15 @@ const MERGE_TURBULENCE: f64 = 0.14;
 /// Specific heat at constant pressure for exhaust gas, J/(kg K).
 const CP_EXH: f64 = (gas::GAMMA_EXH * gas::R) / (gas::GAMMA_EXH - 1.0);
 
-/// Relative mass-flux imbalance below which a junction is left alone.
-const JUNCTION_BALANCE_TOL: f64 = 0.005;
+/// Relative mass-flux imbalance below which a junction is left alone: a plain junction's, against the
+/// flow through it, and a turbine junction's, against the turbine's. A plain junction takes two
+/// trials at most, so it is held closer.
+const JUNCTION_BALANCE_TOL: f64 = 0.0005;
+const TURBINE_BALANCE_TOL: f64 = 0.0005;
+
+/// The range a junction's measured flux slope is trusted over, as a share of the acoustic estimate.
+const SLOPE_GAIN_MIN: f64 = 1.0;
+const SLOPE_GAIN_MAX: f64 = 5.0;
 
 /// Fewest cells worth handing a thread of their own: below it, handing off costs more than it saves.
 const MIN_CELLS_PER_THREAD: usize = 40;
@@ -86,6 +93,9 @@ struct JunctionNode {
     noise: Noise,
     lp1: f64,
     lp2: f64,
+    /// How steeply its ducts' flux actually follows its pressure, as a share of the acoustic estimate
+    /// `A / c`, as its last solve measured it: on the one pressure, or a turbine's two sides.
+    gain: [f64; 2],
 }
 
 /// What one turbine did over an `advance`: the power it took from the exhaust and the power of the
@@ -469,6 +479,18 @@ impl Junctions<'_> {
         unsafe { self.fed_flow.get(slot) }
     }
 
+    /// The end states of `node`'s ducts, outlets then inlets, each as its boundary takes it, with what
+    /// the boundaries last probed against the ones before forgotten.
+    fn read_ends(&self, node: &mut JunctionNode) {
+        let n_out = node.outlets.len();
+        for (k, &d) in node.outlets.iter().chain(&node.inlets).enumerate() {
+            let end = if k < n_out { DuctEnd::Outlet } else { DuctEnd::Inlet };
+            node.states[k] = self.end(d, end);
+            node.ends[k] = JunctionEnd::new(&node.states[k]);
+            self.face(d, end).forget_probe();
+        }
+    }
+
     /// Junction `ni`, at constant pressure: the common pressure in closed form from the waves arriving,
     /// held within what the branches can justify, then Newton-corrected toward mass balance. Returns
     /// the relative mass imbalance it is left with.
@@ -477,17 +499,9 @@ impl Junctions<'_> {
             return self.solve_turbine(ni, slot);
         }
         let node = self.node(ni);
+        self.read_ends(node);
         let n_out = node.outlets.len();
         let n_ends = n_out + node.inlets.len();
-        for i in 0..n_out {
-            node.states[i] = self.end(node.outlets[i], DuctEnd::Outlet);
-        }
-        for i in 0..node.inlets.len() {
-            node.states[n_out + i] = self.end(node.inlets[i], DuctEnd::Inlet);
-        }
-        for (end, st) in node.ends.iter_mut().zip(&node.states) {
-            *end = JunctionEnd::new(st);
-        }
 
         let mut num = 0.0;
         let mut den = 0.0;
@@ -526,6 +540,10 @@ impl Junctions<'_> {
 
         if den > 0.0 {
             let tol = JUNCTION_BALANCE_TOL * math::max(scale_guess, 1e-9);
+            // The first step along the slope the last solve measured, each after it along the secant
+            // through the last two trials.
+            let mut slope = den * node.gain[0];
+            let mut last: Option<(f64, f64)> = None;
             for _ in 0..2 {
                 let mut r = 0.0;
                 for i in 0..n_out {
@@ -539,7 +557,15 @@ impl Junctions<'_> {
                 if !r.is_finite() || r.abs() <= tol {
                     break;
                 }
-                let next = clamp(gas::P_AMB + gauge + r / den, 0.3 * p_min, 3.0 * p_max) - gas::P_AMB;
+                if let Some((g0, r0)) = last {
+                    let measured = (r0 - r) / (gauge - g0);
+                    if measured.is_finite() && measured > 0.0 {
+                        slope = clamp(measured, SLOPE_GAIN_MIN * den, SLOPE_GAIN_MAX * den);
+                        node.gain[0] = slope / den;
+                    }
+                }
+                last = Some((gauge, r));
+                let next = clamp(gas::P_AMB + gauge + r / slope, 0.3 * p_min, 3.0 * p_max) - gas::P_AMB;
                 if next == gauge {
                     break;
                 }
@@ -581,17 +607,9 @@ impl Junctions<'_> {
         let k = k_t + k_wg;
 
         let node = self.node(ni);
+        self.read_ends(node);
         let n_out = node.outlets.len();
         let n_in = node.inlets.len();
-        for i in 0..n_out {
-            node.states[i] = self.end(node.outlets[i], DuctEnd::Outlet);
-        }
-        for i in 0..n_in {
-            node.states[n_out + i] = self.end(node.inlets[i], DuctEnd::Inlet);
-        }
-        for (end, st) in node.ends.iter_mut().zip(&node.states) {
-            *end = JunctionEnd::new(st);
-        }
 
         // Each side on its own: the pressure it would sit at passing nothing, its slope, its range, and
         // the stagnation temperature of what arrives from it.
@@ -629,6 +647,11 @@ impl Junctions<'_> {
         };
         let mut up = side(&node.states[..n_out], true);
         let mut down = side(&node.states[n_out..], false);
+        // Each side's slope as the last solve measured it, and after that along the secant through its
+        // last two trials.
+        let acoustic = [up.slope, down.slope];
+        up.slope = acoustic[0] * node.gain[0];
+        down.slope = acoustic[1] * node.gain[1];
         let last = node.states[n_out - 1];
         let t_up = if up.m_in > 1e-12 { up.h_in / up.m_in } else { last.p / (math::max(last.rho, 1e-7) * gas::R) };
         let first = node.states[n_out];
@@ -680,7 +703,8 @@ impl Junctions<'_> {
 
         let mut m = solve(&up, &down);
         let (mut g_up, mut g_down) = pressures(&up, &down, m);
-        let tol = JUNCTION_BALANCE_TOL * math::max(m.abs(), 1e-6);
+        let tol = TURBINE_BALANCE_TOL * math::max(m.abs(), 1e-6);
+        let mut last: Option<(f64, f64, f64, f64)> = None;
         for _ in 0..4 {
             let mut f_up = 0.0;
             for i in 0..n_out {
@@ -695,6 +719,19 @@ impl Junctions<'_> {
             if !(f_up.is_finite() && f_down.is_finite()) || ((f_up - m).abs() <= tol && (f_down - m).abs() <= tol) {
                 break;
             }
+            if let Some((gu0, fu0, gd0, fd0)) = last {
+                let su = (fu0 - f_up) / (g_up - gu0);
+                if su.is_finite() && su > 0.0 {
+                    up.slope = clamp(su, SLOPE_GAIN_MIN * acoustic[0], SLOPE_GAIN_MAX * acoustic[0]);
+                    node.gain[0] = up.slope / acoustic[0];
+                }
+                let sd = (f_down - fd0) / (g_down - gd0);
+                if sd.is_finite() && sd > 0.0 {
+                    down.slope = clamp(sd, SLOPE_GAIN_MIN * acoustic[1], SLOPE_GAIN_MAX * acoustic[1]);
+                    node.gain[1] = down.slope / acoustic[1];
+                }
+            }
+            last = Some((g_up, f_up, g_down, f_down));
             // Move each side's line through the flux it actually passes, and solve again.
             up.zero = g_up + f_up / up.slope;
             down.zero = g_down - f_down / down.slope;
@@ -1002,6 +1039,7 @@ impl ExhaustSystem {
                 noise: Noise::new(0x7f4a3b as f64 + n as f64 * 0x9e3779b as f64),
                 lp1: 0.0,
                 lp2: 0.0,
+                gain: [1.0; 2],
             });
         }
 

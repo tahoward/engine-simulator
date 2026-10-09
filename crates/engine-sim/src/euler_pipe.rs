@@ -413,7 +413,13 @@ pub struct JunctionFace {
     /// junction's temperature.
     pow: (u64, f64),
     star: (u64, f64, f64),
+    /// What the last probe found, by the bits of its pressure and temperature, and the clamps it
+    /// would count.
+    probed: Option<Probe>,
 }
+
+/// A junction boundary's probe: the bits of its pressure and temperature, the flux, and the clamps.
+type Probe = ((u64, u64), (f64, f64, f64, f64), u64);
 
 impl Default for JunctionFace {
     fn default() -> JunctionFace {
@@ -423,6 +429,7 @@ impl Default for JunctionFace {
             clamps: 0,
             pow: (f64::NAN.to_bits(), f64::NAN),
             star: (f64::NAN.to_bits(), f64::NAN, f64::NAN),
+            probed: None,
         }
     }
 }
@@ -466,8 +473,39 @@ impl JunctionFace {
     }
 
     /// The mass flux through the face at a junction pressure, kg/s, positive in the duct's +x
-    /// direction; committed, for the duct to take, if `commit`.
+    /// direction; committed, for the duct to take, if `commit`. Committed at the pressure and
+    /// temperature it was last probed at, it takes what that probe found.
     pub fn flux(&mut self, end: DuctEnd, junction_gauge: f64, junction_temp: f64, commit: bool, je: &JunctionEnd) -> f64 {
+        let key = (junction_gauge.to_bits(), junction_temp.to_bits());
+        let (flux, clamps) = match self.probed {
+            Some((k, flux, clamps)) if commit && k == key => (flux, clamps),
+            _ => self.evaluate(end, junction_gauge, junction_temp, je),
+        };
+        if commit {
+            self.flux = flux;
+            self.clamps += clamps;
+            self.probed = None;
+        } else {
+            self.probed = Some((key, flux, clamps));
+        }
+        flux.0 * self.area
+    }
+
+    /// Forget the last probe, as the end state is about to change.
+    pub fn forget_probe(&mut self) {
+        self.probed = None;
+    }
+
+    /// The flux through the face at a junction pressure, and the clamps committing it would count.
+    #[inline]
+    fn evaluate(
+        &mut self,
+        end: DuctEnd,
+        junction_gauge: f64,
+        junction_temp: f64,
+        je: &JunctionEnd,
+    ) -> ((f64, f64, f64, f64), u64) {
+        let mut clamps = 0;
         let st = &je.st;
         // The duct's side, and the junction's, in the face's order.
         let riemann = |ghost: &RiemannSide| {
@@ -480,24 +518,18 @@ impl JunctionFace {
         // nothing were there, the duct would go on pouring into a junction it cannot fill.
         let outward = if end == DuctEnd::Outlet { st.u } else { -st.u };
         if outward >= je.c_end && gas::P_AMB + junction_gauge <= st.p {
-            let flux = hllc_of(&je.duct, &je.duct);
-            if !commit {
-                return flux.0 * self.area;
-            }
-            self.flux = flux;
-            return flux.0 * self.area;
+            return (hllc_of(&je.duct, &je.duct), clamps);
         }
 
         let returning = junction_gauge - st.toward;
         let p_ghost = math::max(gas::P_AMB + junction_gauge, 1e-3);
-        if commit && je.degenerate {
-            self.clamps += 1;
+        if je.degenerate {
+            clamps += 1;
         }
         let u_limit = je.u_limit;
         let rho_c = je.rho_c;
         let u_raw =
             if end == DuctEnd::Outlet { (st.toward - returning) / rho_c } else { (returning - st.toward) / rho_c };
-        let area = self.area;
 
         // Filling the duct, the junction's gas cannot come in faster than sound: from its pressure and
         // temperature it accelerates to the duct's end as through a nozzle, and chokes there, at the sonic
@@ -515,17 +547,12 @@ impl JunctionFace {
                 let p_star = math::max(gas::P_AMB + junction_gauge, 1e-3) * CHOKED_PRESSURE_RATIO;
                 let r_star = p_star / (gas::R * t_star);
                 let u_star = if end == DuctEnd::Outlet { -c_star } else { c_star };
-                let flux = riemann(&RiemannSide::new(r_star, u_star, p_star));
-                if !commit {
-                    return flux.0 * area;
-                }
-                self.flux = flux;
-                return flux.0 * area;
+                return (riemann(&RiemannSide::new(r_star, u_star, p_star)), clamps);
             }
         }
 
-        if commit && u_raw.abs() > u_limit {
-            self.clamps += 1;
+        if u_raw.abs() > u_limit {
+            clamps += 1;
         }
         let u_ghost = clamp(u_raw, -u_limit, u_limit);
         let inflow = if end == DuctEnd::Outlet { u_ghost < 0.0 } else { u_ghost > 0.0 };
@@ -536,7 +563,7 @@ impl JunctionFace {
             )
         } else {
             let base = p_ghost / st.p;
-            // A junction's last trial pressure is usually the one it commits, so the power it was
+            // A compressor's last trial pressure is usually the one it commits, so the power it was
             // probed with is kept rather than taken again.
             if base.to_bits() != self.pow.0 {
                 self.pow = (base.to_bits(), math::pow(base, INV_GAMMA));
@@ -544,12 +571,7 @@ impl JunctionFace {
             math::max(st.rho * self.pow.1, MIN_JUNCTION_RHO)
         };
 
-        let flux = riemann(&RiemannSide::new(r_ghost, u_ghost, p_ghost));
-        if !commit {
-            return flux.0 * area;
-        }
-        self.flux = flux;
-        flux.0 * area
+        (riemann(&RiemannSide::new(r_ghost, u_ghost, p_ghost)), clamps)
     }
 }
 
@@ -1961,6 +1983,7 @@ impl EulerPipe {
         let e = end as usize;
         let mut face = self.junction_faces[e];
         face.area = self.area_face[face_of(end, self.n)];
+        face.forget_probe();
         let flow = face.flux(end, junction_gauge, junction_temp, true, &JunctionEnd::new(st));
         self.take_junction_face(end, &mut face);
         self.junction_faces[e] = face;
@@ -1971,6 +1994,7 @@ impl EulerPipe {
     pub fn probe_junction(&mut self, end: DuctEnd, junction_gauge: f64, junction_temp: f64, st: &EndState) -> f64 {
         let e = end as usize;
         self.junction_faces[e].area = self.area_face[face_of(end, self.n)];
+        self.junction_faces[e].forget_probe();
         self.junction_faces[e].flux(end, junction_gauge, junction_temp, false, &JunctionEnd::new(st))
     }
 
