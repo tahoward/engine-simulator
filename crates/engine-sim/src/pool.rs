@@ -1,5 +1,6 @@
 //! A small pool of spinning worker threads, for work split finer than an operating system can
-//! schedule: the exhaust's ducts, two hand-offs per solver step, hundreds of thousands a second.
+//! schedule: the exhaust's ducts, a hand-off per audio sample, tens of thousands a second. Within a
+//! job, the threads wait on each other's parts with `wait_until`, not on the whole job.
 //!
 //! A worker waiting for its next job spins rather than sleeps, as waking a sleeping thread costs more
 //! than a step of the solver. It goes to sleep after `IDLE` without a job of its own, so a paused
@@ -71,6 +72,33 @@ impl<'a, T> Disjoint<'a, T> {
     {
         assert!(i < self.len);
         unsafe { std::ptr::read(self.ptr.add(i)) }
+    }
+
+    /// Element `i`, to read in place.
+    ///
+    /// # Safety
+    ///
+    /// No thread may be writing element `i` while the result is alive.
+    pub unsafe fn get_ref(&self, i: usize) -> &T {
+        assert!(i < self.len);
+        unsafe { &*self.ptr.add(i) }
+    }
+
+    /// Every element, to read in place.
+    ///
+    /// # Safety
+    ///
+    /// No thread may be writing any element while the result is alive.
+    pub unsafe fn as_slice(&self) -> &[T] {
+        unsafe { std::slice::from_raw_parts(self.ptr, self.len) }
+    }
+}
+
+/// Spin until `stamp` holds `value`, as the thread that sets it does once its part is done.
+#[inline]
+pub fn wait_until(stamp: &CachePadded<AtomicU64>, value: u64) {
+    while stamp.0.load(Ordering::Acquire) != value {
+        std::hint::spin_loop();
     }
 }
 

@@ -26,7 +26,7 @@ use crate::euler_pipe::{
     single_step_dx,
 };
 use crate::exhaust_graph::{ExhaustGraph, compile_exhaust, node_order, validate_graph};
-use crate::exhaust_system::{ExhaustSystem, SideWork};
+use crate::exhaust_system::{ExhaustSystem, SideWork, Stepped};
 use crate::inlet::{InletTract, airbox_volume_of, inlet_count_of, snorkel_dia_of};
 use crate::intake::{IntakeRunners, RunnerIo};
 use crate::listener::{Listener, SoundSources, SurfaceKind, Vec3, Walls};
@@ -652,9 +652,12 @@ pub struct EngineSim {
     runner_cells: Vec<usize>,
     /// Each primary's port pressure, Pa, as the valves read it.
     port_pressure: Vec<f64>,
-    /// What `close_sample` hands each thread, and what it gives back: per cylinder, per mouth, per
+    /// What `step_sample` hands each thread once the ducts are stepped, and what it gives back: per cylinder, per mouth, per
     /// shell, and the turbo's.
     close_groups: Vec<Vec<CloseItem>>,
+    /// What `close_groups` were dealt out for: the exhaust's threads, by `groups_id`, and how many
+    /// cylinders, mouths, shells and inlet tracts there were, and whether there was a turbo.
+    close_key: (u64, usize, usize, usize, usize, bool),
     bank_out: Vec<CachePadded<BankOut>>,
     mouth_out: Vec<CachePadded<[f64; 2]>>,
     shell_out: Vec<CachePadded<f64>>,
@@ -663,7 +666,7 @@ pub struct EngineSim {
     plenum_out: CachePadded<PlenumOut>,
     plenum_done: CachePadded<AtomicU64>,
     close_stamp: u64,
-    /// What each of `close_sample`'s parts took in a timed sample, ns: cylinders, mouths, shells.
+    /// What each of those parts took in a timed sample, ns: cylinders, mouths, shells.
     close_ns: Vec<CachePadded<f64>>,
 }
 
@@ -930,7 +933,7 @@ impl ValveCtx<'_> {
     }
 }
 
-/// One part of `EngineSim::close_sample`.
+/// One part of what `EngineSim::step_sample` does once the ducts are stepped.
 #[derive(Clone, Copy, Debug)]
 enum CloseItem {
     Bank(usize),
@@ -1128,6 +1131,7 @@ impl EngineSim {
             max_threads: usize::MAX,
             runner_cells: Vec::new(),
             close_groups: Vec::new(),
+            close_key: (0, 0, 0, 0, 0, false),
             bank_out: Vec::new(),
             mouth_out: Vec::new(),
             shell_out: Vec::new(),
@@ -2193,49 +2197,9 @@ impl EngineSim {
                 self.inject_fraction
             },
         };
-        let intake = if self.on_short_runners { self.intake_short.as_mut().unwrap() } else { &mut self.intake_long };
-        self.runner_cells.clear();
-        self.runner_cells.extend(intake.runners.iter().map(|r| r.pipe.n));
-        {
-            // Each cylinder's valves, then its intake runner, on one thread: the runner reads what the
-            // valves give it. The primary's port is read as it stood at the end of the last sample.
-            let valves = ValveCtx {
-                spec: &self.spec,
-                lift_spec: if self.on_high_cam { &self.high_cam_spec.as_ref().unwrap().spec } else { &self.spec.spec },
-                timing: &self.timing,
-                delivery: &self.delivery,
-                injection_offset: &self.injection_offset,
-                intake_shift: self.intake_shift,
-                exhaust_shift: self.exhaust_shift,
-                limiter_cut,
-                fuel_demand: self.fuel_demand,
-                crackle,
-                rpm,
-                omega: self.omega,
-                sample_rate: self.sample_rate,
-            };
-            let cyls = Disjoint::new(&mut self.cyls);
-            let bank_state = Disjoint::new(&mut self.banks);
-            let noise = Disjoint::new(&mut self.throat_noise);
-            self.port_pressure.clear();
-            self.port_pressure.extend((0..banks).map(|b| self.wg.port_pressure(b)));
-            let port_pressure = &self.port_pressure;
-            let step = intake.begin(&run_io, &self.plenum, &self.entry_loss);
-            // The exhaust steps each side item once, and reads a valve state only after they are all
-            // done.
-            let job = |b: usize| unsafe {
-                let bank = bank_state.get(b);
-                valves.step(b, cyls.get(b), bank, &mut noise.get(b).0, port_pressure[b]);
-                step.runner(b, &bank.in_valve, &bank.cyl_state);
-            };
-            let side = SideWork { costs: &self.runner_cells, job: &job };
-            let valve_of = |b: usize| unsafe { bank_state.get(b) }.valve_state;
-            self.wg.advance_on(dt, &valve_of, self.pool.as_deref(), self.max_threads, Some(&side));
-        }
+        // --- Then the cylinders and afterfire, the plenum and its inlet tracts or the turbo, and the radiation ---
+        let throttle_flow = self.step_sample(dt, run_io, limiter_cut, crackle, rpm);
         self.substeps = self.wg.result.substeps;
-
-        // --- Cylinders and afterfire, the plenum and its inlet tracts or the turbo, and the radiation ---
-        let throttle_flow = self.close_sample(dt);
         for out in &self.bank_out {
             torque_sum += out.0.torque;
             dpdt_sum += out.0.dpdt;
@@ -2653,13 +2617,23 @@ impl EngineSim {
         [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
     }
 
-    /// The rest of a sample once its gas dynamics are done, in parts that each read only their own
-    /// state and the pipes': each cylinder with its afterfire pocket, the plenum, each inlet tract or
-    /// the turbo, each mouth's radiation and each chamber shell's. Across the pool's threads, each part
-    /// on the thread that stepped the duct it reads, whose cache holds it; the tracts and the turbo
-    /// draw through the plenum, so they wait for it. What each gives is left in `bank_out`, `mouth_out`,
-    /// `shell_out` and `turbo_out`, to be gathered in order. Returns the flow in through the throttles.
-    fn close_sample(&mut self, dt: f64) -> f64 {
+    /// One sample of gas dynamics and what follows from it, stepped together across the pool's
+    /// threads with one hand-off. Alongside the exhaust's ducts, each cylinder's valves and then its
+    /// intake runner, which reads what the valves give it, the primary's port read as it stood at the
+    /// end of the last sample. Once the ducts are stepped, the rest in parts that each read only their
+    /// own state and the pipes': each cylinder with its afterfire pocket, the plenum, each inlet tract
+    /// or the turbo, each mouth's radiation and each chamber shell's, each part on the thread that
+    /// stepped the duct it reads, whose cache holds it; the tracts and the turbo draw through the
+    /// plenum, so they wait for it. What each gives is left in `bank_out`, `mouth_out`, `shell_out` and
+    /// `turbo_out`, to be gathered in order. Returns the flow in through the throttles.
+    fn step_sample(
+        &mut self,
+        dt: f64,
+        run_io: RunnerIo,
+        limiter_cut: bool,
+        crackle: Option<CrackleSpark>,
+        rpm: f64,
+    ) -> f64 {
         let banks = self.cyls.len();
         let mouths = self.wg.result.mouth_flows.len();
         let shell_count = self.shells.len();
@@ -2668,17 +2642,22 @@ impl EngineSim {
         self.shell_out.resize(shell_count, CachePadded::default());
         self.close_ns.resize(banks + mouths + shell_count, CachePadded::default());
 
-        let threads = if self.pool.is_some() { self.wg.threads_used() } else { 1 };
-        if threads > 1 {
+        let intake = if self.on_short_runners { self.intake_short.as_mut().unwrap() } else { &mut self.intake_long };
+        self.runner_cells.clear();
+        self.runner_cells.extend(intake.runners.iter().map(|r| r.pipe.n));
+        let threads = self.wg.plan(self.pool.as_deref(), self.max_threads, &self.runner_cells);
+        let close_key = (self.wg.groups_id(), banks, mouths, shell_count, self.inlets.len(), self.turbo.is_some());
+        if threads > 1 && close_key != self.close_key {
+            self.close_key = close_key;
             if self.close_groups.len() < threads {
                 self.close_groups.resize_with(threads, Vec::new);
             }
             for g in self.close_groups.iter_mut() {
                 g.clear();
             }
-            // Each cylinder where its valves were, as their state is in that thread's cache.
+            // Each cylinder on its primary's thread, which it reads as soon as that thread is done with it.
             for b in 0..banks {
-                self.close_groups[self.wg.side_owner(b)].push(CloseItem::Bank(b));
+                self.close_groups[self.wg.owner_of(b)].push(CloseItem::Bank(b));
             }
             for m in 0..mouths {
                 self.close_groups[self.wg.owner_of(self.wg.radiating_duct_index(m))].push(CloseItem::Mouth(m));
@@ -2705,11 +2684,40 @@ impl EngineSim {
         let stamp = self.close_stamp;
         let plenum_done = &self.plenum_done;
 
+        let valves = ValveCtx {
+            spec: &self.spec,
+            lift_spec: if self.on_high_cam { &self.high_cam_spec.as_ref().unwrap().spec } else { &self.spec.spec },
+            timing: &self.timing,
+            delivery: &self.delivery,
+            injection_offset: &self.injection_offset,
+            intake_shift: self.intake_shift,
+            exhaust_shift: self.exhaust_shift,
+            limiter_cut,
+            fuel_demand: self.fuel_demand,
+            crackle,
+            rpm,
+            omega: self.omega,
+            sample_rate: self.sample_rate,
+        };
+        let cyls = Disjoint::new(&mut self.cyls);
+        let bank_state = Disjoint::new(&mut self.banks);
+        let noise = Disjoint::new(&mut self.throat_noise);
+        self.port_pressure.clear();
+        self.port_pressure.extend((0..banks).map(|b| self.wg.port_pressure(b)));
+        let port_pressure = &self.port_pressure;
+        let step = intake.begin(&run_io, &self.plenum, &self.entry_loss);
+        // The exhaust steps each side item once, and reads a valve state only after it is done.
+        let job = |b: usize| unsafe {
+            let bank = bank_state.get(b);
+            valves.step(b, cyls.get(b), bank, &mut noise.get(b).0, port_pressure[b]);
+            step.runner(b, &bank.in_valve, &bank.cyl_state);
+        };
+        let side = SideWork { costs: &self.runner_cells, job: &job };
+        let valve_of = |b: usize| unsafe { bank_state.get_ref(b) }.valve_state;
+
         let cam_spec = if self.on_high_cam { self.high_cam_spec.as_ref().unwrap() } else { &self.spec };
-        let intake = if self.on_short_runners { self.intake_short.as_ref().unwrap() } else { &self.intake_long };
-        let wg = &self.wg;
         // Timed, each item's time is put to the duct it reads, for the threads' balance.
-        let timing = threads > 1 && wg.timing();
+        let timing = threads > 1 && self.wg.timing();
         let omega = self.omega;
         let bore = throttle_dia_of(&self.spec.spec);
         let throat_noise = self.spec.spec.throat_noise;
@@ -2717,8 +2725,6 @@ impl EngineSim {
         let charge_volume = self.turbo.as_ref().map(|t| t.throttle_body_volume());
         let plenum = Disjoint::new(std::slice::from_mut(&mut self.plenum));
         let plenum_out = Disjoint::new(std::slice::from_mut(&mut self.plenum_out.0));
-        let cyls = Disjoint::new(&mut self.cyls);
-        let bank_state = Disjoint::new(&mut self.banks);
         let close_ns = Disjoint::new(&mut self.close_ns);
         let (pockets, floor) = self.afterfire.pockets_mut();
         let pockets = Disjoint::new(pockets);
@@ -2741,12 +2747,14 @@ impl EngineSim {
         let turbo_out = Disjoint::new(std::slice::from_mut(&mut self.turbo_out));
 
         // Each item is run once, by the one thread it is grouped to, and touches only its own state.
-        let run = |item: CloseItem| unsafe {
+        let run = |item: CloseItem, wg: &Stepped| unsafe {
             let t0 = timing.then(Instant::now);
             match item {
                 CloseItem::Bank(b) => {
-                    let ex_mdot = wg.result.valve_mass_flows[b];
-                    let in_mdot = -intake.runners[b].valve_mass_flow;
+                    wg.wait_side(b);
+                    let ex_mdot = wg.valve_mass_flow(b);
+                    let runner = step.runner_ref(b);
+                    let in_mdot = -runner.valve_mass_flow;
                     let primary = wg.primary(b);
                     let port_temp = primary.read_port().1;
                     let cyl = cyls.get(b);
@@ -2767,10 +2775,10 @@ impl EngineSim {
                         omega,
                         ex_mdot,
                         in_mdot,
-                        intake_t: intake.runners[b].port_temp,
+                        intake_t: runner.port_temp,
                         port_t: port_temp,
-                        intake_burned: intake.runners[b].inflow_burned,
-                        intake_fuel: intake.runners[b].inflow_fuel,
+                        intake_burned: runner.inflow_burned,
+                        intake_fuel: runner.inflow_fuel,
                     };
                     for _ in 0..n_sub as usize {
                         cyl.advance(cam_spec, &io);
@@ -2780,7 +2788,7 @@ impl EngineSim {
                     // What the valve sent out unburned, in the leading cells of the primary.
                     let (fuel, air) = cyl.take_exhausted();
                     let inflow = math::max(ex_mdot, 0.0) * dt;
-                    let taken = wg.result.heat_taken[b];
+                    let taken = wg.heat_taken(b);
                     let (cells, volume) = wg.afterfire_zone(b);
                     let zone_mass = primary.density_at(0) * volume;
                     let hottest = || primary.leading_state(cells).1;
@@ -2793,16 +2801,21 @@ impl EngineSim {
                 }
                 CloseItem::Plenum => {
                     // Each plenum draws from its inlet tract's throttle end, from before the tract is
-                    // stepped with its throttle's flow; with a turbo, from its charge air.
+                    // stepped with its throttle's flow; with a turbo, from its charge air. It reads
+                    // every runner.
+                    for b in 0..banks {
+                        wg.wait_side(b);
+                    }
+                    let runners = step.runners();
                     let plenum = plenum.get(0);
                     let throttle_flow = if inlet_count > 0 {
                         let mut p_up = [gas::P_AMB; 2];
                         for (k, p) in p_up.iter_mut().enumerate().take(inlet_count) {
                             *p = inlets.get(k).upstream_pressure();
                         }
-                        plenum.step(dt, &p_up[..inlet_count], gas::T_AMB, None, &intake.runners)
+                        plenum.step(dt, &p_up[..inlet_count], gas::T_AMB, None, runners)
                     } else {
-                        plenum.step(dt, &[charge_p], charge_t, charge_volume, &intake.runners)
+                        plenum.step(dt, &[charge_p], charge_t, charge_volume, runners)
                     };
                     let mut flows = [0.0; 2];
                     flows[..plenum.count()].copy_from_slice(plenum.throttle_flows());
@@ -2821,21 +2834,21 @@ impl EngineSim {
                 CloseItem::Turbo => {
                     let p = wait_for(plenum_done, stamp, &plenum_out);
                     if let Some(turbo) = &turbo {
-                        let step = turbo.get(0).step(dt, &wg.result.turbines, p.throttle_flow, p.pressure);
+                        let step = turbo.get(0).step(dt, wg.turbines(), p.throttle_flow, p.pressure);
                         *turbo_out.get(0) = CachePadded(Some(step));
                     }
                 }
                 CloseItem::Mouth(m) => {
                     let duct = wg.radiating_duct(m);
                     let (_, t, a) = duct.read_mouth();
-                    let flow = wg.result.mouth_flows[m];
+                    let flow = wg.mouth_flow(m);
                     let q = steepening.get(m).process(flow, a, t);
                     let jet = jets.get(m).process(flow, duct.mouth_area(), t, jet_noise, sample_rate);
                     *mouth_out.get(m) = CachePadded(paths.process(m, far_fields.get(m).process(q) + jet));
                 }
                 CloseItem::Shell(k) => {
                     let shell = shells.get(k);
-                    *shell_out.get(k) = CachePadded(shell.process(&wg.ducts[shell.duct()]));
+                    *shell_out.get(k) = CachePadded(shell.process(wg.duct(shell.duct())));
                 }
             }
             if let Some(t0) = t0 {
@@ -2850,34 +2863,36 @@ impl EngineSim {
                 }
             }
         };
-        if threads > 1 {
-            let groups = &self.close_groups;
-            self.pool.as_deref().unwrap().run(threads, &|w| {
+        let groups = &self.close_groups;
+        let after = |w: usize, wg: &Stepped| {
+            if threads > 1 {
                 for &item in &groups[w] {
-                    run(item);
+                    run(item, wg);
                 }
-            });
-        } else {
-            for b in 0..banks {
-                run(CloseItem::Bank(b));
+                return;
             }
-            run(CloseItem::Plenum);
+            for b in 0..banks {
+                run(CloseItem::Bank(b), wg);
+            }
+            run(CloseItem::Plenum, wg);
             for k in 0..inlet_count {
-                run(CloseItem::Inlet(k));
+                run(CloseItem::Inlet(k), wg);
             }
             if has_turbo {
-                run(CloseItem::Turbo);
+                run(CloseItem::Turbo, wg);
             }
             for m in 0..mouths {
-                run(CloseItem::Mouth(m));
+                run(CloseItem::Mouth(m), wg);
             }
             for k in 0..shell_count {
-                run(CloseItem::Shell(k));
+                run(CloseItem::Shell(k), wg);
             }
-        }
+        };
+        self.wg.advance_planned(dt, &valve_of, self.pool.as_deref(), Some(&side), Some(&after));
+
         if timing {
             for b in 0..banks {
-                self.wg.note_side_time(b, self.close_ns[b].0);
+                self.wg.note_time(b, self.close_ns[b].0);
             }
             for m in 0..mouths {
                 self.wg.note_time(self.wg.radiating_duct_index(m), self.close_ns[banks + m].0);

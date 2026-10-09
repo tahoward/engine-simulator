@@ -216,7 +216,13 @@ impl IntakeRunners {
             r.pipe.set_reservoir(p, rho, math::sqrt((gas::GAMMA_EXH * p) / rho));
             r.feed = feed;
         }
-        IntakeStep { io: *io, substeps, runners: self.runners.as_mut_ptr(), _runners: std::marker::PhantomData }
+        IntakeStep {
+            io: *io,
+            substeps,
+            runners: self.runners.as_mut_ptr(),
+            count: self.runners.len(),
+            _runners: std::marker::PhantomData,
+        }
     }
 }
 
@@ -226,6 +232,7 @@ pub struct IntakeStep<'a> {
     io: RunnerIo,
     substeps: usize,
     runners: *mut Runner,
+    count: usize,
     _runners: std::marker::PhantomData<&'a mut IntakeRunners>,
 }
 
@@ -234,6 +241,25 @@ unsafe impl Sync for IntakeStep<'_> {}
 unsafe impl Send for IntakeStep<'_> {}
 
 impl IntakeStep<'_> {
+    /// Runner `b`, to read once it is stepped.
+    ///
+    /// # Safety
+    ///
+    /// No thread may be stepping runner `b` while the result is alive.
+    pub unsafe fn runner_ref(&self, b: usize) -> &Runner {
+        assert!(b < self.count);
+        unsafe { &*self.runners.add(b) }
+    }
+
+    /// Every runner, to read once they are all stepped.
+    ///
+    /// # Safety
+    ///
+    /// No thread may be stepping a runner while the result is alive.
+    pub unsafe fn runners(&self) -> &[Runner] {
+        unsafe { std::slice::from_raw_parts(self.runners, self.count) }
+    }
+
     /// Step runner `b` through the sample, onto its intake `valve` and a cylinder holding `cyl`.
     ///
     /// # Safety

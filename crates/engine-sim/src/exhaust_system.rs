@@ -11,13 +11,15 @@ use std::time::Instant;
 
 use crate::afterfire::AFTERFIRE_ZONE_LENGTH;
 use crate::dsp::Noise;
-use crate::euler_pipe::{DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, OutletKind, ValveState};
+use crate::euler_pipe::{
+    DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, JunctionEnd, JunctionFace, OutletKind, ValveState,
+};
 use crate::exhaust_graph::{
     DuctRole, End, ExhaustGraph, TurboMount, ends_at, node_order, path_to_air, radiating_ducts, validate_graph,
     valve_ducts,
 };
 use crate::math::{self, PI, clamp};
-use crate::pool::{CachePadded, Disjoint, ThreadPool};
+use crate::pool::{CachePadded, Disjoint, ThreadPool, wait_until};
 use crate::spec::gas;
 use crate::turbo;
 
@@ -27,8 +29,15 @@ const MERGE_TURBULENCE: f64 = 0.14;
 /// Specific heat at constant pressure for exhaust gas, J/(kg K).
 const CP_EXH: f64 = (gas::GAMMA_EXH * gas::R) / (gas::GAMMA_EXH - 1.0);
 
-/// Relative mass-flux imbalance below which a junction is left alone.
-const JUNCTION_BALANCE_TOL: f64 = 0.005;
+/// Relative mass-flux imbalance below which a junction is left alone: a plain junction's, against the
+/// flow through it, and a turbine junction's, against the turbine's. A plain junction takes two
+/// trials at most, so it is held closer.
+const JUNCTION_BALANCE_TOL: f64 = 0.0005;
+const TURBINE_BALANCE_TOL: f64 = 0.0005;
+
+/// The range a junction's measured flux slope is trusted over, as a share of the acoustic estimate.
+const SLOPE_GAIN_MIN: f64 = 1.0;
+const SLOPE_GAIN_MAX: f64 = 5.0;
 
 /// Fewest cells worth handing a thread of their own: below it, handing off costs more than it saves.
 const MIN_CELLS_PER_THREAD: usize = 40;
@@ -76,13 +85,17 @@ struct JunctionNode {
     /// Ducts emptying into the node, and ducts leaving it: indices into `ExhaustSystem::ducts`.
     outlets: Vec<usize>,
     inlets: Vec<usize>,
-    /// End states, outlets first then inlets.
+    /// End states, outlets first then inlets, and each as the boundary takes it.
     states: Vec<EndState>,
+    ends: Vec<JunctionEnd>,
     /// Ducts leaving the node, as slots of `fed_by_node`, and the share of the mixing noise each takes.
     downstream: Vec<(usize, f64)>,
     noise: Noise,
     lp1: f64,
     lp2: f64,
+    /// How steeply its ducts' flux actually follows its pressure, as a share of the acoustic estimate
+    /// `A / c`, as its last solve measured it: on the one pressure, or a turbine's two sides.
+    gain: [f64; 2],
 }
 
 /// What one turbine did over an `advance`: the power it took from the exhaust and the power of the
@@ -147,8 +160,18 @@ pub struct ExhaustSystem {
     afterfire_heat: Vec<f64>,
     zone_cells: Vec<usize>,
     zone_volume: Vec<f64>,
-    /// What each duct's own boundaries and update gave over a substep, gathered in duct order.
+    /// What each duct's own boundaries and update gave over the sample, gathered in duct order.
     duct_out: Vec<DuctOut>,
+    /// Per duct, what it puts ahead of each substep's reconstruction for the junctions at its ends;
+    /// and per duct end, by `2 * duct + end`, the junction boundary solved there.
+    ahead: Vec<Ahead>,
+    junction_faces: Vec<CachePadded<JunctionFace>>,
+    /// Per duct, the stamp of the substep it last put its ends ahead for and was last finished for;
+    /// per side item, the first substep of the last sample it was stepped for. Each is set by the
+    /// thread that does the work, for the threads that read what it leaves.
+    ahead_done: Vec<CachePadded<AtomicU64>>,
+    duct_done: Vec<CachePadded<AtomicU64>>,
+    side_done: Vec<CachePadded<AtomicU64>>,
     /// What each thread steps, for a pool of `groups_for` threads alongside side work costing
     /// `groups_side`: ducts by their index, side items past them.
     groups: Vec<Vec<usize>>,
@@ -163,29 +186,58 @@ pub struct ExhaustSystem {
     samples: u64,
     timing: bool,
     since_balance: u64,
-    /// The junctions in sets that share ducts, each in node order, and the set each duct ends at, if
-    /// any: sets share nothing, so each can be solved on a thread of its own. Per set, its anchor, the
-    /// longest duct ending at it, on whose thread it is solved; its stamp once solved this substep and
-    /// its worst imbalance; and per thread, the sets it solves.
-    ///
-    /// A set's time is left out of the threads' balance: put to its anchor, it would weigh on that
-    /// thread's share of the reconstruction too, which it has no part in, and leave it short.
-    junction_sets: Vec<Vec<usize>>,
-    duct_set: Vec<Option<usize>>,
-    set_anchor: Vec<usize>,
-    set_done: Vec<CachePadded<AtomicU64>>,
-    set_residual: Vec<CachePadded<f64>>,
-    thread_sets: Vec<Vec<usize>>,
-    /// Substeps advanced, the stamp the sets are marked solved with.
+    /// Each junction reads what its ducts put ahead and writes only its own boundaries and what it
+    /// feeds, so each can be solved on a thread of its own. Per duct, the junction at each end, inlet
+    /// then outlet, if any. Per junction, the ducts it reads, those ending at it and those it feeds;
+    /// its anchor, the longest duct ending at it, on whose thread it is solved and to whose time its
+    /// own is put; its stamp once solved this substep, and its worst imbalance yet. Per thread, the
+    /// junctions it solves; and the junctions with a turbine.
+    duct_nodes: Vec<[Option<usize>; 2]>,
+    node_reads: Vec<Vec<usize>>,
+    node_anchor: Vec<usize>,
+    node_done: Vec<CachePadded<AtomicU64>>,
+    node_residual: Vec<CachePadded<f64>>,
+    thread_nodes: Vec<Vec<usize>>,
+    turbine_junctions: Vec<usize>,
+    /// Substeps advanced, the stamp each part of a substep is marked done with.
     substeps_done: u64,
     /// The thread each duct and side item was stepped on in the last `advance_on`, and how many there
-    /// were.
+    /// were; and which dealing out of them that was, by `groups_id`.
     owner: Vec<usize>,
     threads_used: usize,
+    groups_id: u64,
 }
 
-/// One duct's part of an `ExhaustResult` over one substep, on a cache line of its own, as each
-/// duct's may be written from a thread of its own.
+/// What a duct puts ahead of a substep's reconstruction for the junctions at its ends, on cache lines
+/// of its own: its end states, inlet then outlet, as the reconstruction will leave them, and its port
+/// as `read_port` reads it, which the reconstruction leaves alone.
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(align(128))]
+struct Ahead {
+    ends: [EndState; 2],
+    port: (f64, f64, f64),
+}
+
+impl Ahead {
+    /// Ahead of `duct`'s reconstruction over `dt`.
+    fn of(duct: &EulerPipe, dt: f64) -> Ahead {
+        Ahead {
+            ends: [duct.end_state_ahead(DuctEnd::Inlet, dt), duct.end_state_ahead(DuctEnd::Outlet, dt)],
+            port: duct.read_port(),
+        }
+    }
+
+    /// The same, taken from `duct` once it is reconstructed, as one thread does.
+    fn after(duct: &EulerPipe) -> Ahead {
+        Ahead { ends: [duct.end_state(DuctEnd::Inlet), duct.end_state(DuctEnd::Outlet)], port: duct.read_port() }
+    }
+}
+
+/// The last `ExhaustSystem::groups_id` given out, by any exhaust.
+static GROUPS_DEALT: AtomicU64 = AtomicU64::new(0);
+
+/// One duct's part of an `ExhaustResult`, over one substep or summed over a sample, on a cache line of
+/// its own, as each duct's may be written from a thread of its own.
 #[derive(Clone, Copy, Debug, Default)]
 #[repr(align(128))]
 struct DuctOut {
@@ -196,6 +248,131 @@ struct DuctOut {
     /// pressure in its first cell, Pa, as `read_port` gives it, for its valve next sample.
     broken: bool,
     port_pressure: f64,
+}
+
+impl DuctOut {
+    /// Fold one of a sample's `substeps` into it, the first starting it afresh. On the last, the flows
+    /// become their mean over the sample, or nothing from a duct that broke.
+    fn add(&mut self, step: DuctOut, first: bool, last: bool, substeps: usize) {
+        if first {
+            self.mouth_flow = 0.0;
+            self.valve_flow = 0.0;
+            self.heat = 0.0;
+        }
+        self.mouth_flow += step.mouth_flow;
+        self.valve_flow += step.valve_flow;
+        self.heat += step.heat;
+        if last {
+            self.broken = step.broken;
+            self.port_pressure = step.port_pressure;
+            let inv = if step.broken { 0.0 } else { 1.0 / substeps as f64 };
+            self.mouth_flow *= inv;
+            self.valve_flow *= inv;
+        }
+    }
+}
+
+impl TurbineResult {
+    /// From its sum over a sample's substeps to its mean, `per` being one over their count.
+    fn average(&mut self, per: f64) {
+        self.power *= per;
+        self.isentropic_power *= per;
+        self.flow *= per;
+        self.bypass_flow *= per;
+        self.inlet *= per;
+        self.outlet *= per;
+    }
+}
+
+/// The exhaust as `advance_on` leaves it, for the work it is given to do once the ducts are stepped:
+/// each part read once the thread stepping it is done with it, waiting for that if it is not yet.
+pub struct Stepped<'a> {
+    ducts: &'a Disjoint<'a, EulerPipe>,
+    out: &'a Disjoint<'a, DuctOut>,
+    turbines: &'a Disjoint<'a, TurbineResult>,
+    radiating: &'a [usize],
+    zone_cells: &'a [usize],
+    zone_volume: &'a [f64],
+    /// On threads, the stamps to wait for; on one, everything is done before the work starts.
+    progress: Option<Progress<'a>>,
+}
+
+struct Progress<'a> {
+    duct_done: &'a [CachePadded<AtomicU64>],
+    side_done: &'a [CachePadded<AtomicU64>],
+    node_done: &'a [CachePadded<AtomicU64>],
+    turbine_junctions: &'a [usize],
+    /// The sample's first substep, and its last.
+    first: u64,
+    last: u64,
+}
+
+impl Stepped<'_> {
+    fn wait_duct(&self, i: usize) {
+        if let Some(p) = &self.progress {
+            wait_until(&p.duct_done[i], p.last);
+        }
+    }
+
+    /// Duct `i`, stepped through the sample.
+    pub fn duct(&self, i: usize) -> &EulerPipe {
+        self.wait_duct(i);
+        // Its thread is done with it until the next sample.
+        unsafe { self.ducts.get_ref(i) }
+    }
+
+    /// Cylinder `b`'s primary.
+    pub fn primary(&self, b: usize) -> &EulerPipe {
+        self.duct(b)
+    }
+
+    /// The duct radiating from mouth `m`.
+    pub fn radiating_duct(&self, m: usize) -> &EulerPipe {
+        self.duct(self.radiating[m])
+    }
+
+    fn out(&self, i: usize) -> &DuctOut {
+        self.wait_duct(i);
+        unsafe { self.out.get_ref(i) }
+    }
+
+    /// `ExhaustResult::valve_mass_flows[b]`.
+    pub fn valve_mass_flow(&self, b: usize) -> f64 {
+        self.out(b).valve_flow
+    }
+
+    /// `ExhaustResult::heat_taken[b]`.
+    pub fn heat_taken(&self, b: usize) -> f64 {
+        self.out(b).heat
+    }
+
+    /// `ExhaustResult::mouth_flows[m]`.
+    pub fn mouth_flow(&self, m: usize) -> f64 {
+        self.out(self.radiating[m]).mouth_flow
+    }
+
+    /// `ExhaustResult::turbines`.
+    pub fn turbines(&self) -> &[TurbineResult] {
+        if let Some(p) = &self.progress {
+            for &ni in p.turbine_junctions {
+                wait_until(&p.node_done[ni], p.last);
+            }
+        }
+        // Each is written only by its junction's thread, which is done with it.
+        unsafe { self.turbines.as_slice() }
+    }
+
+    /// Wait for side item `k` to be stepped, before reading what it leaves.
+    pub fn wait_side(&self, k: usize) {
+        if let Some(p) = &self.progress {
+            wait_until(&p.side_done[k], p.first);
+        }
+    }
+
+    /// Cylinder `b`'s afterfire zone: its primary's leading cells, how many, and their volume, m^3.
+    pub fn afterfire_zone(&self, b: usize) -> (usize, f64) {
+        (self.zone_cells[b], self.zone_volume[b])
+    }
 }
 
 /// What a duct reads to finish a substep, shared by every thread.
@@ -209,15 +386,23 @@ struct FinishInputs<'a> {
     zone_volume: &'a [f64],
     fed_by_node: &'a Disjoint<'a, (usize, ValveState)>,
     fed_flow: &'a Disjoint<'a, f64>,
+    faces: &'a Disjoint<'a, CachePadded<JunctionFace>>,
+    duct_nodes: &'a [[Option<usize>; 2]],
 }
 
 impl FinishInputs<'_> {
-    /// Duct `i`'s own boundaries, valve or junction source, conservative update and thermal pass,
+    /// Duct `i`'s junction boundaries, own boundaries, valve or junction source, conservative update and thermal pass,
     /// and on the last substep its recovery if it has broken. It touches no other duct, so the ducts
     /// can be finished in any order, or at once, and each duct's cells stay with the thread that
     /// steps it.
     fn finish(&self, i: usize, duct: &mut EulerPipe) -> DuctOut {
         let h = self.h;
+        for end in [DuctEnd::Inlet, DuctEnd::Outlet] {
+            if self.duct_nodes[i][end as usize].is_some() {
+                // Solved by the junction there, which is done with it.
+                duct.take_junction_face(end, unsafe { &mut self.faces.get(2 * i + end as usize).0 });
+            }
+        }
         let mut out = DuctOut { mouth_flow: duct.apply_own_boundaries(h), ..DuctOut::default() };
         if i < self.primaries {
             let valve = (self.valves)(i);
@@ -247,9 +432,11 @@ impl FinishInputs<'_> {
 }
 
 /// What solving the junctions reaches into, each junction's own part handed to the one thread that
-/// solves it. Junctions that share no duct share nothing at all here, so they can be solved at once.
+/// solves it: its node, what its ducts put ahead, its boundary at each, and the ducts it feeds. No
+/// two junctions write any of the same, so they can be solved at once.
 struct Junctions<'a> {
-    ducts: &'a Disjoint<'a, EulerPipe>,
+    ahead: &'a Disjoint<'a, Ahead>,
+    faces: &'a Disjoint<'a, CachePadded<JunctionFace>>,
     nodes: Disjoint<'a, JunctionNode>,
     turbine_nodes: Disjoint<'a, TurbineNode>,
     turbine_results: Disjoint<'a, TurbineResult>,
@@ -263,11 +450,18 @@ struct Junctions<'a> {
 }
 
 impl Junctions<'_> {
-    // Each accessor hands out what only the junction being solved, on the thread solving it, touches:
-    // its node, the ducts that end at it, and the ducts it feeds.
+    // Each accessor hands out what only the junction being solved, on the thread solving it, touches,
+    // or what its ducts' threads have put ahead for it.
+
+    /// Duct `d`'s end state at `end`.
+    fn end(&self, d: usize, end: DuctEnd) -> EndState {
+        unsafe { self.ahead.get_ref(d) }.ends[end as usize]
+    }
+
+    /// The boundary at duct `d`'s `end`.
     #[allow(clippy::mut_from_ref)]
-    fn duct(&self, i: usize) -> &mut EulerPipe {
-        unsafe { self.ducts.get(i) }
+    fn face(&self, d: usize, end: DuctEnd) -> &mut JunctionFace {
+        unsafe { &mut self.faces.get(2 * d + end as usize).0 }
     }
 
     #[allow(clippy::mut_from_ref)]
@@ -285,6 +479,18 @@ impl Junctions<'_> {
         unsafe { self.fed_flow.get(slot) }
     }
 
+    /// The end states of `node`'s ducts, outlets then inlets, each as its boundary takes it, with what
+    /// the boundaries last probed against the ones before forgotten.
+    fn read_ends(&self, node: &mut JunctionNode) {
+        let n_out = node.outlets.len();
+        for (k, &d) in node.outlets.iter().chain(&node.inlets).enumerate() {
+            let end = if k < n_out { DuctEnd::Outlet } else { DuctEnd::Inlet };
+            node.states[k] = self.end(d, end);
+            node.ends[k] = JunctionEnd::new(&node.states[k]);
+            self.face(d, end).forget_probe();
+        }
+    }
+
     /// Junction `ni`, at constant pressure: the common pressure in closed form from the waves arriving,
     /// held within what the branches can justify, then Newton-corrected toward mass balance. Returns
     /// the relative mass imbalance it is left with.
@@ -293,14 +499,9 @@ impl Junctions<'_> {
             return self.solve_turbine(ni, slot);
         }
         let node = self.node(ni);
+        self.read_ends(node);
         let n_out = node.outlets.len();
         let n_ends = n_out + node.inlets.len();
-        for i in 0..n_out {
-            node.states[i] = self.duct(node.outlets[i]).end_state(DuctEnd::Outlet);
-        }
-        for i in 0..node.inlets.len() {
-            node.states[n_out + i] = self.duct(node.inlets[i]).end_state(DuctEnd::Inlet);
-        }
 
         let mut num = 0.0;
         let mut den = 0.0;
@@ -339,20 +540,32 @@ impl Junctions<'_> {
 
         if den > 0.0 {
             let tol = JUNCTION_BALANCE_TOL * math::max(scale_guess, 1e-9);
+            // The first step along the slope the last solve measured, each after it along the secant
+            // through the last two trials.
+            let mut slope = den * node.gain[0];
+            let mut last: Option<(f64, f64)> = None;
             for _ in 0..2 {
                 let mut r = 0.0;
                 for i in 0..n_out {
-                    let st = node.states[i];
-                    r += self.duct(node.outlets[i]).probe_junction(DuctEnd::Outlet, gauge, t_junction, &st);
+                    let st = &node.ends[i];
+                    r += self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, gauge, t_junction, false, st);
                 }
                 for i in 0..node.inlets.len() {
-                    let st = node.states[n_out + i];
-                    r -= self.duct(node.inlets[i]).probe_junction(DuctEnd::Inlet, gauge, t_junction, &st);
+                    let st = &node.ends[n_out + i];
+                    r -= self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, gauge, t_junction, false, st);
                 }
                 if !r.is_finite() || r.abs() <= tol {
                     break;
                 }
-                let next = clamp(gas::P_AMB + gauge + r / den, 0.3 * p_min, 3.0 * p_max) - gas::P_AMB;
+                if let Some((g0, r0)) = last {
+                    let measured = (r0 - r) / (gauge - g0);
+                    if measured.is_finite() && measured > 0.0 {
+                        slope = clamp(measured, SLOPE_GAIN_MIN * den, SLOPE_GAIN_MAX * den);
+                        node.gain[0] = slope / den;
+                    }
+                }
+                last = Some((gauge, r));
+                let next = clamp(gas::P_AMB + gauge + r / slope, 0.3 * p_min, 3.0 * p_max) - gas::P_AMB;
                 if next == gauge {
                     break;
                 }
@@ -363,14 +576,14 @@ impl Junctions<'_> {
         let mut signed = 0.0;
         let mut scale = 0.0;
         for i in 0..n_out {
-            let st = node.states[i];
-            let f = self.duct(node.outlets[i]).apply_junction(DuctEnd::Outlet, gauge, t_junction, &st);
+            let st = &node.ends[i];
+            let f = self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, gauge, t_junction, true, st);
             signed += f;
             scale += f.abs();
         }
         for i in 0..node.inlets.len() {
-            let st = node.states[n_out + i];
-            let f = self.duct(node.inlets[i]).apply_junction(DuctEnd::Inlet, gauge, t_junction, &st);
+            let st = &node.ends[n_out + i];
+            let f = self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, gauge, t_junction, true, st);
             signed -= f;
             scale += f.abs();
         }
@@ -394,14 +607,9 @@ impl Junctions<'_> {
         let k = k_t + k_wg;
 
         let node = self.node(ni);
+        self.read_ends(node);
         let n_out = node.outlets.len();
         let n_in = node.inlets.len();
-        for i in 0..n_out {
-            node.states[i] = self.duct(node.outlets[i]).end_state(DuctEnd::Outlet);
-        }
-        for i in 0..n_in {
-            node.states[n_out + i] = self.duct(node.inlets[i]).end_state(DuctEnd::Inlet);
-        }
 
         // Each side on its own: the pressure it would sit at passing nothing, its slope, its range, and
         // the stagnation temperature of what arrives from it.
@@ -439,6 +647,11 @@ impl Junctions<'_> {
         };
         let mut up = side(&node.states[..n_out], true);
         let mut down = side(&node.states[n_out..], false);
+        // Each side's slope as the last solve measured it, and after that along the secant through its
+        // last two trials.
+        let acoustic = [up.slope, down.slope];
+        up.slope = acoustic[0] * node.gain[0];
+        down.slope = acoustic[1] * node.gain[1];
         let last = node.states[n_out - 1];
         let t_up = if up.m_in > 1e-12 { up.h_in / up.m_in } else { last.p / (math::max(last.rho, 1e-7) * gas::R) };
         let first = node.states[n_out];
@@ -490,21 +703,35 @@ impl Junctions<'_> {
 
         let mut m = solve(&up, &down);
         let (mut g_up, mut g_down) = pressures(&up, &down, m);
-        let tol = JUNCTION_BALANCE_TOL * math::max(m.abs(), 1e-6);
+        let tol = TURBINE_BALANCE_TOL * math::max(m.abs(), 1e-6);
+        let mut last: Option<(f64, f64, f64, f64)> = None;
         for _ in 0..4 {
             let mut f_up = 0.0;
             for i in 0..n_out {
-                let st = node.states[i];
-                f_up += self.duct(node.outlets[i]).probe_junction(DuctEnd::Outlet, g_up, t_up, &st);
+                let st = &node.ends[i];
+                f_up += self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, g_up, t_up, false, st);
             }
             let mut f_down = 0.0;
             for i in 0..n_in {
-                let st = node.states[n_out + i];
-                f_down += self.duct(node.inlets[i]).probe_junction(DuctEnd::Inlet, g_down, t_down_back, &st);
+                let st = &node.ends[n_out + i];
+                f_down += self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, g_down, t_down_back, false, st);
             }
             if !(f_up.is_finite() && f_down.is_finite()) || ((f_up - m).abs() <= tol && (f_down - m).abs() <= tol) {
                 break;
             }
+            if let Some((gu0, fu0, gd0, fd0)) = last {
+                let su = (fu0 - f_up) / (g_up - gu0);
+                if su.is_finite() && su > 0.0 {
+                    up.slope = clamp(su, SLOPE_GAIN_MIN * acoustic[0], SLOPE_GAIN_MAX * acoustic[0]);
+                    node.gain[0] = up.slope / acoustic[0];
+                }
+                let sd = (f_down - fd0) / (g_down - gd0);
+                if sd.is_finite() && sd > 0.0 {
+                    down.slope = clamp(sd, SLOPE_GAIN_MIN * acoustic[1], SLOPE_GAIN_MAX * acoustic[1]);
+                    node.gain[1] = down.slope / acoustic[1];
+                }
+            }
+            last = Some((g_up, f_up, g_down, f_down));
             // Move each side's line through the flux it actually passes, and solve again.
             up.zero = g_up + f_up / up.slope;
             down.zero = g_down - f_down / down.slope;
@@ -528,14 +755,14 @@ impl Junctions<'_> {
         let mut signed = 0.0;
         let mut scale = 0.0;
         for i in 0..n_out {
-            let st = node.states[i];
-            let f = self.duct(node.outlets[i]).apply_junction(DuctEnd::Outlet, g_up, t_up, &st);
+            let st = &node.ends[i];
+            let f = self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, g_up, t_up, true, st);
             signed += f;
             scale += f.abs();
         }
         for i in 0..n_in {
-            let st = node.states[n_out + i];
-            let f = self.duct(node.inlets[i]).apply_junction(DuctEnd::Inlet, g_down, t_leaving, &st);
+            let st = &node.ends[n_out + i];
+            let f = self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, g_down, t_leaving, true, st);
             signed -= f;
             scale += f.abs();
         }
@@ -618,7 +845,7 @@ impl Junctions<'_> {
         for &(slot, share) in &node.downstream {
             *self.fed_flow(slot) = node.lp2 * share;
             let fed = self.fed(slot);
-            let (p, t, a) = self.duct(fed.0).read_port();
+            let (p, t, a) = unsafe { self.ahead.get_ref(fed.0) }.port;
             let valve = &mut fed.1;
             valve.cyl_temp = t;
             valve.cyl_pressure = p;
@@ -627,52 +854,18 @@ impl Junctions<'_> {
     }
 }
 
-/// The junctions in sets that share ducts, each set in node order, and the set each of `ducts` ducts
-/// ends at, if any.
-fn junction_sets(nodes: &[JunctionNode], ducts: usize) -> (Vec<Vec<usize>>, Vec<Option<usize>>) {
-    // Each node's set, by the lowest node it is joined to through a duct.
-    let mut root: Vec<usize> = (0..nodes.len()).collect();
-    fn find(root: &mut [usize], mut i: usize) -> usize {
-        while root[i] != i {
-            root[i] = root[root[i]];
-            i = root[i];
-        }
-        i
-    }
-    let mut at: Vec<Option<usize>> = vec![None; ducts];
-    for (ni, node) in nodes.iter().enumerate() {
-        for &d in node.outlets.iter().chain(&node.inlets) {
-            match at[d] {
-                Some(other) => {
-                    let (a, b) = (find(&mut root, ni), find(&mut root, other));
-                    root[a.max(b)] = a.min(b);
-                }
-                None => at[d] = Some(ni),
-            }
-        }
-    }
-    let mut sets: Vec<Vec<usize>> = Vec::new();
-    let mut set_of_root: Vec<Option<usize>> = vec![None; nodes.len()];
-    let mut node_set = vec![0; nodes.len()];
-    for ni in 0..nodes.len() {
-        let r = find(&mut root, ni);
-        let k = *set_of_root[r].get_or_insert_with(|| {
-            sets.push(Vec::new());
-            sets.len() - 1
-        });
-        sets[k].push(ni);
-        node_set[ni] = k;
-    }
-    let duct_set = at.iter().map(|n| n.map(|ni| node_set[ni])).collect();
-    (sets, duct_set)
-}
-
 /// Work that is independent of the exhaust for a sample, stepped alongside its ducts: `costs[k]` is
-/// what item `k` costs, in cells, and `job(k)` steps it. Each item is stepped once per `advance_on`.
+/// what item `k` costs, in cells, and `job(k)` steps it. Each item is stepped once per `advance_on`,
+/// in its first substep, item `b` before primary `b`'s valve is read.
 pub struct SideWork<'a> {
     pub costs: &'a [usize],
     pub job: &'a (dyn Fn(usize) + Sync),
 }
+
+/// Work that reads the exhaust once a sample has stepped it: called once on each thread `advance_on`
+/// runs, with that thread's index, after the thread has done its own part of the sample; on one, once
+/// the sample is done. What it reads of the exhaust, it reads through `Stepped`, which waits for it.
+pub type After<'a> = dyn Fn(usize, &Stepped<'_>) + Sync + 'a;
 
 /// Ducts and side items split into `threads` groups of about equal cost, the costliest placed first,
 /// each onto the group with the least so far; each group in order, ducts first.
@@ -839,12 +1032,14 @@ impl ExhaustSystem {
                 .collect();
             nodes.push(JunctionNode {
                 states: vec![EndState::default(); all.len()],
+                ends: vec![JunctionEnd::default(); all.len()],
                 outlets: outlet_ends,
                 inlets: inlet_ends,
                 downstream,
                 noise: Noise::new(0x7f4a3b as f64 + n as f64 * 0x9e3779b as f64),
                 lp1: 0.0,
                 lp2: 0.0,
+                gain: [1.0; 2],
             });
         }
 
@@ -886,10 +1081,33 @@ impl ExhaustSystem {
         // `FinishInputs::finish` finds a duct's slot from its position.
         debug_assert!(fed_by_node.iter().enumerate().all(|(k, f)| f.0 == valve_fed.len() + k));
         let fed_flow = vec![0.0; fed_by_node.len()];
-        let (junction_sets, duct_set) = junction_sets(&nodes, ducts.len());
-        let set_anchor: Vec<usize> = (0..junction_sets.len())
+        let mut duct_nodes = vec![[None; 2]; ducts.len()];
+        for (ni, node) in nodes.iter().enumerate() {
+            for &d in &node.outlets {
+                duct_nodes[d][DuctEnd::Outlet as usize] = Some(ni);
+            }
+            for &d in &node.inlets {
+                duct_nodes[d][DuctEnd::Inlet as usize] = Some(ni);
+            }
+        }
+        let node_reads: Vec<Vec<usize>> = nodes
+            .iter()
+            .map(|node| {
+                let fed = node.downstream.iter().map(|&(slot, _)| valve_fed.len() + slot);
+                let mut reads: Vec<usize> = node.outlets.iter().chain(&node.inlets).copied().chain(fed).collect();
+                reads.sort();
+                reads.dedup();
+                reads
+            })
+            .collect();
+        let node_anchor: Vec<usize> = nodes
+            .iter()
+            .map(|node| *node.outlets.iter().chain(&node.inlets).max_by_key(|&&d| (ducts[d].n, Reverse(d))).unwrap())
+            .collect();
+        let junction_faces = (0..2 * ducts.len())
             .map(|k| {
-                (0..ducts.len()).filter(|&d| duct_set[d] == Some(k)).max_by_key(|&d| (ducts[d].n, Reverse(d))).unwrap()
+                let end = if k % 2 == 0 { DuctEnd::Inlet } else { DuctEnd::Outlet };
+                CachePadded(JunctionFace::new(ducts[k / 2].end_face_area(end)))
             })
             .collect();
 
@@ -902,6 +1120,8 @@ impl ExhaustSystem {
                 Some(turbine_mounts.len() - 1)
             })
             .collect();
+        let turbine_junctions = (0..nodes.len()).filter(|&ni| turbine_slot[ni].is_some()).collect();
+        let node_count = nodes.len();
         let turbine_nodes: Vec<TurbineNode> = (0..nodes.len())
             .map(|n| TurbineNode {
                 noise: Noise::new(0x51ed_2705 as f64 + n as f64 * 0x9e3779b as f64),
@@ -945,15 +1165,22 @@ impl ExhaustSystem {
             groups: Vec::new(),
             groups_for: 0,
             groups_side: Vec::new(),
-            set_done: (0..junction_sets.len()).map(|_| CachePadded(AtomicU64::new(0))).collect(),
-            set_residual: vec![CachePadded(0.0); junction_sets.len()],
-            thread_sets: Vec::new(),
-            set_anchor,
-            junction_sets,
-            duct_set,
+            ahead: vec![Ahead::default(); duct_count],
+            junction_faces,
+            ahead_done: (0..duct_count).map(|_| CachePadded(AtomicU64::new(0))).collect(),
+            duct_done: (0..duct_count).map(|_| CachePadded(AtomicU64::new(0))).collect(),
+            side_done: Vec::new(),
+            node_done: (0..node_count).map(|_| CachePadded(AtomicU64::new(0))).collect(),
+            node_residual: vec![CachePadded(0.0); node_count],
+            thread_nodes: Vec::new(),
+            turbine_junctions,
+            duct_nodes,
+            node_reads,
+            node_anchor,
             substeps_done: 0,
             owner: vec![0; duct_count],
             threads_used: 1,
+            groups_id: 0,
             unit_time: vec![CachePadded(0.0); duct_count],
             unit_cost: vec![0.0; duct_count],
             costs_known: false,
@@ -1041,7 +1268,7 @@ impl ExhaustSystem {
 
     /// Advance every duct by `dt`, on one shared substep count.
     pub fn advance(&mut self, dt: f64, valves: &[ValveState]) -> &ExhaustResult {
-        self.advance_on(dt, &|b| valves[b], None, 1, None)
+        self.advance_on(dt, &|b| valves[b], None, 1, None, None)
     }
 
     /// Threads worth giving this exhaust and `side`, out of `available`: enough cells for each to be
@@ -1051,27 +1278,14 @@ impl ExhaustSystem {
         available.min(self.ducts.len() + side.len()).min(cells / MIN_CELLS_PER_THREAD).max(1)
     }
 
-    /// Whether this sample is being timed, for the threads' balance: if it is, the caller times what it
-    /// does with each duct's cells afterwards, on that duct's thread, and adds it with `note_time`.
+    /// Whether this sample is being timed, for the threads' balance: if it is, the caller times what its
+    /// `after` work does with each duct's cells, on that duct's thread, and adds it with `note_time`.
     pub fn timing(&self) -> bool {
         self.timing
     }
 
     pub fn note_time(&mut self, duct: usize, ns: f64) {
         self.unit_time[duct].0 += ns;
-    }
-
-    /// `note_time` for side item `k`.
-    pub fn note_side_time(&mut self, k: usize, ns: f64) {
-        let i = self.ducts.len() + k;
-        if let Some(t) = self.unit_time.get_mut(i) {
-            t.0 += ns;
-        }
-    }
-
-    /// The thread side item `k` was stepped on in the last `advance_on`.
-    pub fn side_owner(&self, k: usize) -> usize {
-        self.owner.get(self.ducts.len() + k).copied().unwrap_or(0)
     }
 
     /// Pressure in primary `b`'s first cell, Pa, as it stands between samples: what `read_port` gives,
@@ -1122,17 +1336,25 @@ impl ExhaustSystem {
                 self.owner[i] = w;
             }
         }
-        // Each set of junctions to its anchor's thread, which holds the most of its cells.
-        self.thread_sets = vec![Vec::new(); groups.len()];
-        for (k, &anchor) in self.set_anchor.iter().enumerate() {
-            self.thread_sets[self.owner[anchor]].push(k);
+        // Each junction to its anchor's thread, which holds the most of its cells.
+        self.thread_nodes = vec![Vec::new(); groups.len()];
+        for (ni, &anchor) in self.node_anchor.iter().enumerate() {
+            self.thread_nodes[self.owner[anchor]].push(ni);
         }
         self.groups = groups;
+        self.groups_id = GROUPS_DEALT.fetch_add(1, Ordering::Relaxed) + 1;
+    }
+
+    /// Which dealing out of the ducts and side items to threads the last `plan` chose, as `owner_of`
+    /// gives it: the same until they are dealt out afresh, and never the same for
+    /// another exhaust's, or for one thread.
+    pub fn groups_id(&self) -> u64 {
+        if self.threads_used > 1 { self.groups_id } else { 0 }
     }
 
     /// `advance`, with the ducts stepped across up to `max_threads` of `pool`'s threads where there are
-    /// enough of them to be worth it, and `side` stepped alongside them. Each duct is stepped exactly as on one thread, so
-    /// the result is the same to the bit.
+    /// enough of them to be worth it, `side` stepped alongside them, and `after` given what they leave.
+    /// Each duct is stepped exactly as on one thread, so the result is the same to the bit.
     pub fn advance_on(
         &mut self,
         dt: f64,
@@ -1140,8 +1362,16 @@ impl ExhaustSystem {
         pool: Option<&ThreadPool>,
         max_threads: usize,
         side: Option<&SideWork>,
+        after: Option<&After>,
     ) -> &ExhaustResult {
-        let side_costs = side.map_or(&[][..], |s| s.costs);
+        self.plan(pool, max_threads, side.map_or(&[][..], |s| s.costs));
+        self.advance_planned(dt, valves, pool, side, after)
+    }
+
+    /// Choose the threads the next `advance_planned` steps the ducts and side work costing
+    /// `side_costs` on, out of `max_threads` of `pool`'s, and which each duct is stepped on, as
+    /// `owner_of` then gives. Returns how many.
+    pub fn plan(&mut self, pool: Option<&ThreadPool>, max_threads: usize, side_costs: &[usize]) -> usize {
         let threads = pool.map_or(1, |p| self.useful_threads(side_costs, p.threads().min(max_threads)));
         if threads > 1 && (self.groups_for != threads || self.groups_side != side_costs) {
             // Dealt out by cells until there are timings to go on.
@@ -1151,6 +1381,7 @@ impl ExhaustSystem {
             self.owner.resize(units, 0);
             self.unit_time.resize(units, CachePadded(0.0));
             self.unit_cost.resize(units, 0.0);
+            self.side_done.resize_with(side_costs.len(), || CachePadded(AtomicU64::new(0)));
             self.set_groups(balance(&cells, threads));
             self.groups_for = threads;
             self.costs_known = false;
@@ -1169,9 +1400,24 @@ impl ExhaustSystem {
         }
         self.samples += 1;
         self.threads_used = threads;
+        threads
+    }
+
+    /// `advance_on`, on the threads `plan` chose.
+    pub fn advance_planned(
+        &mut self,
+        dt: f64,
+        valves: &(dyn Fn(usize) -> ValveState + Sync),
+        pool: Option<&ThreadPool>,
+        side: Option<&SideWork>,
+        after: Option<&After>,
+    ) -> &ExhaustResult {
+        let threads = self.threads_used;
         let timing = self.timing;
         let n_ducts = self.ducts.len();
         let n_primaries = self.primary_count;
+        let n_nodes = self.nodes.len();
+        let n_turbines = self.turbines.len();
 
         let mut substeps = 1;
         for d in self.ducts.iter_mut() {
@@ -1184,158 +1430,192 @@ impl ExhaustSystem {
         let h = dt / substeps as f64;
         self.substep_dt = h;
         self.substep_noise_scale = math::sqrt(substeps as f64);
-        self.result.mouth_flows.fill(0.0);
-        self.result.valve_mass_flows.fill(0.0);
-        self.result.heat_taken.fill(0.0);
         self.result.turbines.clear();
         self.result.turbines.resize(self.turbines.len(), TurbineResult::default());
+        let per = 1.0 / substeps as f64;
+        // Each substep's stamp: the sample's first is `first`.
+        let first = self.substeps_done + 1;
+        self.substeps_done += substeps as u64;
 
-        for step in 0..substeps {
-            // 1. Reconstruct every duct, leaving the boundary faces unset, with the side work on the
-            // first substep.
-            let side_now = side.filter(|_| step == 0);
-            if threads > 1 {
-                let ducts = Disjoint::new(&mut self.ducts);
-                let unit_time = Disjoint::new(&mut self.unit_time);
-                let groups = &self.groups;
-                pool.unwrap().run(threads, &|w| {
-                    for &i in &groups[w] {
-                        let t0 = timing.then(Instant::now);
-                        if i < n_ducts {
-                            unsafe { ducts.get(i) }.begin_step(h);
-                        } else if let Some(side) = side_now {
-                            (side.job)(i - n_ducts);
+        let ducts = Disjoint::new(&mut self.ducts);
+        let fed_by_node = Disjoint::new(&mut self.fed_by_node);
+        let fed_flow = Disjoint::new(&mut self.fed_flow);
+        let out = Disjoint::new(&mut self.duct_out);
+        let ahead = Disjoint::new(&mut self.ahead);
+        let faces = Disjoint::new(&mut self.junction_faces);
+        let junctions = Junctions {
+            ahead: &ahead,
+            faces: &faces,
+            nodes: Disjoint::new(&mut self.nodes),
+            turbine_nodes: Disjoint::new(&mut self.turbine_nodes),
+            turbine_results: Disjoint::new(&mut self.result.turbines),
+            fed_by_node: &fed_by_node,
+            fed_flow: &fed_flow,
+            turbine_slot: &self.turbine_slot,
+            turbines: &self.turbines,
+            turbulence: self.turbulence,
+            substep_dt: self.substep_dt,
+            substep_noise_scale: self.substep_noise_scale,
+        };
+        let inputs = |s: usize| FinishInputs {
+            h,
+            last: s + 1 == substeps,
+            primaries: n_primaries,
+            valves,
+            afterfire_heat: &self.afterfire_heat,
+            zone_cells: &self.zone_cells,
+            zone_volume: &self.zone_volume,
+            fed_by_node: &fed_by_node,
+            fed_flow: &fed_flow,
+            faces: &faces,
+            duct_nodes: &self.duct_nodes,
+        };
+        let mut stepped = Stepped {
+            ducts: &ducts,
+            out: &out,
+            turbines: &junctions.turbine_results,
+            radiating: &self.radiating,
+            zone_cells: &self.zone_cells,
+            zone_volume: &self.zone_volume,
+            progress: None,
+        };
+        let mut worst = self.junction_residual;
+
+        if threads > 1 {
+            // Each substep on each thread: 1. put its ducts' ends ahead of their reconstruction; 2.
+            // solve its junctions, each once every duct it reads has put its ends ahead, as soon as it
+            // can, as other threads wait for them; 3. reconstruct its ducts, leaving their boundary
+            // faces unset; 4. on the first, step its side items, which need no junction; 5. finish
+            // each of its ducts once the junctions at its ends are solved, and a primary once its
+            // valve is stepped: its junction and own boundaries, valve or junction source and update,
+            // carrying a junction's share of the mixing noise. Then its part of `after`.
+            stepped.progress = Some(Progress {
+                duct_done: &self.duct_done,
+                side_done: &self.side_done,
+                node_done: &self.node_done,
+                turbine_junctions: &self.turbine_junctions,
+                first,
+                last: first + substeps as u64 - 1,
+            });
+            let unit_time = Disjoint::new(&mut self.unit_time);
+            let node_residual = Disjoint::new(&mut self.node_residual);
+            let (groups, thread_nodes, node_reads) = (&self.groups, &self.thread_nodes, &self.node_reads);
+            let (node_anchor, duct_nodes, turbine_slot) = (&self.node_anchor, &self.duct_nodes, &self.turbine_slot);
+            let (ahead_done, duct_done, side_done) = (&self.ahead_done, &self.duct_done, &self.side_done);
+            let node_done = &self.node_done;
+            let stepped = &stepped;
+            let time = |i: usize, t0: Option<Instant>| {
+                if let Some(t0) = t0 {
+                    unsafe { unit_time.get(i) }.0 += t0.elapsed().as_nanos() as f64;
+                }
+            };
+            pool.unwrap().run(threads, &|w| {
+                let own = || groups[w].iter().copied().take_while(|&i| i < n_ducts);
+                for s in 0..substeps {
+                    let stamp = first + s as u64;
+                    let last = s + 1 == substeps;
+                    for i in own() {
+                        // Its junctions are done with what it last put ahead, as it was finished
+                        // after them.
+                        unsafe { *ahead.get(i) = Ahead::of(ducts.get_ref(i), h) };
+                        ahead_done[i].0.store(stamp, Ordering::Release);
+                    }
+                    for &ni in &thread_nodes[w] {
+                        for &d in &node_reads[ni] {
+                            wait_until(&ahead_done[d], stamp);
                         }
-                        if let Some(t0) = t0 {
-                            unsafe { unit_time.get(i) }.0 += t0.elapsed().as_nanos() as f64;
+                        let t0 = timing.then(Instant::now);
+                        let residual = unsafe { node_residual.get(ni) };
+                        let rel = junctions.solve(ni);
+                        if rel > residual.0 {
+                            residual.0 = rel;
+                        }
+                        if let Some(slot) = turbine_slot[ni].filter(|&slot| last && slot < n_turbines) {
+                            unsafe { junctions.turbine_results.get(slot) }.average(per);
+                        }
+                        node_done[ni].0.store(stamp, Ordering::Release);
+                        time(node_anchor[ni], t0);
+                    }
+                    for i in own() {
+                        let t0 = timing.then(Instant::now);
+                        unsafe { ducts.get(i) }.begin_step(h);
+                        time(i, t0);
+                    }
+                    if let Some(side) = side.filter(|_| s == 0) {
+                        for &i in groups[w].iter().skip_while(|&&i| i < n_ducts) {
+                            let t0 = timing.then(Instant::now);
+                            (side.job)(i - n_ducts);
+                            side_done[i - n_ducts].0.store(first, Ordering::Release);
+                            time(i, t0);
                         }
                     }
-                });
-            } else {
-                for d in self.ducts.iter_mut() {
-                    d.begin_step(h);
+                    let inputs = inputs(s);
+                    for i in own() {
+                        for ni in duct_nodes[i].into_iter().flatten() {
+                            wait_until(&node_done[ni], stamp);
+                        }
+                        if s == 0 && side.is_some_and(|side| i < side.costs.len()) {
+                            wait_until(&side_done[i], first);
+                        }
+                        let t0 = timing.then(Instant::now);
+                        let step = inputs.finish(i, unsafe { ducts.get(i) });
+                        unsafe { out.get(i) }.add(step, s == 0, last, substeps);
+                        duct_done[i].0.store(stamp, Ordering::Release);
+                        time(i, t0);
+                    }
                 }
-                if let Some(side) = side_now {
+                if let Some(after) = after {
+                    after(w, stepped);
+                }
+            });
+            for r in &self.node_residual {
+                if r.0 > worst {
+                    worst = r.0;
+                }
+            }
+        } else {
+            for s in 0..substeps {
+                for i in 0..n_ducts {
+                    unsafe { ducts.get(i) }.begin_step(h);
+                    unsafe { *ahead.get(i) = Ahead::after(ducts.get_ref(i)) };
+                }
+                if let Some(side) = side.filter(|_| s == 0) {
                     for k in 0..side.costs.len() {
                         (side.job)(k);
                     }
                 }
-            }
-            // 2. Solve the junctions while every duct is mid-step, and 3. each duct's own
-            // boundaries, its valve or junction source and its update: valve walls and radiating
-            // mouths, the valve flux, and everything a junction feeds carrying that junction's share
-            // of the mixing noise. On threads, each set of junctions is solved by one, and a duct that
-            // ends at one is finished once its set is.
-            self.substeps_done += 1;
-            let stamp = self.substeps_done;
-            let n_nodes = self.nodes.len();
-            let ducts = Disjoint::new(&mut self.ducts);
-            let fed_by_node = Disjoint::new(&mut self.fed_by_node);
-            let fed_flow = Disjoint::new(&mut self.fed_flow);
-            let junctions = Junctions {
-                ducts: &ducts,
-                nodes: Disjoint::new(&mut self.nodes),
-                turbine_nodes: Disjoint::new(&mut self.turbine_nodes),
-                turbine_results: Disjoint::new(&mut self.result.turbines),
-                fed_by_node: &fed_by_node,
-                fed_flow: &fed_flow,
-                turbine_slot: &self.turbine_slot,
-                turbines: &self.turbines,
-                turbulence: self.turbulence,
-                substep_dt: self.substep_dt,
-                substep_noise_scale: self.substep_noise_scale,
-            };
-            let inputs = FinishInputs {
-                h,
-                last: step + 1 == substeps,
-                primaries: n_primaries,
-                valves,
-                afterfire_heat: &self.afterfire_heat,
-                zone_cells: &self.zone_cells,
-                zone_volume: &self.zone_volume,
-                fed_by_node: &fed_by_node,
-                fed_flow: &fed_flow,
-            };
-            let mut worst = self.junction_residual;
-            if threads > 1 {
-                let out = Disjoint::new(&mut self.duct_out);
-                let unit_time = Disjoint::new(&mut self.unit_time);
-                let set_residual = Disjoint::new(&mut self.set_residual);
-                let (groups, sets, thread_sets) = (&self.groups, &self.junction_sets, &self.thread_sets);
-                let (set_done, duct_set) = (&self.set_done, &self.duct_set);
-                pool.unwrap().run(threads, &|w| {
-                    for &k in &thread_sets[w] {
-                        let mut residual = 0.0;
-                        for &ni in &sets[k] {
-                            let rel = junctions.solve(ni);
-                            if rel > residual {
-                                residual = rel;
-                            }
-                        }
-                        unsafe { set_residual.get(k) }.0 = residual;
-                        set_done[k].0.store(stamp, Ordering::Release);
-                    }
-                    for &i in groups[w].iter().take_while(|&&i| i < n_ducts) {
-                        if let Some(k) = duct_set[i] {
-                            while set_done[k].0.load(Ordering::Acquire) != stamp {
-                                std::hint::spin_loop();
-                            }
-                        }
-                        let t0 = timing.then(Instant::now);
-                        unsafe { *out.get(i) = inputs.finish(i, ducts.get(i)) };
-                        if let Some(t0) = t0 {
-                            unsafe { unit_time.get(i) }.0 += t0.elapsed().as_nanos() as f64;
-                        }
-                    }
-                });
-                for r in &self.set_residual {
-                    if r.0 > worst {
-                        worst = r.0;
-                    }
-                }
-            } else {
                 for ni in 0..n_nodes {
                     let rel = junctions.solve(ni);
                     if rel > worst {
                         worst = rel;
                     }
                 }
+                let inputs = inputs(s);
                 for i in 0..n_ducts {
-                    self.duct_out[i] = inputs.finish(i, unsafe { ducts.get(i) });
+                    let step = inputs.finish(i, unsafe { ducts.get(i) });
+                    unsafe { out.get(i) }.add(step, s == 0, s + 1 == substeps, substeps);
                 }
             }
-            self.junction_residual = worst;
-            // 4. What they gave, gathered in duct order.
-            for i in 0..n_ducts {
-                let out = self.duct_out[i];
-                let r_idx = self.radiating_index[i];
-                if r_idx >= 0 {
-                    self.result.mouth_flows[r_idx as usize] += out.mouth_flow;
-                }
-                if i < n_primaries {
-                    self.result.valve_mass_flows[i] += out.valve_flow;
-                    self.result.heat_taken[i] += out.heat;
-                }
+            for slot in 0..n_turbines {
+                unsafe { junctions.turbine_results.get(slot) }.average(per);
+            }
+            if let Some(after) = after {
+                after(0, &stepped);
             }
         }
+        self.junction_residual = worst;
 
-        let broken = self.duct_out.iter().any(|o| o.broken);
-
-        let inv = if broken { 0.0 } else { 1.0 / substeps as f64 };
-        for v in self.result.mouth_flows.iter_mut() {
-            *v *= inv;
-        }
-        for v in self.result.valve_mass_flows.iter_mut() {
-            *v *= inv;
-        }
-        let per = 1.0 / substeps as f64;
-        for t in self.result.turbines.iter_mut() {
-            t.power *= per;
-            t.isentropic_power *= per;
-            t.flow *= per;
-            t.bypass_flow *= per;
-            t.inlet *= per;
-            t.outlet *= per;
+        // What the ducts gave, gathered in duct order.
+        for i in 0..n_ducts {
+            let out = self.duct_out[i];
+            let r_idx = self.radiating_index[i];
+            if r_idx >= 0 {
+                self.result.mouth_flows[r_idx as usize] = out.mouth_flow;
+            }
+            if i < n_primaries {
+                self.result.valve_mass_flows[i] = out.valve_flow;
+                self.result.heat_taken[i] = out.heat;
+            }
         }
         self.result.substeps = substeps;
         &self.result
