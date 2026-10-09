@@ -12,7 +12,7 @@ use std::time::Instant;
 use crate::afterfire::AFTERFIRE_ZONE_LENGTH;
 use crate::dsp::Noise;
 use crate::euler_pipe::{
-    DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, JunctionFace, OutletKind, ValveState,
+    DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, JunctionEnd, JunctionFace, OutletKind, ValveState,
 };
 use crate::exhaust_graph::{
     DuctRole, End, ExhaustGraph, TurboMount, ends_at, node_order, path_to_air, radiating_ducts, validate_graph,
@@ -78,8 +78,9 @@ struct JunctionNode {
     /// Ducts emptying into the node, and ducts leaving it: indices into `ExhaustSystem::ducts`.
     outlets: Vec<usize>,
     inlets: Vec<usize>,
-    /// End states, outlets first then inlets.
+    /// End states, outlets first then inlets, and each as the boundary takes it.
     states: Vec<EndState>,
+    ends: Vec<JunctionEnd>,
     /// Ducts leaving the node, as slots of `fed_by_node`, and the share of the mixing noise each takes.
     downstream: Vec<(usize, f64)>,
     noise: Noise,
@@ -484,6 +485,9 @@ impl Junctions<'_> {
         for i in 0..node.inlets.len() {
             node.states[n_out + i] = self.end(node.inlets[i], DuctEnd::Inlet);
         }
+        for (end, st) in node.ends.iter_mut().zip(&node.states) {
+            *end = JunctionEnd::new(st);
+        }
 
         let mut num = 0.0;
         let mut den = 0.0;
@@ -525,12 +529,12 @@ impl Junctions<'_> {
             for _ in 0..2 {
                 let mut r = 0.0;
                 for i in 0..n_out {
-                    let st = node.states[i];
-                    r += self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, gauge, t_junction, false, &st);
+                    let st = &node.ends[i];
+                    r += self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, gauge, t_junction, false, st);
                 }
                 for i in 0..node.inlets.len() {
-                    let st = node.states[n_out + i];
-                    r -= self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, gauge, t_junction, false, &st);
+                    let st = &node.ends[n_out + i];
+                    r -= self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, gauge, t_junction, false, st);
                 }
                 if !r.is_finite() || r.abs() <= tol {
                     break;
@@ -546,14 +550,14 @@ impl Junctions<'_> {
         let mut signed = 0.0;
         let mut scale = 0.0;
         for i in 0..n_out {
-            let st = node.states[i];
-            let f = self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, gauge, t_junction, true, &st);
+            let st = &node.ends[i];
+            let f = self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, gauge, t_junction, true, st);
             signed += f;
             scale += f.abs();
         }
         for i in 0..node.inlets.len() {
-            let st = node.states[n_out + i];
-            let f = self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, gauge, t_junction, true, &st);
+            let st = &node.ends[n_out + i];
+            let f = self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, gauge, t_junction, true, st);
             signed -= f;
             scale += f.abs();
         }
@@ -584,6 +588,9 @@ impl Junctions<'_> {
         }
         for i in 0..n_in {
             node.states[n_out + i] = self.end(node.inlets[i], DuctEnd::Inlet);
+        }
+        for (end, st) in node.ends.iter_mut().zip(&node.states) {
+            *end = JunctionEnd::new(st);
         }
 
         // Each side on its own: the pressure it would sit at passing nothing, its slope, its range, and
@@ -677,13 +684,13 @@ impl Junctions<'_> {
         for _ in 0..4 {
             let mut f_up = 0.0;
             for i in 0..n_out {
-                let st = node.states[i];
-                f_up += self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, g_up, t_up, false, &st);
+                let st = &node.ends[i];
+                f_up += self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, g_up, t_up, false, st);
             }
             let mut f_down = 0.0;
             for i in 0..n_in {
-                let st = node.states[n_out + i];
-                f_down += self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, g_down, t_down_back, false, &st);
+                let st = &node.ends[n_out + i];
+                f_down += self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, g_down, t_down_back, false, st);
             }
             if !(f_up.is_finite() && f_down.is_finite()) || ((f_up - m).abs() <= tol && (f_down - m).abs() <= tol) {
                 break;
@@ -711,14 +718,14 @@ impl Junctions<'_> {
         let mut signed = 0.0;
         let mut scale = 0.0;
         for i in 0..n_out {
-            let st = node.states[i];
-            let f = self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, g_up, t_up, true, &st);
+            let st = &node.ends[i];
+            let f = self.face(node.outlets[i], DuctEnd::Outlet).flux(DuctEnd::Outlet, g_up, t_up, true, st);
             signed += f;
             scale += f.abs();
         }
         for i in 0..n_in {
-            let st = node.states[n_out + i];
-            let f = self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, g_down, t_leaving, true, &st);
+            let st = &node.ends[n_out + i];
+            let f = self.face(node.inlets[i], DuctEnd::Inlet).flux(DuctEnd::Inlet, g_down, t_leaving, true, st);
             signed -= f;
             scale += f.abs();
         }
@@ -988,6 +995,7 @@ impl ExhaustSystem {
                 .collect();
             nodes.push(JunctionNode {
                 states: vec![EndState::default(); all.len()],
+                ends: vec![JunctionEnd::default(); all.len()],
                 outlets: outlet_ends,
                 inlets: inlet_ends,
                 downstream,

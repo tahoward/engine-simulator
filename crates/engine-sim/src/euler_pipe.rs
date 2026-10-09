@@ -408,13 +408,54 @@ pub struct JunctionFace {
     pub area: f64,
     flux: (f64, f64, f64, f64),
     clamps: u64,
-    /// The last `(p_ghost / p)^(1/gamma)` it took, keyed by the bits of its base.
+    /// The last `(p_ghost / p)^(1/gamma)` it took, keyed by the bits of its base; and the sonic
+    /// temperature and speed of gas filling the duct from the junction, keyed by the bits of the
+    /// junction's temperature.
     pow: (u64, f64),
+    star: (u64, f64, f64),
 }
 
 impl Default for JunctionFace {
     fn default() -> JunctionFace {
-        JunctionFace { area: 0.0, flux: (0.0, 0.0, 0.0, 0.0), clamps: 0, pow: (f64::NAN.to_bits(), f64::NAN) }
+        JunctionFace {
+            area: 0.0,
+            flux: (0.0, 0.0, 0.0, 0.0),
+            clamps: 0,
+            pow: (f64::NAN.to_bits(), f64::NAN),
+            star: (f64::NAN.to_bits(), f64::NAN, f64::NAN),
+        }
+    }
+}
+
+/// One duct end's state as a junction's boundary takes it, worked out once for all the trial
+/// pressures it is solved at.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct JunctionEnd {
+    st: EndState,
+    /// The duct's side of the Riemann problem at the face.
+    duct: RiemannSide,
+    /// The end's sound speed, the speed the acoustic estimate is held within, and the impedance it
+    /// takes.
+    c_end: f64,
+    u_limit: f64,
+    rho_c: f64,
+    /// Whether its density or impedance is below what the boundary takes, so that it is clamped.
+    degenerate: bool,
+}
+
+impl JunctionEnd {
+    pub fn new(st: &EndState) -> JunctionEnd {
+        let ambient_c = ambient_sound_speed();
+        let rho_safe = math::max(st.rho, MIN_JUNCTION_RHO);
+        let c_end = math::sqrt((GAMMA * math::max(st.p, MIN_JUNCTION_P)) / rho_safe);
+        JunctionEnd {
+            st: *st,
+            duct: RiemannSide::new(st.rho, st.u, st.p),
+            c_end,
+            u_limit: math::min(5.0 * c_end, DESIGN_WAVE_SPEED),
+            rho_c: math::max(st.rho_c, MIN_JUNCTION_RHO * ambient_c),
+            degenerate: st.rho < MIN_JUNCTION_RHO || st.rho_c < MIN_JUNCTION_RHO * ambient_c,
+        }
     }
 }
 
@@ -426,16 +467,20 @@ impl JunctionFace {
 
     /// The mass flux through the face at a junction pressure, kg/s, positive in the duct's +x
     /// direction; committed, for the duct to take, if `commit`.
-    pub fn flux(&mut self, end: DuctEnd, junction_gauge: f64, junction_temp: f64, commit: bool, st: &EndState) -> f64 {
+    pub fn flux(&mut self, end: DuctEnd, junction_gauge: f64, junction_temp: f64, commit: bool, je: &JunctionEnd) -> f64 {
+        let st = &je.st;
+        // The duct's side, and the junction's, in the face's order.
+        let riemann = |ghost: &RiemannSide| {
+            if end == DuctEnd::Inlet { hllc_of(ghost, &je.duct) } else { hllc_of(&je.duct, ghost) }
+        };
 
         // Supersonic outflow into the junction: a choked end cannot be told what pressure to be at, so long
         // as the junction is no higher than it. Into a junction higher than it, the gas meets a shock that
         // runs back up the duct against it, which the Riemann flux below resolves: passed through as if
         // nothing were there, the duct would go on pouring into a junction it cannot fill.
-        let c_end = math::sqrt((GAMMA * math::max(st.p, MIN_JUNCTION_P)) / math::max(st.rho, MIN_JUNCTION_RHO));
         let outward = if end == DuctEnd::Outlet { st.u } else { -st.u };
-        if outward >= c_end && gas::P_AMB + junction_gauge <= st.p {
-            let flux = hllc(st.rho, st.u, st.p, st.rho, st.u, st.p);
+        if outward >= je.c_end && gas::P_AMB + junction_gauge <= st.p {
+            let flux = hllc_of(&je.duct, &je.duct);
             if !commit {
                 return flux.0 * self.area;
             }
@@ -445,14 +490,11 @@ impl JunctionFace {
 
         let returning = junction_gauge - st.toward;
         let p_ghost = math::max(gas::P_AMB + junction_gauge, 1e-3);
-        let ambient_c = ambient_sound_speed();
-        if commit && (st.rho < MIN_JUNCTION_RHO || st.rho_c < MIN_JUNCTION_RHO * ambient_c) {
+        if commit && je.degenerate {
             self.clamps += 1;
         }
-        let rho_safe = math::max(st.rho, MIN_JUNCTION_RHO);
-        let c_local = math::sqrt((GAMMA * math::max(st.p, MIN_JUNCTION_P)) / rho_safe);
-        let u_limit = math::min(5.0 * c_local, DESIGN_WAVE_SPEED);
-        let rho_c = math::max(st.rho_c, MIN_JUNCTION_RHO * ambient_c);
+        let u_limit = je.u_limit;
+        let rho_c = je.rho_c;
         let u_raw =
             if end == DuctEnd::Outlet { (st.toward - returning) / rho_c } else { (returning - st.toward) / rho_c };
         let area = self.area;
@@ -463,17 +505,17 @@ impl JunctionFace {
         // estimate, which knows nothing of choking, the end takes that state instead.
         let filling = if end == DuctEnd::Outlet { u_raw < 0.0 } else { u_raw > 0.0 };
         if filling {
-            let t_star = (2.0 * math::max(junction_temp, gas::T_AMB)) / (GAMMA + 1.0);
-            let c_star = math::sqrt(GAMMA * gas::R * t_star);
+            // A junction's temperature is the same at every trial pressure, so its sonic state is kept.
+            if junction_temp.to_bits() != self.star.0 {
+                let t_star = (2.0 * math::max(junction_temp, gas::T_AMB)) / (GAMMA + 1.0);
+                self.star = (junction_temp.to_bits(), t_star, math::sqrt(GAMMA * gas::R * t_star));
+            }
+            let (_, t_star, c_star) = self.star;
             if u_raw.abs() > c_star {
                 let p_star = math::max(gas::P_AMB + junction_gauge, 1e-3) * CHOKED_PRESSURE_RATIO;
                 let r_star = p_star / (gas::R * t_star);
                 let u_star = if end == DuctEnd::Outlet { -c_star } else { c_star };
-                let flux = if end == DuctEnd::Inlet {
-                    hllc(r_star, u_star, p_star, st.rho, st.u, st.p)
-                } else {
-                    hllc(st.rho, st.u, st.p, r_star, u_star, p_star)
-                };
+                let flux = riemann(&RiemannSide::new(r_star, u_star, p_star));
                 if !commit {
                     return flux.0 * area;
                 }
@@ -502,11 +544,7 @@ impl JunctionFace {
             math::max(st.rho * self.pow.1, MIN_JUNCTION_RHO)
         };
 
-        let flux = if end == DuctEnd::Inlet {
-            hllc(r_ghost, u_ghost, p_ghost, st.rho, st.u, st.p)
-        } else {
-            hllc(st.rho, st.u, st.p, r_ghost, u_ghost, p_ghost)
-        };
+        let flux = riemann(&RiemannSide::new(r_ghost, u_ghost, p_ghost));
         if !commit {
             return flux.0 * area;
         }
@@ -1923,7 +1961,7 @@ impl EulerPipe {
         let e = end as usize;
         let mut face = self.junction_faces[e];
         face.area = self.area_face[face_of(end, self.n)];
-        let flow = face.flux(end, junction_gauge, junction_temp, true, st);
+        let flow = face.flux(end, junction_gauge, junction_temp, true, &JunctionEnd::new(st));
         self.take_junction_face(end, &mut face);
         self.junction_faces[e] = face;
         flow
@@ -1933,7 +1971,7 @@ impl EulerPipe {
     pub fn probe_junction(&mut self, end: DuctEnd, junction_gauge: f64, junction_temp: f64, st: &EndState) -> f64 {
         let e = end as usize;
         self.junction_faces[e].area = self.area_face[face_of(end, self.n)];
-        self.junction_faces[e].flux(end, junction_gauge, junction_temp, false, st)
+        self.junction_faces[e].flux(end, junction_gauge, junction_temp, false, &JunctionEnd::new(st))
     }
 
     /// Take the flux `face` committed at one end, and the clamps it counted. Between `begin_step` and
@@ -2105,12 +2143,34 @@ fn mc(a: f64, b: f64) -> f64 {
 /// momentum and energy fluxes and the star-region pressure.
 #[inline(always)]
 pub fn hllc(r_l: f64, u_l: f64, p_l: f64, r_r: f64, u_r: f64, p_r: f64) -> (f64, f64, f64, f64) {
-    let inv_rl = 1.0 / r_l;
-    let inv_rr = 1.0 / r_r;
-    let c_l = math::sqrt(GAMMA * p_l * inv_rl);
-    let c_r = math::sqrt(GAMMA * p_r * inv_rr);
-    let e_l = p_l * INV_GM1 + 0.5 * r_l * u_l * u_l;
-    let e_r = p_r * INV_GM1 + 0.5 * r_r * u_r * u_r;
+    hllc_of(&RiemannSide::new(r_l, u_l, p_l), &RiemannSide::new(r_r, u_r, p_r))
+}
+
+/// One side of a Riemann problem, with what `hllc` derives from it: 1/rho, the sound speed and the
+/// total energy per volume.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct RiemannSide {
+    r: f64,
+    u: f64,
+    p: f64,
+    inv_r: f64,
+    c: f64,
+    e: f64,
+}
+
+impl RiemannSide {
+    #[inline(always)]
+    pub fn new(r: f64, u: f64, p: f64) -> RiemannSide {
+        let inv_r = 1.0 / r;
+        RiemannSide { r, u, p, inv_r, c: math::sqrt(GAMMA * p * inv_r), e: p * INV_GM1 + 0.5 * r * u * u }
+    }
+}
+
+/// `hllc` between two sides already worked out.
+#[inline(always)]
+fn hllc_of(l: &RiemannSide, r: &RiemannSide) -> (f64, f64, f64, f64) {
+    let (r_l, u_l, p_l, inv_rl, c_l, e_l) = (l.r, l.u, l.p, l.inv_r, l.c, l.e);
+    let (r_r, u_r, p_r, inv_rr, c_r, e_r) = (r.r, r.u, r.p, r.inv_r, r.c, r.e);
 
     let s_l = math::min(u_l - c_l, u_r - c_r);
     let s_r = math::max(u_l + c_l, u_r + c_r);
