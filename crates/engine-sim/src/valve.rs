@@ -46,18 +46,18 @@ pub fn port_area(deg: f64, open: f64, close: f64, ramp: f64, full_area: f64) -> 
 }
 
 /// How many chamber degrees a rotary's port takes to open, and to shut, for a window from `open` to
-/// `close`. An apex is what opens and shuts it, and the same apex that shuts it on one chamber opens it to
-/// the next, which reaches it `ROTOR_FACE_LAG` later: so a window longer than that is the time the apex
-/// takes to cross the port, and the two chambers share the port between them while it does, one's share
-/// closing as the other's opens. A shorter window, of a port the apexes do not cross, as a side port's, is
-/// uncovered and covered by the flank over a quarter of it.
+/// `close`: a quarter of the window, as the flank uncovers the port's rounded edge, or longer where an apex
+/// takes longer to cross it. An apex is what shuts it on one chamber and opens it to the next, which reaches
+/// it `ROTOR_FACE_LAG` later; so a window longer than that by more than a quarter of itself is the time the
+/// apex takes to cross the port, and the two chambers share the whole port between them while it does, one's
+/// share closing as the other's opens. Shorter, each opens and shuts more gently than the apex alone would,
+/// and while both have it the port is not all open.
 pub fn port_ramp(open: f64, close: f64) -> f64 {
     let mut span = (close - open) % 720.0;
     if span <= 0.0 {
         span += 720.0;
     }
-    let ramp = if span > ROTOR_FACE_LAG { span - ROTOR_FACE_LAG } else { 0.25 * span };
-    math::min(ramp, 0.5 * span)
+    math::min(math::max(span - ROTOR_FACE_LAG, 0.25 * span), 0.5 * span)
 }
 
 /// How far behind a rotor's chamber the next one is, chamber degrees: a turn of the shaft.

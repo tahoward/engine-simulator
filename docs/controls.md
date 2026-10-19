@@ -12,7 +12,7 @@
   throttle, the load, the launch's car and settings and the view are not undone. While typing in a field,
   the keys undo the text instead.
 - **Engine preset** loads a complete engine: its layout, firing order, sizes and a matching exhaust.
-  It starts idling in neutral, at 800 rpm, the Superquadro Mono's 1700 or the R26B's 2000, on a throttle opening found
+  It starts idling in neutral, at 800 rpm, the Superquadro Mono's 1700 or the R26B's 2400, on a throttle opening found
   for that engine. Open the
   throttle and add load to go from there.
 - **Layout → Banks** and **Cylinders per bank** change only the layout: one bank of 1 to 6 is an inline

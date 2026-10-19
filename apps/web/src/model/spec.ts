@@ -3338,8 +3338,8 @@ const PORSCHE_MEZGER_40: Partial<EngineSpec> = {
 /**
  * The R26B of the Mazda 787B, which won Le Mans in 1991, the only rotary ever to: four rotors of Mazda's
  * 15 x 105 x 80 mm, 654 cc a chamber, 2616 cc as Mazda counts it, 10:1, peripheral intake and exhaust ports,
- * three spark plugs a rotor and intake trumpets that telescope with the engine's speed, rated at 700 PS
- * (515 kW) at 9000 rpm and 608 N*m at 6500.
+ * three spark plugs a rotor and intake trumpets that telescope with the engine's speed, rated at 700 hp
+ * (522 kW) at 9000 rpm and 608 N*m at 6500, idling at 2400.
  */
 const MAZDA_R26B: Partial<EngineSpec> = {
   engineType: 'rotary',
@@ -3350,8 +3350,8 @@ const MAZDA_R26B: Partial<EngineSpec> = {
   headerRun: 'lengthways',
   ...IDLING,
   // Its peripheral ports' overlap fills the intake with exhaust at a closed throttle: it idles high.
-  rpm: 2000,
-  idleRpm: 2000,
+  rpm: 2400,
+  idleRpm: 2400,
   // Held at 8500 through the 1991 race; its redline was 10,000.
   revLimit: 9300,
   // Light, but enough to hold its idle steady through the overlap's misfires.
@@ -3361,27 +3361,28 @@ const MAZDA_R26B: Partial<EngineSpec> = {
   eccentricity: 0.015,
   rotorWidth: 0.08,
   compressionRatio: 10,
-  // Estimated, like the port timing and the intake, and tuned with them and the exhaust for the rated
-  // torque at 6500 rpm and power at 9000: big racing peripheral ports, the exhaust opening 75° before its
-  // bottom dead centre and closing 30° after the top dead centre it shares with the intake, which opens
-  // 25° before it and closes 60° after its bottom dead centre, so for 55° of the shaft each chamber is open
-  // to both. The exhaust port is open for longer than a turn of the shaft, and the apex that closes it on
-  // one chamber takes 15° to cross it, opening it to the next. With more overlap it makes less, and floods
-  // its intake with exhaust at a closed throttle until it will not idle.
+  // Its ports open to the exhaust and the intake at once for 151° of the shaft, the real engine's overlap:
+  // the intake opening 111° before the top dead centre the two share and the exhaust closing 40° after
+  // it, the exhaust having opened 75° before its bottom dead centre and the intake closing 60° after its.
+  // Both ports are open for longer than a turn of the shaft, so the apex closing one on a chamber has
+  // opened it to the next: the exhaust's for 25°, the intake's for 81°. The split of the overlap, the
+  // ports' sizes and the intake are estimated, and tuned with the spark and the exhaust for the rated
+  // torque at 6500 rpm and power at 9000 on the dyno. The overlap fills its intake with exhaust at a closed
+  // throttle, so it idles high and rough.
   exValveDia: 0.05,
-  inValveDia: 0.065,
+  inValveDia: 0.072,
   portLength: 0.06,
   evo: 195,
-  evc: 570,
-  ivo: 515,
+  evc: 580,
+  ivo: 429,
   ivc: 870,
   ignition: 1060,
   burnDuration: 60,
   // Its trumpets telescope, long through the middle of the range and short at the top: two stages here,
   // switching where the two make the same torque.
-  intakeRunnerLength: 0.55,
-  intakeRunnerShortLength: 0.35,
-  intakeSwitchRpm: 7700,
+  intakeRunnerLength: 0.605,
+  intakeRunnerShortLength: 0.377,
+  intakeSwitchRpm: 7600,
   intakeRunnerDia: 0.055,
   throttleDia: 0.09,
   outputGain: 0.6,
@@ -3836,12 +3837,12 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: false,
     },
     description:
-      'The 2.6 litre four-rotor Wankel in the Mazda 787B, the only rotary ever to win Le Mans, in 1991: four rotors of Mazda\u2019s 15 x 105 x 80 mm, 654 cc a chamber, 10:1, peripheral intake and exhaust ports, three spark plugs a rotor and telescoping intake trumpets. Each rotor\u2019s three chambers fire a turn of the shaft apart, so the four fire every 90\u00b0 of the shaft, 1-3-2-4, twice as often as a four-stroke\u2019s four cylinders; its four headers meet in one open pipe. Its ports are open to the exhaust and the intake at once for 55\u00b0 of each cycle, which fills its intake with exhaust when the throttle shuts, so it idles high and rough. It makes 570 N\u00b7m at 6500 rpm and 696 PS at 9000, against the real engine\u2019s rated 608 N\u00b7m at 6500 and 700 PS at 9000. Its ports, port timing, intake and exhaust are estimates.',
+      'The 2.6 litre four-rotor Wankel in the Mazda 787B, the only rotary ever to win Le Mans, in 1991: four rotors of Mazda\u2019s 15 x 105 x 80 mm, 654 cc a chamber, 10:1, peripheral intake and exhaust ports, three spark plugs a rotor and telescoping intake trumpets. Each rotor\u2019s three chambers fire a turn of the shaft apart, so the four fire every 90\u00b0 of the shaft, 1-3-2-4, twice as often as a four-stroke\u2019s four cylinders; its four headers meet in one open pipe. Its ports are open to the exhaust and the intake at once for 151\u00b0 of the shaft each cycle, which fills its intake with exhaust when the throttle shuts, so it idles high and rough, at 2400 rpm. On the dyno it makes 604 N\u00b7m at 6500 rpm and 698 hp at 9100, against the real engine\u2019s rated 608 N\u00b7m at 6500 and 700 hp at 9000. Its ports, port timing, intake and exhaust are estimates.',
     engine: MAZDA_R26B,
-    pipe: () => [makeSegment({ kind: 'pipe', length: 0.6, dIn: 0.055 })],
+    pipe: () => [makeSegment({ kind: 'pipe', length: 0.55, dIn: 0.055 })],
     collector: () => [
       makeSegment({ kind: 'cone', length: 0.15, dIn: 0.065, dOut: 0.1 }),
-      makeSegment({ kind: 'pipe', length: 0.8, dIn: 0.1 }),
+      makeSegment({ kind: 'pipe', length: 1.2, dIn: 0.1 }),
     ],
   },
 ];

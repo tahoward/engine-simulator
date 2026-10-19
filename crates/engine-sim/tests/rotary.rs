@@ -93,24 +93,36 @@ fn the_rotors_share_each_turn_of_the_shaft_evenly() {
 
 #[test]
 fn an_apex_crossing_a_port_hands_it_from_one_chamber_to_the_next() {
-    // The R26B's exhaust, open 400 degrees of the shaft: 40 of them to two chambers at once.
-    let (open, close) = (185.0 * ROTARY_PHASE, 585.0 * ROTARY_PHASE);
+    let full = 1e-3;
+    // A long exhaust, open 480 degrees of the shaft: 120 of them to two chambers at once, an apex across it,
+    // the two sharing the whole port.
+    let (open, close) = (180.0 * ROTARY_PHASE, 660.0 * ROTARY_PHASE);
     let ramp = port_ramp(open, close);
     assert!((ramp - (close - open - ROTOR_FACE_LAG)).abs() < 1e-9);
-    let full = 1e-3;
     for k in 0..720 {
         let deg = k as f64;
         let leading = port_area(deg, open, close, ramp, full);
         let next = port_area(deg - ROTOR_FACE_LAG, open, close, ramp, full);
-        assert!(leading <= full && next <= full);
         if leading > 0.0 && next > 0.0 {
-            // An apex across the port: between them, the whole of it.
             assert!((leading + next - full).abs() < 1e-12 * full, "{deg}: {leading} + {next}");
         }
     }
-    // A port shorter than a turn of the shaft is only ever open to one, and opens over a quarter of it.
-    let side = port_ramp(572.0 * ROTARY_PHASE, 850.0 * ROTARY_PHASE);
-    assert!((side - 0.25 * (850.0 - 572.0) * ROTARY_PHASE).abs() < 1e-9);
+    // A shorter one opens over a quarter of its window, and while both chambers have it, it is not all open.
+    let (open, close) = (200.0 * ROTARY_PHASE, 565.0 * ROTARY_PHASE);
+    let ramp = port_ramp(open, close);
+    assert!((ramp - 0.25 * (close - open)).abs() < 1e-9);
+    for k in 0..720 {
+        let deg = k as f64;
+        let both = port_area(deg, open, close, ramp, full) + port_area(deg - ROTOR_FACE_LAG, open, close, ramp, full);
+        assert!(both <= full * (1.0 + 1e-12), "{deg}: {both}");
+    }
+    // And the ramp runs on without a step as the window grows past a turn of the shaft.
+    let mut last = port_ramp(0.0, 230.0);
+    for k in 231..400 {
+        let next = port_ramp(0.0, k as f64);
+        assert!((next - last).abs() <= 1.0, "{k}: {last} to {next}");
+        last = next;
+    }
 }
 
 /// A port open to two chambers: a chamber blowing down at 4 bar and one at 0.9 bar the port's air flows back
@@ -151,24 +163,27 @@ fn a_port_open_to_two_chambers_takes_each_ones_own_flow() {
     assert!((gained - into).abs() < 1e-6 * out_of_second.abs(), "{gained} against {into}");
 }
 
-/// The R26B makes about the real engine's rated 608 N*m at 6500 rpm and 700 PS (515 kW) at 9000.
+/// Held at each speed, the R26B makes about the real engine's rated 608 N*m at 6500 rpm and 700 hp (522 kW)
+/// at 9000. It is tuned to make them on the app's dyno, swept up through them with its exhaust as drawn
+/// (`dyno.test.ts`), where its runners' resonance comes a little later than held.
 #[test]
 fn the_r26b_makes_about_the_real_engines_torque_and_power() {
     let [t6500, t9000] = common::brake_torques_at(R26B, 2.0, [6500.0, 9000.0]);
     assert!((t6500 - 608.0).abs() < 0.1 * 608.0, "{t6500} N*m at 6500 rpm");
-    let ps = common::ps(t9000, 9000.0);
-    assert!((ps - 700.0).abs() < 0.1 * 700.0, "{ps} PS at 9000 rpm");
+    let hp = common::hp(t9000, 9000.0);
+    assert!((hp - 700.0).abs() < 0.1 * 700.0, "{hp} hp at 9000 rpm");
 }
 
 /// Run free from its preset, it settles near its idle speed: high, for the exhaust its ports' overlap lets into
-/// its intake.
+/// its intake. It takes a few seconds to: it starts on less air than its overlap leaves it needing, and dips
+/// while its idle air valve learns the rest.
 #[test]
 fn the_r26b_idles() {
     let mut cfg = common::engine_preset(R26B).config.clone();
     cfg.engine = common::with(&cfg.engine, json!({ "freeRunning": true }));
     let idle = cfg.engine.idle_rpm;
     let mut sim = EngineSim::new(FS, &cfg);
-    sim.render(FS as usize * 3);
+    sim.render(FS as usize * 6);
     let mut sum = 0.0;
     for _ in 0..20 {
         sim.render(FS as usize / 10);

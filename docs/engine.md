@@ -925,23 +925,25 @@ four-rotor R26B every 90°, 1-3-2-4, as a V8 does.
 
 **An apex crossing a port opens it to two chambers at once.** The port's area for each chamber
 rises as the apex ahead of it uncovers the port's first edge and falls as the apex behind covers its
-last. One apex closes the port on one chamber and opens it on the next, which reaches it a turn of
-the shaft later, so a port open for longer than a turn is shared between the two while the apex is
+last, over a quarter of the port's window, or over longer where the apex takes longer to cross it.
+One apex closes the port on one chamber and opens it on the next, which reaches it a turn of the
+shaft later, so a port open for longer than a turn is shared between the two while the apex is
 across it, one chamber's share closing as the other's opens. The port's duct then takes a flow from
 each, each solved at the port pressure the other leaves it at, as one valve's is: a chamber blowing
 down into the exhaust as the apex uncovers it, while the one behind, near its top dead centre, draws
-some of it back. A port open for less than a turn, such as a side port, is only ever open to one,
-and opens over a quarter of its window.
+some of it back. A port open for less than a turn, such as a side port, is only ever open to one.
 
 **A rotary's mechanical noise is its apex seals.** It has no valves to seat, no cam followers,
 no timing drive, no piston to slap and no rod to knock. What rubs is its apex seals on the housing:
 as fast as they slide, about the generating radius times a third of the shaft's speed, and as hard
 as the gas behind each presses it out.
 
-The R26B makes 570 N·m at 6500 rpm and 696 PS at 9000, against the real engine's rated 608 N·m and
-700 PS. Its ports' timing is estimated. With more overlap between its exhaust and intake it makes
-less and fills its intake with exhaust at a closed throttle, until it will not idle. Even as it is,
-it idles at 2000 rpm, high and uneven, as a peripheral-port racing rotary does.
+The R26B's ports are open to its exhaust and its intake at once for 151° of the shaft, the real
+engine's overlap. On the dyno it makes 604 N·m at 6500 rpm and 698 hp at 9100, against the real
+engine's rated 608 N·m and 700 hp. How the overlap splits either side of top dead centre, the ports'
+sizes and the intake are estimated. So much overlap fills its intake with exhaust at a closed
+throttle, so it idles high and uneven, round 2400 rpm and wandering 250 either side, as a
+peripheral-port racing rotary does.
 
 ## Sources
 

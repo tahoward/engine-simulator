@@ -65,6 +65,16 @@ describe('the dyno, as the app runs it', () => {
     expect(Math.abs(r.nmRpm - 5150)).toBeLessThan(150);
   }, 60_000);
 
+  it('has the R26B make its rated 700 hp near 9000 rpm and 608 N·m near 6500', () => {
+    const r = pull('Four rotor, Mazda R26B');
+    expect(r.hp).toBeGreaterThan(690);
+    expect(r.hp).toBeLessThan(710);
+    expect(r.hpRpm).toBeGreaterThan(8900);
+    expect(r.nm).toBeGreaterThan(600);
+    expect(r.nm).toBeLessThan(616);
+    expect(Math.abs(r.nmRpm - 6500)).toBeLessThan(150);
+  }, 60_000);
+
   it('has the LT6 make about the real engine’s 670 hp', () => {
     const r = pull('V8, Chevrolet LT6');
     expect(r.hp).toBeGreaterThan(665);
