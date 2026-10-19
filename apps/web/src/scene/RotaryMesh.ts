@@ -6,7 +6,7 @@
  * and its long axis lies along x, then the whole frame is turned a quarter turn so its long axis stands
  * upright, as `trochoidAt` places the housing. At the shaft's angle `theta` the rotor's centre is `e` out from
  * the shaft along `theta`, and the rotor is turned `theta / 3`: so each apex is always on the trochoid, as
- * it rides round it. Each chamber is at its firing top dead centre, its flank facing the spark plugs, at
+ * it rides round it. Each chamber is at its firing top dead centre, its flank facing the waist on -x, at
  * `theta` 90 degrees in this frame; the simulation's shaft angle is 0 there for the rotor's first chamber.
  */
 
@@ -33,14 +33,11 @@ const ROTOR = { color: 0xb9c0c9, metalness: 0.85, roughness: 0.28 };
 const GEAR = { color: 0xb8894f, metalness: 0.7, roughness: 0.4 };
 const PORT = { color: 0xff8c42, emissive: 0x6a2a00, metalness: 0.5, roughness: 0.4 };
 const INTAKE_PORT = { color: 0x4aa8ff, emissive: 0x0b2d5c, metalness: 0.5, roughness: 0.4 };
-const CERAMIC = { color: 0xeeeae2, metalness: 0.05, roughness: 0.5 };
 
 /** How far the rotor's flanks stand in from the housing at their nearest, m, and its sides from the side housings. */
 const ROTOR_CLEARANCE = 0.0015;
 /** The shaft angle, in the housing's frame, at which a chamber fires. */
 const FIRING_THETA = 90;
-/** Where round the housing each rotor's spark plugs are, as the trochoid's parameter: across the firing waist. */
-const PLUGS = [80, 95, 110];
 
 interface Rotor {
   rotor: THREE.Group;
@@ -199,7 +196,6 @@ export class RotaryMesh {
 
       this.rotors.push({ rotor, lobe, flame, phase: plan.offsets[r] ?? 0 });
 
-      this.addPlugs(z);
       this.addPort(exhaustPortOf(s, r), exhaustPortDiameter(s) / 2, PORT);
       this.addPort(intakePortOf(s, r), s.inValveDia / 2, INTAKE_PORT);
     }
@@ -230,27 +226,6 @@ export class RotaryMesh {
   /** The eccentric lobe's radius, m: round the shaft, `e` out from it, and the rotor's bearing on it. */
   private lobeRadius(): number {
     return ROTARY_SHAFT_RADIUS + this.spec.eccentricity + 0.01;
-  }
-
-  /** A rotor's spark plugs across the firing waist, in the housing's frame, at `z`. */
-  private addPlugs(z: number): void {
-    const ceramic = new THREE.MeshStandardMaterial(CERAMIC);
-    const steel = new THREE.MeshStandardMaterial(STEEL);
-    for (const alpha of PLUGS) {
-      const { point, normal } = trochoidAt(this.spec, alpha);
-      // Back into the housing's frame, as `trochoid` does.
-      const at = new THREE.Vector3(point[1], -point[0], z);
-      const out = new THREE.Vector3(normal[1], -normal[0], 0);
-      const plug = new THREE.Group();
-      const hex = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.012, 6), steel);
-      hex.position.y = HOUSING_WALL + 0.006;
-      const insulator = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.006, 0.03, 16), ceramic);
-      insulator.position.y = HOUSING_WALL + 0.027;
-      plug.add(hex, insulator);
-      plug.position.copy(at);
-      plug.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), out);
-      this.frame.add(plug);
-    }
   }
 
   /** A port's flange, where its pipe or runner attaches, in the scene's frame. */
