@@ -34,7 +34,7 @@ import {
   throttleDiaOf,
   throttleFaceOf,
 } from '../model/intakeSizing.js';
-import { firingPlan, intakeRunnerOf, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
+import { firingPlan, intakeRunnerOf, isRotary, physicalBankCount, type EngineSpec, type PipeSegment } from '../model/spec.js';
 
 export interface Runner {
   /** Where it leaves the plenum, and where it meets the head. */
@@ -171,7 +171,27 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   let centre: THREE.Vector3;
   // How wide its underside is against its top: a V's narrows to its banks.
   let base = vee ? 0.55 : 1;
-  if (vee) {
+  const rotary = isRotary(spec);
+  if (rotary) {
+    // A rotary's peripheral intake ports are high on the housings' port side, pointing up and out: the
+    // plenum sits over them, clear above the housings, and each runner drops out of its underside and
+    // curls down into its port, as a rotary's trumpets stand over it.
+    const ports = Array.from({ length: spec.cylinders }, (_, b) => portOf(spec, b));
+    const x = ports[0]!.position.x + 0.5 * radius;
+    centre = new THREE.Vector3(x, Math.max(shell.top, ports[0]!.position.y + 4 * radius) + 0.04 + height / 2, 0);
+    for (const port of ports) {
+      const from = new THREE.Vector3(x, centre.y - height / 2 + PLENUM_WALL, port.position.z);
+      const reach = Math.max(from.distanceTo(port.position) * 0.45, 1.6 * radius);
+      runners.push({
+        from,
+        to: port.position,
+        leaving: new THREE.Vector3(0, -reach, 0),
+        arriving: port.direction.clone().multiplyScalar(-reach),
+        radius,
+        exit: 'bottom',
+      });
+    }
+  } else if (vee) {
     const valley = Math.max(shell.top * Math.cos(shell.straddle) * 0.8, shell.crankcase.radius + 0.02);
     const ports = Array.from({ length: spec.cylinders }, (_, b) => portOf(spec, b));
     if (spec.vAngle < 150) {
@@ -296,7 +316,11 @@ export function inletLayout(spec: EngineSpec): InletLayout {
   // mouth on the flat of the side it leaves by, below where the top rounds over, nor the sides above a V's
   // flanks too short to be sides.
   let taper: PlenumTaper | null = null;
-  if (!vee) {
+  if (rotary) {
+    // Its runners leave its underside, so its top may drop towards the back as far as its rounding allows.
+    const drop = Math.min(shape.taper * height, height - 2 * PLENUM_ROUNDING - 2 * PLENUM_WALL);
+    if (drop > 0) taper = { side: 0, inwards: 0, drop };
+  } else if (!vee) {
     const inwards = Math.min(shape.taper * width, width - 4 * PLENUM_ROUNDING - 2 * PLENUM_WALL);
     if (inwards > 0) taper = { side: intakeSide, inwards, drop: 0 };
   } else {

@@ -11,11 +11,13 @@ import { sharedHead } from './geometry.js';
 import {
   type EngineSpec,
   type PipeSegment,
+  chargesPerTwoTurns,
   crankPins,
   cylinderSpacing,
   cylinderZ,
   displacement,
   intakeRunnerOf,
+  isRotary,
   makeSegment,
   physicalBankCount,
 } from './spec.js';
@@ -32,8 +34,9 @@ export const PLENUM_HEIGHT = 0.1;
 export const PLENUM_ROUNDING = 0.012;
 export const THROTTLE_WALL = 0.006;
 
+/** What the engine sweeps every two turns of its crank, m^3: on a rotary, each rotor's chambers twice over. */
 function totalDisplacement(spec: EngineSpec): number {
-  return displacement(spec) * Math.max(spec.cylinders, 1);
+  return displacement(spec) * Math.max(spec.cylinders, 1) * chargesPerTwoTurns(spec);
 }
 
 /**
@@ -71,7 +74,9 @@ export function plenumShapeOf(spec: EngineSpec): PlenumShape {
   let length = Math.max(spec.plenumLength, span);
   if (!(spec.plenumLength > 0)) {
     const spacing = cylinderSpacing(spec);
-    const block = (crankPins(spec).length - 1) * spacing + Math.max(spacing, spec.bore * 1.3);
+    // A rotary's block is its housings, a rotor's pitch each.
+    const end = isRotary(spec) ? spacing : Math.max(spacing, spec.bore * 1.3);
+    const block = (crankPins(spec).length - 1) * spacing + end;
     length = Math.max(block * 0.85, span);
   }
   // No smaller across or high than takes the throttle bodies' flanges on its front.

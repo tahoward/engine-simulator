@@ -245,6 +245,24 @@ pub struct ValveState {
     /// Extra mass flow into the port, kg/s, on top of the valve's own: a fiction of the acoustic
     /// model the cylinder's mass balance must not see.
     pub extra_mass_flow: f64,
+    /// A second chamber open to the same port, as a rotary's is while an apex crosses it: none where its
+    /// area is zero.
+    pub second: SecondChamber,
+}
+
+/// The second of two chambers a port is open to: its share of the port's area, m^2, and its gas's
+/// pressure, Pa, temperature, K, and ratio of specific heats.
+#[derive(Clone, Copy, Debug)]
+pub struct SecondChamber {
+    pub throat_area: f64,
+    pub pressure: f64,
+    pub temp: f64,
+    pub gamma: f64,
+}
+
+impl SecondChamber {
+    pub const NONE: SecondChamber =
+        SecondChamber { throat_area: 0.0, pressure: gas::P_AMB, temp: gas::T_AMB, gamma: GAMMA };
 }
 
 impl Default for ValveState {
@@ -255,6 +273,7 @@ impl Default for ValveState {
             cyl_temp: gas::T_AMB,
             cyl_gamma: GAMMA,
             extra_mass_flow: 0.0,
+            second: SecondChamber::NONE,
         }
     }
 }
@@ -357,6 +376,10 @@ pub struct EulerPipe {
     /// Fraction of the last valve source actually applied to cell 0: 1 unless the cap engaged.
     pub source_scale: f64,
     valve_throat_t: f64,
+    /// Of the valve's flow, what the port's second chamber gave, kg/s, positive out of it, and the
+    /// throat temperature ratio of its stream: see `SecondChamber`.
+    pub valve_flux_2: f64,
+    valve_throat_t_2: f64,
     mouth_flow_out: f64,
     /// Mass flow leaving the mouth at the last boundary solve, kg/s.
     pub mouth_mass_flow: f64,
@@ -706,6 +729,8 @@ impl EulerPipe {
             source_flow: 0.0,
             source_scale: 1.0,
             valve_throat_t: 1.0,
+            valve_flux_2: 0.0,
+            valve_throat_t_2: 1.0,
             mouth_flow_out: 0.0,
             mouth_mass_flow: 0.0,
             res_p: gas::P_AMB,
@@ -1066,6 +1091,10 @@ impl EulerPipe {
     /// the enthalpy the valve brings or takes per unit of its volume. A valve choked throughout does
     /// not feel it.
     fn valve_flux(&mut self, valve: &ValveState, dt: f64) -> f64 {
+        if valve.second.throat_area > 0.0 {
+            return self.two_chamber_flux(valve, dt);
+        }
+        self.valve_flux_2 = 0.0;
         let area = valve.throat_area;
         if area <= 0.0 {
             return 0.0;
@@ -1104,6 +1133,68 @@ impl EulerPipe {
             orifice_solve(area, VALVE_CD, p_total - fall * m, t_total, p_cyl, GAMMA)
         })
         .0
+    }
+
+    /// `valve_flux` for a port open to two chambers: the flow out of both, kg/s, the second's left in
+    /// `valve_flux_2`. Each chamber's flow is taken as `valve_flux` takes one valve's, at the port
+    /// pressure it leaves behind, with the other's on it: the first's alone, the second's on the
+    /// first's, then the first's again on the second's. Either may flow back while the other flows out,
+    /// as the chamber an apex is closing off draws on the one it is opening.
+    fn two_chamber_flux(&mut self, valve: &ValveState, dt: f64) -> f64 {
+        let (p_port, t_port, _) = self.read_port();
+        let per_kg = ((GAMMA - 1.0) * dt) / (self.area_cell[0] * self.dx);
+        let shut = math::max(p_port - per_kg * self.area_face[1] * self.f2[1], MIN_SHUT_PORT_FRACTION * p_port);
+        let first = (valve.throat_area, valve.cyl_pressure, valve.cyl_temp, valve.cyl_gamma);
+        let s = valve.second;
+        let second = (s.throat_area, s.pressure, s.temp, s.gamma);
+        // How far a flow of `m` moves the port's pressure: up by what it brings out of the chamber, down
+        // by what it takes back.
+        let u0 = self.mom[0] / self.rho[0];
+        let moved = |m: f64, t_cyl: f64| {
+            if m >= 0.0 { per_kg * CP * t_cyl * m } else { per_kg * (CP * t_port + 0.5 * u0 * u0) * m }
+        };
+        let (m1, _) = self.chamber_flux(first, shut, per_kg, t_port);
+        let (m2, tt2) = self.chamber_flux(second, shut + moved(m1, first.2), per_kg, t_port);
+        let (m1, tt1) = self.chamber_flux(first, shut + moved(m2, second.2), per_kg, t_port);
+        self.valve_throat_t = tt1;
+        self.valve_throat_t_2 = tt2;
+        self.valve_flux_2 = m2;
+        m1 + m2
+    }
+
+    /// One chamber's flow through its share of a port whose pressure would be `shut` without it, kg/s,
+    /// positive out of the chamber, and its throat temperature ratio, as `valve_flux` finds a valve's.
+    fn chamber_flux(&self, chamber: (f64, f64, f64, f64), shut: f64, per_kg: f64, t_port: f64) -> (f64, f64) {
+        let (area, p_cyl, t_cyl, g) = chamber;
+        if area <= 0.0 {
+            return (0.0, 1.0);
+        }
+        if p_cyl > shut {
+            let rise = per_kg * CP * t_cyl;
+            let o = orifice_solve(area, VALVE_CD, p_cyl, t_cyl, shut, g);
+            let (mdot, o) = if o.mdot > 0.0 && shut + rise * o.mdot > o.critical * p_cyl {
+                implicit_flow(o.mdot, (p_cyl - shut) / rise, |m| {
+                    orifice_solve(area, VALVE_CD, p_cyl, t_cyl, shut + rise * m, g)
+                })
+            } else {
+                (o.mdot, o)
+            };
+            return (mdot, if mdot > 0.0 && o.mdot > 0.0 { o.throat_t } else { 1.0 });
+        }
+        let r0 = self.rho[0];
+        let u0 = self.mom[0] / r0;
+        let toward = if u0 < 0.0 { -u0 } else { 0.0 };
+        let p_total = shut + 0.5 * r0 * toward * toward;
+        let t_total = t_port + (toward * toward) / (2.0 * CP);
+        let fall = per_kg * (CP * t_port + 0.5 * u0 * u0);
+        let o = orifice_solve(area, VALVE_CD, p_total, t_total, p_cyl, GAMMA);
+        if o.mdot <= 0.0 || p_total - fall * o.mdot >= p_cyl / o.critical {
+            return (-o.mdot, 1.0);
+        }
+        let back = implicit_flow(o.mdot, (p_total - p_cyl) / fall, |m| {
+            orifice_solve(area, VALVE_CD, p_total - fall * m, t_total, p_cyl, GAMMA)
+        });
+        (-back.0, 1.0)
     }
 
     /// Phase one of a substep: primitives, limited slopes, half-step evolution and every interior
@@ -1559,6 +1650,31 @@ impl EulerPipe {
         }
     }
 
+    /// `apply_valve_source` for a port open to two chambers: each one's stream, the first's with the
+    /// extra flow, as one valve's is, `per_flow` the density each kg/s of them adds to cell 0.
+    fn apply_two_chamber_source(&mut self, valve: &ValveState, per_flow: f64) {
+        let s = valve.second;
+        let streams = [
+            (self.source_flow - self.valve_flux_2, valve.cyl_temp, valve.cyl_gamma, valve.throat_area, self.valve_throat_t),
+            (self.valve_flux_2, s.temp, s.gamma, s.throat_area, self.valve_throat_t_2),
+        ];
+        for (flow, t0, g, area, throat_t) in streams {
+            let dm = flow * per_flow;
+            if dm > 0.0 {
+                let jet_u = math::sqrt(math::max((2.0 * g * gas::R * t0 * (1.0 - throat_t)) / (g - 1.0), 0.0));
+                self.rho[0] += dm;
+                self.mom[0] += dm * jet_u * clamp(area / self.area_cell[0], 0.0, 1.0);
+                self.en[0] += dm * CP * t0;
+            } else if dm < 0.0 {
+                let u0 = self.mom[0] / self.rho[0];
+                let t_cell = self.temperature_at(0);
+                self.rho[0] = math::max(self.rho[0] + dm, 1e-7);
+                self.mom[0] += dm * u0;
+                self.en[0] += dm * (CP * t_cell + 0.5 * u0 * u0);
+            }
+        }
+    }
+
     /// Mass, momentum and energy handed to cell 0 by the valve.
     fn apply_valve_source(&mut self, valve: &ValveState) {
         let dt = self.boundary_dt;
@@ -1579,7 +1695,9 @@ impl EulerPipe {
                 self.source_scale = dm / uncapped;
             }
 
-            if valve_flow > 0.0 {
+            if valve.second.throat_area > 0.0 {
+                self.apply_two_chamber_source(valve, dm / uncapped * (dt / vol));
+            } else if valve_flow > 0.0 {
                 // Gas arrives carrying its total enthalpy, and part of the jet's momentum.
                 let g = valve.cyl_gamma;
                 let t0 = valve.cyl_temp;

@@ -12,8 +12,8 @@ use crate::common;
 use common::{FS, find_peaks, hann, magnitude_spectrum, pipe};
 use engine_sim::dsp::Noise;
 use engine_sim::euler_pipe::{
-    EulerPipe, EulerPipeOptions, GAMMA, HeadPort, SlopeLimiter, ValveState, darcy_factor, launch_radius,
-    limit_area_ratio,
+    EulerPipe, EulerPipeOptions, GAMMA, HeadPort, SecondChamber, SlopeLimiter, ValveState, darcy_factor,
+    launch_radius, limit_area_ratio,
 };
 use engine_sim::math;
 use engine_sim::spec::{PipeMaterial, PipeSegment, SegmentKind, SegmentPartial, gas, make_segment, speed_of_sound_exh};
@@ -57,6 +57,7 @@ const SHUT: ValveState = ValveState {
     cyl_temp: gas::T_AMB,
     cyl_gamma: gas::GAMMA_EXH,
     extra_mass_flow: 0.0,
+    second: SecondChamber::NONE,
 };
 
 /// A valve with the exhaust gas's gamma and no extra flow.

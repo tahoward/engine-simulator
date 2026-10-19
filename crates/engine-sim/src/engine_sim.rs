@@ -22,8 +22,8 @@ use crate::cylinder::{AdvanceIo, CrackleSpark, CylState, Cylinder, SpecInstance}
 use crate::drivetrain::{LaunchPhase, LaunchRun};
 use crate::dsp::{Delay, Impact, Noise, Resonator, soft_clip, wrap_cycle};
 use crate::euler_pipe::{
-    DEFAULT_CFL, DEFAULT_MAX_CELLS, EulerPipeOptions, HeadPort, ValveState, duct_cell_count, duct_grid_length,
-    single_step_dx,
+    DEFAULT_CFL, DEFAULT_MAX_CELLS, EulerPipeOptions, HeadPort, SecondChamber, ValveState, duct_cell_count,
+    duct_grid_length, single_step_dx,
 };
 use crate::exhaust_graph::{ExhaustGraph, compile_exhaust, node_order, validate_graph};
 use crate::exhaust_system::{ExhaustSystem, SideWork, Stepped};
@@ -37,14 +37,15 @@ use crate::pool::{CachePadded, Disjoint, ThreadPool};
 use crate::radiation::{FarField, MouthJet, Steepening};
 use crate::shell::ChamberShell;
 use crate::spec::{
-    BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, ExhaustLayout,
+    BankSnapshot, CV_REF, CV_SLOPE, CrankType, EngineConfig, EngineSnapshot, EngineSpec, EngineType, ExhaustLayout,
     FUEL_CUT_THROTTLE, Fuel, LaunchConfig, LaunchSnapshot, PIPE_PRESSURE_TAPS, PipeSegment, REV_LIMIT_HYSTERESIS_RPM,
-    RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed, crank_pins, cylinder_spacing, density,
-    displacement, exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_cut_rpms, fuel_fraction_at,
-    full_load_torque, gas, intake_runner_of, load_torque_of, physical_bank, physical_bank_count,
+    ROTARY_PHASE, ROTOR_FACES, RunnerSize, T_REF, TurboSnapshot, TurboUnitSnapshot, ambient_sound_speed,
+    chamber_offset, chamber_spec, charges_per_two_turns, crank_pins, cylinder_spacing, density, displacement,
+    exhaust_layout_of, exhaust_port_diameter, firing_plan, fuel_cut_rpms, fuel_fraction_at, full_load_torque, gas,
+    intake_runner_of, is_rotary, load_torque_of, physical_bank, physical_bank_count,
 };
 use crate::turbo::{Turbo, TurboOut};
-use crate::valve::{valve_flow_area, valve_lift};
+use crate::valve::{port_area, port_ramp, valve_flow_area, valve_lift};
 
 /// Pressure, Pa, that maps to digital full scale.
 const PA_PER_FULLSCALE: f64 = 300.0;
@@ -176,6 +177,11 @@ const TIMING_REF_RPM: f64 = 3000.0;
 /// area.
 const RING_TENSION_N: f64 = 120.0;
 const RING_GAS_SHARE: f64 = 0.05;
+
+/// What presses a rotary's apex seal on the housing: its spring, N, and the gas behind it across its
+/// thickness, m.
+const APEX_SEAL_SPRING_N: f64 = 40.0;
+const APEX_SEAL_THICKNESS: f64 = 0.003;
 
 /// A valve spring's load on its follower as the valve leaves its seat, as a share of its load at full
 /// lift.
@@ -448,6 +454,7 @@ const KNOCK_CONTACT_S: f64 = 0.0006;
 /// Everything that forces a full rebuild of cylinders and ducts when it changes.
 #[derive(Clone, Copy, PartialEq)]
 struct LayoutKey {
+    engine_type: EngineType,
     cylinders: u32,
     layout: ExhaustLayout,
     crank: CrankType,
@@ -456,6 +463,7 @@ struct LayoutKey {
 
 fn layout_key(spec: &EngineSpec) -> LayoutKey {
     LayoutKey {
+        engine_type: spec.engine_type,
         cylinders: spec.cylinders,
         layout: exhaust_layout_of(spec),
         crank: spec.crank_type,
@@ -469,10 +477,14 @@ fn same_offsets(a: &[f64], b: &[f64]) -> bool {
 
 pub struct EngineSim {
     pub sample_rate: f64,
+    /// The engine as it was given, and as its cylinders see it: a rotary's angles in its chambers'
+    /// degrees (`chamber_spec`).
+    source: EngineSpec,
     spec: SpecInstance,
     pipe: Vec<PipeSegment>,
     collector_pipe: Vec<PipeSegment>,
     wg: ExhaustSystem,
+    /// Every cylinder's gas, or each rotor's three chambers', a rotor's in turn: see `chambers_of`.
     cyls: Vec<Cylinder>,
     far_fields: Vec<FarField>,
     steepening: Vec<Steepening>,
@@ -710,7 +722,15 @@ struct Bank {
     prev_ex_lift: f64,
     prev_in_lift: f64,
     prev_angle: f64,
+    /// A rotor's chambers its exhaust port and intake port are open to this sample, the second of each
+    /// `NO_FACE` where only one is, or none; and what the intake port's second chamber holds.
+    ex_faces: [usize; 2],
+    in_faces: [usize; 2],
+    cyl_state_2: CylState,
 }
+
+/// No chamber, in `Bank::ex_faces` and `Bank::in_faces`.
+const NO_FACE: usize = usize::MAX;
 
 impl Bank {
     fn new(sample_rate: f64) -> Bank {
@@ -720,6 +740,7 @@ impl Bank {
             cyl_temp: gas::T_AMB,
             cyl_gamma: gas::GAMMA_EXH,
             extra_mass_flow: 0.0,
+            second: SecondChamber::NONE,
         };
         Bank {
             cyl_state: CylState::default(),
@@ -747,6 +768,9 @@ impl Bank {
             prev_ex_lift: 0.0,
             prev_in_lift: 0.0,
             prev_angle: 0.0,
+            ex_faces: [NO_FACE; 2],
+            in_faces: [NO_FACE; 2],
+            cyl_state_2: CylState::default(),
         }
     }
 }
@@ -863,14 +887,21 @@ impl ValveCtx<'_> {
         extra_mass_flow += bank.seat_pulse.next();
 
         let cyl_gamma = 1.0 + gas::R / (CV_REF + CV_SLOPE * (t_cyl - T_REF));
-        bank.valve_state =
-            ValveState { throat_area: ex_area, cyl_pressure: p_cyl, cyl_temp: t_cyl, cyl_gamma, extra_mass_flow };
+        bank.valve_state = ValveState {
+            throat_area: ex_area,
+            cyl_pressure: p_cyl,
+            cyl_temp: t_cyl,
+            cyl_gamma,
+            extra_mass_flow,
+            second: SecondChamber::NONE,
+        };
         bank.in_valve = ValveState {
             throat_area: valve_flow_area(in_lift, spec.in_valve_dia) * spec.in_valve_count,
             cyl_pressure: p_cyl,
             cyl_temp: t_cyl,
             cyl_gamma,
             extra_mass_flow: 0.0,
+            second: SecondChamber::NONE,
         };
 
         bank.ex_lift = ex_lift;
@@ -931,6 +962,111 @@ impl ValveCtx<'_> {
             if axial * bank.rod_force < 0.0 { (axial - bank.rod_force).abs() * self.sample_rate } else { -1.0 };
         bank.rod_force = axial;
     }
+
+    /// A rotor's ports for this sample, as `step` does a cylinder's valves: how much of each port is open
+    /// to each of its chambers `faces`, the two each port can be open to at once, the chambers' states as
+    /// the ports see them, and the throat turbulence its exhaust port sheds into a primary whose port is
+    /// at `port_abs`, Pa. A rotor has no valves to seat, no rod to knock and no piston to slap: what rubs
+    /// is its apex seals on the housing, as fast as they slide and as hard as the gas behind each presses
+    /// it out.
+    fn step_rotor(&self, faces: [&mut Cylinder; ROTOR_FACES], bank: &mut Bank, noise: &mut Noise, port_abs: f64) {
+        let spec = &self.spec.spec;
+        let ex_full = (PI * spec.ex_valve_dia * spec.ex_valve_dia) / 4.0;
+        let in_full = (PI * spec.in_valve_dia * spec.in_valve_dia) / 4.0;
+        let (ex_ramp, in_ramp) = (port_ramp(spec.evo, spec.evc), port_ramp(spec.ivo, spec.ivc));
+        // Each port's two largest shares, and whose they are.
+        let mut ex = [(0.0, NO_FACE); 2];
+        let mut inl = [(0.0, NO_FACE); 2];
+        let keep = |top: &mut [(f64, usize); 2], area: f64, k: usize| {
+            if area <= 0.0 {
+                return;
+            }
+            if area > top[0].0 {
+                top[1] = top[0];
+                top[0] = (area, k);
+            } else if area > top[1].0 {
+                top[1] = (area, k);
+            }
+        };
+        let mut states = [CylState::default(); ROTOR_FACES];
+        let mut ex_open = 0.0;
+        for (k, cyl) in faces.into_iter().enumerate() {
+            cyl.spark_cut = self.limiter_cut;
+            cyl.fuel_demand = self.fuel_demand;
+            cyl.delivery = 1.0;
+            cyl.injection_offset = 0.0;
+            cyl.crackle = self.crackle;
+            cyl.intake_cam_offset = 0.0;
+            cyl.exhaust_cam_offset = 0.0;
+            states[k] = cyl.read_state(self.spec);
+            let a_ex = port_area(cyl.angle, spec.evo, spec.evc, ex_ramp, ex_full);
+            keep(&mut ex, a_ex, k);
+            keep(&mut inl, port_area(cyl.angle, spec.ivo, spec.ivc, in_ramp, in_full), k);
+            ex_open += a_ex;
+            if k == 0 {
+                bank.prev_angle = cyl.angle;
+            }
+        }
+        let gamma = |t: f64| 1.0 + gas::R / (CV_REF + CV_SLOPE * (t - T_REF));
+        let chamber_of = |(area, k): (f64, usize)| match states.get(k) {
+            Some(st) => SecondChamber { throat_area: area, pressure: st.pressure, temp: st.temp, gamma: gamma(st.temp) },
+            None => SecondChamber::NONE,
+        };
+
+        // Throat turbulence, as `step` sheds it, from the port's whole opening.
+        let lead = chamber_of(ex[0]);
+        let mut extra_mass_flow = 0.0;
+        if ex_open > 0.0 && spec.throat_noise > 0.0 {
+            let throat_rho = port_abs / (gas::R * lead.temp);
+            let speed = math::min(
+                bank.last_valve_mdot.abs() / math::max(throat_rho * ex_open, 1e-9),
+                math::sqrt(gas::GAMMA_CYL * gas::R * lead.temp),
+            );
+            let strouhal_hz = (0.2 * speed) / spec.ex_valve_dia;
+            let k = clamp(1.0 - math::exp((-2.0 * PI * strouhal_hz) / self.sample_rate), 0.02, 0.85);
+            let white = noise.next() * bank.last_valve_mdot.abs() * TURBULENCE_INTENSITY * spec.throat_noise;
+            bank.turb1 += k * (white - bank.turb1);
+            bank.turb2 += k * (bank.turb1 - bank.turb2);
+            extra_mass_flow += bank.turb2;
+        }
+        let port = |first: SecondChamber, second: SecondChamber, extra_mass_flow: f64| ValveState {
+            throat_area: first.throat_area,
+            cyl_pressure: first.pressure,
+            cyl_temp: first.temp,
+            cyl_gamma: first.gamma,
+            extra_mass_flow,
+            second,
+        };
+        bank.valve_state = port(lead, chamber_of(ex[1]), extra_mass_flow);
+        bank.in_valve = port(chamber_of(inl[0]), chamber_of(inl[1]), 0.0);
+        bank.ex_faces = [ex[0].1, ex[1].1];
+        bank.in_faces = [inl[0].1, inl[1].1];
+        bank.cyl_state = states.get(inl[0].1).copied().unwrap_or(states[0]);
+        bank.cyl_state_2 = states.get(inl[1].1).copied().unwrap_or(bank.cyl_state);
+        bank.ex_lift = ex_open / ex_full;
+        bank.in_lift = (inl[0].0 + inl[1].0) / in_full;
+        bank.seating_now = false;
+        bank.in_seating_now = false;
+        bank.opening_now = false;
+        bank.in_opening_now = false;
+        bank.tdc_pressure = -1.0;
+        bank.ring_rise = 0.0;
+        bank.needle = 0;
+        bank.follower_load = 0.0;
+        bank.rod_reversal = -1.0;
+        bank.rod_force = 0.0;
+
+        // The apexes slide round the housing at about the generating radius times the rotor's own speed,
+        // a third of the shaft's; each seal is pressed out by its spring and by the difference in pressure
+        // between the chambers either side of it, on its thickness along the rotor's width.
+        bank.piston_speed = (spec.rotor_radius * self.omega) / 3.0;
+        let mut load = 0.0;
+        for k in 0..ROTOR_FACES {
+            let across = (states[k].pressure - states[(k + 1) % ROTOR_FACES].pressure).abs();
+            load += APEX_SEAL_SPRING_N + across * APEX_SEAL_THICKNESS * spec.rotor_width;
+        }
+        bank.bore_load = load;
+    }
 }
 
 /// One part of what `EngineSim::step_sample` does once the ducts are stepped.
@@ -986,7 +1122,7 @@ impl EngineSim {
         graph: Option<ExhaustGraph>,
     ) -> EngineSim {
         let graph = graph.or_else(|| config.graph.clone());
-        let spec = SpecInstance::new(config.engine.clone());
+        let spec = SpecInstance::new(chamber_spec(&config.engine));
         let pipe: Vec<PipeSegment> = config.pipe.clone();
         let collector_pipe: Vec<PipeSegment> = config.collector.clone();
         // Replaced by `build_intake` once the cylinders exist.
@@ -999,6 +1135,7 @@ impl EngineSim {
 
         let mut sim = EngineSim {
             sample_rate,
+            source: config.engine.clone(),
             spec,
             pipe,
             collector_pipe,
@@ -1203,7 +1340,7 @@ impl EngineSim {
         self.inject_fraction = fuel_fraction_at(spec.lambda);
         self.full_charge_kg = (gas::P_AMB * displacement(spec)) / (gas::R * gas::T_AMB);
         self.afterfire.set_charge(self.full_charge_kg, fuel_fraction_at(1.0));
-        self.displacement_m3 = displacement(spec) * spec.cylinders as f64;
+        self.displacement_m3 = displacement(spec) * spec.cylinders as f64 * charges_per_two_turns(spec);
         self.load_torque_nm = load_torque_of(spec, self.turbo.is_some());
     }
 
@@ -1246,6 +1383,8 @@ impl EngineSim {
         }
         spec.throttle = throttle;
         spec.load = load;
+        self.source.throttle = throttle;
+        self.source.load = load;
         self.load_torque_nm = load_torque_of(spec, self.turbo.is_some());
         self.plenum.set_geometry(spec);
         self.launch_opening = f64::NAN;
@@ -1361,7 +1500,8 @@ impl EngineSim {
         let prev_layout = layout_key(prev);
         let prev_phase = firing_plan(prev).offsets;
         let was_high = self.high_cam_spec.is_some() && self.on_high_cam;
-        self.spec = SpecInstance::new(next);
+        self.spec = SpecInstance::new(chamber_spec(&next));
+        self.source = next;
         self.refresh_cam_profiles(was_high);
         self.refresh_derived();
         if !self.spec.spec.free_running && !self.integrating_crank() {
@@ -1412,7 +1552,11 @@ impl EngineSim {
             let plan = firing_plan(spec);
             let a0 = self.cyls[0].angle;
             for b in 1..self.cyls.len() {
-                self.cyls[b].angle = wrap_cycle(a0 - plan.offsets[b]);
+                self.cyls[b].angle = if is_rotary(spec) {
+                    wrap_cycle(a0 - chamber_offset(spec, b / ROTOR_FACES, b % ROTOR_FACES) * ROTARY_PHASE)
+                } else {
+                    wrap_cycle(a0 - plan.offsets[b])
+                };
             }
         } else {
             self.wg.set_air_speed(spec.air_speed);
@@ -1421,7 +1565,7 @@ impl EngineSim {
 
     /// `set_engine` with a JSON object of the fields to change, in the web app's shape.
     pub fn set_engine_json(&mut self, patch: &serde_json::Value) -> Result<(), serde_json::Error> {
-        let next = self.spec.spec.merged(patch)?;
+        let next = self.source.merged(patch)?;
         self.set_engine(next);
         Ok(())
     }
@@ -1501,7 +1645,7 @@ impl EngineSim {
             cell_size: Some(self.requested_cell_size()),
             ..self.build_options(Some(self.wg.export_wall()))
         };
-        let n = self.cyls.len();
+        let n = self.spec.spec.cylinders as usize;
         let burned = self.plenum.burned_fraction();
         let sample_rate = self.sample_rate;
         let spec = &self.spec.spec;
@@ -1580,8 +1724,9 @@ impl EngineSim {
         self.exhaust_shift += clamp(exhaust_target - self.exhaust_shift, -step, step);
     }
 
+    /// The engine as it was given: a rotary's angles in its shaft's degrees.
     pub fn engine(&self) -> &EngineSpec {
-        &self.spec.spec
+        &self.source
     }
 
     pub fn pipe_solver(&self) -> &ExhaustSystem {
@@ -1718,7 +1863,8 @@ impl EngineSim {
 
         let throws = crank_pins(spec).len().max(1) as f64;
         self.twist.set(TWIST_MODE.0 / math::sqrt(throws), TWIST_MODE.1, self.sample_rate);
-        self.twist_share = REFERENCE_DISPLACEMENT_M3 / math::max(displacement(spec) * spec.cylinders as f64, 1e-6);
+        self.twist_share = REFERENCE_DISPLACEMENT_M3
+            / math::max(displacement(spec) * spec.cylinders as f64 * charges_per_two_turns(spec), 1e-6);
         self.route_surfaces();
     }
 
@@ -1959,11 +2105,25 @@ impl EngineSim {
         self.wg.mouth_count().max(1) + source as usize
     }
 
-    /// The cylinders, phased on one shared crank, each with its own noise seed.
+    /// The cylinders, phased on one shared crank, each with its own noise seed: on a rotary, each rotor's
+    /// three chambers, each a turn of the shaft behind the one before.
     fn build_cylinders(&mut self) -> Vec<Cylinder> {
         let spec = &self.spec.spec;
         let plan = firing_plan(spec);
         let mut out = Vec::new();
+        if is_rotary(spec) {
+            for r in 0..spec.cylinders as usize {
+                for k in 0..ROTOR_FACES {
+                    let i = ROTOR_FACES * r + k;
+                    let angle = wrap_cycle(-chamber_offset(spec, r, k) * ROTARY_PHASE);
+                    out.push(Cylinder::new(spec, angle, 0x51f3a7 as f64 + i as f64 * 0x9e3779b as f64));
+                }
+                if self.throat_noise.len() <= r {
+                    self.throat_noise.push(CachePadded(Noise::new(0x2c1b3d as f64 + r as f64 * 0x85ebca6b_u32 as f64)));
+                }
+            }
+            return out;
+        }
         for b in 0..spec.cylinders as usize {
             out.push(Cylinder::new(spec, wrap_cycle(-plan.offsets[b]), 0x51f3a7 as f64 + b as f64 * 0x9e3779b as f64));
             if self.throat_noise.len() <= b {
@@ -2165,7 +2325,7 @@ impl EngineSim {
         };
 
         // --- Valves and flows, per bank ---
-        let banks = self.cyls.len();
+        let banks = self.banks.len();
         let mut torque_sum = 0.0;
         let mut dpdt_sum = 0.0;
         let limiter_cut = self.limiter_cut || !self.ignition || self.launch.as_ref().is_some_and(|l| l.spark_cut);
@@ -2312,7 +2472,8 @@ impl EngineSim {
         let mesh = self.timing_mesh + mesh_hz * dt;
         self.timing_mesh = mesh - mesh.floor();
         self.timing_rattle += self.timing_rattle_c * (self.timing_noise.next() - self.timing_rattle);
-        if mech > 0.0 {
+        // A rotary has no valvetrain to drive.
+        if mech > 0.0 && !is_rotary(&self.spec.spec) {
             let speed = math::max(rpm, 0.0) / TIMING_REF_RPM;
             let load = follower_load / math::max(banks as f64, 1.0);
             let level = TIMING_PA_AT_1M * mech * speed * math::sqrt(speed) * self.timing_share;
@@ -2472,8 +2633,12 @@ impl EngineSim {
         self.wg.sample_duct_pressures(&mut self.duct_pressure, &mut self.duct_cells);
         let spec = &self.spec.spec;
         let cams = if self.on_high_cam { &self.high_cam_spec.as_ref().unwrap().spec } else { spec };
-        let banks: Vec<BankSnapshot> = self
-            .cyls
+        // A rotor's, by its first chamber, at the shaft's angle, and how much of each port is open: see
+        // `rotor_snapshot`.
+        let banks: Vec<BankSnapshot> = if is_rotary(spec) {
+            self.cyls.chunks(ROTOR_FACES).zip(&self.banks).map(|(faces, bank)| rotor_snapshot(spec, faces, bank)).collect()
+        } else {
+            self.cyls
             .iter()
             .map(|cyl| BankSnapshot {
                 crank_angle: wrap_cycle(cyl.angle),
@@ -2492,7 +2657,8 @@ impl EngineSim {
                     cams.max_lift,
                 ),
             })
-            .collect();
+            .collect()
+        };
         let first = banks[0].clone();
         let launch = self.launch.as_mut().map(|d| LaunchSnapshot {
             phase: d.phase.as_str().to_string(),
@@ -2634,7 +2800,8 @@ impl EngineSim {
         crackle: Option<CrackleSpark>,
         rpm: f64,
     ) -> f64 {
-        let banks = self.cyls.len();
+        let banks = self.banks.len();
+        let rotary = is_rotary(&self.spec.spec);
         let mouths = self.wg.result.mouth_flows.len();
         let shell_count = self.shells.len();
         self.bank_out.resize(banks, CachePadded::default());
@@ -2709,8 +2876,14 @@ impl EngineSim {
         // The exhaust steps each side item once, and reads a valve state only after it is done.
         let job = |b: usize| unsafe {
             let bank = bank_state.get(b);
-            valves.step(b, cyls.get(b), bank, &mut noise.get(b).0, port_pressure[b]);
-            step.runner(b, &bank.in_valve, &bank.cyl_state);
+            if rotary {
+                let faces = std::array::from_fn(|k| cyls.get(ROTOR_FACES * b + k));
+                valves.step_rotor(faces, bank, &mut noise.get(b).0, port_pressure[b]);
+                step.runner(b, &bank.in_valve, &bank.cyl_state, &bank.cyl_state_2);
+            } else {
+                valves.step(b, cyls.get(b), bank, &mut noise.get(b).0, port_pressure[b]);
+                step.runner(b, &bank.in_valve, &bank.cyl_state, &bank.cyl_state);
+            }
         };
         let side = SideWork { costs: &self.runner_cells, job: &job };
         let valve_of = |b: usize| unsafe { bank_state.get_ref(b) }.valve_state;
@@ -2750,6 +2923,75 @@ impl EngineSim {
         let run = |item: CloseItem, wg: &Stepped| unsafe {
             let t0 = timing.then(Instant::now);
             match item {
+                CloseItem::Bank(b) if rotary => {
+                    wg.wait_side(b);
+                    let runner = step.runner_ref(b);
+                    let primary = wg.primary(b);
+                    let port_temp = primary.read_port().1;
+                    let bank = bank_state.get(b);
+                    // Each port's flow to the chambers it was open to: the second's share, and the rest
+                    // the first's.
+                    let (ex_total, ex_second) = (wg.valve_mass_flow(b), wg.valve_mass_flow_2(b));
+                    let (in_total, in_second) = (-runner.valve_mass_flow, -runner.valve_mass_flow_2);
+                    let share = |faces: [usize; 2], total: f64, second: f64, k: usize| {
+                        if k == faces[0] {
+                            total - second
+                        } else if k == faces[1] {
+                            second
+                        } else {
+                            0.0
+                        }
+                    };
+                    let omega = omega * ROTARY_PHASE;
+                    let deg_per_sample = (omega.abs() * dt * 180.0) / PI;
+                    let (mut torque, mut dpdt, mut fuel, mut air) = (0.0, 0.0, 0.0, 0.0);
+                    for k in 0..ROTOR_FACES {
+                        let cyl = cyls.get(ROTOR_FACES * b + k);
+                        let ex_mdot = share(bank.ex_faces, ex_total, ex_second, k);
+                        let in_mdot = share(bank.in_faces, in_total, in_second, k);
+                        let mass_ratio = ((ex_mdot.abs() + in_mdot.abs()) * dt) / math::max(cyl.mass, 1e-12);
+                        let n_sub = clamp(
+                            math::max(
+                                (deg_per_sample / MAX_DEG_PER_SUBSTEP).ceil(),
+                                (mass_ratio / MAX_MASS_FRACTION_PER_SUBSTEP).ceil(),
+                            ),
+                            1.0,
+                            MAX_CYL_SUBSTEPS,
+                        );
+                        let io = AdvanceIo {
+                            dt: dt / n_sub,
+                            omega,
+                            ex_mdot,
+                            in_mdot,
+                            intake_t: runner.port_temp,
+                            port_t: port_temp,
+                            intake_burned: runner.inflow_burned,
+                            intake_fuel: runner.inflow_fuel,
+                        };
+                        for _ in 0..n_sub as usize {
+                            cyl.advance(cam_spec, &io);
+                        }
+                        // A chamber's torque is on its own crank, turning at `ROTARY_PHASE` of the shaft's
+                        // speed, and its rotor's mass turns evenly, with nothing to reciprocate.
+                        torque += cyl.torque * ROTARY_PHASE;
+                        dpdt += cyl.dpdt;
+                        let (f, a) = cyl.take_exhausted();
+                        fuel += f;
+                        air += a;
+                    }
+                    *bank_out.get(b) = CachePadded(BankOut { torque, dpdt });
+
+                    let inflow = math::max(ex_total, 0.0) * dt;
+                    let taken = wg.heat_taken(b);
+                    let (cells, volume) = wg.afterfire_zone(b);
+                    let zone_mass = primary.density_at(0) * volume;
+                    let hottest = || primary.leading_state(cells).1;
+                    pockets.get(b).step(dt, fuel, air, inflow, zone_mass, hottest, taken, floor);
+
+                    bank.last_valve_mdot = ex_total;
+                    bank.prev_ex_lift = bank.ex_lift;
+                    bank.prev_in_lift = bank.in_lift;
+                }
                 CloseItem::Bank(b) => {
                     wg.wait_side(b);
                     let ex_mdot = wg.valve_mass_flow(b);
@@ -3090,6 +3332,20 @@ fn solver_view(graph: &ExhaustGraph) -> ExhaustGraph {
         t.settings = None;
     }
     g
+}
+
+/// A rotor's state for the snapshot: the eccentric shaft's angle, in [0, 1080) from its first chamber's
+/// firing, that chamber's pressure and temperature, and as its "lifts" the share of each port open, to
+/// whichever chambers.
+fn rotor_snapshot(spec: &EngineSpec, faces: &[Cylinder], bank: &Bank) -> BankSnapshot {
+    let first = &faces[0];
+    BankSnapshot {
+        crank_angle: wrap_cycle(first.angle) / ROTARY_PHASE,
+        cyl_pressure: first.pressure(spec),
+        cyl_temp: first.temp(),
+        ex_lift: bank.ex_lift,
+        in_lift: bank.in_lift,
+    }
 }
 
 /// True if the crank swept past `target` degrees between two samples.

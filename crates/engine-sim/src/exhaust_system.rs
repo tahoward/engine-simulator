@@ -12,7 +12,7 @@ use std::time::Instant;
 use crate::afterfire::AFTERFIRE_ZONE_LENGTH;
 use crate::dsp::Noise;
 use crate::euler_pipe::{
-    DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, JunctionEnd, JunctionFace, OutletKind, ValveState,
+    DuctEnd, EndState, EulerPipe, EulerPipeOptions, InletKind, JunctionEnd, JunctionFace, OutletKind, SecondChamber, ValveState,
 };
 use crate::exhaust_graph::{
     DuctRole, End, ExhaustGraph, TurboMount, ends_at, node_order, path_to_air, radiating_ducts, validate_graph,
@@ -243,6 +243,8 @@ static GROUPS_DEALT: AtomicU64 = AtomicU64::new(0);
 struct DuctOut {
     mouth_flow: f64,
     valve_flow: f64,
+    /// Of `valve_flow`, what a rotary's second chamber open to the port gave: see `SecondChamber`.
+    valve_flow_2: f64,
     heat: f64,
     /// On the last substep: whether the duct's state had gone inadmissible, and was reset; and the
     /// pressure in its first cell, Pa, as `read_port` gives it, for its valve next sample.
@@ -257,10 +259,12 @@ impl DuctOut {
         if first {
             self.mouth_flow = 0.0;
             self.valve_flow = 0.0;
+            self.valve_flow_2 = 0.0;
             self.heat = 0.0;
         }
         self.mouth_flow += step.mouth_flow;
         self.valve_flow += step.valve_flow;
+        self.valve_flow_2 += step.valve_flow_2;
         self.heat += step.heat;
         if last {
             self.broken = step.broken;
@@ -268,6 +272,7 @@ impl DuctOut {
             let inv = if step.broken { 0.0 } else { 1.0 / substeps as f64 };
             self.mouth_flow *= inv;
             self.valve_flow *= inv;
+            self.valve_flow_2 *= inv;
         }
     }
 }
@@ -341,6 +346,11 @@ impl Stepped<'_> {
         self.out(b).valve_flow
     }
 
+    /// Of `valve_mass_flow(b)`, what a rotary's second chamber open to the port gave, kg/s.
+    pub fn valve_mass_flow_2(&self, b: usize) -> f64 {
+        self.out(b).valve_flow_2
+    }
+
     /// `ExhaustResult::heat_taken[b]`.
     pub fn heat_taken(&self, b: usize) -> f64 {
         self.out(b).heat
@@ -410,6 +420,7 @@ impl FinishInputs<'_> {
             duct.set_end_step(h, flow + valve.extra_mass_flow);
             duct.end_step_set(&valve);
             out.valve_flow = flow * duct.source_scale;
+            out.valve_flow_2 = duct.valve_flux_2 * duct.source_scale;
             let heat = self.afterfire_heat[i];
             if heat > 0.0 {
                 out.heat = duct.add_heat(heat * h, self.zone_cells[i], self.zone_volume[i]);
@@ -1070,6 +1081,7 @@ impl ExhaustSystem {
                     cyl_temp: port_gas_temp,
                     cyl_gamma: gas::GAMMA_EXH,
                     extra_mass_flow: 0.0,
+                    second: SecondChamber::NONE,
                 },
             ));
         }

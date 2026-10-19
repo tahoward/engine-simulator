@@ -27,7 +27,9 @@ use crate::euler_pipe::{EulerPipe, EulerPipeOptions, InletKind, OutletKind, Valv
 use crate::intake::runner_damping;
 use crate::math::{self, PI, clamp};
 use crate::plenum::{plenum_count_of, throttle_dia_of};
-use crate::spec::{EngineSpec, PipeSegment, SegmentKind, SegmentPartial, displacement, gas, make_segment};
+use crate::spec::{
+    EngineSpec, PipeSegment, SegmentKind, SegmentPartial, charges_per_two_turns, displacement, gas, make_segment,
+};
 
 /// Airbox volume as a multiple of the engine's swept volume, when not given.
 const AIRBOX_VOLUME_RATIO: f64 = 4.0;
@@ -51,7 +53,7 @@ pub fn airbox_volume_of(spec: &EngineSpec) -> f64 {
     if spec.airbox_volume > 0.0 {
         return spec.airbox_volume;
     }
-    AIRBOX_VOLUME_RATIO * displacement(spec) * math::max(spec.cylinders as f64, 1.0)
+    AIRBOX_VOLUME_RATIO * displacement(spec) * math::max(spec.cylinders as f64, 1.0) * charges_per_two_turns(spec)
 }
 
 /// The snorkel's bore, m, each tract's: the spec's, or a little wider than its throttle.

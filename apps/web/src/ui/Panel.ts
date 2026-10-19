@@ -54,6 +54,12 @@ import {
   firingOrderProblem,
   hasTwoBanks,
   presetEngine,
+  MAX_ROTORS,
+  cycleDegrees,
+  displacement,
+  engineTypeChange,
+  isRotary,
+  type EngineType,
   type BlowOff,
   type Car,
   type Fuel,
@@ -334,6 +340,11 @@ export class Panel {
    * what it was built for, so it is rebuilt only when that changes, and the exhaust's figures.
    */
   private segMenu: { el: HTMLElement; row: SegmentRow | null; key: string; stats: HTMLElement | null } | null = null;
+  private typeSel!: HTMLSelectElement;
+  private rotorSel!: HTMLSelectElement;
+  /** The Layout section's rows only a piston engine has, and only a rotary. */
+  private pistonLayout: HTMLElement[] = [];
+  private rotorRow!: HTMLElement;
   private bankSel!: HTMLSelectElement;
   private perBankSel!: HTMLSelectElement;
   private twinWrap!: HTMLElement;
@@ -549,7 +560,8 @@ export class Panel {
     }).row.title =
       `The tyres' friction coefficient at their peak grip, driving. Auto is a road tyre, ${TYRE_GRIP.road}. ` +
       `Stock is the real car's: ${TYRE_GRIP.corvette.toFixed(2)} for the Corvettes, from the 1.22 g the Z06 ` +
-      'pulls on a skidpad and a little more for grip driving rather than cornering.';
+      'pulls on a skidpad and a little more for grip driving rather than cornering, and ' +
+      `${TYRE_GRIP.slick} for the 787B's warm racing slicks.`;
     const dct = toggle(launch, 'Dual-clutch gearbox', this.launchConfig().dualClutch, (v) => this.setLaunch('dualClutch', v));
     dct.title =
       'Shift with no gap in the drive: the next gear\'s clutch takes it as the last one lets go, and the ' +
@@ -713,6 +725,42 @@ export class Panel {
     // ---- Layout ----------------------------------------------------------
     const layout = section('Layout', 'layout', 'Cylinders, crank and firing order, headers and turbos.');
 
+    // Pistons, or a Wankel's rotors.
+    const typeRow = el('div', 'row', layout);
+    el('label', '', typeRow).textContent = 'Engine';
+    const typeSel = el('select', '', typeRow) as HTMLSelectElement;
+    this.typeSel = typeSel;
+    typeSel.appendChild(option('piston', 'Pistons'));
+    typeSel.appendChild(option('rotary', 'Rotary (Wankel)'));
+    typeSel.value = spec.engineType;
+    typeRow.title =
+      'Pistons on a crank, or a Wankel: three-flanked rotors turning in trochoid housings on an eccentric ' +
+      'shaft, each flank closing off a chamber that takes its four strokes over three turns of the shaft. ' +
+      'Each rotor fires once every turn, as often as two cylinders of a four-stroke, through ports its ' +
+      'rotor uncovers in place of valves.';
+    typeSel.addEventListener('change', () => {
+      this.cb.onEngine(engineTypeChange(this.config.engine, typeSel.value as EngineType));
+      this.rebuildAll();
+      this.syncStats();
+    });
+    const rotorRow = el('div', 'row', layout);
+    this.rotorRow = rotorRow;
+    el('label', '', rotorRow).textContent = 'Rotors';
+    const rotorSel = el('select', '', rotorRow) as HTMLSelectElement;
+    this.rotorSel = rotorSel;
+    for (let n = 1; n <= MAX_ROTORS; n++) rotorSel.appendChild(option(String(n), String(n)));
+    rotorSel.value = String(Math.min(spec.cylinders, MAX_ROTORS));
+    rotorRow.title =
+      'Rotors along the eccentric shaft, their lobes spread round it so they share each turn evenly: ' +
+      'Mazda\u2019s 13B has two, half a turn apart, the 20B three, and the R26B four, firing 1-3-2-4.';
+    rotorSel.addEventListener('change', () => {
+      const n = Number(rotorSel.value);
+      this.cb.onEngine({ cylinders: n, exhaustLayout: n === 1 ? 'open' : 'merged' });
+      this.syncLayoutOptions();
+      this.rebuildPipeList();
+      this.syncStats();
+    });
+
     // Banks and cylinders on each: one bank is an inline engine, two a V, or at 180 degrees a flat engine.
     const bankRow = el('div', 'row', layout);
     el('label', '', bankRow).textContent = 'Banks';
@@ -734,7 +782,9 @@ export class Panel {
 
     const multiWrap = el('div', 'subgroup', layout);
     this.twinWrap = multiWrap;
-    const showMulti = () => multiWrap.classList.toggle('hidden', this.config.engine.cylinders < 2);
+    this.pistonLayout.push(bankRow, perBankRow, multiWrap);
+    const showMulti = () =>
+      multiWrap.classList.toggle('hidden', this.config.engine.cylinders < 2 || isRotary(this.config.engine));
 
     const setLayout = () => {
       const banks = Number(bankSel.value);
@@ -900,7 +950,8 @@ export class Panel {
       orderNote.textContent = problem ? `${problem} Firing as the layout does until it is.` : '';
       orderNote.classList.toggle('hidden', !problem);
       resetBtn.disabled = !eng.firingOrder && !eng.firingIntervals;
-      const one = eng.cylinders === 1;
+      // A rotary's firing is its eccentric shaft's.
+      const one = eng.cylinders === 1 || isRotary(eng);
       for (const row of [orderRow, gapsRow, resetBtn.parentElement!]) row.classList.toggle('hidden', one);
     };
     showMulti();
@@ -1107,6 +1158,60 @@ export class Panel {
 
     // ---- Engine geometry -------------------------------------------------
     const geo = section('Engine geometry', 'geometry', 'Bore, stroke, rod length, moving masses and compression.');
+    // The rows only a piston engine has, and only a rotary, shown by `showType`.
+    const pistonOnly: HTMLElement[] = [];
+    const rotaryOnly: HTMLElement[] = [];
+    /** Every row added to `parent` while `build` runs, into `into`. */
+    const rowsOf = (parent: HTMLElement, into: HTMLElement[], build: () => void) => {
+      const before = parent.children.length;
+      build();
+      into.push(...(Array.from(parent.children).slice(before) as HTMLElement[]));
+    };
+    rowsOf(geo, rotaryOnly, () => {
+      this.slider(geo, {
+        label: 'Generating radius',
+        min: 0.06,
+        max: 0.15,
+        step: 0.001,
+        value: spec.rotorRadius,
+        sync: () => this.config.engine.rotorRadius,
+        scale: MM,
+        unit: 'mm',
+        onInput: (v) => this.cb.onEngine({ rotorRadius: v }),
+      }).row.title = 'The trochoid\u2019s generating radius: from the rotor\u2019s centre to an apex. 105 mm on every Mazda.';
+      this.slider(geo, {
+        label: 'Eccentricity',
+        min: 0.008,
+        max: 0.025,
+        step: 0.0005,
+        value: spec.eccentricity,
+        sync: () => this.config.engine.eccentricity,
+        scale: MM,
+        unit: 'mm',
+        onInput: (v) => this.cb.onEngine({ eccentricity: v }),
+      }).row.title =
+        'How far the rotor\u2019s centre orbits the shaft\u2019s: the eccentric shaft\u2019s throw. 15 mm on ' +
+        'Mazda\u2019s 13B, 20B and R26B. With the radius, it sets the housing\u2019s shape.';
+      this.slider(geo, {
+        label: 'Rotor width',
+        min: 0.04,
+        max: 0.12,
+        step: 0.001,
+        value: spec.rotorWidth,
+        sync: () => this.config.engine.rotorWidth,
+        scale: MM,
+        unit: 'mm',
+        onInput: (v) => this.cb.onEngine({ rotorWidth: v }),
+      }).row.title = '80 mm on the 13B, 70 mm on the 12A.';
+      const chamber = el('div', 'readout', geo);
+      chamber.title = 'Each chamber\u2019s displacement, 3\u221a3 e R b: what Mazda counts per rotor.';
+      this.resyncers.push(() => {
+        const eng = this.config.engine;
+        const cc = displacement(eng) * 1e6;
+        chamber.textContent = `${Math.round(cc)} cc a chamber, ${Math.round(cc * eng.cylinders)} cc in all`;
+      });
+    });
+    const pistonGeometry = geo.children.length;
     this.slider(geo, {
       label: 'Bore',
       min: 0.05,
@@ -1153,6 +1258,7 @@ export class Panel {
       'Piston, rings, pin and rod small end. Its inertia torque averages to zero over a ' +
       'cycle so it does not change the speed, but it is as large as the gas torque and ' +
       'sets how unevenly the crank turns.';
+    pistonOnly.push(...(Array.from(geo.children).slice(pistonGeometry) as HTMLElement[]));
     this.slider(geo, {
       label: 'Flywheel inertia',
       min: 0.02,
@@ -1176,6 +1282,63 @@ export class Panel {
 
     // ---- Valves ----------------------------------------------------------
     const valves = section('Valves and timing', 'valves', 'Valve sizes, cam timing and lift, and variable valve timing.');
+    // A rotary's ports, opened and shut by its rotor's apexes, at the shaft's angles over its 1080.
+    rowsOf(valves, rotaryOnly, () => {
+      this.slider(valves, {
+        label: 'Exhaust port',
+        min: 0.025,
+        max: 0.07,
+        step: 0.0005,
+        value: spec.exValveDia,
+        sync: () => this.config.engine.exValveDia,
+        scale: MM,
+        unit: 'mm',
+        onInput: (v) => this.cb.onEngine({ exValveDia: v }),
+      }).row.title = 'The exhaust port\u2019s area, as a round port\u2019s diameter: it starts the exhaust.';
+      this.slider(valves, {
+        label: 'Intake port',
+        min: 0.025,
+        max: 0.08,
+        step: 0.0005,
+        value: spec.inValveDia,
+        sync: () => this.config.engine.inValveDia,
+        scale: MM,
+        unit: 'mm',
+        onInput: (v) => this.cb.onEngine({ inValveDia: v }),
+      }).row.title = 'The intake port\u2019s area, as a round port\u2019s diameter.';
+      const port = (
+        label: string,
+        key: 'evo' | 'evc' | 'ivo' | 'ivc',
+        min: number,
+        max: number,
+        format: (v: number) => string,
+        title: string,
+      ) => {
+        this.slider(valves, {
+          label,
+          min,
+          max,
+          step: 1,
+          value: spec[key],
+          sync: () => this.config.engine[key],
+          format,
+          onInput: (v) => this.cb.onEngine({ [key]: v }),
+        }).row.title = title;
+      };
+      // Either side of a dead centre: before it and after.
+      const about = (v: number, centre: number, name: string) =>
+        v < centre ? `${Math.round(centre - v)}° B${name}` : `${Math.round(v - centre)}° A${name}`;
+      port('Exhaust port opens', 'evo', 120, 260, (v) => about(v, 270, 'BDC'),
+        'Where the apex ahead of a chamber uncovers the exhaust port, shaft degrees before its bottom dead centre.');
+      port('Exhaust port closes', 'evc', 500, 640, (v) => about(v, 540, 'TDC'),
+        'Where the apex behind it covers the port again, after the top dead centre the exhaust shares with ' +
+        'the intake. Over 360° after it opened, the next chamber has it open too, an apex across it.');
+      port('Intake port opens', 'ivo', 440, 620, (v) => about(v, 540, 'TDC'),
+        'Peripheral ports open before the top dead centre, into overlap with the exhaust: power at the ' +
+        'top and a rough idle. Side ports open after it, as the 13B\u2019s do.');
+      port('Intake port closes', 'ivc', 780, 940, (v) => about(v, 810, 'BDC'), 'After its bottom dead centre.');
+    });
+    const pistonValves = valves.children.length;
     const headRow = el('div', 'row', valves);
     el('label', '', headRow).textContent = 'Valves per cylinder';
     const headSel = el('select', '', headRow) as HTMLSelectElement;
@@ -1391,6 +1554,14 @@ export class Panel {
       'four valves turns them off. A rocker and pushrod close each valve\u2019s lash, heavier than a bucket, ' +
       'so they knock harder.';
     this.resyncers.push(() => (checkbox(pushrods).checked = this.config.engine.pushrods));
+    pistonOnly.push(...(Array.from(valves.children).slice(pistonValves) as HTMLElement[]));
+    const showType = () => {
+      const rotary = isRotary(this.config.engine);
+      for (const row of pistonOnly) row.classList.toggle('hidden', rotary);
+      for (const row of rotaryOnly) row.classList.toggle('hidden', !rotary);
+    };
+    showType();
+    this.resyncers.push(showType);
 
     // ---- Intake ------------------------------------------------------------
     const intake = section('Intake', 'intake', 'Runners, plenum and throttle body.');
@@ -1735,11 +1906,11 @@ export class Panel {
       min: 0,
       max: 50,
       step: 1,
-      value: 720 - spec.ignition,
-      sync: () => 720 - this.config.engine.ignition,
+      value: cycleDegrees(spec) - spec.ignition,
+      sync: () => cycleDegrees(this.config.engine) - this.config.engine.ignition,
       unit: '° BTDC',
-      // Stored as deg ATDC; 25 deg BTDC is 695.
-      onInput: (v) => this.cb.onEngine({ ignition: 720 - v }),
+      // Stored as deg ATDC; 25 deg BTDC is 695, or on a rotary's 1080-degree cycle 1055.
+      onInput: (v) => this.cb.onEngine({ ignition: cycleDegrees(this.config.engine) - v }),
     });
     const burn = this.slider(comb, {
       label: 'Burn duration',
@@ -1825,6 +1996,8 @@ export class Panel {
     const showFuel = () => {
       const diesel = this.config.engine.fuel === 'diesel';
       fuelSel.value = this.config.engine.fuel;
+      // A rotary burns gasoline here.
+      fuelRow.classList.toggle('hidden', isRotary(this.config.engine));
       for (const row of [smoke.row, fullFuel.row]) row.classList.toggle('hidden', !diesel);
       for (const row of [mixture.row, fuelCut, crackle, crackleLevel.row]) row.classList.toggle('hidden', diesel);
       label(revLimit.row, diesel ? 'Governed speed' : 'Rev limiter');
@@ -2300,9 +2473,11 @@ export class Panel {
    * individual slider callbacks would each fire a rebuild and the selects would go stale.
    */
   rebuildAll(): void {
+    this.typeSel.value = this.config.engine.engineType;
+    this.rotorSel.value = String(Math.min(this.config.engine.cylinders, MAX_ROTORS));
     this.bankSel.value = hasTwoBanks(this.config.engine) ? '2' : '1';
     this.perBankSel.value = String(cylindersPerBank(this.config.engine));
-    this.twinWrap.classList.toggle('hidden', this.config.engine.cylinders < 2);
+    this.twinWrap.classList.toggle('hidden', this.config.engine.cylinders < 2 || isRotary(this.config.engine));
     this.syncLayoutOptions();
     for (const r of this.resyncers) r();
     this.rebuildPipeList();
@@ -2318,6 +2493,13 @@ export class Panel {
     const eng = this.config.engine;
     const n = eng.cylinders;
     const two = hasTwoBanks(eng);
+    const rotary = isRotary(eng);
+    this.rotorRow.classList.toggle('hidden', !rotary);
+    for (const row of this.pistonLayout) row.classList.toggle('hidden', rotary || (row === this.twinWrap && n < 2));
+    if (rotary) {
+      this.syncFiring();
+      return;
+    }
 
     // A crank choice only where the layout has one: a V8's crossplane or flatplane, and at 180 degrees
     // a boxer's opposed pins against a 180-degree V's shared ones.
@@ -3290,8 +3472,8 @@ export class Panel {
     // negative wave reflected from the open end gets back to the port during valve
     // overlap. The round trip takes 2L/c seconds, which at N rpm is 12*L*N/c crank
     // degrees; setting that to the ~180 deg from exhaust-valve-opening to overlap
-    // gives N = 15c/L, i.e. 60*f1.
-    const tunedRpm = f1 * 60;
+    // gives N = 15c/L, i.e. 60*f1. A rotary's strokes are 270 degrees of its shaft, so its is half again.
+    const tunedRpm = f1 * 60 * (cycleDegrees(eng) / 720);
 
     const segs = path.length > 0
       ? path.reduce((a, d) => a + d.segments.length, 0)
@@ -3635,6 +3817,8 @@ const rad = (d: number): number => (d * Math.PI) / 180;
 function firingNote(eng: EngineSpec): string {
   const plan = firingPlan(eng);
   const layout = exhaustLayoutOf(eng);
+  // Each rotor fires once a turn of the shaft, the rotors spread evenly through it.
+  if (isRotary(eng)) return `fires every ${(360 / eng.cylinders).toFixed(0)}\u00b0 of the shaft`;
   if (eng.cylinders === 2) {
     const fire = firingOffsetDeg(eng);
     return `fires ${fire.toFixed(0)}/${(720 - fire).toFixed(0)}`;

@@ -190,6 +190,11 @@ pub struct Cylinder {
     step_omega: f64,
 }
 
+/// The length of a rotary chamber's walls round the rotor, flank and trochoid together, in generating
+/// radii: a flank's chord is `sqrt(3)` of them and its bulge a little more, the trochoid's stretch from
+/// apex to apex a third of its girth, about `2.1`.
+const ROTARY_WALL_PER_RADIUS: f64 = 3.9;
+
 /// Woschni's velocity coefficients.
 const WOSCHNI_C1_EXCHANGE: f64 = 6.18;
 const WOSCHNI_C1_CLOSED: f64 = 2.28;
@@ -819,10 +824,17 @@ impl Cylinder {
         };
         let h = 3.26 * self.woschni_bore * pw * math::pow(temp, -0.55);
 
-        let bore = spec.bore;
-        let cross_section = (PI * bore * bore) / 4.0;
-        let height = v / cross_section;
-        let area = 2.0 * cross_section + PI * bore * height;
+        let area = if si.crank.rotary {
+            // A rotary's chamber: its planform either side, on the end housings, and the flank and the
+            // stretch of trochoid between its apexes, across the rotor's width. Long and thin, it has about
+            // twice the surface of a cylinder of its volume, and loses heat as much faster.
+            2.0 * v / spec.rotor_width + ROTARY_WALL_PER_RADIUS * spec.rotor_radius * spec.rotor_width
+        } else {
+            let bore = spec.bore;
+            let cross_section = (PI * bore * bore) / 4.0;
+            let height = v / cross_section;
+            2.0 * cross_section + PI * bore * height
+        };
 
         -h * area * (temp - gas::T_WALL)
     }

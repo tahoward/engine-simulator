@@ -6,7 +6,8 @@
 
 use crate::math::{self, PI};
 use crate::spec::{
-    EngineSpec, PipeSegment, clearance_volume, cylinder_z, firing_plan, physical_bank, physical_bank_count,
+    EngineSpec, PipeSegment, clearance_volume, cylinder_z, firing_plan, is_rotary, physical_bank,
+    physical_bank_count,
 };
 
 pub type Vec3 = [f64; 3];
@@ -18,6 +19,9 @@ pub struct Port {
 }
 
 pub fn exhaust_port_of(spec: &EngineSpec, cylinder: usize) -> Port {
+    if is_rotary(spec) {
+        return rotor_port(spec, cylinder, ROTOR_EXHAUST_PORT);
+    }
     let plan = firing_plan(spec);
     let z = cylinder_z(spec, cylinder);
 
@@ -37,6 +41,45 @@ pub fn exhaust_port_of(spec: &EngineSpec, cylinder: usize) -> Port {
     let py = deck_y + head_height * 0.45;
     // Straight out of the side of the head, square to it.
     Port { position: [px * c - py * s, px * s + py * c, z], direction: [side * c, side * s, 0.0] }
+}
+
+/// Where round a rotary's housing its peripheral ports are, as the trochoid's parameter `alpha`, degrees:
+/// either side of the waist where the exhaust stroke meets the intake, the exhaust low on the housing's
+/// side, pointing out of it, and the intake high, pointing up and out. The web app's `ROTOR_EXHAUST_PORT`
+/// and `ROTOR_INTAKE_PORT`; see `trochoid_at`.
+pub const ROTOR_EXHAUST_PORT: f64 = 240.0;
+pub const ROTOR_INTAKE_PORT: f64 = 315.0;
+
+/// How far a rotary's port flanges stand out from the trochoid, m: the housing's wall.
+pub const HOUSING_WALL: f64 = 0.03;
+
+/// The point of a rotary's trochoid at parameter `alpha`, degrees, across the shaft in the scene's frame,
+/// x across and y up, m, and the way out of the housing there, a unit vector.
+///
+/// The trochoid is the path the apexes trace, `e (cos 3a, sin 3a) + R (cos a, sin a)`, turned a quarter
+/// turn so its long axis stands upright, as Mazda's do: its waists face the sides, the spark plugs at the
+/// waist on -x, where the chambers fire, and the ports at the one on +x.
+pub fn trochoid_at(spec: &EngineSpec, alpha: f64) -> ([f64; 2], [f64; 2]) {
+    let a = alpha * (PI / 180.0);
+    let (e, r) = (spec.eccentricity, spec.rotor_radius);
+    let (s1, c1) = (math::sin(a), math::cos(a));
+    let (s3, c3) = (math::sin(3.0 * a), math::cos(3.0 * a));
+    let point = [-(e * s3 + r * s1), e * c3 + r * c1];
+    // The tangent, the way the parameter runs, turned outward.
+    let tangent = [-(3.0 * e * c3 + r * c1), -(3.0 * e * s3 + r * s1)];
+    let h = math::hypot(&[tangent[0], tangent[1]]);
+    (point, [tangent[1] / h, -tangent[0] / h])
+}
+
+/// Rotor `rotor`'s peripheral port at `alpha` round its housing: its flange, a housing wall out from the
+/// trochoid, and the way it points.
+pub fn rotor_port(spec: &EngineSpec, rotor: usize, alpha: f64) -> Port {
+    let (p, n) = trochoid_at(spec, alpha);
+    let z = cylinder_z(spec, rotor);
+    Port {
+        position: [p[0] + n[0] * HOUSING_WALL, p[1] + n[1] * HOUSING_WALL, z],
+        direction: [n[0], n[1], 0.0],
+    }
 }
 
 /// `dir` turned by `yaw` about the vertical, then by `pitch` about its new horizontal right axis.

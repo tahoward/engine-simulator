@@ -27,6 +27,7 @@ mod launch;
 mod parity;
 mod realism;
 mod room;
+mod rotary;
 mod shell;
 mod steepening;
 mod stereo;

@@ -1,6 +1,6 @@
 # The Engine
 
-How the cylinder model works, why it doesn't sound like a loop, and what adding cylinders does.
+How the cylinder model works, why it doesn't sound like a loop, what adding cylinders does, and the rotary.
 
 ## The cylinder
 
@@ -891,6 +891,57 @@ The crankshaft is the second link, and it is easy to forget. Torque pulses from 
 up and slow down the shared crank, so the other cylinder's timing shifts even when the exhausts are
 completely separate. With separate pipes and a standard flywheel, that link alone changes the first
 cylinder by 4%. A twin is never two independent singles, whatever exhaust you fit.
+
+## The rotary
+
+A [Wankel](glossary.md#wankel-engine) has no pistons and no valves, but each of its chambers is
+still a pocket of gas that grows and shrinks and fills and empties, so it runs on the same cylinder
+model.
+
+**A chamber is a cylinder on a crank turning at two thirds of the shaft's speed.** Each of a
+rotor's three flanks closes off a chamber against the trochoid housing. Its volume is exactly a
+sinusoid in the [eccentric shaft's](glossary.md#eccentric-shaft) angle, with a period of 540°, and
+it takes its four strokes over three turns of the shaft, 270° each. Seen on a crank that turns 720°
+while the shaft turns 1080°, that is a cylinder with an infinitely long rod:
+
+```
+V = Vc + Vd (1 - cos phi) / 2        phi = 2/3 of the shaft's angle
+Vd = 3 sqrt(3) e R b                 654 cc for Mazda's 15 x 105 x 80 mm
+```
+
+So the cylinder model, the spark, the Wiebe burn and the advance map run unchanged on each chamber,
+at two thirds of the shaft's speed. Its torque reaches the shaft at two thirds, too, and nothing
+reciprocates. Every angle a rotary's settings state, its port timing, its spark and its burn, is in
+the shaft's degrees, over its 1080° cycle: bottom dead centres at 270 and 810, the top dead centre
+between exhaust and intake at 540. A chamber's heat loss uses its own walls: its two end faces, and
+its flank and the stretch of housing between its apexes across the rotor's width. A rotary's chamber
+is long and thin, with about twice the surface of a cylinder of its volume.
+
+**Each rotor is laid out, plumbed and drawn as a cylinder is.** It has one exhaust port, one intake
+port and one intake runner, which its three chambers take turns at. Each rotor fires once a turn,
+as often as two cylinders of a four-stroke: the rotors' lobes are spread round the shaft so they
+share each turn evenly. A two-rotor fires every 180° of the shaft, as an inline four does, and the
+four-rotor R26B every 90°, 1-3-2-4, as a V8 does.
+
+**An apex crossing a port opens it to two chambers at once.** The port's area for each chamber
+rises as the apex ahead of it uncovers the port's first edge and falls as the apex behind covers its
+last. One apex closes the port on one chamber and opens it on the next, which reaches it a turn of
+the shaft later, so a port open for longer than a turn is shared between the two while the apex is
+across it, one chamber's share closing as the other's opens. The port's duct then takes a flow from
+each, each solved at the port pressure the other leaves it at, as one valve's is: a chamber blowing
+down into the exhaust as the apex uncovers it, while the one behind, near its top dead centre, draws
+some of it back. A port open for less than a turn, such as a side port, is only ever open to one,
+and opens over a quarter of its window.
+
+**A rotary's mechanical noise is its apex seals.** It has no valves to seat, no cam followers,
+no timing drive, no piston to slap and no rod to knock. What rubs is its apex seals on the housing:
+as fast as they slide, about the generating radius times a third of the shaft's speed, and as hard
+as the gas behind each presses it out.
+
+The R26B makes 570 N·m at 6500 rpm and 696 PS at 9000, against the real engine's rated 608 N·m and
+700 PS. Its ports' timing is estimated. With more overlap between its exhaust and intake it makes
+less and fills its intake with exhaust at a closed throttle, until it will not idle. Even as it is,
+it idles at 2000 rpm, high and uneven, as a peripheral-port racing rotary does.
 
 ## Sources
 

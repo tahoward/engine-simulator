@@ -8,7 +8,7 @@ import * as THREE from 'three';
 
 import { compileExhaust, reversedDucts, solverGraph, type ExhaustGraph } from '../model/exhaustGraph.js';
 import { deckHeight, engineShell, exhaustPortOf, valvetrainTop, type Vec3 } from '../model/geometry.js';
-import { type CasingSurface, type EngineConfig, type EngineSpec, type SoundSources } from '../model/spec.js';
+import { type CasingSurface, type EngineConfig, type EngineSpec, type SoundSources, isRotary } from '../model/spec.js';
 import { turboPortsOf } from '../model/turbo.js';
 import { seatEngineTurbos } from './engineTurbos.js';
 import { layoutGraph, type ExhaustPlacement, type ExhaustPort } from './exhaustLayout.js';
@@ -98,7 +98,8 @@ const PAN_DEPTH = 0.04;
 export function casingSurfaces(spec: EngineSpec): CasingSurface[] {
   const shell = engineShell(spec);
   const deck = deckHeight(spec);
-  const middle = (shell.bottom + deck) / 2;
+  // A rotary's housings' sides are round its shaft, as high above it as below.
+  const middle = isRotary(spec) ? (shell.bottom + shell.top) / 2 : (shell.bottom + deck) / 2;
   const top = valvetrainTop(spec);
   const surfaces: CasingSurface[] = [];
   for (const turn of shell.banks) {
@@ -123,7 +124,9 @@ export function casingSurfaces(spec: EngineSpec): CasingSurface[] {
     }
     surfaces.push({ kind: 'head', bank, position: [axis[0] * top, axis[1] * top, 0], facing: axis });
   }
-  surfaces.push({ kind: 'oilPan', bank: 0, position: [0, -(shell.crankcase.radius + PAN_DEPTH), 0], facing: [0, -1, 0] });
+  // A rotary's pan is under its housings, which come down well below its shaft.
+  const pan = isRotary(spec) ? -shell.bottom : shell.crankcase.radius;
+  surfaces.push({ kind: 'oilPan', bank: 0, position: [0, -(pan + PAN_DEPTH), 0], facing: [0, -1, 0] });
   surfaces.push({
     kind: 'frontCover',
     bank: 0,

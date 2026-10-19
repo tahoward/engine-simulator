@@ -438,6 +438,35 @@ A flat engine with its two banks 180° apart and each opposed pair of pistons mo
 together.
 [Wikipedia](https://en.wikipedia.org/wiki/Flat_engine)
 
+### Wankel engine
+
+A rotary engine: a three-flanked rotor turning inside a housing shaped as an epitrochoid, on an
+eccentric shaft that turns three times for each turn of the rotor. Each flank closes off a chamber
+against the housing, and each chamber takes the four strokes in turn, so a rotor fires once every
+turn of the shaft. Its ports are uncovered by the rotor itself rather than opened by valves.
+[Wikipedia](https://en.wikipedia.org/wiki/Wankel_engine)
+
+### Eccentric shaft
+
+A Wankel's output shaft. Each rotor rides on a lobe of it, offset from its axis by the
+eccentricity, and a gear inside the rotor meshing with one fixed round the shaft turns the rotor at
+a third of the shaft's speed.
+[Wikipedia](https://en.wikipedia.org/wiki/Wankel_engine#Design)
+
+### Apex seal
+
+The strip along each of a Wankel rotor's three tips that seals one chamber from the next against
+the housing. Where a peripheral port is wider than the gap an apex can cover, the apex crossing it
+leaves the port open to the chambers either side of it at once.
+[Wikipedia](https://en.wikipedia.org/wiki/Wankel_engine#Seals)
+
+### Peripheral and side ports
+
+A Wankel's two ways in and out. A peripheral port is in the trochoid housing itself, where the
+apexes sweep across it: it opens early and wide, for power at high speed and a rough idle. A side
+port is in the housings beside the rotor, uncovered by its flank, and opens later and more gently.
+[Wikipedia](https://en.wikipedia.org/wiki/Wankel_engine#Engine_design)
+
 ### Valve overlap
 
 The part of the cycle, around TDC between exhaust and intake strokes, when both valves are briefly

@@ -18,7 +18,8 @@
 use crate::intake::Runner;
 use crate::math::{self, PI, clamp};
 use crate::spec::{
-    EngineSpec, Fuel, crank_pins, cylinder_spacing, cylinder_z, displacement, gas, gas_energy, gas_enthalpy, gas_gamma,
+    EngineSpec, Fuel, charges_per_two_turns, crank_pins, cylinder_spacing, cylinder_z, displacement, gas, gas_energy,
+    gas_enthalpy, gas_gamma, is_rotary,
     gas_temperature, intake_runner_of, physical_bank, physical_bank_count,
 };
 use crate::valve::orifice_mass_flow;
@@ -80,7 +81,7 @@ const BALANCE_TRAVEL: f64 = 0.1;
 const BALANCE_HYSTERESIS: f64 = 150.0;
 
 fn total_displacement(spec: &EngineSpec) -> f64 {
-    displacement(spec) * math::max(spec.cylinders as f64, 1.0)
+    displacement(spec) * math::max(spec.cylinders as f64, 1.0) * charges_per_two_turns(spec)
 }
 
 /// How many plenums the runners draw from: two with `dual_plenum` on an engine of two banks, each bank's
@@ -146,7 +147,9 @@ pub fn plenum_shape_of(spec: &EngineSpec) -> PlenumShape {
     } else {
         let spacing = cylinder_spacing(spec);
         let pins = crank_pins(spec).len() as f64;
-        let block = (pins - 1.0) * spacing + math::max(spacing, spec.bore * 1.3);
+        // A rotary's block is its housings, a rotor's pitch each.
+        let end = if is_rotary(spec) { spacing } else { math::max(spacing, spec.bore * 1.3) };
+        let block = (pins - 1.0) * spacing + end;
         math::max(block * 0.85, span)
     };
     // No smaller across or high than takes the throttle bodies' flanges on its front.

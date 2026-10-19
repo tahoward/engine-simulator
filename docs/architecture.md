@@ -80,7 +80,7 @@ measures. The browser has to infer it from the audio clock.
 ```
 crates/engine-sim/src/          the simulation
   engine_sim.rs                 the per-sample simulation: crank, valves, flows, radiation
-  cylinder.rs  valve.rs         thermodynamics, cam lift, compressible orifice flow
+  cylinder.rs  valve.rs         thermodynamics, cam lift and rotary ports, compressible orifice flow
   plenum.rs  intake.rs          the finite intake plenum, and the runners from it to each valve
   drivetrain.rs                 the launch: clutch, gearbox, driven wheels and tyres, and the car on the strip
   euler_pipe.rs                 one duct: MUSCL-Hancock + HLLC, walls, thermal, radiation
@@ -101,7 +101,7 @@ apps/web/src/audio/
   NativeEngine.ts               on the desktop: Tauri commands to the native simulation
   worklet/processor.ts  sim.ts  the AudioWorkletProcessor, and the Wasm module it runs
   worklet/simWasm.ts            the Wasm module, base64 (npm run build:sim)
-apps/web/src/scene/             Viewer, animated EngineMesh, PipeMesh, PipeEditor, junction marks
+apps/web/src/scene/             Viewer, animated EngineMesh and RotaryMesh, PipeMesh, PipeEditor, junction marks
 apps/web/src/ui/                control panel, waveform/spectrum/pressure scope
 apps/web/test/                  interface tests, and the Wasm build against the reference renders
 apps/web/bench/                 real-time cost of the Wasm build

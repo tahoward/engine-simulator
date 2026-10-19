@@ -34,6 +34,8 @@ pub struct Runner {
     pub pipe: EulerPipe,
     /// Mass flow through the intake valve, kg/s, positive out of the cylinder into the runner.
     pub valve_mass_flow: f64,
+    /// Of it, what a rotary's second chamber open to the port gave: see `SecondChamber`.
+    pub valve_mass_flow_2: f64,
     /// Mass flow out of the plenum end, kg/s, positive into the plenum.
     pub plenum_flow: f64,
     /// Gas temperature at the plenum end, K.
@@ -106,6 +108,7 @@ impl IntakeRunners {
                     plenum_temp: t,
                     pipe,
                     valve_mass_flow: 0.0,
+                    valve_mass_flow_2: 0.0,
                     plenum_flow: 0.0,
                     burned: 0.0,
                     fuel: 0.0,
@@ -158,6 +161,7 @@ impl IntakeRunners {
             r.air_owed = s.air_owed;
             r.inflow_fuel = s.inflow_fuel;
             r.valve_mass_flow = s.valve_mass_flow;
+            r.valve_mass_flow_2 = s.valve_mass_flow_2;
             r.plenum_flow = s.plenum_flow;
             r.port_temp = r.pipe.read_port().1;
             r.plenum_temp = r.pipe.read_mouth().1;
@@ -189,7 +193,7 @@ impl IntakeRunners {
         let count = self.runners.len();
         let step = self.begin(io, plenum, entry_loss);
         for b in 0..count {
-            unsafe { step.runner(b, &valves[b], &cyl_state[b]) };
+            unsafe { step.runner(b, &valves[b], &cyl_state[b], &cyl_state[b]) };
         }
     }
 
@@ -260,23 +264,25 @@ impl IntakeStep<'_> {
         unsafe { std::slice::from_raw_parts(self.runners, self.count) }
     }
 
-    /// Step runner `b` through the sample, onto its intake `valve` and a cylinder holding `cyl`.
+    /// Step runner `b` through the sample, onto its intake `valve` and a cylinder holding `cyl`; and where
+    /// the valve is a rotary's port open to a second chamber, one holding `cyl2`.
     ///
     /// # Safety
     ///
     /// Each `b` must be stepped once, by one thread: two threads on one runner would race.
-    pub unsafe fn runner(&self, b: usize, valve: &ValveState, cyl: &CylState) {
+    pub unsafe fn runner(&self, b: usize, valve: &ValveState, cyl: &CylState, cyl2: &CylState) {
         let dt = self.io.dt;
         let substeps = self.substeps;
         let h = dt / substeps as f64;
         let inject = self.io.inject;
         let run = unsafe { &mut *self.runners.add(b) };
         let plenum_in = [run.feed.burned, run.feed.fuel];
-        let cyl_out = [cyl.burned, cyl.fuel];
+        let cyl_out = [[cyl.burned, cyl.fuel], [cyl2.burned, cyl2.fuel]];
         let r = &mut run.pipe;
         let (species, fractions) = (&mut run.species, &mut run.fractions);
         let n = r.n;
         let mut vf = 0.0;
+        let mut vf2 = 0.0;
         let mut pf = 0.0;
         // What crossed the valve into the cylinder, and the plenum end either way, over the sample: mass,
         // kg, and the spent gas and fuel in it.
@@ -295,15 +301,18 @@ impl IntakeStep<'_> {
             }
             r.end_step_set(valve);
             vf += r.valve_flux_out * r.source_scale;
+            vf2 += r.valve_flux_2 * r.source_scale;
             carry(r, species, fractions, h, cyl_out, plenum_in, &mut drawn, &mut mouth);
             r.after_step(h);
         }
 
         let inv = 1.0 / substeps as f64;
         vf *= inv;
+        vf2 *= inv;
         pf *= inv;
         if r.recover_if_broken() {
             vf = 0.0;
+            vf2 = 0.0;
             pf = 0.0;
             run.mass = r.total_mass();
             let (b, f) = (run.burned, run.fuel);
@@ -312,6 +321,7 @@ impl IntakeStep<'_> {
             run.mass += (vf - pf) * dt;
         }
         run.valve_mass_flow = vf;
+        run.valve_mass_flow_2 = vf2;
         run.plenum_flow = pf;
 
         // Each cell holds no more spent gas and fuel than gas.
@@ -381,7 +391,7 @@ fn carry(
     species: &mut [[f64; 2]],
     fractions: &[[f64; 2]],
     h: f64,
-    cyl: [f64; 2],
+    cyl: [[f64; 2]; 2],
     plenum: [f64; 2],
     drawn: &mut [f64; 3],
     mouth: &mut [f64; 3],
@@ -418,18 +428,24 @@ fn carry(
         mouth[1] += m * y[0];
         mouth[2] += m * y[1];
     }
-    // The valve, into cell 0.
-    let m = r.valve_source_flow() * h;
-    if m >= 0.0 {
-        species[0][0] += m * cyl[0];
-        species[0][1] += m * cyl[1];
-    } else {
-        let y = fractions[0];
-        species[0][0] += m * y[0];
-        species[0][1] += m * y[1];
-        drawn[0] -= m;
-        drawn[1] -= m * y[0];
-        drawn[2] -= m * y[1];
+    // The valve, into cell 0: from a rotary's port open to two chambers, each one's stream with its own
+    // makeup.
+    let total = r.valve_source_flow() * h;
+    let second = if r.valve_flux_2 != 0.0 { r.valve_flux_2 * r.source_scale * h } else { 0.0 };
+    let streams = [(total - second, cyl[0]), (second, cyl[1])];
+    for (m, cyl) in if second != 0.0 { &streams[..] } else { &streams[..1] } {
+        let m = *m;
+        if m >= 0.0 {
+            species[0][0] += m * cyl[0];
+            species[0][1] += m * cyl[1];
+        } else {
+            let y = fractions[0];
+            species[0][0] += m * y[0];
+            species[0][1] += m * y[1];
+            drawn[0] -= m;
+            drawn[1] -= m * y[0];
+            drawn[2] -= m * y[1];
+        }
     }
 }
 
