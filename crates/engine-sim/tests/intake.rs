@@ -320,6 +320,64 @@ mod two_stage_intake {
     }
 }
 
+mod variable_intake {
+    use super::*;
+
+    /// The LT6, its runners telescoping from its long length at 5000 rpm to its short one at 8000.
+    fn build(over: Value) -> EngineSim {
+        lt6(merged(
+            json!({ "freeRunning": false, "throttle": 1, "combustionVariability": 0, "intakeVariable": true,
+                    "intakeVariableLowRpm": 5000, "intakeVariableHighRpm": 8000 }),
+            over,
+        ))
+    }
+
+    /// is long below its range, short above it, and between them tuned to the speed
+    #[test]
+    fn is_long_below_its_range_short_above_it_and_between_them_tuned_to_the_speed() {
+        let spec = &common::engine_preset("V8, Chevrolet LT6").config.engine;
+        let (long, short) = (intake_runner_of(spec).length, spec.intake_runner_short_length);
+        let at = |rpm: f64| {
+            let mut sim = build(json!({ "rpm": rpm }));
+            sim.render(FS as usize / 10);
+            sim.snapshot().runner_length.expect("a variable intake says how long its runners are")
+        };
+        assert!((at(4000.0) - long).abs() < 0.003, "{}", at(4000.0));
+        assert!((at(8500.0) - short).abs() < 0.003, "{}", at(8500.0));
+        // Halfway through the range, halfway between the two lengths' quarter-wave resonances.
+        let mid = 1.0 / (0.5 / long + 0.5 / short);
+        assert!((at(6500.0) - mid).abs() < 0.004, "{} against {mid}", at(6500.0));
+        // A fixed or two-stage intake says nothing.
+        let mut fixed = lt6(json!({ "freeRunning": false, "rpm": 6500 }));
+        fixed.render(1);
+        assert_eq!(fixed.snapshot().runner_length, None);
+    }
+
+    /// telescopes smoothly through its range as the engine speeds up, its gas carried along with it
+    #[test]
+    fn telescopes_smoothly_through_its_range_as_the_engine_speeds_up() {
+        let mut sim = build(json!({ "rpm": 4500 }));
+        sim.render(FS as usize / 2);
+        let mut lengths = Vec::new();
+        let mut torques = Vec::new();
+        for k in 0..=40 {
+            sim.set_engine_json(&json!({ "rpm": 4500.0 + 100.0 * k as f64 })).unwrap();
+            torques.push(mean_torque(&mut sim, FS as usize / 20));
+            lengths.push(sim.snapshot().runner_length.unwrap());
+        }
+        // Never longer as it speeds up, and never more than a few millimetres a step.
+        for w in lengths.windows(2) {
+            assert!(w[1] <= w[0] + 1e-12 && w[0] - w[1] < 0.04, "{lengths:?}");
+        }
+        assert!(lengths[0] > lengths[lengths.len() - 1]);
+        assert_eq!(sim.intake().recoveries(), 0);
+        // No jolt from one 100 rpm step to the next.
+        for w in torques.windows(2) {
+            assert!((w[1] / w[0] - 1.0).abs() < 0.08, "{torques:?}");
+        }
+    }
+}
+
 mod torque_curve {
     use super::*;
 

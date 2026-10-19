@@ -599,6 +599,16 @@ export interface EngineSpec {
    * rev/min lower, so it does not flap back and forth at the switch speed.
    */
   intakeSwitchRpm: number;
+  /**
+   * A continuously variable intake, as the 787B's telescoping trumpets are: rather than switching from the
+   * long runners to the short, it moves them from one length to the other through every length between,
+   * long up to `intakeVariableLowRpm` and short from `intakeVariableHighRpm`. Between the two the runners
+   * keep tuned, their quarter-wave resonance rising in step with the speed. It needs a short length, and
+   * takes the place of the switch speed.
+   */
+  intakeVariable: boolean;
+  intakeVariableLowRpm: number;
+  intakeVariableHighRpm: number;
 
   // --- Turbocharger ---
   //
@@ -849,6 +859,8 @@ export interface EngineSnapshot {
   exhaustCamRetard: number;
   /** Whether a two-stage intake is on its short runners right now. */
   shortRunners: boolean;
+  /** How long a continuously variable intake's runners are now, m; absent on any other. */
+  runnerLength?: number;
   /** Whether cam profile switching has the valves on the high-speed lobes right now. */
   highCam: boolean;
   /** Cylinder pressure, Pa. Bank 0. */
@@ -1629,6 +1641,9 @@ export const DEFAULT_ENGINE: EngineSpec = {
   intakeRunnerDia: 0,
   intakeRunnerShortLength: 0,
   intakeSwitchRpm: 5000,
+  intakeVariable: false,
+  intakeVariableLowRpm: 5000,
+  intakeVariableHighRpm: 8000,
 
   boostTarget: 0.7e5,
   turboSize: 0,
@@ -3378,11 +3393,13 @@ const MAZDA_R26B: Partial<EngineSpec> = {
   ivc: 870,
   ignition: 1060,
   burnDuration: 60,
-  // Its trumpets telescope, long through the middle of the range and short at the top: two stages here,
-  // switching where the two make the same torque.
+  // Its trumpets telescope, long for its torque at 6500 and short for its power at 9000, shortening all the
+  // way between 6800 and 9400 rpm and keeping tuned as they go, so its torque holds up between the two.
   intakeRunnerLength: 0.605,
   intakeRunnerShortLength: 0.377,
-  intakeSwitchRpm: 7600,
+  intakeVariable: true,
+  intakeVariableLowRpm: 6800,
+  intakeVariableHighRpm: 9400,
   intakeRunnerDia: 0.055,
   throttleDia: 0.09,
   outputGain: 0.6,
@@ -3837,7 +3854,7 @@ export const ENGINE_PRESETS: EnginePreset[] = [
       dualClutch: false,
     },
     description:
-      'The 2.6 litre four-rotor Wankel in the Mazda 787B, the only rotary ever to win Le Mans, in 1991: four rotors of Mazda\u2019s 15 x 105 x 80 mm, 654 cc a chamber, 10:1, peripheral intake and exhaust ports, three spark plugs a rotor and telescoping intake trumpets. Each rotor\u2019s three chambers fire a turn of the shaft apart, so the four fire every 90\u00b0 of the shaft, 1-3-2-4, twice as often as a four-stroke\u2019s four cylinders; its four headers meet in one open pipe. Its ports are open to the exhaust and the intake at once for 151\u00b0 of the shaft each cycle, which fills its intake with exhaust when the throttle shuts, so it idles high and rough, at 2400 rpm. On the dyno it makes 604 N\u00b7m at 6500 rpm and 698 hp at 9100, against the real engine\u2019s rated 608 N\u00b7m at 6500 and 700 hp at 9000. Its ports, port timing, intake and exhaust are estimates.',
+      'The 2.6 litre four-rotor Wankel in the Mazda 787B, the only rotary ever to win Le Mans, in 1991: four rotors of Mazda\u2019s 15 x 105 x 80 mm, 654 cc a chamber, 10:1, peripheral intake and exhaust ports, three spark plugs a rotor and intake trumpets that telescope with the engine\u2019s speed, shortening continuously from 6800 to 9400 rpm. Each rotor\u2019s three chambers fire a turn of the shaft apart, so the four fire every 90\u00b0 of the shaft, 1-3-2-4, twice as often as a four-stroke\u2019s four cylinders; its four headers meet in one open pipe. Its ports are open to the exhaust and the intake at once for 151\u00b0 of the shaft each cycle, which fills its intake with exhaust when the throttle shuts, so it idles high and rough, at 2400 rpm. On the dyno it makes 604 N\u00b7m at 6500 rpm, 565-590 from there to 8500 as its trumpets shorten, and 702 hp at 9100, against the real engine\u2019s rated 608 N\u00b7m at 6500 and 700 hp at 9000. Its ports, port timing, intake and exhaust are estimates.',
     engine: MAZDA_R26B,
     pipe: () => [makeSegment({ kind: 'pipe', length: 0.55, dIn: 0.055 })],
     collector: () => [

@@ -298,6 +298,11 @@ pub struct EngineSpec {
     pub intake_runner_dia: f64,
     pub intake_runner_short_length: f64,
     pub intake_switch_rpm: f64,
+    /// A continuously variable intake, telescoping its runners from the long length to the short between
+    /// these speeds, rev/min, in place of switching between them.
+    pub intake_variable: bool,
+    pub intake_variable_low_rpm: f64,
+    pub intake_variable_high_rpm: f64,
 
     // --- Turbocharger ---
     pub boost_target: f64,
@@ -408,6 +413,9 @@ impl Default for EngineSpec {
             intake_runner_dia: 0.0,
             intake_runner_short_length: 0.0,
             intake_switch_rpm: 5000.0,
+            intake_variable: false,
+            intake_variable_low_rpm: 5000.0,
+            intake_variable_high_rpm: 8000.0,
 
             boost_target: 0.7e5,
             turbo_size: 0.0,
@@ -527,6 +535,9 @@ pub struct EngineSnapshot {
     pub intake_cam_advance: f64,
     pub exhaust_cam_retard: f64,
     pub short_runners: bool,
+    /// How long a continuously variable intake's runners are now, m; absent on any other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner_length: Option<f64>,
     pub high_cam: bool,
     pub cyl_pressure: f64,
     pub cyl_temp: f64,

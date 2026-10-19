@@ -375,6 +375,8 @@ export class Panel {
   private lobeText = '';
   /** Whether a two-stage intake was on its short runners at the last readout. */
   private shortRunnersNow = false;
+  /** How long a continuously variable intake's runners were at the last snapshot, m, or `null`. */
+  private runnerLengthNow: number | null = null;
   /** Whether dual plenums' balance valves were open at the last readout. */
   private plenumBalancedNow = false;
   private camText = '';
@@ -1573,8 +1575,15 @@ export class Panel {
       const e = this.config.engine;
       const r = intakeRunnerOf(e);
       const short = e.intakeRunnerShortLength;
+      const now = this.runnerLengthNow;
       const text =
-        short > 0
+        short > 0 && e.intakeVariable
+          ? `Runners ${Math.round(r.length * 1000)} mm, tuned for about ${formatRpm(runnerTunedRpm(e))} rpm, ` +
+            `telescoping to ${Math.round(short * 1000)} mm, for about ` +
+            `${formatRpm(runnerTunedRpm({ ...e, intakeRunnerLength: short }))} rpm, ` +
+            `${(r.diameter * 1000).toFixed(1)} mm bore` +
+            (now !== null ? ` · at ${Math.round(now * 1000)} mm now` : '')
+          : short > 0
           ? `Runners ${Math.round(r.length * 1000)} mm, tuned for about ${formatRpm(runnerTunedRpm(e))} rpm, ` +
             `and ${Math.round(short * 1000)} mm, for about ` +
             `${formatRpm(runnerTunedRpm({ ...e, intakeRunnerLength: short }))} rpm, ` +
@@ -1587,6 +1596,7 @@ export class Panel {
     };
     showTuned();
     this.refreshIntake = showTuned;
+    this.resyncers.push(showTuned);
     tuned.title =
       'The speed at which the runners ram the charge in hardest: where their quarter-wave ' +
       'resonance is 2.3 times the crank speed. Torque peaks near it.';
@@ -1621,6 +1631,7 @@ export class Panel {
       onInput: (v) => {
         this.cb.onEngine({ intakeRunnerShortLength: v });
         showTuned();
+        showVariable();
       },
     }).row.title =
       'A two-stage intake: each cylinder has a second, shorter path to the plenum, which a flap opens ' +
@@ -1638,6 +1649,43 @@ export class Panel {
     }).row.title =
       'Where a two-stage intake switches to its short runners. It switches back 150 rpm lower, so it ' +
       'does not flap back and forth at the switch speed. Best where the two sets make the same torque.';
+    const switchRow = intake.lastElementChild as HTMLElement;
+    const variable = toggle(intake, 'Continuously variable runners', spec.intakeVariable, (on) => {
+      this.cb.onEngine({ intakeVariable: on });
+      showVariable();
+      showTuned();
+    });
+    variable.title =
+      'Telescope the runners from the long length to the short through every length between, as the ' +
+      'Mazda 787B\u2019s trumpets do, rather than switching from one to the other: long up to the first speed ' +
+      'below, short from the second, and between them kept tuned to the speed. Needs a short runner length.';
+    const variableRpm = (label: string, key: 'intakeVariableLowRpm' | 'intakeVariableHighRpm', title: string) => {
+      const row = this.slider(intake, {
+        label,
+        min: 1000,
+        max: 12000,
+        step: 100,
+        value: spec[key],
+        sync: () => this.config.engine[key],
+        format: (v) => `${Math.round(v)} rpm`,
+        onInput: (v) => this.cb.onEngine({ [key]: v }),
+      }).row;
+      row.title = title;
+      return row;
+    };
+    const lowRow = variableRpm('Long runners up to', 'intakeVariableLowRpm',
+      'Up to this speed the runners are at their long length. From it they shorten as the engine speeds up.');
+    const highRow = variableRpm('Short runners from', 'intakeVariableHighRpm',
+      'From this speed the runners are at their short length.');
+    const showVariable = () => {
+      const e = this.config.engine;
+      checkbox(variable).checked = e.intakeVariable;
+      const on = e.intakeVariable && e.intakeRunnerShortLength > 0;
+      switchRow.classList.toggle('hidden', on);
+      for (const row of [lowRow, highRow]) row.classList.toggle('hidden', !on);
+    };
+    showVariable();
+    this.resyncers.push(showVariable);
     this.slider(intake, {
       label: 'Intake runner bore',
       min: 0,
@@ -3493,6 +3541,7 @@ export class Panel {
 
   updateReadouts(s: EngineSnapshot): void {
     this.shortRunnersNow = s.shortRunners;
+    this.runnerLengthNow = s.runnerLength ?? null;
     this.plenumBalancedNow = !!s.plenumBalanced;
     this.refreshIntake();
     const cams =

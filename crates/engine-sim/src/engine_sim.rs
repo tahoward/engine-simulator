@@ -59,6 +59,13 @@ pub const CAM_SWITCH_HYSTERESIS: f64 = 150.0;
 /// How far below its switch speed a two-stage intake switches back to its long runners, rev/min.
 const INTAKE_SWITCH_HYSTERESIS: f64 = 150.0;
 
+/// A continuously variable intake's runners: the most their length changes between one set and the next,
+/// m, the most sets there are, and how far the length wanted has to be from a set's, as a share of a step,
+/// before they move off it.
+const VARIABLE_RUNNER_STEP: f64 = 0.005;
+const MAX_VARIABLE_STAGES: f64 = 48.0;
+const VARIABLE_RUNNER_MARGIN: f64 = 0.75;
+
 /// Longest a finished launch waits for the engine to wind down to a held speed, s.
 const LAUNCH_WIND_DOWN: f64 = 6.0;
 
@@ -587,6 +594,11 @@ pub struct EngineSim {
     intake_long: IntakeRunners,
     intake_short: Option<IntakeRunners>,
     on_short_runners: bool,
+    /// A continuously variable intake's runners, one set at each of `variable_lengths`, long to short, and
+    /// the set breathed through now; empty for a fixed or two-stage intake. See `update_variable_runners`.
+    variable: Vec<IntakeRunners>,
+    variable_lengths: Vec<f64>,
+    variable_stage: usize,
     high_cam_spec: Option<SpecInstance>,
     on_high_cam: bool,
     intake_shift: f64,
@@ -1214,6 +1226,9 @@ impl EngineSim {
             intake_long,
             intake_short: None,
             on_short_runners: false,
+            variable: Vec::new(),
+            variable_lengths: Vec::new(),
+            variable_stage: 0,
             high_cam_spec: None,
             on_high_cam: false,
             intake_shift: 0.0,
@@ -1496,6 +1511,7 @@ impl EngineSim {
         let prev_material = prev.pipe_material;
         let prev_runner: RunnerSize = intake_runner_of(prev);
         let prev_short_runner = prev.intake_runner_short_length;
+        let prev_variable = (prev.intake_variable, prev.intake_variable_low_rpm, prev.intake_variable_high_rpm);
         let prev_inlet = inlet_key(prev);
         let prev_layout = layout_key(prev);
         let prev_phase = firing_plan(prev).offsets;
@@ -1519,6 +1535,9 @@ impl EngineSim {
         let intake_changed = runner.length != prev_runner.length
             || runner.diameter != prev_runner.diameter
             || spec.intake_runner_short_length != prev_short_runner
+            || spec.intake_variable != prev_variable.0
+            || spec.intake_variable_low_rpm != prev_variable.1
+            || spec.intake_variable_high_rpm != prev_variable.2
             || spec.pipe_cell_size != prev_cell_size
             || layout_key(spec) != prev_layout;
         let exhaust_changed = spec.port_gas_temp != prev_temp
@@ -1654,15 +1673,82 @@ impl EngineSim {
             runners.prime(burned, 0.0);
             runners
         };
-        let long = build(intake_runner_of(spec).length);
-        let short =
-            if spec.intake_runner_short_length > 0.0 { Some(build(spec.intake_runner_short_length)) } else { None };
+        let long_length = intake_runner_of(spec).length;
+        let long = build(long_length);
+        let short_length = spec.intake_runner_short_length;
+        let variable = spec.intake_variable && short_length > 0.0 && short_length != long_length;
+        let short = if short_length > 0.0 && !variable { Some(build(short_length)) } else { None };
+        // A set of runners every `VARIABLE_RUNNER_STEP` or less from the long length to the short.
+        let lengths: Vec<f64> = if variable {
+            let stages = clamp(((long_length - short_length).abs() / VARIABLE_RUNNER_STEP).ceil() + 1.0, 2.0, MAX_VARIABLE_STAGES);
+            let n = stages as usize;
+            (0..n).map(|k| long_length + (short_length - long_length) * k as f64 / (n - 1) as f64).collect()
+        } else {
+            Vec::new()
+        };
+        self.variable = lengths.iter().map(|&l| build(l)).collect();
+        self.variable_lengths = lengths;
         let switch = spec.intake_switch_rpm;
         self.intake_long = long;
         self.intake_short = short;
         self.inlets = build_inlets(&self.spec.spec, sample_rate, &opts);
         let rpm = (self.omega_mean * 60.0) / (2.0 * PI);
         self.on_short_runners = self.intake_short.is_some() && rpm >= switch;
+        self.variable_stage = self.variable_stage_for(rpm);
+    }
+
+    /// The runner length a continuously variable intake moves its runners to at `rpm`: the long length up to
+    /// `intake_variable_low_rpm`, the short from `intake_variable_high_rpm`, and between them the length
+    /// whose quarter-wave resonance moves in a straight line with the speed from one's to the other's, so it
+    /// stays tuned as it goes.
+    fn variable_length_at(&self, rpm: f64) -> f64 {
+        let spec = &self.spec.spec;
+        let (long, short) = (intake_runner_of(spec).length, spec.intake_runner_short_length);
+        let span = math::max(spec.intake_variable_high_rpm - spec.intake_variable_low_rpm, 1.0);
+        let t = clamp((rpm - spec.intake_variable_low_rpm) / span, 0.0, 1.0);
+        1.0 / (1.0 / long + (1.0 / short - 1.0 / long) * t)
+    }
+
+    /// The set of a continuously variable intake's runners nearest the length it wants at `rpm`.
+    fn variable_stage_for(&self, rpm: f64) -> usize {
+        if self.variable_lengths.is_empty() {
+            return 0;
+        }
+        let want = self.variable_length_at(rpm);
+        let mut best = 0;
+        for (k, &l) in self.variable_lengths.iter().enumerate() {
+            if (l - want).abs() < (self.variable_lengths[best] - want).abs() {
+                best = k;
+            }
+        }
+        best
+    }
+
+    /// Move a continuously variable intake's runners to the length the speed wants: onto the next set once
+    /// the length wanted is most of a step from the set it is on, the gas in the runners carried across,
+    /// laid onto the new set by distance from the valve. A step is a few millimetres, so the runners
+    /// telescope in steps too small to hear, and the margin keeps them from hunting between two.
+    fn update_variable_runners(&mut self) {
+        let rpm = (self.omega_mean * 60.0) / (2.0 * PI);
+        let target = self.variable_stage_for(rpm);
+        let now = self.variable_stage;
+        if target == now {
+            return;
+        }
+        let step = (self.variable_lengths[0] - self.variable_lengths[1]).abs();
+        let want = self.variable_length_at(rpm);
+        if (want - self.variable_lengths[now]).abs() < VARIABLE_RUNNER_MARGIN * step {
+            return;
+        }
+        let (from, to) = if now < target {
+            let (a, b) = self.variable.split_at_mut(target);
+            (&a[now], &mut b[0])
+        } else {
+            let (a, b) = self.variable.split_at_mut(now);
+            (&b[0], &mut a[target])
+        };
+        to.take_state_from(from);
+        self.variable_stage = target;
     }
 
     fn refresh_cam_profiles(&mut self, high: bool) {
@@ -1766,7 +1852,16 @@ impl EngineSim {
     }
 
     pub fn intake(&self) -> &IntakeRunners {
+        if let Some(stage) = self.variable.get(self.variable_stage) {
+            return stage;
+        }
         if self.on_short_runners { self.intake_short.as_ref().unwrap() } else { &self.intake_long }
+    }
+
+    /// How long the runners a continuously variable intake breathes through now are, m; `None` for a fixed
+    /// or two-stage intake.
+    pub fn variable_runner_length(&self) -> Option<f64> {
+        self.variable_lengths.get(self.variable_stage).copied()
     }
 
     /// What the structure rings at, Hz: the block's modes, and each cylinder's clack and slap.
@@ -2246,6 +2341,8 @@ impl EngineSim {
         }
         if self.intake_short.is_some() {
             self.update_intake_stage();
+        } else if !self.variable.is_empty() {
+            self.update_variable_runners();
         }
         self.plenum.update_balance(dt, (self.omega_mean * 60.0) / (2.0 * PI));
         if self.high_cam_spec.is_some() {
@@ -2691,6 +2788,7 @@ impl EngineSim {
             intake_cam_advance: -self.intake_shift,
             exhaust_cam_retard: self.exhaust_shift,
             short_runners: self.on_short_runners,
+            runner_length: self.variable_runner_length(),
             high_cam: self.high_cam_spec.is_some() && self.on_high_cam,
             launch,
             cyl_pressure: first.cyl_pressure,
@@ -2809,7 +2907,13 @@ impl EngineSim {
         self.shell_out.resize(shell_count, CachePadded::default());
         self.close_ns.resize(banks + mouths + shell_count, CachePadded::default());
 
-        let intake = if self.on_short_runners { self.intake_short.as_mut().unwrap() } else { &mut self.intake_long };
+        let intake = if let Some(stage) = self.variable.get_mut(self.variable_stage) {
+            stage
+        } else if self.on_short_runners {
+            self.intake_short.as_mut().unwrap()
+        } else {
+            &mut self.intake_long
+        };
         self.runner_cells.clear();
         self.runner_cells.extend(intake.runners.iter().map(|r| r.pipe.n));
         let threads = self.wg.plan(self.pool.as_deref(), self.max_threads, &self.runner_cells);

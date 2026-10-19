@@ -90,6 +90,22 @@ with 390 mm runners switching to 310 mm ones at 7600 rpm, on a dyno pull:
 two-stage                  432    550    570    619    611    568    567
 ```
 
+**A continuously variable intake moves its runners through every length between.** With
+**Continuously variable runners** on, as on the Mazda 787B, whose trumpets telescope, the runners are
+the long length up to one speed and the short from another, and between them shorten as the engine
+speeds up, their quarter-wave resonance rising in a straight line with the speed, so they stay tuned
+all the way. A set of runners is solved at every 5 mm or less of length between the two, and the
+engine breathes through the one nearest the length the speed wants, moving to the next once the length
+wanted is three quarters of a step from it, the gas carried across as a two-stage switch carries it.
+A step is too small to hear. On the R26B, telescoping from 605 mm at 6800 rpm to 377 mm at 9400, on a
+dyno pull:
+
+```
+                          5000   6000   6500   7000   7500   8000   8500   9000 rpm      crank torque, N·m
+two-stage, at 7600         495    556    604    566    494    503    529    545
+continuously variable      495    556    604    592    588    579    566    550
+```
+
 The runners are solved on the finest grid the sample rate allows, 35 mm at 48 kHz, even where the
 cost budget coarsens the exhaust. A runner is only a few hundred millimetres long, and its ends are a
 good part of it, so its ramming depends on resolution far more than the exhaust's sound does: on 70

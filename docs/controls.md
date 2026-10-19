@@ -167,9 +167,13 @@ speeding up its own flywheel, and the curve comes out close to what the engine m
 - **Short runner length** makes it a two-stage intake: a second, shorter set of runners, which the
   manifold switches to at **Switch to short runners at**, and back from 150 rpm lower. The long runners
   are then the ones **Intake runner length** sets. At 0 there is one set.
+- **Continuously variable runners** telescope the runners from the long length to the short through
+  every length between, as the Mazda 787B's trumpets do, instead of switching: long up to **Long
+  runners up to**, short from **Short runners from**, and kept tuned to the speed between the two. It
+  needs a short runner length, and replaces the switch speed.
 - The line at the top of the section gives the runners' size and the speed they are tuned for,
-  where they ram the charge in hardest and the torque peaks near, and on a two-stage intake which set
-  it is on.
+  where they ram the charge in hardest and the torque peaks near, on a two-stage intake which set
+  it is on, and on a continuously variable one how long they are now.
 - **Plenum volume** is the manifold the runners draw from. At 0 it is one and a half times the
   engine's displacement.
 - **Dual plenums**, on a V or a boxer whose banks have heads of their own, divides the plenum down its
