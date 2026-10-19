@@ -12,7 +12,7 @@
   throttle, the load, the launch's car and settings and the view are not undone. While typing in a field,
   the keys undo the text instead.
 - **Engine preset** loads a complete engine: its layout, firing order, sizes and a matching exhaust.
-  It starts idling in neutral, at 800 rpm or the Superquadro Mono's 1700, on a throttle opening found
+  It starts idling in neutral, at 800 rpm, the Superquadro Mono's 1700 or the R26B's 2400, on a throttle opening found
   for that engine. Open the
   throttle and add load to go from there.
 - **Layout → Banks** and **Cylinders per bank** change only the layout: one bank of 1 to 6 is an inline
@@ -21,6 +21,12 @@
   180 degrees **Crank** offers a boxer, opposed pins making it a flat engine; on a V8 it is crossplane or
   flatplane. Changing the layout also builds an exhaust to suit: a single pipe on a single, one collector
   per bank on two banks, and one collector for all cylinders otherwise.
+- **Layout → Engine** chooses pistons or a rotary, a Wankel, and **Rotors** how many, 1 to 4. A rotary has
+  no banks, crank or firing order to set: its rotors share each turn of the shaft evenly. Its **Engine
+  geometry** is its housing, the **Generating radius**, **Eccentricity** and **Rotor width**, and **Valves
+  and timing** become its ports: each port's size, and where each opens and closes, in the shaft's degrees.
+  Switching to a rotary starts it as a 13B, its ports timed as the 13B's are. See
+  [The rotary](engine.md#the-rotary).
 - **Layout → Firing order** and **Firing intervals** set how the engine fires, as "1-5-3-6-2-4" and
   "180-270-180-90": the cylinders, numbered front to back alternating between the banks, and the crank
   degrees from each firing to the next, adding up to 720. Left empty, the layout's own, shown faintly;
@@ -161,9 +167,13 @@ speeding up its own flywheel, and the curve comes out close to what the engine m
 - **Short runner length** makes it a two-stage intake: a second, shorter set of runners, which the
   manifold switches to at **Switch to short runners at**, and back from 150 rpm lower. The long runners
   are then the ones **Intake runner length** sets. At 0 there is one set.
+- **Continuously variable runners** telescope the runners from the long length to the short through
+  every length between, as the Mazda 787B's trumpets do, instead of switching: long up to **Long
+  runners up to**, short from **Short runners from**, and kept tuned to the speed between the two. It
+  needs a short runner length, and replaces the switch speed.
 - The line at the top of the section gives the runners' size and the speed they are tuned for,
-  where they ram the charge in hardest and the torque peaks near, and on a two-stage intake which set
-  it is on.
+  where they ram the charge in hardest and the torque peaks near, on a two-stage intake which set
+  it is on, and on a continuously variable one how long they are now.
 - **Plenum volume** is the manifold the runners draw from. At 0 it is one and a half times the
   engine's displacement.
 - **Dual plenums**, on a V or a boxer whose banks have heads of their own, divides the plenum down its

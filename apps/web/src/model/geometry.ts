@@ -16,6 +16,7 @@ import {
   cylinderZ,
   firingPlan,
   intakeRunnerOf,
+  isRotary,
   physicalBank,
   physicalBankCount,
 } from './spec.js';
@@ -57,6 +58,7 @@ export function portSideOf(spec: EngineSpec, cylinder: number, exhaust: boolean)
  * the crank where the cylinder is (`cylinderZ`).
  */
 export function exhaustPortOf(spec: EngineSpec, cylinder: number): { position: Vec3; direction: Vec3 } {
+  if (isRotary(spec)) return rotorPort(spec, cylinder, ROTOR_EXHAUST_PORT);
   const plan = firingPlan(spec);
   const z = cylinderZ(spec, cylinder);
   const { bank, side } = portSideOf(spec, cylinder, true);
@@ -148,6 +150,7 @@ function valleyPort(
  * a shared head it comes out of (`portSideOf`), and along the crank.
  */
 export function intakePortOf(spec: EngineSpec, cylinder: number): { position: Vec3; direction: Vec3 } {
+  if (isRotary(spec)) return rotorPort(spec, cylinder, ROTOR_INTAKE_PORT);
   const ex = exhaustPortOf(spec, cylinder);
   const plan = firingPlan(spec);
   const deg = Math.PI / 180;
@@ -160,6 +163,45 @@ export function intakePortOf(spec: EngineSpec, cylinder: number): { position: Ve
   return {
     position: [px * c - py * s, px * s + py * c, ex.position[2]],
     direction: [dx * c - dy * s, dx * s + dy * c, 0],
+  };
+}
+
+/**
+ * Where round a rotary's housing its peripheral ports are, as the trochoid's parameter, degrees: either side
+ * of the waist where the exhaust stroke meets the intake, the exhaust low on the housing's side, pointing out
+ * of it, and the intake high, pointing up and out. See `trochoidAt`.
+ */
+export const ROTOR_EXHAUST_PORT = 240;
+export const ROTOR_INTAKE_PORT = 315;
+
+/** How far a rotary's port flanges stand out from its trochoid, m: the housing's wall. */
+export const HOUSING_WALL = 0.03;
+
+/**
+ * The point of a rotary's trochoid at parameter `alpha`, degrees, across the shaft in the scene's frame, x
+ * across and y up, m, and the way out of the housing there, a unit vector.
+ *
+ * The trochoid is the path the apexes trace, `e (cos 3a, sin 3a) + R (cos a, sin a)`, turned a quarter turn
+ * so its long axis stands upright: its waists face the sides, the spark plugs at the waist on -x, where the
+ * chambers fire, and the ports by the one on +x. The rotor turns the way `alpha` runs, anticlockwise seen
+ * from the front.
+ */
+export function trochoidAt(spec: EngineSpec, alpha: number): { point: [number, number]; normal: [number, number] } {
+  const a = (alpha * Math.PI) / 180;
+  const [e, r] = [spec.eccentricity, spec.rotorRadius];
+  const [s1, c1, s3, c3] = [Math.sin(a), Math.cos(a), Math.sin(3 * a), Math.cos(3 * a)];
+  // The tangent, the way the parameter runs, turned outward.
+  const [tx, ty] = [-(3 * e * c3 + r * c1), -(3 * e * s3 + r * s1)];
+  const h = Math.hypot(tx, ty);
+  return { point: [-(e * s3 + r * s1), e * c3 + r * c1], normal: [ty / h, -tx / h] };
+}
+
+/** Rotor `rotor`'s peripheral port at `alpha` round its housing: its flange, a housing wall out from the trochoid. */
+export function rotorPort(spec: EngineSpec, rotor: number, alpha: number): { position: Vec3; direction: Vec3 } {
+  const { point, normal } = trochoidAt(spec, alpha);
+  return {
+    position: [point[0] + normal[0] * HOUSING_WALL, point[1] + normal[1] * HOUSING_WALL, cylinderZ(spec, rotor)],
+    direction: [normal[0], normal[1], 0],
   };
 }
 
@@ -180,8 +222,12 @@ export function camBaseRadius(spec: EngineSpec): number {
   return Math.max(0.012, spec.bore * 0.14);
 }
 
-/** The deck's height above the crank along a bank's axis, m: where the head starts. */
+/**
+ * The deck's height above the crank along a bank's axis, m: where the head starts. A rotary has no head, and
+ * its chambers are round its shaft.
+ */
 export function deckHeight(spec: EngineSpec): number {
+  if (isRotary(spec)) return 0;
   const boreArea = (Math.PI * spec.bore * spec.bore) / 4;
   return spec.stroke / 2 + spec.rodLength + spec.bore * 0.34 + clearanceVolume(spec) / boreArea;
 }
@@ -313,6 +359,8 @@ export function intakeCamsOf(spec: EngineSpec): { x: number; y: number; reach: n
  * lobes, or the rocker arms on top of a pushrod engine's heads.
  */
 export function valvetrainTop(spec: EngineSpec): number {
+  // A rotary has no valvetrain over its housings.
+  if (isRotary(spec)) return engineShell(spec).top;
   if (spec.pushrods) return deckHeight(spec) + spec.bore * STEM_LENGTH + 0.025;
   const stemTop = deckHeight(spec) + spec.bore * STEM_LENGTH * Math.cos(VALVE_TILT);
   const lift = Math.max(spec.maxLift, spec.camSwitchRpm > 0 ? spec.highMaxLift : 0);
@@ -342,6 +390,23 @@ export interface EngineShell {
 }
 
 export function engineShell(spec: EngineSpec): EngineShell {
+  if (isRotary(spec)) {
+    // The housings round the trochoid, their walls standing out from it; the end housings at either end of
+    // the rotors; and down the middle the eccentric shaft's main journals.
+    const length = (spec.cylinders - 1) * cylinderSpacing(spec) + spec.rotorWidth + 2 * END_HOUSING;
+    const half = spec.rotorRadius + spec.eccentricity + HOUSING_WALL;
+    const width = 2 * (spec.rotorRadius - spec.eccentricity + HOUSING_WALL);
+    return {
+      length,
+      banks: [0],
+      width,
+      bottom: -half,
+      top: half,
+      rounding: width * 0.3,
+      crankcase: { radius: ROTARY_SHAFT_RADIUS * 1.6, length: length + 2 * END_JOURNAL },
+      straddle: 0,
+    };
+  }
   const plan = firingPlan(spec);
   const deg = Math.PI / 180;
   const a = spec.stroke / 2;
@@ -365,6 +430,12 @@ export function engineShell(spec: EngineSpec): EngineShell {
     straddle,
   };
 }
+
+/** How thick a rotary's front and rear housings are, m, past its first and last rotors' housings. */
+export const END_HOUSING = 0.03;
+
+/** The radius of a rotary's eccentric shaft's main journals, m. */
+export const ROTARY_SHAFT_RADIUS = 0.022;
 
 /** How far `p` is outside the engine's outline (`engineShell`), m: negative inside it, by how deep. */
 export function engineShellDistance(shell: EngineShell, p: Vec3): number {

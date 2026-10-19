@@ -15,6 +15,8 @@
  *   180-360    exhaust            (piston up)
  *   360-540    intake             (piston down)
  *   540-720    compression        (piston up)
+ *
+ * A rotary's angles are its eccentric shaft's, over a cycle of 1080 deg, 270 a stroke: see `isRotary`.
  */
 
 import type { ExhaustGraph } from './exhaustGraph.js';
@@ -113,6 +115,14 @@ export function arcHandle(angle: number): number {
  */
 export type CylinderCount = number;
 
+/**
+ * How the engine turns its charges into motion: pistons on a crank, or a Wankel's rotors on an eccentric
+ * shaft (`isRotary`).
+ */
+export type EngineType = 'piston' | 'rotary';
+
+export const ENGINE_TYPES: EngineType[] = ['piston', 'rotary'];
+
 /** Valves on one side of a cylinder: one for a two-valve head, two for a four-valve head. */
 export type ValveCount = 1 | 2;
 
@@ -192,6 +202,14 @@ export const ROOMS: Room[] = ['outdoors', 'street', 'underpass', 'garage', 'dyno
 
 export interface EngineSpec {
   // --- Layout ---
+  /**
+   * Pistons or a Wankel's rotors. A rotary's rotors stand in for cylinders wherever the engine is laid out,
+   * plumbed or drawn: `cylinders` counts them, 1 to `MAX_ROTORS`, and each has one exhaust port and one
+   * intake port, `exValveDia` and `inValveDia` across and opening and closing at `evo` to `ivc`, in the
+   * shaft's degrees. Whatever belongs to a piston, its bore, stroke and rod, a valve's lift and the cams
+   * that lift it, and the layout's banks and crank, a rotary ignores.
+   */
+  engineType: EngineType;
   /**
    * Number of cylinders, all banks together: 1 to 6 on one bank, or an even 2 to 12 on two (`validLayout`).
    * Each layout fires as the real engines of its kind do (`defaultFiringPlan`) unless `firingOrder` or
@@ -277,9 +295,20 @@ export interface EngineSpec {
   rodLength: number;
   /** Geometric compression ratio, dimensionless. Sets clearance volume. */
   compressionRatio: number;
+  /**
+   * A rotary's housing, m: its trochoid's generating radius, from the rotor's centre to an apex; its
+   * eccentricity, how far the rotor's centre orbits the shaft's, the shaft's throw; and the rotor's width.
+   * Together they set each chamber's displacement, `3 sqrt(3) e R b`: 654 cc for Mazda's 15 x 105 x 80 mm.
+   */
+  rotorRadius: number;
+  eccentricity: number;
+  rotorWidth: number;
 
   // --- Valves ---
-  /** Exhaust valve head diameter, m: each valve's, where there are two. */
+  /**
+   * Exhaust valve head diameter, m: each valve's, where there are two. On a rotary, its exhaust port's: a round
+   * port's of its area.
+   */
   exValveDia: number;
   /**
    * Exhaust valves per cylinder, 1 or 2. A four-valve head has two of each, and two valves open
@@ -297,13 +326,17 @@ export interface EngineSpec {
    * tuned length is measured from the valve, which is where a real one is measured.
    */
   portLength: number;
-  /** Intake valve head diameter, m: each valve's, where there are two. */
+  /** Intake valve head diameter, m: each valve's, where there are two. On a rotary, its intake port's. */
   inValveDia: number;
   /** Intake valves per cylinder, 1 or 2. See `exValveCount`. */
   inValveCount: ValveCount;
   /** Peak valve lift, m. Applies to both valves. */
   maxLift: number;
-  /** Exhaust valve opens, deg ATDC. Typically ~130 (i.e. 50 deg BBDC). */
+  /**
+   * Exhaust valve opens, deg ATDC. Typically ~130 (i.e. 50 deg BBDC). On a rotary, this and the other three
+   * are its ports' timing, in the shaft's degrees from the firing top dead centre over its 1080: its bottom
+   * dead centres at 270 and 810, and its other top dead centre, where the exhaust meets the intake, at 540.
+   */
   evo: number;
   /** Exhaust valve closes, deg ATDC. Typically ~375 (just after TDC overlap). */
   evc: number;
@@ -365,7 +398,7 @@ export interface EngineSpec {
   /**
    * Spark timing, deg ATDC. Negative / >540 means before TDC firing. On a diesel, the start of
    * injection: the charge lights after its ignition delay, from the pressure and temperature the
-   * compression leaves it at.
+   * compression leaves it at. On a rotary, in the shaft's degrees over its 1080, as is `burnDuration`.
    *
    * With `advanceCurve` on, this is the timing for a charge that burns over `burnDuration`; the
    * spark moves from it to keep each cycle's combustion phased the same.
@@ -566,6 +599,16 @@ export interface EngineSpec {
    * rev/min lower, so it does not flap back and forth at the switch speed.
    */
   intakeSwitchRpm: number;
+  /**
+   * A continuously variable intake, as the 787B's telescoping trumpets are: rather than switching from the
+   * long runners to the short, it moves them from one length to the other through every length between,
+   * long up to `intakeVariableLowRpm` and short from `intakeVariableHighRpm`. Between the two the runners
+   * keep tuned, their quarter-wave resonance rising in step with the speed. It needs a short length, and
+   * takes the place of the switch speed.
+   */
+  intakeVariable: boolean;
+  intakeVariableLowRpm: number;
+  intakeVariableHighRpm: number;
 
   // --- Turbocharger ---
   //
@@ -816,6 +859,8 @@ export interface EngineSnapshot {
   exhaustCamRetard: number;
   /** Whether a two-stage intake is on its short runners right now. */
   shortRunners: boolean;
+  /** How long a continuously variable intake's runners are now, m; absent on any other. */
+  runnerLength?: number;
   /** Whether cam profile switching has the valves on the high-speed lobes right now. */
   highCam: boolean;
   /** Cylinder pressure, Pa. Bank 0. */
@@ -1026,9 +1071,9 @@ export const SKIDPAD_TO_DRIVE = 1.07;
 /**
  * Tyres' friction coefficients at their peak, driving: a road tyre's, and the Corvettes', from the 1.22 g
  * the Z06 with the Z07 package pulls on a skidpad on its Pilot Sport Cup 2 R tyres, which the Stingray is
- * given too.
+ * given too; and a racing slick's, warm.
  */
-export const TYRE_GRIP = { road: 1.1, corvette: 1.22 * SKIDPAD_TO_DRIVE } as const;
+export const TYRE_GRIP = { road: 1.1, corvette: 1.22 * SKIDPAD_TO_DRIVE, slick: 1.6 } as const;
 
 /** A quick shift of a manual gearbox, s: lift, clutch, shift and back on the throttle. */
 export const MANUAL_SHIFT_TIME = 0.4;
@@ -1139,17 +1184,141 @@ export function speedOfSound(t: number, gamma: number = GAS.gammaExh): number {
 // piston you see is at the position the gas law is using.
 // ---------------------------------------------------------------------------
 
-/** Swept (displacement) volume, m^3. */
+/**
+ * Swept (displacement) volume, m^3: one cylinder's, or on a rotary one of a rotor's three chambers',
+ * `3 sqrt(3) e R b`, which is what Mazda counts as the engine's displacement per rotor.
+ */
 export function displacement(spec: EngineSpec): number {
+  if (isRotary(spec)) return 3 * Math.sqrt(3) * spec.eccentricity * spec.rotorRadius * spec.rotorWidth;
   return (Math.PI * spec.bore * spec.bore) / 4 * spec.stroke;
 }
+
+/**
+ * Whether the engine is a Wankel.
+ *
+ * Each rotor's three flanks close off a chamber each against the housing, and those are what the
+ * simulation's cylinders are. A chamber's volume is exactly sinusoidal in the eccentric shaft's angle, with
+ * a period of 540 degrees, and each takes its four strokes over three turns of the shaft, 270 degrees a
+ * stroke. So on a crank turning at `ROTARY_PHASE` of the shaft's speed a chamber is a cylinder like any
+ * other, on a rod infinitely long, over the usual 720-degree cycle: the simulation turns a rotary's angles,
+ * which are all in the shaft's degrees, into its chambers' (`chamber_spec` in `crates/engine-sim/src/spec.rs`).
+ */
+export function isRotary(spec: EngineSpec): boolean {
+  return spec.engineType === 'rotary';
+}
+
+/** The chambers a rotor's flanks close off. */
+export const ROTOR_FACES = 3;
+
+/** A rotary chamber's crank speed as a share of the eccentric shaft's: 720 of its degrees over 1080 of the shaft's. */
+export const ROTARY_PHASE = 2 / 3;
+
+/** The most rotors a rotary has. */
+export const MAX_ROTORS = 4;
+
+/** The degrees of crank, or of a rotary's eccentric shaft, `spec`'s cycle takes. */
+export function cycleDegrees(spec: EngineSpec): number {
+  return isRotary(spec) ? 1080 : 720;
+}
+
+/**
+ * How many charges each cylinder draws every two turns of the crank: one on four strokes; two for a rotor,
+ * whose three chambers each draw one every three turns.
+ */
+export function chargesPerTwoTurns(spec: EngineSpec): number {
+  return isRotary(spec) ? 2 : 1;
+}
+
+/**
+ * Where each rotor's first chamber fires, shaft degrees after the first rotor's, in [0, 360): its lobe's
+ * angle round the eccentric shaft. Every chamber of a rotor fires a turn after the one before it, so the
+ * rotors share each turn evenly between them: Mazda's two-rotor 13B and three-rotor 20B; and the four-rotor
+ * R26B, two pairs of rotors half a turn apart, the pairs a quarter turn apart, firing 1-3-2-4.
+ */
+const ROTOR_PHASES: Record<number, number[]> = {
+  1: [0],
+  2: [0, 180],
+  3: [0, 240, 120],
+  4: [0, 180, 90, 270],
+};
+
+/** When chamber `face` of rotor `rotor` fires, shaft degrees after the first rotor's first, in [0, 1080). */
+export function chamberOffset(spec: EngineSpec, rotor: number, face: number): number {
+  const phases = ROTOR_PHASES[spec.cylinders] ?? ROTOR_PHASES[MAX_ROTORS]!;
+  return ((phases[rotor] ?? 0) + 360 * face) % 1080;
+}
+
+/**
+ * What turning `spec` into a `type` engine changes: the layout, and every setting the two read differently.
+ * A rotary gets a 13B's housing and ports, and its timing, in the shaft's degrees: the exhaust opening 75°
+ * before its bottom dead centre and closing 48° after the top dead centre it shares with the intake, which
+ * opens 32° after it and closes 40° after its bottom dead centre. A piston engine gets the defaults' head and
+ * timing back. Each keeps its cylinder or rotor count where the other can have it.
+ */
+export function engineTypeChange(spec: EngineSpec, type: EngineType): Partial<EngineSpec> {
+  if (type === spec.engineType) return {};
+  const firing = { firingOffset: null, firingOrder: null, firingIntervals: null, crankType: 'shared' as const };
+  if (type === 'rotary') {
+    const rotors = spec.cylinders >= 1 && spec.cylinders <= MAX_ROTORS ? spec.cylinders : 2;
+    return {
+      ...firing,
+      engineType: 'rotary',
+      cylinders: rotors,
+      vAngle: 0,
+      exhaustLayout: rotors === 1 ? 'open' : 'merged',
+      fuel: 'gasoline',
+      rotorRadius: DEFAULT_ENGINE.rotorRadius,
+      eccentricity: DEFAULT_ENGINE.eccentricity,
+      rotorWidth: DEFAULT_ENGINE.rotorWidth,
+      compressionRatio: 9.7,
+      exValveDia: 0.045,
+      exValveCount: 1,
+      inValveDia: 0.05,
+      inValveCount: 1,
+      evo: 195,
+      evc: 588,
+      ivo: 572,
+      ivc: 850,
+      camSwitchRpm: 0,
+      vvtIntakeLow: 0,
+      vvtIntakeHigh: 0,
+      vvtExhaustLow: 0,
+      vvtExhaustHigh: 0,
+      pushrods: false,
+      ignition: 1065,
+      burnDuration: 60,
+    };
+  }
+  const d = DEFAULT_ENGINE;
+  return {
+    ...firing,
+    engineType: 'piston',
+    vAngle: 0,
+    exhaustLayout: spec.cylinders === 1 ? 'open' : 'merged',
+    compressionRatio: d.compressionRatio,
+    exValveDia: d.exValveDia,
+    inValveDia: d.inValveDia,
+    evo: d.evo,
+    evc: d.evc,
+    ivo: d.ivo,
+    ivc: d.ivc,
+    ignition: d.ignition,
+    burnDuration: d.burnDuration,
+  };
+}
+
+/**
+ * What lies between one rotor and the next along the shaft, m: the rotor housing's clearance either side of
+ * it and the intermediate housing between.
+ */
+export const ROTOR_HOUSING_GAP = 0.06;
 
 /**
  * Nominal full-throttle torque of the whole engine, N*m: `FULL_LOAD_BMEP` over its displacement, and
  * `boosted`, with a turbo in its exhaust, in proportion to the charge pressure the wastegate holds.
  */
 export function fullLoadTorque(spec: EngineSpec, boosted = false): number {
-  const torque = (FULL_LOAD_BMEP * displacement(spec) * spec.cylinders) / (4 * Math.PI);
+  const torque = (FULL_LOAD_BMEP * displacement(spec) * spec.cylinders * chargesPerTwoTurns(spec)) / (4 * Math.PI);
   return boosted ? (torque * (GAS.pAmb + spec.boostTarget)) / GAS.pAmb : torque;
 }
 
@@ -1176,7 +1345,7 @@ export function intakeRunnerOf(spec: EngineSpec): { length: number; diameter: nu
   const diameter =
     spec.intakeRunnerDia > 0 ? spec.intakeRunnerDia : 0.9 * spec.inValveDia * Math.sqrt(spec.inValveCount);
   if (spec.intakeRunnerLength > 0) return { length: spec.intakeRunnerLength, diameter };
-  const tunedHz = RUNNER_TUNE_ORDER * ((0.75 * spec.revLimit) / 60);
+  const tunedHz = RUNNER_TUNE_ORDER * ((0.75 * spec.revLimit) / 60) * chargesPerTwoTurns(spec);
   return { length: speedOfSound(GAS.tAmb, GAS.gammaAir) / (4 * tunedHz), diameter };
 }
 
@@ -1192,7 +1361,7 @@ const RUNNER_TUNE_ORDER = 2.3;
  */
 export function runnerTunedRpm(spec: EngineSpec): number {
   const quarterWaveHz = speedOfSound(GAS.tAmb, GAS.gammaAir) / (4 * intakeRunnerOf(spec).length);
-  return (quarterWaveHz / RUNNER_TUNE_ORDER) * 60;
+  return (quarterWaveHz / RUNNER_TUNE_ORDER / chargesPerTwoTurns(spec)) * 60;
 }
 
 /** Clearance (TDC) volume, m^3. */
@@ -1397,6 +1566,7 @@ export function makeSegment(partial: Partial<PipeSegment> = {}): PipeSegment {
 
 /** A 500cc-ish thumper: 89 mm bore, 80 mm stroke. */
 export const DEFAULT_ENGINE: EngineSpec = {
+  engineType: 'piston',
   cylinders: 1,
   vAngle: 45,
   firingOffset: null,
@@ -1410,6 +1580,9 @@ export const DEFAULT_ENGINE: EngineSpec = {
   stroke: 0.08,
   rodLength: 0.145,
   compressionRatio: 10.5,
+  rotorRadius: 0.105,
+  eccentricity: 0.015,
+  rotorWidth: 0.08,
 
   exValveDia: 0.034,
   exValveCount: 1,
@@ -1468,6 +1641,9 @@ export const DEFAULT_ENGINE: EngineSpec = {
   intakeRunnerDia: 0,
   intakeRunnerShortLength: 0,
   intakeSwitchRpm: 5000,
+  intakeVariable: false,
+  intakeVariableLowRpm: 5000,
+  intakeVariableHighRpm: 8000,
 
   boostTarget: 0.7e5,
   turboSize: 0,
@@ -1743,7 +1919,7 @@ const pinOffsets = (crank: PinCrank, vAngle: number) =>
 
 /** Whether the engine has two banks of cylinders: a V or a flat engine, with an even count and a vee. */
 export function hasTwoBanks(spec: EngineSpec): boolean {
-  return spec.vAngle > 0 && spec.cylinders >= 2 && spec.cylinders % 2 === 0;
+  return !isRotary(spec) && spec.vAngle > 0 && spec.cylinders >= 2 && spec.cylinders % 2 === 0;
 }
 
 /** Cylinders on each bank. */
@@ -1753,6 +1929,7 @@ export function cylindersPerBank(spec: EngineSpec): number {
 
 /** Whether the layout is one the engine can be: one bank of 1 to 6, or two of 1 to 6 each. */
 export function validLayout(spec: EngineSpec): boolean {
+  if (isRotary(spec)) return Number.isInteger(spec.cylinders) && spec.cylinders >= 1 && spec.cylinders <= MAX_ROTORS;
   const n = cylindersPerBank(spec);
   return Number.isInteger(n) && n >= 1 && n <= 6;
 }
@@ -1805,6 +1982,12 @@ function doubledInline(inline: number[], vAngle: number): FiringPlan {
 
 /** The layout's own firing plan, from real engines' cranks, before any firing order the spec sets. */
 export function defaultFiringPlan(spec: EngineSpec): FiringPlan {
+  if (isRotary(spec)) {
+    // Each rotor on a lobe of its own, by the shaft angle its first chamber fires at.
+    const n = Math.min(Math.max(spec.cylinders, 1), MAX_ROTORS);
+    const offsets = ROTOR_PHASES[n]!.slice();
+    return { offsets, banks: offsets.map(() => 0), bankCount: 1, throws: offsets.map((_, i) => i) };
+  }
   if (isBoxer(spec)) return boxerPlan(spec);
   const crank = (c: PinCrank, throws?: number[]): FiringPlan => ({
     offsets: pinOffsets(c, spec.vAngle),
@@ -1850,6 +2033,8 @@ export function firingIntervalsOf(plan: FiringPlan): number[] {
  * A gap of 0 fires two cylinders together.
  */
 export function firingOrderProblem(spec: EngineSpec): string | null {
+  // A rotary's firing is its eccentric shaft's, and nothing else.
+  if (isRotary(spec)) return null;
   const n = defaultFiringPlan(spec).offsets.length;
   const order = spec.firingOrder;
   if (order) {
@@ -1891,6 +2076,7 @@ function customOffsets(spec: EngineSpec, plan: FiringPlan): number[] | null {
 /** Which firings happen when: the layout's own plan, or the spec's firing order and intervals on it. */
 export function firingPlan(spec: EngineSpec): FiringPlan {
   const plan = defaultFiringPlan(spec);
+  if (isRotary(spec)) return plan;
   const offsets = customOffsets(spec, plan);
   if (!offsets) return plan;
   // Every cylinder of a flat engine keeps its own throw; on any other a pin is shared where the order lets
@@ -1952,6 +2138,7 @@ export function physicalBankCount(spec: EngineSpec): number {
  * one runner's end to the next has to be exactly this long to reach.
  */
 export function cylinderSpacing(spec: EngineSpec): number {
+  if (isRotary(spec)) return spec.rotorWidth + ROTOR_HOUSING_GAP;
   // A boxer's throws alternate between the banks, so neighbours along the crank point opposite ways and
   // need not clear each other's bores: half the pitch keeps each bank's own cylinders the usual distance
   // apart, and the opposed pairs just offset, as a real flat engine's are.
@@ -1994,7 +2181,7 @@ const staggers = new Map<string, number>();
  * that keeps every point round one's rims `PISTON_GAP` clear of the other.
  */
 export function rodStagger(spec: EngineSpec): number {
-  if (!(spec.vAngle > 0) || isBoxer(spec) || physicalBankCount(spec) < 2) return ROD_STAGGER;
+  if (isRotary(spec) || !(spec.vAngle > 0) || isBoxer(spec) || physicalBankCount(spec) < 2) return ROD_STAGGER;
   // Each throw's two cylinders: their banks' turns and their pins' angles round the shaft.
   const pairs = crankPins(spec)
     .filter((p) => p.cylinders.length === 2)
@@ -2259,7 +2446,7 @@ export function fittedExhaust(spec: EngineSpec): ExhaustSizing {
   const dCollector = dPrimary * Math.sqrt(perCollector) * 0.92;
   // `displacement` is one cylinder's swept volume, so multiply by the cylinders this collector
   // actually serves. Treating it as the whole engine's would undersize every silencer by that factor.
-  const servedDisp = displacement(spec) * perCollector;
+  const servedDisp = displacement(spec) * chargesPerTwoTurns(spec) * perCollector;
 
   /**
    * Silencer can, sized by volume but with its expansion ratio held back.
@@ -3163,6 +3350,61 @@ const PORSCHE_MEZGER_40: Partial<EngineSpec> = {
   outputGain: 1.03,
 };
 
+/**
+ * The R26B of the Mazda 787B, which won Le Mans in 1991, the only rotary ever to: four rotors of Mazda's
+ * 15 x 105 x 80 mm, 654 cc a chamber, 2616 cc as Mazda counts it, 10:1, peripheral intake and exhaust ports,
+ * three spark plugs a rotor and intake trumpets that telescope with the engine's speed, rated at 700 hp
+ * (522 kW) at 9000 rpm and 608 N*m at 6500, idling at 2400.
+ */
+const MAZDA_R26B: Partial<EngineSpec> = {
+  engineType: 'rotary',
+  cylinders: 4,
+  vAngle: 0,
+  exhaustLayout: 'merged',
+  exhaustHeaders: true,
+  headerRun: 'lengthways',
+  ...IDLING,
+  // Its peripheral ports' overlap fills the intake with exhaust at a closed throttle: it idles high.
+  rpm: 2400,
+  idleRpm: 2400,
+  // Held at 8500 through the 1991 race; its redline was 10,000.
+  revLimit: 9300,
+  // Light, but enough to hold its idle steady through the overlap's misfires.
+  flywheelInertia: 0.2,
+  pipeCellSize: 0.035,
+  rotorRadius: 0.105,
+  eccentricity: 0.015,
+  rotorWidth: 0.08,
+  compressionRatio: 10,
+  // Its ports open to the exhaust and the intake at once for 151° of the shaft, the real engine's overlap:
+  // the intake opening 111° before the top dead centre the two share and the exhaust closing 40° after
+  // it, the exhaust having opened 75° before its bottom dead centre and the intake closing 60° after its.
+  // Both ports are open for longer than a turn of the shaft, so the apex closing one on a chamber has
+  // opened it to the next: the exhaust's for 25°, the intake's for 81°. The split of the overlap, the
+  // ports' sizes and the intake are estimated, and tuned with the spark and the exhaust for the rated
+  // torque at 6500 rpm and power at 9000 on the dyno. The overlap fills its intake with exhaust at a closed
+  // throttle, so it idles high and rough.
+  exValveDia: 0.05,
+  inValveDia: 0.072,
+  portLength: 0.06,
+  evo: 195,
+  evc: 580,
+  ivo: 429,
+  ivc: 870,
+  ignition: 1060,
+  burnDuration: 60,
+  // Its trumpets telescope, long for its torque at 6500 and short for its power at 9000, shortening all the
+  // way between 6800 and 9400 rpm and keeping tuned as they go, so its torque holds up between the two.
+  intakeRunnerLength: 0.605,
+  intakeRunnerShortLength: 0.377,
+  intakeVariable: true,
+  intakeVariableLowRpm: 6800,
+  intakeVariableHighRpm: 9400,
+  intakeRunnerDia: 0.055,
+  throttleDia: 0.09,
+  outputGain: 0.6,
+};
+
 export const ENGINE_PRESETS: EnginePreset[] = [
   {
     name: 'Single, Ducati Superquadro Mono',
@@ -3593,6 +3835,32 @@ export const ENGINE_PRESETS: EnginePreset[] = [
     // own back to a silencer. The headers flare to 66 mm where they meet: flared to the collector's 83 mm,
     // the gas goes supersonic in the flare at full throttle, faster than one solver step a sample allows.
     graph: () => structuredClone(porscheMezger40Exhaust) as ExhaustGraph,
+  },
+  {
+    name: 'Four rotor, Mazda R26B',
+    car: {
+      // The 787B: 830 kg, the 1991 minimum, its five-speed's ratios and final drive estimated for its 338 km/h
+      // down the Mulsanne straight at 8500 rpm. 355/710-18 rear slicks; mid-engined, with about 58% of its
+      // weight on the rear wheels.
+      name: 'Mazda 787B',
+      ratios: [2.33, 1.71, 1.35, 1.12, 0.96],
+      finalDrive: 3.44,
+      tyreRadius: 0.35,
+      tyreGrip: TYRE_GRIP.slick,
+      mass: 830 + DRIVER_MASS,
+      drive: 'rwd',
+      drivenLoad: 0.58,
+      shiftTime: MANUAL_SHIFT_TIME,
+      dualClutch: false,
+    },
+    description:
+      'The 2.6 litre four-rotor Wankel in the Mazda 787B, the only rotary ever to win Le Mans, in 1991: four rotors of Mazda\u2019s 15 x 105 x 80 mm, 654 cc a chamber, 10:1, peripheral intake and exhaust ports, three spark plugs a rotor and intake trumpets that telescope with the engine\u2019s speed, shortening continuously from 6800 to 9400 rpm. Each rotor\u2019s three chambers fire a turn of the shaft apart, so the four fire every 90\u00b0 of the shaft, 1-3-2-4, twice as often as a four-stroke\u2019s four cylinders; its four headers meet in one open pipe. Its ports are open to the exhaust and the intake at once for 151\u00b0 of the shaft each cycle, which fills its intake with exhaust when the throttle shuts, so it idles high and rough, at 2400 rpm. On the dyno it makes 604 N\u00b7m at 6500 rpm, 565-590 from there to 8500 as its trumpets shorten, and 702 hp at 9100, against the real engine\u2019s rated 608 N\u00b7m at 6500 and 700 hp at 9000. Its ports, port timing, intake and exhaust are estimates.',
+    engine: MAZDA_R26B,
+    pipe: () => [makeSegment({ kind: 'pipe', length: 0.55, dIn: 0.055 })],
+    collector: () => [
+      makeSegment({ kind: 'cone', length: 0.15, dIn: 0.065, dOut: 0.1 }),
+      makeSegment({ kind: 'pipe', length: 1.2, dIn: 0.1 }),
+    ],
   },
 ];
 

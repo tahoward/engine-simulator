@@ -1,5 +1,6 @@
 {
  "defaultEngine": {
+  "engineType": "piston",
   "cylinders": 1,
   "vAngle": 45,
   "firingOffset": null,
@@ -13,6 +14,9 @@
   "stroke": 0.08,
   "rodLength": 0.145,
   "compressionRatio": 10.5,
+  "rotorRadius": 0.105,
+  "eccentricity": 0.015,
+  "rotorWidth": 0.08,
   "exValveDia": 0.034,
   "exValveCount": 1,
   "portLength": 0.055,
@@ -67,6 +71,9 @@
   "intakeRunnerDia": 0,
   "intakeRunnerShortLength": 0,
   "intakeSwitchRpm": 5000,
+  "intakeVariable": false,
+  "intakeVariableLowRpm": 5000,
+  "intakeVariableHighRpm": 8000,
   "boostTarget": 70000,
   "turboSize": 0,
   "intercooler": 0.7,
@@ -94,6 +101,7 @@
  },
  "defaultConfig": {
   "engine": {
+   "engineType": "piston",
    "cylinders": 1,
    "vAngle": 45,
    "firingOffset": null,
@@ -107,6 +115,9 @@
    "stroke": 0.08,
    "rodLength": 0.145,
    "compressionRatio": 10.5,
+   "rotorRadius": 0.105,
+   "eccentricity": 0.015,
+   "rotorWidth": 0.08,
    "exValveDia": 0.034,
    "exValveCount": 1,
    "portLength": 0.055,
@@ -161,6 +172,9 @@
    "intakeRunnerDia": 0,
    "intakeRunnerShortLength": 0,
    "intakeSwitchRpm": 5000,
+   "intakeVariable": false,
+   "intakeVariableLowRpm": 5000,
+   "intakeVariableHighRpm": 8000,
    "boostTarget": 70000,
    "turboSize": 0,
    "intercooler": 0.7,
@@ -188,7 +202,7 @@
   },
   "pipe": [
    {
-    "id": "seg1531",
+    "id": "seg1925",
     "kind": "pipe",
     "length": 0.3,
     "dIn": 0.04,
@@ -197,7 +211,7 @@
     "pitch": 0
    },
    {
-    "id": "seg1532",
+    "id": "seg1926",
     "kind": "cone",
     "length": 0.55,
     "dIn": 0.04,
@@ -208,7 +222,7 @@
   ],
   "collector": [
    {
-    "id": "seg1533",
+    "id": "seg1927",
     "kind": "cone",
     "length": 0.12,
     "dIn": 0.05,
@@ -217,7 +231,7 @@
     "pitch": 0
    },
    {
-    "id": "seg1534",
+    "id": "seg1928",
     "kind": "pipe",
     "length": 0.55,
     "dIn": 0.058,
@@ -323,7 +337,7 @@
  },
  "defaultCollector": [
   {
-   "id": "seg1538",
+   "id": "seg1932",
    "kind": "cone",
    "length": 0.12,
    "dIn": 0.05,
@@ -332,7 +346,7 @@
    "pitch": 0
   },
   {
-   "id": "seg1539",
+   "id": "seg1933",
    "kind": "pipe",
    "length": 0.55,
    "dIn": 0.058,
@@ -376,6 +390,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 1,
      "vAngle": 45,
      "firingOffset": null,
@@ -389,6 +404,9 @@
      "stroke": 0.0624,
      "rodLength": 0.12,
      "compressionRatio": 13.1,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.0382,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -443,6 +461,9 @@
      "intakeRunnerDia": 0.058,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -881,6 +902,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 2,
      "vAngle": 45,
      "firingOffset": null,
@@ -894,6 +916,9 @@
      "stroke": 0.1175,
      "rodLength": 0.176,
      "compressionRatio": 11.4,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.03519,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -948,6 +973,9 @@
      "intakeRunnerDia": 0,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -1404,6 +1432,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 2,
      "vAngle": 90,
      "firingOffset": null,
@@ -1417,6 +1446,9 @@
      "stroke": 0.0636,
      "rodLength": 0.12,
      "compressionRatio": 10.8,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.034,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -1471,6 +1503,9 @@
      "intakeRunnerDia": 0.057,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -1917,6 +1952,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 2,
      "vAngle": 0,
      "firingOffset": 270,
@@ -1930,6 +1966,9 @@
      "stroke": 0.08,
      "rodLength": 0.13,
      "compressionRatio": 12.1,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.0332,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -1984,6 +2023,9 @@
      "intakeRunnerDia": 0.054,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -2255,6 +2297,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 3,
      "vAngle": 0,
      "firingOffset": null,
@@ -2268,6 +2311,9 @@
      "stroke": 0.09,
      "rodLength": 0.145,
      "compressionRatio": 9.7,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.028560000000000006,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -2322,6 +2368,9 @@
      "intakeRunnerDia": 0,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 115000,
      "turboSize": 0.16,
      "intercooler": 0.7,
@@ -2741,6 +2790,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 4,
      "vAngle": 0,
      "firingOffset": null,
@@ -2754,6 +2804,9 @@
      "stroke": 0.085,
      "rodLength": 0.133,
      "compressionRatio": 9.5,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.028220000000000002,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -2808,6 +2861,9 @@
      "intakeRunnerDia": 0,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 50000,
      "turboSize": 0.14,
      "intercooler": 0.4,
@@ -3255,6 +3311,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 4,
      "vAngle": 0,
      "firingOffset": null,
@@ -3268,6 +3325,9 @@
      "stroke": 0.084,
      "rodLength": 0.153,
      "compressionRatio": 11,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.032,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -3322,6 +3382,9 @@
      "intakeRunnerDia": 0.04,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -3600,6 +3663,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 4,
      "vAngle": 0,
      "firingOffset": null,
@@ -3613,6 +3677,9 @@
      "stroke": 0.086,
      "rodLength": 0.1455,
      "compressionRatio": 8.8,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.02924,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -3667,6 +3734,9 @@
      "intakeRunnerDia": 0,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0.3,
      "intercooler": 0.7,
@@ -4107,6 +4177,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 5,
      "vAngle": 0,
      "firingOffset": null,
@@ -4120,6 +4191,9 @@
      "stroke": 0.0928,
      "rodLength": 0.144,
      "compressionRatio": 10,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.028050000000000002,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -4174,6 +4248,9 @@
      "intakeRunnerDia": 0,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 135000,
      "turboSize": 0.32,
      "intercooler": 0.7,
@@ -4639,6 +4716,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 6,
      "vAngle": 0,
      "firingOffset": null,
@@ -4652,6 +4730,9 @@
      "stroke": 0.0737,
      "rodLength": 0.1215,
      "compressionRatio": 8.5,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.03,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -4706,6 +4787,9 @@
      "intakeRunnerDia": 0,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0.16,
      "intercooler": 0.6,
@@ -5431,6 +5515,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 6,
      "vAngle": 0,
      "firingOffset": null,
@@ -5444,6 +5529,9 @@
      "stroke": 0.135,
      "rodLength": 0.216,
      "compressionRatio": 16.5,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.041,
      "exValveCount": 1,
      "portLength": 0.055,
@@ -5498,6 +5586,9 @@
      "intakeRunnerDia": 0,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 130000,
      "turboSize": 0.42,
      "intercooler": 0,
@@ -5981,6 +6072,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 6,
      "vAngle": 60,
      "firingOffset": null,
@@ -5994,6 +6086,9 @@
      "stroke": 0.083,
      "rodLength": 0.155,
      "compressionRatio": 10.8,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.03196,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -6048,6 +6143,9 @@
      "intakeRunnerDia": 0,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -6895,6 +6993,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 8,
      "vAngle": 90,
      "firingOffset": null,
@@ -6908,6 +7007,9 @@
      "stroke": 0.092,
      "rodLength": 0.1556,
      "compressionRatio": 11.5,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.0404,
      "exValveCount": 1,
      "portLength": 0.055,
@@ -6962,6 +7064,9 @@
      "intakeRunnerDia": 0.056,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -7280,6 +7385,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 8,
      "vAngle": 90,
      "firingOffset": null,
@@ -7293,6 +7399,9 @@
      "stroke": 0.08,
      "rodLength": 0.15,
      "compressionRatio": 12.5,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.0355,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -7347,6 +7456,9 @@
      "intakeRunnerDia": 0.06,
      "intakeRunnerShortLength": 0.31,
      "intakeSwitchRpm": 7600,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -8230,6 +8342,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 4,
      "vAngle": 180,
      "firingOffset": null,
@@ -8243,6 +8356,9 @@
      "stroke": 0.086,
      "rodLength": 0.1305,
      "compressionRatio": 12.5,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.02924,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -8297,6 +8413,9 @@
      "intakeRunnerDia": 0.046,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -9061,6 +9180,7 @@
    },
    "config": {
     "engine": {
+     "engineType": "piston",
      "cylinders": 6,
      "vAngle": 180,
      "firingOffset": null,
@@ -9074,6 +9194,9 @@
      "stroke": 0.0804,
      "rodLength": 0.127,
      "compressionRatio": 12.6,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
      "exValveDia": 0.037,
      "exValveCount": 2,
      "portLength": 0.055,
@@ -9128,6 +9251,9 @@
      "intakeRunnerDia": 0.055,
      "intakeRunnerShortLength": 0,
      "intakeSwitchRpm": 5000,
+     "intakeVariable": false,
+     "intakeVariableLowRpm": 5000,
+     "intakeVariableHighRpm": 8000,
      "boostTarget": 70000,
      "turboSize": 0,
      "intercooler": 0.7,
@@ -9873,6 +9999,345 @@
      }
     ]
    }
+  },
+  {
+   "name": "Four rotor, Mazda R26B",
+   "engine": {
+    "engineType": "rotary",
+    "cylinders": 4,
+    "vAngle": 0,
+    "exhaustLayout": "merged",
+    "exhaustHeaders": true,
+    "headerRun": "lengthways",
+    "rpm": 2400,
+    "idleRpm": 2400,
+    "load": 0,
+    "throttle": 0,
+    "revLimit": 9300,
+    "flywheelInertia": 0.2,
+    "pipeCellSize": 0.035,
+    "rotorRadius": 0.105,
+    "eccentricity": 0.015,
+    "rotorWidth": 0.08,
+    "compressionRatio": 10,
+    "exValveDia": 0.05,
+    "inValveDia": 0.072,
+    "portLength": 0.06,
+    "evo": 195,
+    "evc": 580,
+    "ivo": 429,
+    "ivc": 870,
+    "ignition": 1060,
+    "burnDuration": 60,
+    "intakeRunnerLength": 0.605,
+    "intakeRunnerShortLength": 0.377,
+    "intakeVariable": true,
+    "intakeVariableLowRpm": 6800,
+    "intakeVariableHighRpm": 9400,
+    "intakeRunnerDia": 0.055,
+    "throttleDia": 0.09,
+    "outputGain": 0.6
+   },
+   "config": {
+    "engine": {
+     "engineType": "rotary",
+     "cylinders": 4,
+     "vAngle": 0,
+     "firingOffset": null,
+     "firingOrder": null,
+     "firingIntervals": null,
+     "crankType": "shared",
+     "exhaustLayout": "merged",
+     "exhaustHeaders": true,
+     "headerRun": "lengthways",
+     "bore": 0.089,
+     "stroke": 0.08,
+     "rodLength": 0.145,
+     "compressionRatio": 10,
+     "rotorRadius": 0.105,
+     "eccentricity": 0.015,
+     "rotorWidth": 0.08,
+     "exValveDia": 0.05,
+     "exValveCount": 1,
+     "portLength": 0.06,
+     "inValveDia": 0.072,
+     "inValveCount": 1,
+     "maxLift": 0.0095,
+     "evo": 195,
+     "evc": 580,
+     "ivo": 429,
+     "ivc": 870,
+     "camSwitchRpm": 0,
+     "highEvo": 128,
+     "highEvc": 378,
+     "highIvo": 342,
+     "highIvc": 576,
+     "highMaxLift": 0.0095,
+     "vvtIntakeLow": 0,
+     "vvtIntakeHigh": 0,
+     "vvtExhaustLow": 0,
+     "vvtExhaustHigh": 0,
+     "vvtLowRpm": 2000,
+     "vvtHighRpm": 6000,
+     "vvtLinked": false,
+     "pushrods": false,
+     "fuel": "gasoline",
+     "ignition": 1060,
+     "burnDuration": 60,
+     "advanceCurve": true,
+     "lambda": 1,
+     "fuelCut": true,
+     "overrunCrackle": false,
+     "crackleIntensity": 0.6,
+     "combustionVariability": 1,
+     "smokeLambda": 1.45,
+     "maxFuel": 0,
+     "recipMass": 0.55,
+     "throttle": 0,
+     "throttleDia": 0.09,
+     "plenumVolume": 0,
+     "plenumLength": 0,
+     "plenumWidth": 0,
+     "plenumHeight": 0,
+     "plenumTaper": 0.4,
+     "dualPlenum": false,
+     "plenumBalanceRpm": 0,
+     "plenumBalanceShutRpm": 0,
+     "plenumBalanceReopenRpm": 0,
+     "airboxVolume": 0,
+     "snorkelLength": 0.3,
+     "snorkelDia": 0,
+     "intakeRunnerLength": 0.605,
+     "intakeRunnerDia": 0.055,
+     "intakeRunnerShortLength": 0.377,
+     "intakeSwitchRpm": 5000,
+     "intakeVariable": true,
+     "intakeVariableLowRpm": 6800,
+     "intakeVariableHighRpm": 9400,
+     "boostTarget": 70000,
+     "turboSize": 0,
+     "intercooler": 0.7,
+     "blowOff": "atmospheric",
+     "turboNoise": 1,
+     "rpm": 2400,
+     "revLimit": 9300,
+     "idleRpm": 2400,
+     "freeRunning": false,
+     "flywheelInertia": 0.2,
+     "load": 0,
+     "portGasTemp": 950,
+     "pipeCellSize": 0.035,
+     "pipeWallThickness": 0.0012,
+     "pipeMaterial": "mildSteel",
+     "airSpeed": 0,
+     "exhaustHeight": 0.35,
+     "cylinderSpread": 0.3,
+     "groundReflection": 0.7,
+     "room": "outdoors",
+     "outputGain": 0.6,
+     "mechNoise": 0.45,
+     "throatNoise": 0.5,
+     "jetNoise": 0.5
+    },
+    "pipe": [
+     {
+      "id": "seg1535",
+      "kind": "pipe",
+      "length": 0.55,
+      "dIn": 0.055,
+      "dOut": 0.055,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg1536",
+      "kind": "cone",
+      "length": 0.15,
+      "dIn": 0.065,
+      "dOut": 0.1,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg1537",
+      "kind": "pipe",
+      "length": 1.2,
+      "dIn": 0.1,
+      "dOut": 0.1,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "sources": {
+     "mouths": [
+      {
+       "duct": "collector0",
+       "position": [
+        0.2304588927729834,
+        -0.04900792911137513,
+        1.6161027347762178
+       ]
+      }
+     ],
+     "intake": [
+      0.6023840884186696,
+      0.47267372060140855,
+      -0.39904014217952866
+     ],
+     "engine": [
+      0,
+      0,
+      0
+     ],
+     "surfaces": [
+      {
+       "kind": "blockSide",
+       "bank": 0,
+       "position": [
+        0.12,
+        0,
+        0
+       ],
+       "facing": [
+        1,
+        0,
+        0
+       ]
+      },
+      {
+       "kind": "blockSide",
+       "bank": 0,
+       "position": [
+        -0.12,
+        0,
+        0
+       ],
+       "facing": [
+        -1,
+        0,
+        0
+       ]
+      },
+      {
+       "kind": "head",
+       "bank": 0,
+       "position": [
+        0,
+        0.15,
+        0
+       ],
+       "facing": [
+        0,
+        1,
+        0
+       ]
+      },
+      {
+       "kind": "oilPan",
+       "bank": 0,
+       "position": [
+        0,
+        -0.19,
+        0
+       ],
+       "facing": [
+        0,
+        -1,
+        0
+       ]
+      },
+      {
+       "kind": "frontCover",
+       "bank": 0,
+       "position": [
+        0,
+        0,
+        -0.28
+       ],
+       "facing": [
+        0,
+        0,
+        -1
+       ]
+      }
+     ]
+    }
+   },
+   "launch": {
+    "ratios": [
+     2.33,
+     1.71,
+     1.35,
+     1.12,
+     0.96
+    ],
+    "finalDrive": 3.44,
+    "tyreRadius": 0.35,
+    "tyreGrip": 1.6,
+    "mass": 905,
+    "drivenLoad": 0.58,
+    "frontWheelDrive": false,
+    "tractionControl": true,
+    "launchRpm": 4650,
+    "shiftRpm": 9150,
+    "shiftTime": 0.4,
+    "dualClutch": false,
+    "dyno": false,
+    "sweepRate": 500
+   },
+   "fittedExhaust": {
+    "pipe": [
+     {
+      "id": "seg1920",
+      "kind": "pipe",
+      "length": 0.45,
+      "dIn": 0.0425,
+      "dOut": 0.0425,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ],
+    "collector": [
+     {
+      "id": "seg1921",
+      "kind": "cone",
+      "length": 0.16,
+      "dIn": 0.053125000000000006,
+      "dOut": 0.0782,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg1922",
+      "kind": "pipe",
+      "length": 0.6500000000000004,
+      "dIn": 0.0782,
+      "dOut": 0.0782,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg1923",
+      "kind": "chamber",
+      "length": 0.6,
+      "dIn": 0.0782,
+      "dOut": 0.1955,
+      "yaw": 0,
+      "pitch": 0
+     },
+     {
+      "id": "seg1924",
+      "kind": "pipe",
+      "length": 0.5,
+      "dIn": 0.0782,
+      "dOut": 0.0782,
+      "yaw": 0,
+      "pitch": 0
+     }
+    ]
+   }
   }
  ],
  "pipePresets": [
@@ -9881,7 +10346,7 @@
    "description": "Short straight pipe, no silencer. Raw and loud, strongly tuned.",
    "segments": [
     {
-     "id": "seg1540",
+     "id": "seg1934",
      "kind": "pipe",
      "length": 0.42,
      "dIn": 0.042,
@@ -9890,7 +10355,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1541",
+     "id": "seg1935",
      "kind": "pipe",
      "length": 0.18,
      "dIn": 0.048,
@@ -9905,7 +10370,7 @@
    "description": "Header into a long taper. Broad, brassy, race-bike bark.",
    "segments": [
     {
-     "id": "seg1542",
+     "id": "seg1936",
      "kind": "pipe",
      "length": 0.3,
      "dIn": 0.04,
@@ -9914,7 +10379,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1543",
+     "id": "seg1937",
      "kind": "cone",
      "length": 0.55,
      "dIn": 0.04,
@@ -9929,7 +10394,7 @@
    "description": "Diffuser then reverse cone. The classic two-stroke-style pulse tuner.",
    "segments": [
     {
-     "id": "seg1544",
+     "id": "seg1938",
      "kind": "pipe",
      "length": 0.22,
      "dIn": 0.038,
@@ -9938,7 +10403,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1545",
+     "id": "seg1939",
      "kind": "cone",
      "length": 0.3,
      "dIn": 0.038,
@@ -9947,7 +10412,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1546",
+     "id": "seg1940",
      "kind": "pipe",
      "length": 0.12,
      "dIn": 0.11,
@@ -9956,7 +10421,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1547",
+     "id": "seg1941",
      "kind": "cone",
      "length": 0.24,
      "dIn": 0.11,
@@ -9965,7 +10430,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1548",
+     "id": "seg1942",
      "kind": "pipe",
      "length": 0.16,
      "dIn": 0.026,
@@ -9980,7 +10445,7 @@
    "description": "Long header, expansion can, short tailpipe. Quiet and boomy.",
    "segments": [
     {
-     "id": "seg1549",
+     "id": "seg1943",
      "kind": "pipe",
      "length": 0.6,
      "dIn": 0.042,
@@ -9989,7 +10454,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1550",
+     "id": "seg1944",
      "kind": "chamber",
      "length": 0.34,
      "dIn": 0.042,
@@ -9998,7 +10463,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1551",
+     "id": "seg1945",
      "kind": "pipe",
      "length": 0.3,
      "dIn": 0.04,
@@ -10013,7 +10478,7 @@
    "description": "Very long primary. Low first resonance, strong low-rpm pull.",
    "segments": [
     {
-     "id": "seg1552",
+     "id": "seg1946",
      "kind": "pipe",
      "length": 0.9,
      "dIn": 0.04,
@@ -10022,7 +10487,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1553",
+     "id": "seg1947",
      "kind": "cone",
      "length": 0.35,
      "dIn": 0.04,
@@ -10031,7 +10496,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1554",
+     "id": "seg1948",
      "kind": "pipe",
      "length": 0.25,
      "dIn": 0.06,
@@ -10046,7 +10511,7 @@
    "description": "Flat oval can with its pipes at opposite sides. Rings across the can, rougher in the mids.",
    "segments": [
     {
-     "id": "seg1555",
+     "id": "seg1949",
      "kind": "pipe",
      "length": 0.6,
      "dIn": 0.042,
@@ -10055,7 +10520,7 @@
      "pitch": 0
     },
     {
-     "id": "seg1556",
+     "id": "seg1950",
      "kind": "chamber",
      "length": 0.4,
      "dIn": 0.042,
@@ -10068,7 +10533,7 @@
      "offsetOut": -0.07
     },
     {
-     "id": "seg1557",
+     "id": "seg1951",
      "kind": "pipe",
      "length": 0.3,
      "dIn": 0.04,

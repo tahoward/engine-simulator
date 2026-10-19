@@ -25,7 +25,7 @@ import {
   splitDuctAt,
 } from './exhaustGraph.js';
 import { type Vec3, turnBetweenDirs, turnDir } from './geometry.js';
-import { type EngineSpec, displacement } from './spec.js';
+import { type EngineSpec, chargesPerTwoTurns, displacement } from './spec.js';
 
 /** Swept volume one turbo is drawn for, m^3: a size of turbo in the middle of the range. */
 const REFERENCE_SWEPT_PER_TURBO = 1.3e-3;
@@ -43,7 +43,7 @@ export interface TurboSize {
 
 /** A turbo's size for `spec`, shared out between `count` of them. */
 export function turboSize(spec: EngineSpec, count: number): TurboSize {
-  const swept = (displacement(spec) * spec.cylinders) / Math.max(count, 1);
+  const swept = (displacement(spec) * spec.cylinders * chargesPerTwoTurns(spec)) / Math.max(count, 1);
   const s = Math.min(Math.max(Math.cbrt(swept / REFERENCE_SWEPT_PER_TURBO), 0.6), 1.6);
   return { scroll: 0.07 * s, depth: 0.06 * s, outletDia: 0.058 * s, inletDia: 0.6 * 0.07 * s };
 }

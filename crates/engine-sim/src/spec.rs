@@ -102,6 +102,17 @@ pub enum BlowOff {
     None,
 }
 
+/// How the engine turns its charges into motion. See `is_rotary`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum EngineType {
+    /// Pistons on a crank, four strokes over two turns.
+    Piston,
+    /// A Wankel: a three-flanked rotor turning on an eccentric shaft in a trochoid housing, each flank's
+    /// chamber taking its four strokes over three turns of the shaft.
+    Rotary,
+}
+
 /// What the engine burns, and so how it lights its charge. See `Fuel::lhv`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -205,6 +216,8 @@ pub enum ExhaustLayoutSpec {
 #[serde(rename_all = "camelCase", default)]
 pub struct EngineSpec {
     // --- Layout ---
+    pub engine_type: EngineType,
+    /// On a rotary, the rotors.
     pub cylinders: u32,
     pub v_angle: f64,
     pub firing_offset: Option<f64>,
@@ -220,6 +233,11 @@ pub struct EngineSpec {
     pub stroke: f64,
     pub rod_length: f64,
     pub compression_ratio: f64,
+    /// A rotary's housing: the trochoid's generating radius, centre to apex, its eccentricity, the
+    /// eccentric shaft's throw, and the rotor's width, m.
+    pub rotor_radius: f64,
+    pub eccentricity: f64,
+    pub rotor_width: f64,
 
     // --- Valves ---
     pub ex_valve_dia: f64,
@@ -280,6 +298,11 @@ pub struct EngineSpec {
     pub intake_runner_dia: f64,
     pub intake_runner_short_length: f64,
     pub intake_switch_rpm: f64,
+    /// A continuously variable intake, telescoping its runners from the long length to the short between
+    /// these speeds, rev/min, in place of switching between them.
+    pub intake_variable: bool,
+    pub intake_variable_low_rpm: f64,
+    pub intake_variable_high_rpm: f64,
 
     // --- Turbocharger ---
     pub boost_target: f64,
@@ -317,6 +340,7 @@ pub struct EngineSpec {
 impl Default for EngineSpec {
     fn default() -> Self {
         EngineSpec {
+            engine_type: EngineType::Piston,
             cylinders: 1,
             v_angle: 45.0,
             firing_offset: None,
@@ -330,6 +354,9 @@ impl Default for EngineSpec {
             stroke: 0.08,
             rod_length: 0.145,
             compression_ratio: 10.5,
+            rotor_radius: 0.105,
+            eccentricity: 0.015,
+            rotor_width: 0.08,
 
             ex_valve_dia: 0.034,
             ex_valve_count: 1.0,
@@ -386,6 +413,9 @@ impl Default for EngineSpec {
             intake_runner_dia: 0.0,
             intake_runner_short_length: 0.0,
             intake_switch_rpm: 5000.0,
+            intake_variable: false,
+            intake_variable_low_rpm: 5000.0,
+            intake_variable_high_rpm: 8000.0,
 
             boost_target: 0.7e5,
             turbo_size: 0.0,
@@ -505,6 +535,9 @@ pub struct EngineSnapshot {
     pub intake_cam_advance: f64,
     pub exhaust_cam_retard: f64,
     pub short_runners: bool,
+    /// How long a continuously variable intake's runners are now, m; absent on any other.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runner_length: Option<f64>,
     pub high_cam: bool,
     pub cyl_pressure: f64,
     pub cyl_temp: f64,
@@ -748,15 +781,93 @@ pub fn density(p: f64, t: f64) -> f64 {
 // Derived geometry
 // ---------------------------------------------------------------------------
 
-/// Swept volume of one cylinder, m^3.
+/// Swept volume of one cylinder, m^3: on a rotary, of one of a rotor's three chambers, `3 sqrt(3) e R b`,
+/// which is what Mazda counts as the engine's displacement per rotor.
 pub fn displacement(spec: &EngineSpec) -> f64 {
+    if is_rotary(spec) {
+        return 3.0 * math::sqrt(3.0) * spec.eccentricity * spec.rotor_radius * spec.rotor_width;
+    }
     (PI * spec.bore * spec.bore) / 4.0 * spec.stroke
+}
+
+/// Whether the engine is a Wankel. Its rotors stand in for cylinders wherever the engine is laid out,
+/// plumbed or drawn: `cylinders` counts them, and each has one exhaust port and one intake port. Each
+/// rotor's three flanks each close off a chamber of their own against the housing, and those are what
+/// the gas model's cylinders are (`ROTOR_FACES`).
+///
+/// A chamber's volume is exactly sinusoidal in the eccentric shaft's angle, with a period of 540 degrees,
+/// and each takes its four strokes over three turns of the shaft, 270 degrees a stroke. So on a crank
+/// turning at `ROTARY_PHASE` of the shaft's speed a chamber is a cylinder like any other, on a rod
+/// infinitely long: its volume `Vc + Vd (1 - cos phi) / 2`, over the usual 720-degree cycle. Every angle a
+/// rotary's spec states, its ports' timing, its spark and its burn, is in the shaft's degrees, over a
+/// 1080-degree cycle from the firing top dead centre; `chamber_spec` turns them into the chambers'.
+pub fn is_rotary(spec: &EngineSpec) -> bool {
+    spec.engine_type == EngineType::Rotary
+}
+
+/// The chambers a rotor's flanks close off.
+pub const ROTOR_FACES: usize = 3;
+
+/// A rotary chamber's crank speed as a share of the eccentric shaft's: 720 of its degrees over 1080 of
+/// the shaft's.
+pub const ROTARY_PHASE: f64 = 2.0 / 3.0;
+
+/// The shaft degrees a rotary's cycle takes.
+pub const ROTARY_CYCLE: f64 = 1080.0;
+
+/// The chambers each cylinder of `spec` has: one, or a rotor's three.
+pub fn chambers_per_cylinder(spec: &EngineSpec) -> usize {
+    if is_rotary(spec) { ROTOR_FACES } else { 1 }
+}
+
+/// How many charges each cylinder draws every two turns of the crank: one on four strokes; two for a rotor,
+/// whose three chambers each draw one every three turns.
+pub fn charges_per_two_turns(spec: &EngineSpec) -> f64 {
+    if is_rotary(spec) { 2.0 } else { 1.0 }
+}
+
+/// The length of a rotor's flank, from apex to apex, m: the chord between them, `sqrt(3) R`, which is what
+/// each chamber is as wide as across the housing.
+pub fn rotor_flank(spec: &EngineSpec) -> f64 {
+    math::sqrt(3.0) * spec.rotor_radius
+}
+
+/// `spec` as a rotary's chambers see it: every angle turned from the shaft's degrees into theirs, and the
+/// bore and stroke of the cylinder each chamber is: a bore of the area of a flank's face across the
+/// housing's width, `sqrt(3) R b`, and the stroke that sweeps its displacement there, `3 e`. A piston
+/// engine's spec is its own.
+pub fn chamber_spec(spec: &EngineSpec) -> EngineSpec {
+    if !is_rotary(spec) {
+        return spec.clone();
+    }
+    let k = ROTARY_PHASE;
+    EngineSpec {
+        bore: math::sqrt((4.0 * rotor_flank(spec) * spec.rotor_width) / PI),
+        stroke: 3.0 * spec.eccentricity,
+        evo: spec.evo * k,
+        evc: spec.evc * k,
+        ivo: spec.ivo * k,
+        ivc: spec.ivc * k,
+        high_evo: spec.high_evo * k,
+        high_evc: spec.high_evc * k,
+        high_ivo: spec.high_ivo * k,
+        high_ivc: spec.high_ivc * k,
+        ignition: spec.ignition * k,
+        burn_duration: spec.burn_duration * k,
+        cam_switch_rpm: 0.0,
+        vvt_intake_low: 0.0,
+        vvt_intake_high: 0.0,
+        vvt_exhaust_low: 0.0,
+        vvt_exhaust_high: 0.0,
+        ..spec.clone()
+    }
 }
 
 /// Nominal full-throttle torque of the whole engine, N*m: `boosted`, with a turbocharger, in
 /// proportion to the charge pressure the wastegate holds.
 pub fn full_load_torque(spec: &EngineSpec, boosted: bool) -> f64 {
-    let torque = (FULL_LOAD_BMEP * displacement(spec) * spec.cylinders as f64) / (4.0 * PI);
+    let torque =
+        (FULL_LOAD_BMEP * displacement(spec) * spec.cylinders as f64 * charges_per_two_turns(spec)) / (4.0 * PI);
     if boosted { torque * (gas::P_AMB + spec.boost_target) / gas::P_AMB } else { torque }
 }
 
@@ -789,7 +900,7 @@ pub fn intake_runner_of(spec: &EngineSpec) -> RunnerSize {
     if spec.intake_runner_length > 0.0 {
         return RunnerSize { length: spec.intake_runner_length, diameter };
     }
-    let tuned_hz = RUNNER_TUNE_ORDER * ((0.75 * spec.rev_limit) / 60.0);
+    let tuned_hz = RUNNER_TUNE_ORDER * ((0.75 * spec.rev_limit) / 60.0) * charges_per_two_turns(spec);
     RunnerSize { length: speed_of_sound(gas::T_AMB, gas::GAMMA_AIR) / (4.0 * tuned_hz), diameter }
 }
 
@@ -813,19 +924,24 @@ pub struct CrankGeometry {
     pub vc: f64,
     /// `a + rod_length`, the piston position at TDC.
     pub top: f64,
+    /// A rotary's chamber, on a rod infinitely long: see `is_rotary`.
+    pub rotary: bool,
 }
 
 impl CrankGeometry {
     pub fn of(spec: &EngineSpec) -> CrankGeometry {
-        let a = spec.stroke / 2.0;
+        let rotary = is_rotary(spec);
+        // A rotary's chamber: a flank's face across the housing, swept through `3 e`.
+        let a = if rotary { 1.5 * spec.eccentricity } else { spec.stroke / 2.0 };
         let l = spec.rod_length;
         CrankGeometry {
             a,
             a2: a * a,
             l2: l * l,
-            area: (PI * spec.bore * spec.bore) / 4.0,
+            area: if rotary { rotor_flank(spec) * spec.rotor_width } else { (PI * spec.bore * spec.bore) / 4.0 },
             vc: clearance_volume(spec),
-            top: a + l,
+            top: if rotary { a } else { a + l },
+            rotary,
         }
     }
 }
@@ -837,8 +953,11 @@ pub fn piston_position(g: &CrankGeometry, deg: f64) -> f64 {
     g.a * math::cos(th) + math::sqrt(math::max(g.l2 - g.a2 * s * s, 0.0))
 }
 
-/// Cylinder volume, m^3, at crank angle `deg`.
+/// Cylinder volume, m^3, at crank angle `deg`: a rotary's chamber's, at its own, given `chamber_spec`.
 pub fn cylinder_volume(spec: &EngineSpec, deg: f64) -> f64 {
+    if is_rotary(spec) {
+        return clearance_volume(spec) + 0.5 * displacement(spec) * (1.0 - math::cos(deg * DEG_TO_RAD));
+    }
     let g = CrankGeometry::of(spec);
     let a = spec.stroke / 2.0;
     let area = (PI * spec.bore * spec.bore) / 4.0;
@@ -866,6 +985,17 @@ pub struct CrankState {
 pub fn crank_at(g: &CrankGeometry, angle: f64) -> CrankState {
     let th = angle * DEG_TO_RAD;
     let (sin, cos) = math::sincos(th);
+    if g.rotary {
+        let position = g.a * cos;
+        let d_position = -g.a * sin;
+        return CrankState {
+            position,
+            d_position,
+            d2_position: -position,
+            volume: g.vc + g.area * (g.top - position),
+            d_volume: -g.area * d_position,
+        };
+    }
     let root = math::sqrt(math::max(g.l2 - g.a2 * sin * sin, 1e-12));
     let inv_root = 1.0 / root;
 
@@ -1187,7 +1317,8 @@ fn pin_offsets(crank: &PinCrank, v_angle: f64) -> Vec<f64> {
 
 /// Whether the engine has two banks of cylinders: a V or a flat engine, with an even count and a vee.
 pub fn has_two_banks(spec: &EngineSpec) -> bool {
-    spec.v_angle > 0.0 && spec.cylinders >= 2 && spec.cylinders.is_multiple_of(2)
+    !is_rotary(spec)
+        && spec.v_angle > 0.0 && spec.cylinders >= 2 && spec.cylinders.is_multiple_of(2)
 }
 
 /// Cylinders on each bank.
@@ -1195,9 +1326,36 @@ pub fn cylinders_per_bank(spec: &EngineSpec) -> u32 {
     if has_two_banks(spec) { spec.cylinders / 2 } else { spec.cylinders }
 }
 
-/// Whether the layout is one the engine can be: one bank of 1 to 6, or two of 1 to 6 each.
+/// Whether the layout is one the engine can be: one bank of 1 to 6, or two of 1 to 6 each; a rotary of 1 to
+/// `MAX_ROTORS`.
 pub fn valid_layout(spec: &EngineSpec) -> bool {
+    if is_rotary(spec) {
+        return (1..=MAX_ROTORS).contains(&spec.cylinders);
+    }
     (1..=6).contains(&cylinders_per_bank(spec))
+}
+
+/// The most rotors a rotary has.
+pub const MAX_ROTORS: u32 = 4;
+
+/// Where each rotor's first chamber fires, shaft degrees after the first rotor's, in [0, 360): its lobe's
+/// angle round the eccentric shaft. Every chamber of a rotor fires a turn after the one before it, so the
+/// rotors share each turn evenly between them: Mazda's two-rotor 13B and three-rotor 20B; and the four-rotor
+/// R26B, two pairs of rotors half a turn apart, the pairs a quarter turn apart, firing 1-3-2-4.
+fn rotor_phases(rotors: u32) -> &'static [f64] {
+    match rotors {
+        1 => &[0.0],
+        2 => &[0.0, 180.0],
+        3 => &[0.0, 240.0, 120.0],
+        _ => &[0.0, 180.0, 90.0, 270.0],
+    }
+}
+
+/// When chamber `face` of rotor `rotor` fires, shaft degrees after the first rotor's first, in [0, 1080).
+pub fn chamber_offset(spec: &EngineSpec, rotor: usize, face: usize) -> f64 {
+    let phases = rotor_phases(spec.cylinders);
+    let phase = phases.get(rotor).copied().unwrap_or(0.0);
+    (phase + 360.0 * face as f64) % ROTARY_CYCLE
 }
 
 /// Whether the spec is a flat engine: two banks laid flat, 180 degrees apart, on a boxer crank.
@@ -1244,6 +1402,12 @@ fn doubled_inline(inline: &[f64], v_angle: f64) -> FiringPlan {
 
 /// The layout's own firing plan, from real engines' cranks, before any firing order the spec sets.
 pub fn default_firing_plan(spec: &EngineSpec) -> FiringPlan {
+    if is_rotary(spec) {
+        // Each rotor on a lobe of its own, by the shaft angle its first chamber fires at.
+        let n = spec.cylinders.clamp(1, MAX_ROTORS) as usize;
+        let offsets = rotor_phases(n as u32)[..n].to_vec();
+        return FiringPlan { offsets, banks: vec![0; n], bank_count: 1, throws: Some((0..n).collect()) };
+    }
     if is_boxer(spec) {
         return boxer_plan(spec);
     }
@@ -1348,6 +1512,10 @@ pub fn custom_offsets(spec: &EngineSpec, default: &FiringPlan) -> Option<Vec<f64
 /// Which firings happen when: the layout's own plan, or the spec's firing order and intervals on it.
 pub fn firing_plan(spec: &EngineSpec) -> FiringPlan {
     let default = default_firing_plan(spec);
+    // A rotary's firing is its eccentric shaft's, and nothing else.
+    if is_rotary(spec) {
+        return default;
+    }
     match custom_offsets(spec, &default) {
         // Every cylinder of a flat engine keeps its own throw; on any other a pin is shared where the
         // order lets two cylinders share one.
@@ -1396,8 +1564,15 @@ pub fn cylinder_z(spec: &EngineSpec, cylinder: usize) -> f64 {
     }
 }
 
-/// Centre-to-centre spacing of the crank pins along the crankshaft, m.
+/// What lies between one rotor and the next along the shaft, m: the rotor housing's clearance either side
+/// of it and the intermediate housing between, with the side ports in it.
+pub const ROTOR_HOUSING_GAP: f64 = 0.06;
+
+/// Centre-to-centre spacing of the crank pins along the crankshaft, m: on a rotary, of its rotors.
 pub fn cylinder_spacing(spec: &EngineSpec) -> f64 {
+    if is_rotary(spec) {
+        return spec.rotor_width + ROTOR_HOUSING_GAP;
+    }
     if is_boxer(spec) {
         return spec.bore * 0.75;
     }

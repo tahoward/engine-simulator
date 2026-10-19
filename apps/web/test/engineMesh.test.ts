@@ -18,6 +18,7 @@ import {
   SPLIT_WEB,
   defaultConfig,
   firingPlan,
+  isRotary,
   makeSegment,
   pistonPosition,
   type EngineSpec,
@@ -498,9 +499,10 @@ describe('the drawn mechanism', () => {
 });
 
 describe('every preset', () => {
-  it('draws for every preset without stretching a rod', () => {
+  it('draws for every piston preset without stretching a rod', () => {
     for (const preset of ENGINE_PRESETS) {
       const s = spec(preset.engine);
+      if (isRotary(s)) continue;
       const mesh = new EngineMesh(s);
       const plan = firingPlan(s);
       for (let a = 0; a < 720; a += 37) {

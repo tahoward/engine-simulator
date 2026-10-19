@@ -36,6 +36,7 @@ import {
   physicalBank,
   physicalBankCount,
   pistonPosition,
+  isRotary,
 } from '../model/spec.js';
 import {
   BUCKET_HEIGHT,
@@ -56,6 +57,7 @@ import {
   sharedHead,
 } from '../model/geometry.js';
 import { valveLift } from '../model/cam.js';
+import { RotaryMesh } from './RotaryMesh.js';
 
 const STEEL = { color: 0x8d949e, metalness: 0.92, roughness: 0.34 };
 const CAST = { color: 0x5c626c, metalness: 0.55, roughness: 0.66 };
@@ -185,6 +187,8 @@ export class EngineMesh {
   /** A pushrod engine's camshaft in the block, and its lobes and tappets. */
   private readonly blockCam = new THREE.Group();
   private readonly cyls: CylinderMesh[] = [];
+  /** A rotary's rotors, housings and shaft, in place of all the rest. */
+  private rotary: RotaryMesh | null = null;
 
   private deckY = 0;
   private crownOffset = 0;
@@ -228,8 +232,20 @@ export class EngineMesh {
     disposeChildren(this.bearings);
     disposeChildren(this.shell);
     disposeChildren(this.blockCam);
+    if (this.rotary) {
+      this.rotary.dispose();
+      this.group.remove(this.rotary.group);
+      this.rotary = null;
+    }
+    this.group.rotation.z = 0;
 
     const plan = firingPlan(this.spec);
+    if (isRotary(this.spec)) {
+      this.rotary = new RotaryMesh(this.spec);
+      this.group.add(this.rotary.group);
+      this.update(plan.offsets.map((o) => ({ crankAngle: (1080 - o) % 1080 })), []);
+      return;
+    }
     const pins = crankPins(this.spec);
     // Centre the engine on the origin however many pins there are.
     const zOf = (pin: number) => (pin - (pins.length - 1) / 2) * this.spacing;
@@ -871,6 +887,10 @@ export class EngineMesh {
   /** Rebuild for new geometry. Cheap enough to call on every slider change. */
   setSpec(spec: EngineSpec): void {
     const structural =
+      spec.engineType !== this.spec.engineType ||
+      spec.rotorRadius !== this.spec.rotorRadius ||
+      spec.eccentricity !== this.spec.eccentricity ||
+      spec.rotorWidth !== this.spec.rotorWidth ||
       spec.bore !== this.spec.bore ||
       spec.stroke !== this.spec.stroke ||
       spec.rodLength !== this.spec.rodLength ||
@@ -900,6 +920,10 @@ export class EngineMesh {
    * relationship on screen is whatever the physics is actually running.
    */
   update(banks: Array<Pick<BankSnapshot, 'crankAngle'>>, burnGlow: number[]): void {
+    if (this.rotary) {
+      this.rotary.update(banks, burnGlow);
+      return;
+    }
     const s = this.spec;
     const a = s.stroke / 2;
 
@@ -1012,7 +1036,7 @@ export class EngineMesh {
   /** Where cylinder `index`'s exhaust pipe attaches, in world space. */
   exhaustPort(index = 0): ExhaustPort {
     // From the model, so an exhaust compiled to fit the engine fits the engine as drawn.
-    const cylinder = Math.max(Math.min(index, this.cyls.length - 1), 0);
+    const cylinder = Math.max(Math.min(index, this.bankCount - 1), 0);
     const port = exhaustPortOf(this.spec, cylinder);
     return {
       position: new THREE.Vector3(...port.position),
@@ -1027,7 +1051,12 @@ export class EngineMesh {
   highCam = false;
 
   get bankCount(): number {
-    return this.cyls.length;
+    return this.rotary ? this.rotary.rotorCount : this.cyls.length;
+  }
+
+  /** A rotary's rotors as drawn, for tests; `null` for a piston engine. */
+  get rotors(): RotaryMesh | null {
+    return this.rotary;
   }
 
   /**

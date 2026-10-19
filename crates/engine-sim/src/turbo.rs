@@ -45,7 +45,8 @@ use crate::intake::runner_damping;
 use crate::math::{self, PI, clamp};
 use crate::radiation::{FarField, lighthill_pa};
 use crate::spec::{
-    BlowOff, EngineSpec, PipeSegment, SegmentKind, SegmentPartial, displacement, gas, gas_energy, gas_enthalpy,
+    BlowOff, EngineSpec, PipeSegment, SegmentKind, SegmentPartial, charges_per_two_turns, displacement, gas,
+    gas_energy, gas_enthalpy,
     gas_temperature, make_segment, speed_of_sound,
 };
 use crate::valve::orifice_mass_flow;
@@ -308,7 +309,7 @@ fn rotor_sizing(spec: &EngineSpec, settings: TurboSettings, members: usize, coun
     let n = math::max(members as f64, 1.0);
     let count = math::max(count as f64, 1.0);
     let boost_target = math::max(settings.boost_target, 0.05e5);
-    let swept = displacement(spec) * math::max(spec.cylinders as f64, 1.0);
+    let swept = displacement(spec) * math::max(spec.cylinders as f64, 1.0) * charges_per_two_turns(spec);
 
     let choke_flow = if settings.turbo_size > 0.0 {
         settings.turbo_size
@@ -392,7 +393,7 @@ fn sizing(spec: &EngineSpec, groups: &[(TurboSettings, Vec<usize>)]) -> (ChargeS
     let mut rotors: Vec<RotorSizing> =
         groups.iter().map(|(s, members)| rotor_sizing(spec, *s, members.len(), count)).collect();
     let inducer_area: f64 = rotors.iter().map(|r| r.inducer_area).sum();
-    let swept = displacement(spec) * math::max(spec.cylinders as f64, 1.0);
+    let swept = displacement(spec) * math::max(spec.cylinders as f64, 1.0) * charges_per_two_turns(spec);
     let volume = math::max(THROTTLE_BODY_VOLUME_RATIO * swept, 1e-5);
     let piped = math::max((CHARGE_VOLUME_RATIO - THROTTLE_BODY_VOLUME_RATIO) * swept, 1e-4);
     for r in rotors.iter_mut() {

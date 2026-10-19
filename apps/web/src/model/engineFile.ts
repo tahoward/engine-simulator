@@ -11,6 +11,7 @@
 import { graphFromJson, validateGraph } from './exhaustGraph.js';
 import { isTurbocharged } from './turbo.js';
 import {
+  isRotary,
   firingOrderProblem,
   fullLoadTorque,
   hasTwoBanks,
@@ -40,7 +41,9 @@ export function engineFile(config: EngineConfig): string {
 
 /** A file name for an engine, without its extension: its cylinders and layout, "engine-v8-crossplane", say. */
 export function engineFileName(spec: EngineSpec): string {
-  const kind = isBoxer(spec)
+  const kind = isRotary(spec)
+    ? `rotary-${spec.cylinders}`
+    : isBoxer(spec)
     ? `flat-${spec.cylinders}`
     : hasTwoBanks(spec) && spec.cylinders > 2
       ? `v${spec.cylinders}${spec.cylinders === 8 ? `-${spec.crankType === 'flatplane' ? 'flatplane' : 'crossplane'}` : ''}`
@@ -77,10 +80,12 @@ export function readConfig(raw: unknown, base: EngineConfig): { config: EngineCo
   const parsed = raw as Partial<EngineConfig>;
   if (!parsed.engine || typeof parsed.engine !== 'object') throw new Error('not an engine');
 
-  const { cylinders, vAngle } = base.engine;
+  const { cylinders, vAngle, engineType } = base.engine;
   Object.assign(base.engine, parsed.engine);
+  // One saved before there were rotaries is a piston engine's.
+  base.engine.engineType = parsed.engine.engineType ?? 'piston';
   // A layout the engine cannot be keeps the one it had; a firing order it cannot fire, the layout's own.
-  if (!validLayout(base.engine)) Object.assign(base.engine, { cylinders, vAngle });
+  if (!validLayout(base.engine)) Object.assign(base.engine, { cylinders, vAngle, engineType });
   base.engine.firingOrder ??= null;
   base.engine.firingIntervals ??= null;
   if (firingOrderProblem(base.engine)) {

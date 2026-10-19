@@ -1,6 +1,6 @@
 # The Engine
 
-How the cylinder model works, why it doesn't sound like a loop, and what adding cylinders does.
+How the cylinder model works, why it doesn't sound like a loop, what adding cylinders does, and the rotary.
 
 ## The cylinder
 
@@ -88,6 +88,22 @@ with 390 mm runners switching to 310 mm ones at 7600 rpm, on a dyno pull:
                           3000   4500   5500   6300   7000   7800   8400 rpm      crank torque, N·m
 310 mm runners only        425    496    578    556    569    565    568
 two-stage                  432    550    570    619    611    568    567
+```
+
+**A continuously variable intake moves its runners through every length between.** With
+**Continuously variable runners** on, as on the Mazda 787B, whose trumpets telescope, the runners are
+the long length up to one speed and the short from another, and between them shorten as the engine
+speeds up, their quarter-wave resonance rising in a straight line with the speed, so they stay tuned
+all the way. A set of runners is solved at every 5 mm or less of length between the two, and the
+engine breathes through the one nearest the length the speed wants, moving to the next once the length
+wanted is three quarters of a step from it, the gas carried across as a two-stage switch carries it.
+A step is too small to hear. On the R26B, telescoping from 605 mm at 6800 rpm to 377 mm at 9400, on a
+dyno pull:
+
+```
+                          5000   6000   6500   7000   7500   8000   8500   9000 rpm      crank torque, N·m
+two-stage, at 7600         495    556    604    566    494    503    529    545
+continuously variable      495    556    604    592    588    579    566    550
 ```
 
 The runners are solved on the finest grid the sample rate allows, 35 mm at 48 kHz, even where the
@@ -891,6 +907,59 @@ The crankshaft is the second link, and it is easy to forget. Torque pulses from 
 up and slow down the shared crank, so the other cylinder's timing shifts even when the exhausts are
 completely separate. With separate pipes and a standard flywheel, that link alone changes the first
 cylinder by 4%. A twin is never two independent singles, whatever exhaust you fit.
+
+## The rotary
+
+A [Wankel](glossary.md#wankel-engine) has no pistons and no valves, but each of its chambers is
+still a pocket of gas that grows and shrinks and fills and empties, so it runs on the same cylinder
+model.
+
+**A chamber is a cylinder on a crank turning at two thirds of the shaft's speed.** Each of a
+rotor's three flanks closes off a chamber against the trochoid housing. Its volume is exactly a
+sinusoid in the [eccentric shaft's](glossary.md#eccentric-shaft) angle, with a period of 540°, and
+it takes its four strokes over three turns of the shaft, 270° each. Seen on a crank that turns 720°
+while the shaft turns 1080°, that is a cylinder with an infinitely long rod:
+
+```
+V = Vc + Vd (1 - cos phi) / 2        phi = 2/3 of the shaft's angle
+Vd = 3 sqrt(3) e R b                 654 cc for Mazda's 15 x 105 x 80 mm
+```
+
+So the cylinder model, the spark, the Wiebe burn and the advance map run unchanged on each chamber,
+at two thirds of the shaft's speed. Its torque reaches the shaft at two thirds, too, and nothing
+reciprocates. Every angle a rotary's settings state, its port timing, its spark and its burn, is in
+the shaft's degrees, over its 1080° cycle: bottom dead centres at 270 and 810, the top dead centre
+between exhaust and intake at 540. A chamber's heat loss uses its own walls: its two end faces, and
+its flank and the stretch of housing between its apexes across the rotor's width. A rotary's chamber
+is long and thin, with about twice the surface of a cylinder of its volume.
+
+**Each rotor is laid out, plumbed and drawn as a cylinder is.** It has one exhaust port, one intake
+port and one intake runner, which its three chambers take turns at. Each rotor fires once a turn,
+as often as two cylinders of a four-stroke: the rotors' lobes are spread round the shaft so they
+share each turn evenly. A two-rotor fires every 180° of the shaft, as an inline four does, and the
+four-rotor R26B every 90°, 1-3-2-4, as a V8 does.
+
+**An apex crossing a port opens it to two chambers at once.** The port's area for each chamber
+rises as the apex ahead of it uncovers the port's first edge and falls as the apex behind covers its
+last, over a quarter of the port's window, or over longer where the apex takes longer to cross it.
+One apex closes the port on one chamber and opens it on the next, which reaches it a turn of the
+shaft later, so a port open for longer than a turn is shared between the two while the apex is
+across it, one chamber's share closing as the other's opens. The port's duct then takes a flow from
+each, each solved at the port pressure the other leaves it at, as one valve's is: a chamber blowing
+down into the exhaust as the apex uncovers it, while the one behind, near its top dead centre, draws
+some of it back. A port open for less than a turn, such as a side port, is only ever open to one.
+
+**A rotary's mechanical noise is its apex seals.** It has no valves to seat, no cam followers,
+no timing drive, no piston to slap and no rod to knock. What rubs is its apex seals on the housing:
+as fast as they slide, about the generating radius times a third of the shaft's speed, and as hard
+as the gas behind each presses it out.
+
+The R26B's ports are open to its exhaust and its intake at once for 151° of the shaft, the real
+engine's overlap. On the dyno it makes 604 N·m at 6500 rpm and 698 hp at 9100, against the real
+engine's rated 608 N·m and 700 hp. How the overlap splits either side of top dead centre, the ports'
+sizes and the intake are estimated. So much overlap fills its intake with exhaust at a closed
+throttle, so it idles high and uneven, round 2400 rpm and wandering 250 either side, as a
+peripheral-port racing rotary does.
 
 ## Sources
 

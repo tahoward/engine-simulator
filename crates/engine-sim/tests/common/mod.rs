@@ -7,7 +7,7 @@ use engine_sim::EngineSim;
 use engine_sim::euler_pipe::EulerPipe;
 use engine_sim::spec::{
     EngineConfig, EngineSpec, ExhaustLayout, LaunchConfig, LaunchSnapshot, PipeSegment, SegmentKind, SegmentPartial,
-    collector_groups, displacement, exhaust_layout_of, exhaust_port_diameter, make_segment,
+    charges_per_two_turns, collector_groups, displacement, exhaust_layout_of, exhaust_port_diameter, make_segment,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -296,7 +296,7 @@ pub fn fitted_exhaust(spec: &EngineSpec) -> (Vec<PipeSegment>, Vec<PipeSegment>)
     }
 
     let d_collector = d_primary * per_collector.sqrt() * 0.92;
-    let served_disp = displacement(spec) * per_collector;
+    let served_disp = displacement(spec) * charges_per_two_turns(spec) * per_collector;
     let can_dia = f64::min(d_collector * 2.5, 0.2);
     let can_area = (std::f64::consts::PI * can_dia * can_dia) / 4.0;
     let can_length = ((8.0 * served_disp) / can_area).clamp(0.25, 0.6);

@@ -13,10 +13,13 @@ import { AudioEngine } from './audio/AudioEngine.js';
 import type { EngineHost } from './audio/EngineHost.js';
 import {
   ENGINE_PRESETS,
+  ROTOR_FACES,
+  cycleDegrees,
   defaultConfig,
   engineLength,
   exhaustPortDiameter,
   firingPlan,
+  isRotary,
   physicalBank,
   presetEngine,
   type EngineConfig,
@@ -700,6 +703,7 @@ const launchSheet = new LaunchSheet(must<HTMLElement>('#stage'));
  */
 function touchesTopology(partial: Partial<EngineSpec>): boolean {
   return (
+    'engineType' in partial ||
     'cylinders' in partial ||
     'exhaustLayout' in partial ||
     'exhaustHeaders' in partial ||
@@ -713,6 +717,10 @@ function touchesTopology(partial: Partial<EngineSpec>): boolean {
 
 function touchesGeometry(partial: Partial<EngineSpec>): boolean {
   return (
+    'engineType' in partial ||
+    'rotorRadius' in partial ||
+    'eccentricity' in partial ||
+    'rotorWidth' in partial ||
     'bore' in partial ||
     'stroke' in partial ||
     'rodLength' in partial ||
@@ -904,7 +912,7 @@ audio.onSnapshot((s) => {
   // Snapshots arrive at 60 Hz but the crank may be turning at 160 rev/s, so the
   // angle is advanced continuously between them and only nudged towards the
   // authoritative value. Snapping straight to it makes the piston strobe.
-  const err = shortestAngle(s.crankAngle - displayAngle);
+  const err = shortestAngle(s.crankAngle - displayAngle, cycleDegrees(config.engine));
   displayAngle += err * 0.25;
   // Each duct shows its own cells, and the intake its own, all on one scale so a colour is the same
   // pressure anywhere: the runners' waves are tens of kPa at full throttle, as the exhaust's are, and the
@@ -984,14 +992,15 @@ viewer.onFrame((dt) => {
   // The air through the intake moves at the simulation's pace, stopped while the sound is.
   inletMesh.flow(audio.running ? dt * timeScale : 0);
   inletMesh.fade(dt);
-  if (displayRpm > 0) displayAngle = (displayAngle + displayRpm * 6 * dt * timeScale) % 720;
+  const cycle = cycleDegrees(config.engine);
+  if (displayRpm > 0) displayAngle = (displayAngle + displayRpm * 6 * dt * timeScale) % cycle;
   // Combustion glow: a short flash after the burn begins.
   // Each cylinder trails the first by its firing offset, as the simulation phases it. Taken from the spec
   // rather than the last snapshot, which goes stale while the engine is stopped, so a change of layout or
   // bank angle poses the pistons on the crank as it is now drawn.
   const { offsets } = firingPlan(config.engine);
   const posed = offsets.map((offset) => ({
-    crankAngle: (((displayAngle - (offset - offsets[0]!)) % 720) + 720) % 720,
+    crankAngle: (((displayAngle - (offset - offsets[0]!)) % cycle) + cycle) % cycle,
   }));
   if (latest) {
     engineMesh.intakeCamAdvance = latest.intakeCamAdvance;
@@ -1090,21 +1099,29 @@ function settleWhenStill(s: EngineSnapshot): void {
   });
 }
 
-/** Wraps to (-360, 360]. */
-function shortestAngle(d: number): number {
-  let x = d % 720;
-  if (x > 360) x -= 720;
-  if (x < -360) x += 720;
+/** Wraps to within half a `cycle` either way. */
+function shortestAngle(d: number, cycle: number): number {
+  let x = d % cycle;
+  if (x > cycle / 2) x -= cycle;
+  if (x < -cycle / 2) x += cycle;
   return x;
 }
 
+/**
+ * How bright a cylinder's combustion is at `angle`: a short flash after the spark. A rotor's is its chambers'
+ * together, each firing a turn of the shaft after the one before.
+ */
 function glow(angle: number, ignition: number): number {
-  let rel = (angle - ignition) % 720;
-  if (rel < 0) rel += 720;
-  const window = config.engine.burnDuration * 1.6;
-  if (rel > window) return 0;
-  const t = rel / window;
-  return Math.sin(Math.PI * t) ** 1.5;
+  const spec = config.engine;
+  const cycle = cycleDegrees(spec);
+  const window = spec.burnDuration * 1.6;
+  let bright = 0;
+  for (let face = 0; face < (isRotary(spec) ? ROTOR_FACES : 1); face++) {
+    let rel = (angle - ignition - 360 * face) % cycle;
+    if (rel < 0) rel += cycle;
+    if (rel <= window) bright = Math.max(bright, Math.sin((Math.PI * rel) / window) ** 1.5);
+  }
+  return bright;
 }
 
 // ---------------------------------------------------------------------------

@@ -37,7 +37,7 @@ describe('the airbox', () => {
 describe('the plenum', () => {
   it('is drawn the size the simulation solves it at, and holds one and a half times the displacement left to itself', async () => {
     const { plenumShapeOf, plenumVolumeOf, runnerSpanOf } = await import('../src/model/intakeSizing.js');
-    const { displacement } = await import('../src/model/spec.js');
+    const { chargesPerTwoTurns, displacement } = await import('../src/model/spec.js');
     for (const preset of ENGINE_PRESETS) {
       const spec = presetEngine(preset, defaultConfig().engine);
       const l = inletLayout(spec);
@@ -45,7 +45,9 @@ describe('the plenum', () => {
       expect(l.plenum.size.z, preset.name).toBeCloseTo(shape.length, 12);
       expect(l.plenum.size.y, preset.name).toBeCloseTo(shape.height, 12);
       const left = { ...spec, plenumWidth: 0, plenumHeight: 0, plenumVolume: 0 };
-      expect(plenumVolumeOf(left) / (displacement(spec) * spec.cylinders), preset.name).toBeCloseTo(1.5, 9);
+      // What the engine sweeps every two turns: a rotor's chambers twice over.
+      const swept = displacement(spec) * spec.cylinders * chargesPerTwoTurns(spec);
+      expect(plenumVolumeOf(left) / swept, preset.name).toBeCloseTo(1.5, 9);
       // Its size set, longer than its runners need, it is drawn that size.
       const length = runnerSpanOf(spec) + 0.05;
       const sized = { ...spec, plenumLength: length, plenumWidth: 0.2, plenumHeight: 0.19 };
